@@ -25,6 +25,12 @@ export async function middleware(req) {
 
 export const config = {
   matcher: [
-    "/kitchen/:path*", "/fb/:path*", "/marketing/:path*", "/finance/:path*", "/stock/:path*", "/orders/:path*", "/training/:path*", "/blog/:path*", "/contents/:path*", "/items/:path*", "/expenses/:path*", "/pos/:path*"
+    "/lol/:path*",
+    "/jsda/:path*",
+    "/dsa/:path*",
+    "/fda/:path*",
+    "/fda/:path*",
+    "/dfa/:path*",
+    "/fdafd/:path*",
   ],
 };
