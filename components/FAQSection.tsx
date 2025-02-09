@@ -1,0 +1,55 @@
+'use client'
+
+import { motion } from 'framer-motion'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
+
+export function FAQSection() {
+  return (
+    <motion.section 
+      initial={{ opacity: 0 }}
+      whileInView={{ opacity: 1 }}
+      transition={{ duration: 0.6 }}
+      viewport={{ once: true }}
+      className="py-16 bg-white"
+    >
+      <div className="container px-4 mx-auto sm:px-6 lg:px-8">
+        <div className="text-center">
+          <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl">Frequently Asked Questions</h2>
+          <p className="mt-4 text-lg text-gray-600">Find answers to common questions about our restaurant</p>
+        </div>
+        <div className="max-w-3xl mx-auto mt-12">
+          <Accordion type="single" collapsible>
+            {[
+              {
+                question: "What are your opening hours?",
+                answer: "We are open daily from 11:00 AM to 10:00 PM."
+              },
+              {
+                question: "Do you take reservations?",
+                answer: "Yes, we accept reservations through our website or by phone."
+              },
+              {
+                question: "Is parking available?",
+                answer: "Yes, we have free parking available for our customers."
+              },
+              {
+                question: "Do you offer vegetarian options?",
+                answer: "Yes, we have a wide selection of vegetarian dishes on our menu."
+              }
+            ].map((faq, index) => (
+              <AccordionItem key={index} value={`item-${index}`}>
+                <AccordionTrigger>{faq.question}</AccordionTrigger>
+                <AccordionContent>{faq.answer}</AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </div>
+      </div>
+    </motion.section>
+  )
+}

@@ -1,0 +1,120 @@
+
+import { ObjectId } from "mongodb";
+
+export interface Expense {
+  _id?: ObjectId;
+  title: string;
+  description?: string;
+  amount: number;
+  category: string;
+  date: Date;
+  tags?: string[];
+  recurring: boolean;
+  frequency?: 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
+  createdBy: ObjectId;
+  status: 'Pending' | 'Paid';
+  notes?: string;
+  priority: 'Low' | 'Medium' | 'High' | 'Critical';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export const ExpenseCategories = [
+    'Food and Beverage Supplies',
+    'Kitchen Equipment Maintenance',
+    'Dining Area Furniture and Fixtures',
+    'Utility Costs',
+    'Chef and Kitchen Staff Salaries',
+    'Service Staff Salaries',
+    'Point-of-Sale System Maintenance',
+    'Packaging and Takeaway Supplies',
+    'Health and Hygiene Supplies',
+    'Licensing and Permits',
+    'Waste Management',
+    'Menu Design and Printing',
+    'Restaurant Décor and Renovation',
+    'Pest Control Services',
+    'Delivery Partner Fees',
+    'Seasonal Decorations',
+    'Restaurant Management Software',
+    'Special Events and Promotions',
+    'Uniforms and Laundry',
+    'Tableware Replacement',
+    'Cooking Fuel',
+    'Music and Entertainment',
+    'Outdoor Seating Maintenance',
+    'Drive-Thru Maintenance',
+    'Customer Loyalty Programs',
+    'Employee Meals',
+    'Health and Safety Inspections',
+    'POS Hardware Upgrades',
+    'Alcohol License Fees',
+    'Vendor Contract Fees',
+    'Branded Merchandise',
+    'Recipe Development Costs',
+    'Catering Equipment',
+    'Private Dining Room Costs',
+    'Beverage Dispenser Maintenance',
+    'Food Photography',
+    'Third-Party Delivery App Costs',
+    'Wi-Fi for Customers',
+    'Signage Installation and Maintenance',
+    'Food Waste Disposal Services',
+    'Glassware Replacement',
+    'Dishwasher Maintenance',
+    'Event Hosting Supplies',
+    'Kitchen Deep Cleaning',
+    'Rent and Lease',
+    'Insurance',
+    'Marketing and Advertising',
+    'Research and Development',
+    'Technology and Software Subscriptions',
+    'Employee Training and Development',
+    'Office Supplies',
+    'Professional Services',
+    'Transportation and Logistics',
+    'Telecommunication and Internet',
+    'Taxes and Regulatory Compliance',
+    'Depreciation Costs',
+    'Security Services',
+    'Miscellaneous Operational Expenses',
+    'Employee Benefits',
+    'Bank Fees and Charges',
+    'Corporate Social Responsibility',
+    'Printing and Stationery',
+    'Travel and Accommodation',
+    'Subscription Fees',
+    'Office Furniture and Fixtures',
+    'Recruitment Costs',
+    'Warehouse and Storage',
+    'Vehicle Maintenance',
+    'Cleaning Services',
+    'Disaster Recovery and Contingency',
+    'Public Relations',
+    'Legal Fees',
+    'Investor Relations',
+    'Business Licenses and Registrations',
+    'Employee Relocation Costs',
+    'Customer Feedback Surveys',
+    'Conference and Event Fees',
+    'Social Media Management',
+    'IT Support and Maintenance',
+    'Cloud Storage Costs',
+    'Software Development',
+    'Market Research',
+    'Competitor Analysis',
+    'Employee Onboarding Costs',
+    'Training Materials',
+    'Equipment Rentals',
+    'Workplace Safety Equipment',
+    'HR Tools and Resources',
+    'Volunteer and Community Initiatives',
+    'Environmental Compliance Costs',
+    'Utility Backup Systems',
+    'Outsourcing Costs',
+    'Custom Branding Materials',
+    'Board Meeting Expenses',
+    'Charitable Donations',
+    'Custom Website Maintenance',
+    'Others',
+];
