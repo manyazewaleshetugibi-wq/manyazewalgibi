@@ -20,24 +20,6 @@ export async function middleware(req) {
     return NextResponse.redirect(url);
   }
 
-  const userRole = token.role;
-  const roleRoutes = {
-    "KITCHEN": new Set(["/orders", "/training"]),
-    "FB": new Set(["/training", "/items"]),
-    "MARKETING": new Set(["/blog", "/contents", "/training"]),
-    "FINANCE": new Set(["/expenses", "/training"]),
-    "STOCK_MANAGER": new Set(["/training", "/stock"]),
-    "POS": new Set(["/pos", "/training"]),
-    "ADMIN": new Set(["/kitchen", "/fb", "/marketing", "/finance", "/stock", "/orders", "/training", "/blog", "/contents", "/items", "/expenses", "/pos"]),
-  };
-
-  const allowedRoutes = roleRoutes[userRole] || new Set();
-  
-  if (![...allowedRoutes].some(route => url.pathname.startsWith(route))) {
-    url.pathname = "/unauthorized";
-    return NextResponse.redirect(url);
-  }
-
   return NextResponse.next();
 }
 
