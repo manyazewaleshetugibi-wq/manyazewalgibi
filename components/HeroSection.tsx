@@ -77,16 +77,7 @@ function HeroSection() {
                     View Menu
                   </Link>
                 </button>
-                <div className="flex items-center gap-4">
-                  <div className="flex -space-x-3">
-                    {[...Array(4)].map((_, i) => (
-                      <div key={i} className="w-12 h-12 rounded-full border-2 border-white bg-white shadow-md flex items-center justify-center transform transition-transform hover:scale-110 hover:z-10">
-                        <ChefHat className="w-6 h-6 text-amber-600" />
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-sm text-gray-600">Our Master Chefs</p>
-                </div>
+              
               </div>
             </div>
 

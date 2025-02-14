@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -78,7 +77,7 @@ const data = {
       ],
     },
     {
-      title: "Orders & Delivery",
+      title: "Orders",
       url: "#",
       icon: ShoppingCart,
       items: [
@@ -116,15 +115,45 @@ const data = {
   ],
 };
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+// Add type for user role
+type UserRole = 'KITCHEN' | 'FB' | 'MARKETING' | 'ADMIN' | 'CUSTOMER' | 'FINANCE' | 'STOCK_MANAGER' | 'POS';
+
+// Add interface for props
+interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
+  userRole?: UserRole;
+}
+
+// Filter navigation items based on role
+const getFilteredNavItems = (role?: UserRole) => {
+  if (role === 'KITCHEN') {
+    return data.navMain.filter(item => 
+      ['Orders'].includes(item.title)
+    );
+  }
+  return data.navMain;
+};
+
+const getFilteredProjects = (role?: UserRole) => {
+  if (role === 'KITCHEN') {
+    return data.projects.filter(item => 
+      ['Training'].includes(item.name)
+    );
+  }
+  return data.projects;
+};
+
+export function AppSidebar({ userRole, ...props }: AppSidebarProps) {
+  const filteredNavItems = getFilteredNavItems(userRole);
+  const filteredProjects = getFilteredProjects(userRole);
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
         <TeamSwitcher />
       </SidebarHeader>
       <SidebarContent>
-      <NavProjects projects={data.projects} />
-        <NavMain items={data.navMain} />
+        <NavProjects projects={filteredProjects} />
+        <NavMain items={filteredNavItems} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={data.user} />

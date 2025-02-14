@@ -285,13 +285,7 @@ export default function ItemMenu() {
               >
                 <Grid size={20} />
               </Button>
-              <Button
-                variant={viewMode === 'list' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setViewMode('list')}
-              >
-                <List size={20} />
-              </Button>
+             
             </div>
           </div>
         </div>

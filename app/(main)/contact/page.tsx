@@ -15,9 +15,12 @@ export default function ContactPage() {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setIsLoading(true)
+    
+    // Store form reference
+    const form = event.currentTarget
 
     try {
-      const formData = new FormData(event.currentTarget)
+      const formData = new FormData(form)
       const formObject = Object.fromEntries(formData.entries())
 
       const response = await fetch("/api/feedback", {
@@ -32,13 +35,15 @@ export default function ContactPage() {
       })
 
       if (!response.ok) {
-        throw new Error("Failed to send message")
+        const data = await response.json()
+        throw new Error(data.message || "Failed to send message")
       }
 
+      // Use the stored form reference
+      form.reset()
       toast.success("Message sent successfully!")
-      event.currentTarget.reset()
-    } catch (error) {
-      toast.error("Failed to send message. Please try again.")
+    } catch (error: any) {
+      toast.error(error.message || "Failed to send message. Please try again.")
     } finally {
       setIsLoading(false)
     }
