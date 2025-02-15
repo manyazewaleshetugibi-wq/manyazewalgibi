@@ -19,10 +19,16 @@ export default function DashboardLayout({
     const checkAuth = async () => {
       const session = await getSession();
       if (!session) {
-        router.replace("/login");
-      } else {
-        setLoading(false);
+        await router.replace("/login");
+        return;
+      } 
+      
+      if (session.user?.role !== "ADMIN" && window.location.pathname.includes("/dashboard")) {
+        await router.replace("/training");
+        return;
       }
+      
+      setLoading(false);
     };
 
     checkAuth();

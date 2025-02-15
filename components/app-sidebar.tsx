@@ -213,7 +213,7 @@ const roleBasedNavigation = {
 const data = {
   user: {
     name: "Manyazewal Gibi",
-    email: "manager@manyazewal.com",
+    email: "Manyazewl Eshetu Gibi",
     avatar: "/avatars/restaurant.jpg",
   },
   teams: [
@@ -241,7 +241,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain items={navigation.navMain} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser user={{...data.user, role: userRole}} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
