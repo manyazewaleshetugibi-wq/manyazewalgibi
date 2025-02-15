@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSession } from "next-auth/react";
 import {
   AudioWaveform,
   BookOpen,
@@ -42,6 +43,172 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 
+// Define role-based navigation configurations
+const roleBasedNavigation = {
+  KITCHEN: {
+    navMain: [
+      {
+        title: "Orders",
+        url: "#",
+        icon: ShoppingCart,
+        items: [
+          { title: "In-Restaurant", url: "/orders" },
+        ],
+      },
+    ],
+    projects: [
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+    ],
+  },
+  FB: {
+    navMain: [
+      {
+        title: "Menu Management",
+        url: "#",
+        icon: ClipboardList,
+        items: [
+          { title: "Items", url: "/items" },
+          { title: "Item Categories", url: "/items/catagory" },
+        ],
+      },
+    ],
+    projects: [
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+    ],
+  },
+  MARKETING: {
+    navMain: [
+      {
+        title: "Marketing",
+        url: "#",
+        icon: AudioWaveform,
+        items: [
+          { title: "Blogs", url: "/blog" },
+          { title: "Contents", url: "/contents" },
+        ],
+      },
+    ],
+    projects: [
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "Feedback", url: "/feedback", icon: Pen },
+    ],
+  },
+  FINANCE: {
+    navMain: [
+      {
+        title: "Stock Management",
+        url: "#",
+        icon: Package,
+        items: [
+          { title: "Stock", url: "/stock" },
+          { title: "Categories", url: "/stock/category" },
+        ],
+      },
+      {
+        title: "Reports",
+        url: "#",
+        icon: FileText,
+        items: [
+          { title: "Sales", url: "/sales" },
+          { title: "Expenses", url: "/expe" },
+        ],
+      },
+    ],
+    projects: [
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "Expenses", url: "/expenses", icon: DollarSign },
+    ],
+  },
+  STOCK_MANAGER: {
+    navMain: [
+      {
+        title: "Stock Management",
+        url: "#",
+        icon: Package,
+        items: [
+          { title: "Stock", url: "/stock" },
+          { title: "Categories", url: "/stock/category" },
+        ],
+      },
+    ],
+    projects: [
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+    ],
+  },
+  POS: {
+    navMain: [
+      {
+        title: "Orders",
+        url: "#",
+        icon: ShoppingCart,
+        items: [
+          { title: "In-Restaurant", url: "/orders" },
+        ],
+      },
+    ],
+    projects: [
+      { name: "POS", url: "/pos", icon: SquareTerminal },
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+    ],
+  },
+  ADMIN: {
+    navMain: [
+      {
+        title: "Stock Management",
+        url: "#",
+        icon: Package,
+        items: [
+          { title: "Stock", url: "/stock" },
+          { title: "Categories", url: "/stock/category" },
+        ],
+      },
+      {
+        title: "Menu Management",
+        url: "#",
+        icon: ClipboardList,
+        items: [
+          { title: "Items", url: "/items" },
+          { title: "Item Categories", url: "/items/catagory" },
+        ],
+      },
+      {
+        title: "Orders",
+        url: "#",
+        icon: ShoppingCart,
+        items: [
+          { title: "In-Restaurant", url: "orders" },
+        ],
+      },
+      {
+        title: "Marketing",
+        url: "#",
+        icon: AudioWaveform,
+        items: [
+          { title: "Blogs", url: "/blog" },
+          { title: "Contents", url: "/contents" },
+        ],
+      },
+      {
+        title: "Reports",
+        url: "#",
+        icon: FileText,
+        items: [
+          { title: "Sales", url: "/sales" },
+          { title: "Expenses", url: "/expe" },
+        ],
+      },
+    ],
+    projects: [
+      { name: "Dashboard", url: "/dashboard", icon: Tag },
+      { name: "POS", url: "/pos", icon: SquareTerminal },
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "Expenses", url: "/expenses", icon: DollarSign },
+      { name: "Feedback", url: "/feedback", icon: Pen },
+      { name: "Waitress", url: "/waitress", icon: UserSquare2Icon },
+    ],
+  },
+};
+
 // Updated navigation data for restaurant management
 const data = {
   user: {
@@ -56,95 +223,13 @@ const data = {
       plan: "Premium",
     },
   ],
-  navMain: [
-   
-    {
-      title: "Stock Management",
-      url: "#",
-      icon: Package,
-      items: [
-        { title: "Stock", url: "/stock" },
-        { title: "Categories", url: "/stock/category" },
-      ],
-    },
-    {
-      title: "Menu Management",
-      url: "#",
-      icon: ClipboardList,
-      items: [
-        { title: "Items", url: "/items" },
-        { title: "Item Categories", url: "/items/catagory" },
-      ],
-    },
-    {
-      title: "Orders",
-      url: "#",
-      icon: ShoppingCart,
-      items: [
-        { title: "In-Restaurant", url: "orders" },
-      ],
-    },
+};
+
+export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { data: session } = useSession();
+  const userRole = session?.user?.role || 'ADMIN'; // Default to ADMIN if no role
   
-    {
-      title: "Marketing",
-      url: "#",
-      icon: AudioWaveform,
-      items: [
-        { title: "Blogs", url: "/blog" },
-        { title: "Contents", url: "/contents" },
-      ],
-    },
-  
-    {
-      title: "Reports",
-      url: "#",
-      icon: FileText,
-      items: [
-        { title: "Sales", url: "/sales" },
-        { title: "Expenses", url: "/expe" },
-      ],
-    },
-  ],
-  projects: [
-    { name: "Dashboard", url: "/dashboard", icon: Tag },
-    { name: "POS", url: "/pos", icon: SquareTerminal },
-    { name: "Training", url: "/training", icon: BookCheckIcon},
-    { name: "Expenses", url: "/expenses", icon: DollarSign },
-    { name: "Feedback", url: "/feedback", icon: Pen },
-    { name: "Waitress", url: "/waitress", icon: UserSquare2Icon},
-  ],
-};
-
-// Add type for user role
-type UserRole = 'KITCHEN' | 'FB' | 'MARKETING' | 'ADMIN' | 'CUSTOMER' | 'FINANCE' | 'STOCK_MANAGER' | 'POS';
-
-// Add interface for props
-interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
-  userRole?: UserRole;
-}
-
-// Filter navigation items based on role
-const getFilteredNavItems = (role?: UserRole) => {
-  if (role === 'KITCHEN') {
-    return data.navMain.filter(item => 
-      ['Orders'].includes(item.title)
-    );
-  }
-  return data.navMain;
-};
-
-const getFilteredProjects = (role?: UserRole) => {
-  if (role === 'KITCHEN') {
-    return data.projects.filter(item => 
-      ['Training'].includes(item.name)
-    );
-  }
-  return data.projects;
-};
-
-export function AppSidebar({ userRole, ...props }: AppSidebarProps) {
-  const filteredNavItems = getFilteredNavItems(userRole);
-  const filteredProjects = getFilteredProjects(userRole);
+  const navigation = roleBasedNavigation[userRole as keyof typeof roleBasedNavigation] || roleBasedNavigation.ADMIN;
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -152,8 +237,8 @@ export function AppSidebar({ userRole, ...props }: AppSidebarProps) {
         <TeamSwitcher />
       </SidebarHeader>
       <SidebarContent>
-        <NavProjects projects={filteredProjects} />
-        <NavMain items={filteredNavItems} />
+        <NavProjects projects={navigation.projects} />
+        <NavMain items={navigation.navMain} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={data.user} />
