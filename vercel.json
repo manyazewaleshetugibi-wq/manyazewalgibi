@@ -6,6 +6,7 @@
     "S3_BASE_URL": "https://fly.storage.tigris.dev"
   },
   "images": {
-    "domains": ["fly.storage.tigris.dev"]
+    "domains": ["fly.storage.tigris.dev"],
+    "sizes": [16, 32, 48, 64, 96, 128, 256, 384, 512, 1024, 2048]
   }
 } 
