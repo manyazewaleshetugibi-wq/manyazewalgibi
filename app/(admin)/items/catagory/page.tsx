@@ -65,9 +65,9 @@ const typeIcons = {
 }
 
 const typeColors = {
-  FOOD: "bg-amber-100 text-amber-800 border-amber-200",
-  DRINK: "bg-blue-100 text-blue-800 border-blue-200",
-  OTHER: "bg-purple-100 text-purple-800 border-purple-200",
+  FOOD: "bg-amber-100/80 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800",
+  DRINK: "bg-blue-100/80 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800",
+  OTHER: "bg-purple-100/80 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800",
 }
 
 export default function ItemCategoryPage() {
@@ -261,18 +261,70 @@ export default function ItemCategoryPage() {
   };
 
   const handleAddCategory = async () => {
+    const startTime = performance.now();
+    const requestId = Math.random().toString(36).substring(2, 10);
+    
     try {
+      console.group(`%c[ADD CATEGORY REQUEST ${requestId}]`, 'color: #0070f3; font-weight: bold;');
+      console.log(`%c[Request] Initiated at ${new Date().toISOString()}`, 'color: #0070f3');
+      console.log(`[Request Data]`, { 
+        name: newCategory.name,
+        description: newCategory.description?.substring(0, 20) + (newCategory.description?.length > 20 ? '...' : ''),
+        type: newCategory.type,
+        isActive: newCategory.isActive,
+        hasImage: !!newCategory.imageBase64,
+        imageSize: newCategory.imageBase64 ? Math.round(newCategory.imageBase64.length * 0.75 / 1024) + 'KB (approx)' : 'None'
+      });
+      
       const response = await fetch("/api/item-category", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newCategory),
-      })
-      const data = await response.json()
-      console.log("Add category response:", data) // Log the response
+      });
+      
+      const data = await response.json();
+      const requestDuration = ((performance.now() - startTime) / 1000).toFixed(2);
+      
+      console.log(`%c[Response] Received after ${requestDuration}s`, 'color: #00a3bf');
+      console.log(`[Response Status]`, { success: data.success, statusCode: response.status });
+      
+      // Detailed S3 response logging
+      if (data.s3Upload) {
+        console.group('%c[S3 UPLOAD DETAILS]', 'color: #8e44ad; font-weight: bold;');
+        console.table({
+          status: data.s3Upload.status || 'Unknown',
+          url: data.s3Upload.url || 'N/A',
+          key: data.s3Upload.key || 'N/A',
+          bucket: data.s3Upload.bucket || 'N/A',
+          region: data.s3Upload.region || 'N/A',
+          etag: data.s3Upload.etag || 'N/A',
+          contentType: data.s3Upload.contentType || 'N/A',
+          size: data.s3Upload.size ? `${(data.s3Upload.size / 1024).toFixed(2)}KB` : 'Unknown'
+        });
+        
+        // Log S3 metadata if available
+        if (data.s3Upload.metadata) {
+          console.log('%c[S3 Metadata]', 'color: #8e44ad');
+          console.table(data.s3Upload.metadata);
+        }
+        
+        // Log any S3 upload errors
+        if (data.s3Upload.error) {
+          console.error('%c[S3 Upload Error]', 'color: #e74c3c; font-weight: bold;', data.s3Upload.error);
+          if (data.s3Upload.errorDetails) {
+            console.error('[S3 Error Details]', data.s3Upload.errorDetails);
+          }
+        }
+        console.groupEnd();
+      } else if (newCategory.imageBase64) {
+        console.log('%c[S3 Upload Info] No S3 upload details returned despite image being provided', 'color: #e67e22');
+      }
+      
       if (data.success) {
-        toast.success("Category added successfully")
-        setIsAddDialogOpen(false)
-        fetchCategories()
+        console.log(`%c[Success] Category added with ID: ${data.data?._id}`, 'color: #2ecc71; font-weight: bold;');
+        toast.success("Category added successfully");
+        setIsAddDialogOpen(false);
+        fetchCategories();
         // Reset form
         setNewCategory({
           name: "",
@@ -280,15 +332,21 @@ export default function ItemCategoryPage() {
           type: "FOOD",
           imageBase64: "",
           isActive: true,
-        })
+        });
       } else {
-        toast.error(data.message || "Failed to add category")
+        console.error(`%c[Error] ${data.message || "Unknown error"}`, 'color: #e74c3c; font-weight: bold;');
+        console.error('[Error Details]', data.error || data.errors || 'No detailed error information');
+        toast.error(data.message || "Failed to add category");
       }
+      console.groupEnd();
     } catch (error) {
-      console.error("Error adding category:", error)
-      toast.error("An unexpected error occurred")
+      const requestDuration = ((performance.now() - startTime) / 1000).toFixed(2);
+      console.error(`%c[ADD CATEGORY EXCEPTION] after ${requestDuration}s`, 'color: #e74c3c; font-weight: bold;');
+      console.error('[Exception Details]', error);
+      toast.error("An unexpected error occurred");
+      console.groupEnd();
     }
-  }
+  };
 
   // Filtered categories based on search term, type, and active status
   const filteredCategories = useMemo(() => {
@@ -296,8 +354,15 @@ export default function ItemCategoryPage() {
   }, [categories]);
 
   const handleEditCategory = async () => {
-    if (!currentCategory) return
+    if (!currentCategory) return;
+    
+    const startTime = performance.now();
+    const requestId = Math.random().toString(36).substring(2, 10);
+    
     try {
+      console.group(`%c[EDIT CATEGORY REQUEST ${requestId}]`, 'color: #0070f3; font-weight: bold;');
+      console.log(`%c[Request] Initiated at ${new Date().toISOString()}`, 'color: #0070f3');
+      
       // Create a new object with only the fields we want to update
       const updateData = {
         name: currentCategory.name,
@@ -305,27 +370,83 @@ export default function ItemCategoryPage() {
         type: currentCategory.type,
         isActive: currentCategory.isActive,
         ...(currentCategory.imageBase64 ? { imageBase64: currentCategory.imageBase64 } : {}),
-      }
+      };
+
+      console.log(`[Request Data]`, { 
+        id: currentCategory._id,
+        name: updateData.name,
+        description: updateData.description?.substring(0, 20) + (updateData.description?.length > 20 ? '...' : ''),
+        type: updateData.type,
+        isActive: updateData.isActive,
+        hasImage: !!updateData.imageBase64,
+        imageSize: updateData.imageBase64 ? Math.round(updateData.imageBase64.length * 0.75 / 1024) + 'KB (approx)' : 'None',
+        isImageUpdate: !!updateData.imageBase64
+      });
 
       const response = await fetch(`/api/item-category/${currentCategory._id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updateData),
-      })
-      const data = await response.json()
-      console.log("Edit category response:", data)
-      if (data.success) {
-        toast.success("Category updated successfully")
-        setIsEditDialogOpen(false)
-        fetchCategories()
-      } else {
-        toast.error(data.message || "Failed to update category")
+      });
+      
+      const data = await response.json();
+      const requestDuration = ((performance.now() - startTime) / 1000).toFixed(2);
+      
+      console.log(`%c[Response] Received after ${requestDuration}s`, 'color: #00a3bf');
+      console.log(`[Response Status]`, { success: data.success, statusCode: response.status });
+      
+      // Detailed S3 response logging
+      if (data.s3Upload) {
+        console.group('%c[S3 UPLOAD DETAILS]', 'color: #8e44ad; font-weight: bold;');
+        console.table({
+          status: data.s3Upload.status || 'Unknown',
+          url: data.s3Upload.url || 'N/A',
+          key: data.s3Upload.key || 'N/A',
+          bucket: data.s3Upload.bucket || 'N/A',
+          region: data.s3Upload.region || 'N/A',
+          etag: data.s3Upload.etag || 'N/A',
+          contentType: data.s3Upload.contentType || 'N/A',
+          size: data.s3Upload.size ? `${(data.s3Upload.size / 1024).toFixed(2)}KB` : 'Unknown'
+        });
+        
+        // Log S3 metadata if available
+        if (data.s3Upload.metadata) {
+          console.log('%c[S3 Metadata]', 'color: #8e44ad');
+          console.table(data.s3Upload.metadata);
+        }
+        
+        // Log any S3 upload errors
+        if (data.s3Upload.error) {
+          console.error('%c[S3 Upload Error]', 'color: #e74c3c; font-weight: bold;', data.s3Upload.error);
+          if (data.s3Upload.errorDetails) {
+            console.error('[S3 Error Details]', data.s3Upload.errorDetails);
+          }
+        }
+        console.groupEnd();
+      } else if (updateData.imageBase64) {
+        console.log('%c[S3 Upload Info] No S3 upload details returned despite image being provided', 'color: #e67e22');
       }
+      
+      if (data.success) {
+        console.log(`%c[Success] Category updated successfully`, 'color: #2ecc71; font-weight: bold;');
+        toast.success("Category updated successfully");
+        setIsEditDialogOpen(false);
+        fetchCategories();
+      } else {
+        console.error(`%c[Error] ${data.message || "Unknown error"}`, 'color: #e74c3c; font-weight: bold;');
+        console.error('[Error Details]', data.error || data.errors || 'No detailed error information');
+        toast.error(data.message || "Failed to update category");
+      }
+      
+      console.groupEnd();
     } catch (error) {
-      console.error("Error updating category:", error)
-      toast.error("An unexpected error occurred")
+      const requestDuration = ((performance.now() - startTime) / 1000).toFixed(2);
+      console.error(`%c[EDIT CATEGORY EXCEPTION] after ${requestDuration}s`, 'color: #e74c3c; font-weight: bold;');
+      console.error('[Exception Details]', error);
+      toast.error("An unexpected error occurred");
+      console.groupEnd();
     }
-  }
+  };
 
   const handleDeleteCategory = async (id: string) => {
     try {
@@ -349,15 +470,27 @@ export default function ItemCategoryPage() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
     const file = e.target.files?.[0]
     if (file) {
+      console.log(`[Image Upload] Processing file: ${file.name}, size: ${Math.round(file.size / 1024)}KB, type: ${file.type}`)
+      
       const reader = new FileReader()
       reader.onloadend = () => {
         const base64String = reader.result as string
+        console.log(`[Image Upload] Successfully converted file to base64`)
+        
         if (isEdit && currentCategory) {
           setCurrentCategory({ ...currentCategory, imageBase64: base64String })
+          console.log(`[Image Upload] Updated current category with new image`)
         } else {
           setNewCategory({ ...newCategory, imageBase64: base64String })
+          console.log(`[Image Upload] Updated new category with image`)
         }
       }
+      
+      reader.onerror = (error) => {
+        console.error(`[Image Upload] Error reading file: `, error)
+        toast.error("Failed to read image file")
+      }
+      
       reader.readAsDataURL(file)
     }
   }
@@ -407,76 +540,85 @@ export default function ItemCategoryPage() {
     if (!currentCategory) return null;
     
     return (
-      <div className="space-y-4">
-        <div className="relative w-full h-64 mx-auto overflow-hidden rounded-lg mb-4">
+      <div className="space-y-6">
+        <div className="relative w-full h-72 mx-auto overflow-hidden rounded-lg mb-4 group">
           <Image
             src={currentCategory.imageUrl || "/placeholder.svg"}
             alt={currentCategory.name}
             fill
-            className="object-cover"
+            className="object-cover transition-transform duration-500 group-hover:scale-105"
           />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-70" />
+          <div className="absolute bottom-4 left-4 right-4">
+            <h2 className="text-2xl font-bold text-white mb-1 drop-shadow-md">{currentCategory.name}</h2>
+            <div className="flex items-center space-x-2">
+              <Badge className={`${typeColors[currentCategory.type]} shadow-md`}>
+                {React.createElement(typeIcons[currentCategory.type], { className: "w-3.5 h-3.5 mr-1.5" })}
+                {currentCategory.type}
+              </Badge>
+              <Badge variant={currentCategory.isActive ? "default" : "outline"} className="shadow-md">
+                {currentCategory.isActive ? "Active" : "Inactive"}
+              </Badge>
+            </div>
+          </div>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Name</h3>
-            <p className="text-lg font-semibold">{currentCategory.name}</p>
-          </div>
-          
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Type</h3>
-            <div className="flex items-center mt-1">
-              {React.createElement(typeIcons[currentCategory.type], { className: "w-5 h-5 mr-2" })}
-              <Badge className={typeColors[currentCategory.type]}>{currentCategory.type}</Badge>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg shadow-sm">
+              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Description</h3>
+              <p className="text-base">{currentCategory.description || "No description provided."}</p>
+            </div>
+            
+            <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg shadow-sm">
+              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">ID</h3>
+              <p className="text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 overflow-x-auto">{currentCategory._id}</p>
             </div>
           </div>
           
-          <div className="md:col-span-2">
-            <h3 className="text-sm font-medium text-gray-500">Description</h3>
-            <p className="text-base">{currentCategory.description}</p>
-          </div>
-          
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Status</h3>
-            <Badge variant={currentCategory.isActive ? "default" : "outline"}>{currentCategory.isActive ? "Active" : "Inactive"}</Badge>
-          </div>
-          
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">ID</h3>
-            <p className="text-sm font-mono">{currentCategory._id}</p>
-          </div>
-          
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Created At</h3>
-            <p className="text-sm">{formatDate(currentCategory.createdAt)}</p>
-          </div>
-          
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Updated At</h3>
-            <p className="text-sm">{formatDate(currentCategory.updatedAt)}</p>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg shadow-sm">
+                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</h3>
+                <p className="text-sm">{formatDate(currentCategory.createdAt)}</p>
+              </div>
+              
+              <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg shadow-sm">
+                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</h3>
+                <p className="text-sm">{formatDate(currentCategory.updatedAt)}</p>
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg shadow-sm">
+              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Usage Statistics</h3>
+              <div className="flex items-center justify-center h-24">
+                <p className="text-gray-400 dark:text-gray-500 text-sm italic">Statistics not available</p>
+              </div>
+            </div>
           </div>
         </div>
         
-        <div className="flex space-x-2 justify-end mt-4">
+        <div className="flex space-x-3 justify-end mt-6">
           <Button
             variant="outline"
+            className="group"
             onClick={() => {
               setIsDetailDialogOpen(false);
               setIsEditDialogOpen(true);
             }}
           >
-            <Edit className="w-4 h-4 mr-2" />
+            <Edit className="w-4 h-4 mr-2 group-hover:text-primary transition-colors" />
             Edit
           </Button>
           
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="destructive">
+              <Button variant="outline" className="bg-red-50 border-red-200 text-red-600 hover:bg-red-100 hover:text-red-700 dark:bg-red-950/30 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/50">
                 <Trash2 className="w-4 h-4 mr-2" />
                 Delete
               </Button>
             </AlertDialogTrigger>
-            <AlertDialogContent>
+            <AlertDialogContent className="max-w-md">
               <AlertDialogHeader>
                 <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                 <AlertDialogDescription>
@@ -485,10 +627,13 @@ export default function ItemCategoryPage() {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => {
-                  handleDeleteCategory(currentCategory._id);
-                  setIsDetailDialogOpen(false);
-                }}>
+                <AlertDialogAction 
+                  onClick={() => {
+                    handleDeleteCategory(currentCategory._id);
+                    setIsDetailDialogOpen(false);
+                  }}
+                  className="bg-red-600 hover:bg-red-700"
+                >
                   Delete
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -501,48 +646,59 @@ export default function ItemCategoryPage() {
 
   const renderGridView = () => (
     <motion.div
-      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+      className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
       <AnimatePresence>
-        {filteredCategories.map((category) => (
+        {filteredCategories.map((category, index) => (
           <motion.div
             key={category._id}
             layout
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ duration: 0.3 }}
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ 
+              opacity: 1, 
+              scale: 1, 
+              y: 0,
+              transition: { 
+                delay: index * 0.05,
+                duration: 0.3,
+                ease: [0.22, 1, 0.36, 1]
+              }
+            }}
+            exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
             className="group"
           >
             <Card className={`flex flex-col justify-between h-full transition-all duration-300 ${
               selectedCategories.includes(category._id) 
-                ? "ring-2 ring-primary ring-offset-2" 
-                : "hover:shadow-lg"
+                ? "ring-2 ring-primary ring-offset-2 dark:ring-offset-gray-950" 
+                : "hover:shadow-xl dark:hover:shadow-primary/5 hover:translate-y-[-2px]"
             }`}>
               <CardHeader className="pb-2 flex items-start justify-between">
                 <div className="flex items-center space-x-2">
-                  <input 
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                    checked={selectedCategories.includes(category._id)}
-                    onChange={() => toggleSelectCategory(category._id)}
-                    onClick={(e) => e.stopPropagation()}
-                  />
+                  <div className="relative">
+                    <input 
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary peer opacity-70 z-10"
+                      checked={selectedCategories.includes(category._id)}
+                      onChange={() => toggleSelectCategory(category._id)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <div className="absolute inset-0 bg-primary/10 rounded-full scale-0 peer-checked:scale-110 transition-all duration-200" />
+                  </div>
                   <CardTitle className="flex items-center">
                     <span className="truncate max-w-[150px]">{category.name}</span>
                   </CardTitle>
                 </div>
-                <Badge className={typeColors[category.type]}>
+                <Badge className={`${typeColors[category.type]} shadow-sm`}>
                   {React.createElement(typeIcons[category.type], { className: "w-3 h-3 mr-1 inline" })}
                   {category.type}
                 </Badge>
               </CardHeader>
               <CardContent className="pb-2 relative group">
                 <div 
-                  className="relative w-full h-40 mb-2 cursor-pointer overflow-hidden rounded-md"
+                  className="relative w-full h-40 mb-2 cursor-pointer overflow-hidden rounded-lg"
                   onClick={() => {
                     setCurrentCategory(category);
                     setIsDetailDialogOpen(true);
@@ -552,16 +708,18 @@ export default function ItemCategoryPage() {
                     src={category.imageUrl || "/placeholder.svg"}
                     alt={category.name}
                     fill
-                    className="object-cover transition-transform duration-300 group-hover:scale-105"
+                    className="object-cover transition-transform duration-500 group-hover:scale-105"
                   />
-                  <div className="absolute inset-0 bg-black opacity-0 group-hover:opacity-10 transition-opacity duration-300" />
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                    <Eye className="w-8 h-8 text-white drop-shadow-md" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-30 group-hover:opacity-50 transition-opacity duration-300" />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
+                    <div className="p-3 bg-white/90 dark:bg-gray-800/90 rounded-full shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
+                      <Eye className="w-5 h-5 text-primary" />
+                    </div>
                   </div>
                 </div>
-                <p className="text-sm text-gray-600 line-clamp-2">{category.description}</p>
-                <div className="flex justify-between items-center mt-2">
-                  <Badge variant={category.isActive ? "default" : "outline"}>
+                <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2">{category.description}</p>
+                <div className="flex justify-between items-center mt-3">
+                  <Badge variant={category.isActive ? "default" : "outline"} className="shadow-sm">
                     {category.isActive ? "Active" : "Inactive"}
                   </Badge>
                   <p className="text-xs text-gray-500">{new Date(category.updatedAt).toLocaleDateString()}</p>
@@ -571,22 +729,23 @@ export default function ItemCategoryPage() {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="group/edit hover:bg-primary/5"
                   onClick={() => {
                     setCurrentCategory(category)
                     setIsEditDialogOpen(true)
                   }}
                 >
-                  <Edit className="w-4 h-4 mr-2" />
+                  <Edit className="w-4 h-4 mr-2 group-hover/edit:text-primary transition-colors" />
                   Edit
                 </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant="destructive" size="sm">
-                      <Trash2 className="w-4 h-4 mr-2" />
+                    <Button variant="outline" size="sm" className="group/delete hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:hover:bg-red-950/50">
+                      <Trash2 className="w-4 h-4 mr-2 group-hover/delete:text-red-500 transition-colors" />
                       Delete
                     </Button>
                   </AlertDialogTrigger>
-                  <AlertDialogContent>
+                  <AlertDialogContent className="max-w-md">
                     <AlertDialogHeader>
                       <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                       <AlertDialogDescription>
@@ -595,7 +754,12 @@ export default function ItemCategoryPage() {
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleDeleteCategory(category._id)}>Delete</AlertDialogAction>
+                      <AlertDialogAction 
+                        onClick={() => handleDeleteCategory(category._id)}
+                        className="bg-red-600 hover:bg-red-700"
+                      >
+                        Delete
+                      </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
@@ -609,8 +773,8 @@ export default function ItemCategoryPage() {
 
   const renderListView = () => (
     <motion.div className="space-y-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <div className="bg-white rounded-md overflow-hidden shadow">
-        <div className="grid grid-cols-12 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-500">
+      <div className="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow border border-gray-100 dark:border-gray-700">
+        <div className="grid grid-cols-12 bg-gray-50 dark:bg-gray-800/80 px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
           <div className="col-span-1 flex items-center">
             <input 
               type="checkbox"
@@ -628,16 +792,25 @@ export default function ItemCategoryPage() {
         </div>
         
         <AnimatePresence>
-          {filteredCategories.map((category) => (
+          {filteredCategories.map((category, index) => (
             <motion.div
               key={category._id}
               layout
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.3 }}
-              className={`grid grid-cols-12 px-4 py-3 border-b border-gray-100 items-center ${
-                selectedCategories.includes(category._id) ? "bg-primary-50" : "hover:bg-gray-50"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ 
+                opacity: 1, 
+                y: 0,
+                transition: { 
+                  delay: index * 0.03,
+                  duration: 0.25,
+                  ease: "easeOut"
+                }
+              }}
+              exit={{ opacity: 0, y: -10, transition: { duration: 0.15 } }}
+              className={`grid grid-cols-12 px-4 py-3 border-b border-gray-100 dark:border-gray-700 items-center ${
+                selectedCategories.includes(category._id) 
+                  ? "bg-primary/5 dark:bg-primary/10" 
+                  : "hover:bg-gray-50 dark:hover:bg-gray-800/70"
               }`}
             >
               <div className="col-span-1">
@@ -649,7 +822,7 @@ export default function ItemCategoryPage() {
                 />
               </div>
               <div className="col-span-3 flex items-center space-x-3">
-                <div className="relative h-10 w-10 rounded-md overflow-hidden flex-shrink-0">
+                <div className="relative h-10 w-10 rounded-md overflow-hidden flex-shrink-0 ring-1 ring-gray-200 dark:ring-gray-700">
                   <Image
                     src={category.imageUrl || "/placeholder.svg"}
                     alt={category.name}
@@ -659,28 +832,32 @@ export default function ItemCategoryPage() {
                 </div>
                 <div className="truncate font-medium">{category.name}</div>
               </div>
-              <div className="col-span-3 text-sm text-gray-600 truncate">{category.description}</div>
+              <div className="col-span-3 text-sm text-gray-600 dark:text-gray-300 truncate">{category.description}</div>
               <div className="col-span-1">
-                <Badge className={typeColors[category.type]}>
+                <Badge className={`${typeColors[category.type]} shadow-sm`}>
                   {React.createElement(typeIcons[category.type], { className: "w-3 h-3 mr-1 inline" })}
                   {category.type}
                 </Badge>
               </div>
               <div className="col-span-1">
-                <Badge variant={category.isActive ? "default" : "outline"}>
+                <Badge 
+                  variant={category.isActive ? "default" : "outline"}
+                  className={category.isActive ? "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-300" : ""}
+                >
                   {category.isActive ? "Active" : "Inactive"}
                 </Badge>
               </div>
-              <div className="col-span-1 text-xs text-gray-500">
+              <div className="col-span-1 text-xs text-gray-500 dark:text-gray-400">
                 {new Date(category.updatedAt).toLocaleDateString()}
               </div>
-              <div className="col-span-2 flex justify-end space-x-2">
+              <div className="col-span-2 flex justify-end space-x-1">
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost" 
                         size="icon"
+                        className="h-8 w-8 rounded-full hover:bg-primary/10"
                         onClick={() => {
                           setCurrentCategory(category);
                           setIsDetailDialogOpen(true);
@@ -701,12 +878,13 @@ export default function ItemCategoryPage() {
                       <Button
                         variant="ghost" 
                         size="icon"
+                        className="h-8 w-8 rounded-full hover:bg-blue-50 dark:hover:bg-blue-900/20"
                         onClick={() => {
                           setCurrentCategory(category);
                           setIsEditDialogOpen(true);
                         }}
                       >
-                        <Edit className="h-4 w-4" />
+                        <Edit className="h-4 w-4 text-blue-500" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -720,7 +898,11 @@ export default function ItemCategoryPage() {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon">
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            className="h-8 w-8 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20"
+                          >
                             <Trash2 className="h-4 w-4 text-red-500" />
                           </Button>
                         </AlertDialogTrigger>
@@ -730,7 +912,7 @@ export default function ItemCategoryPage() {
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                  <AlertDialogContent>
+                  <AlertDialogContent className="max-w-md">
                     <AlertDialogHeader>
                       <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                       <AlertDialogDescription>
@@ -739,7 +921,10 @@ export default function ItemCategoryPage() {
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleDeleteCategory(category._id)}>
+                      <AlertDialogAction 
+                        onClick={() => handleDeleteCategory(category._id)}
+                        className="bg-red-600 hover:bg-red-700"
+                      >
                         Delete
                       </AlertDialogAction>
                     </AlertDialogFooter>
@@ -754,10 +939,10 @@ export default function ItemCategoryPage() {
   )
 
   return (
-    <div className="container mx-auto py-8 px-4 sm:px-6 lg:px-8">
+    <div className="container mx-auto py-4 sm:py-6 md:py-8 px-3 sm:px-4 md:px-6 lg:px-8 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-950 min-h-screen">
       <Toaster position="top-right" />
       <motion.h1
-        className="text-4xl font-bold mb-6 text-center text-primary"
+        className="text-4xl font-bold mb-8 bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent dark:from-primary dark:to-blue-400 text-center"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
@@ -767,43 +952,51 @@ export default function ItemCategoryPage() {
       
       {/* Stats Cards */}
       <motion.div 
-        className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6"
+        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-8"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.1 }}
       >
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500">Total Categories</CardTitle>
+        <Card className="overflow-hidden border border-gray-100 dark:border-gray-800 hover:shadow-md transition-all duration-300 hover:border-primary/20">
+          <CardHeader className="pb-2 bg-gradient-to-r from-primary/5 to-transparent dark:from-primary/10">
+            <CardTitle className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Categories</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex justify-between items-center">
               <span className="text-3xl font-bold">{stats.total}</span>
-              <div className="p-2 rounded-full bg-primary/10">
+              <div className="p-2 rounded-full bg-primary/10 backdrop-blur-sm">
                 <Package className="w-5 h-5 text-primary" />
               </div>
             </div>
-            <div className="mt-2 flex gap-2 text-xs">
-              <Badge className={typeColors.FOOD}>{stats.food} Food</Badge>
-              <Badge className={typeColors.DRINK}>{stats.drink} Drink</Badge>
-              <Badge className={typeColors.OTHER}>{stats.other} Other</Badge>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <Badge className={`${typeColors.FOOD} shadow-sm`}>{stats.food} Food</Badge>
+              <Badge className={`${typeColors.DRINK} shadow-sm`}>{stats.drink} Drink</Badge>
+              <Badge className={`${typeColors.OTHER} shadow-sm`}>{stats.other} Other</Badge>
             </div>
           </CardContent>
         </Card>
         
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500">Active Categories</CardTitle>
+        <Card className="overflow-hidden border border-gray-100 dark:border-gray-800 hover:shadow-md transition-all duration-300 hover:border-green-200 dark:hover:border-green-900">
+          <CardHeader className="pb-2 bg-gradient-to-r from-green-100/50 to-transparent dark:from-green-900/20">
+            <CardTitle className="text-sm font-medium text-gray-500 dark:text-gray-400">Active Categories</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex justify-between items-center">
               <span className="text-3xl font-bold">{stats.active}</span>
-              <div className="p-2 rounded-full bg-green-100">
-                <Eye className="w-5 h-5 text-green-600" />
+              <div className="p-2 rounded-full bg-green-100 dark:bg-green-900/30">
+                <Eye className="w-5 h-5 text-green-600 dark:text-green-400" />
               </div>
             </div>
-            <div className="mt-2">
-              <span className="text-xs text-gray-500">
+            <div className="mt-3">
+              {stats.total > 0 && (
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-1 overflow-hidden">
+                  <div 
+                    className="bg-green-500 dark:bg-green-500/80 h-2.5 rounded-full transition-all duration-500" 
+                    style={{ width: `${Math.round((stats.active / stats.total) * 100)}%` }}
+                  />
+                </div>
+              )}
+              <span className="text-xs text-gray-500 dark:text-gray-400">
                 {stats.total > 0 
                   ? `${Math.round((stats.active / stats.total) * 100)}% of total categories`
                   : "No categories"}
@@ -812,19 +1005,27 @@ export default function ItemCategoryPage() {
           </CardContent>
         </Card>
         
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500">Inactive Categories</CardTitle>
+        <Card className="overflow-hidden border border-gray-100 dark:border-gray-800 hover:shadow-md transition-all duration-300 hover:border-gray-200 dark:hover:border-gray-700">
+          <CardHeader className="pb-2 bg-gradient-to-r from-gray-100/80 to-transparent dark:from-gray-800/50">
+            <CardTitle className="text-sm font-medium text-gray-500 dark:text-gray-400">Inactive Categories</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex justify-between items-center">
               <span className="text-3xl font-bold">{stats.inactive}</span>
-              <div className="p-2 rounded-full bg-gray-100">
-                <EyeOff className="w-5 h-5 text-gray-600" />
+              <div className="p-2 rounded-full bg-gray-100 dark:bg-gray-800/80">
+                <EyeOff className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </div>
             </div>
-            <div className="mt-2">
-              <span className="text-xs text-gray-500">
+            <div className="mt-3">
+              {stats.total > 0 && (
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-1 overflow-hidden">
+                  <div 
+                    className="bg-gray-500 dark:bg-gray-500/80 h-2.5 rounded-full transition-all duration-500" 
+                    style={{ width: `${Math.round((stats.inactive / stats.total) * 100)}%` }}
+                  />
+                </div>
+              )}
+              <span className="text-xs text-gray-500 dark:text-gray-400">
                 {stats.total > 0 
                   ? `${Math.round((stats.inactive / stats.total) * 100)}% of total categories` 
                   : "No categories"}
@@ -841,10 +1042,15 @@ export default function ItemCategoryPage() {
         transition={{ duration: 0.5, delay: 0.2 }}
       >
         <Tabs defaultValue="browse" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-4">
-            <TabsTrigger value="browse">Browse Categories</TabsTrigger>
-            <TabsTrigger value="actions">Bulk Actions {selectedCategories.length > 0 && 
-              <Badge variant="outline" className="ml-2">{selectedCategories.length}</Badge>}
+          <TabsList className="grid w-full grid-cols-2 mb-6 shadow-sm bg-white dark:bg-gray-800 rounded-lg p-1">
+            <TabsTrigger value="browse" className="data-[state=active]:shadow-md data-[state=active]:bg-primary data-[state=active]:text-white">
+              <Package className="w-4 h-4 mr-2" />
+              Browse Categories
+            </TabsTrigger>
+            <TabsTrigger value="actions" className="data-[state=active]:shadow-md data-[state=active]:bg-primary data-[state=active]:text-white">
+              <ArrowUpDown className="w-4 h-4 mr-2" />
+              Bulk Actions {selectedCategories.length > 0 && 
+                <Badge variant="secondary" className="ml-2 bg-white text-primary">{selectedCategories.length}</Badge>}
             </TabsTrigger>
           </TabsList>
           
@@ -853,112 +1059,196 @@ export default function ItemCategoryPage() {
               <div className="flex flex-col sm:flex-row gap-2 w-full">
                 {/* Search */}
                 <div className="relative w-full md:w-64">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                    <Search className="w-4 h-4" />
+                  </div>
                   <Input
                     type="text"
                     placeholder="Search categories..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 w-full"
+                    className="pl-10 w-full bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 focus:ring-primary focus:border-primary"
                   />
+                  {searchTerm && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+                      onClick={() => setSearchTerm('')}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                      </svg>
+                    </Button>
+                  )}
                 </div>
                 
                 {/* Filter & Sort */}
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="flex items-center">
-                        <Filter className="w-4 h-4 mr-2" />
-                        Filter
+                      <Button variant="outline" className="flex items-center gap-2 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-primary/50">
+                        <Filter className="w-4 h-4" />
+                        <span>Filter</span>
+                        {(filterType !== 'ALL' || filterActive !== 'ALL') && (
+                          <Badge variant="secondary" className="ml-1 bg-primary/10 text-primary border-none">
+                            {(filterType !== 'ALL' ? 1 : 0) + (filterActive !== 'ALL' ? 1 : 0)}
+                          </Badge>
+                        )}
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuLabel>Category Type</DropdownMenuLabel>
+                    <DropdownMenuContent align="end" className="w-56 border border-gray-100 dark:border-gray-700 shadow-lg rounded-xl p-2">
+                      <DropdownMenuLabel className="text-xs font-medium text-gray-500 dark:text-gray-400 px-2">Category Type</DropdownMenuLabel>
                       <DropdownMenuItem 
-                        className={filterType === 'ALL' ? 'bg-primary/10' : ''} 
+                        className={`mb-1 rounded-lg gap-2 ${filterType === 'ALL' ? 'bg-primary/10 text-primary font-medium' : ''}`} 
                         onClick={() => setFilterType('ALL')}
                       >
+                        <Package className="w-4 h-4" />
                         All Types
+                        {filterType === 'ALL' && <Badge className="ml-auto bg-primary/20 text-primary border-none">Selected</Badge>}
                       </DropdownMenuItem>
                       <DropdownMenuItem 
-                        className={filterType === 'FOOD' ? 'bg-primary/10' : ''} 
+                        className={`mb-1 rounded-lg gap-2 ${filterType === 'FOOD' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 text-amber-900 dark:text-amber-400 font-medium' : ''}`} 
                         onClick={() => setFilterType('FOOD')}
                       >
-                        <Pizza className="w-4 h-4 mr-2" /> Food
+                        <Pizza className="w-4 h-4 text-amber-600" /> 
+                        Food
+                        {filterType === 'FOOD' && <Badge className="ml-auto bg-amber-200 text-amber-800 border-none dark:bg-amber-900/60 dark:text-amber-300">Selected</Badge>}
                       </DropdownMenuItem>
                       <DropdownMenuItem 
-                        className={filterType === 'DRINK' ? 'bg-primary/10' : ''} 
+                        className={`mb-1 rounded-lg gap-2 ${filterType === 'DRINK' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 text-blue-900 dark:text-blue-400 font-medium' : ''}`} 
                         onClick={() => setFilterType('DRINK')}
                       >
-                        <Coffee className="w-4 h-4 mr-2" /> Drink
+                        <Coffee className="w-4 h-4 text-blue-600" /> 
+                        Drink
+                        {filterType === 'DRINK' && <Badge className="ml-auto bg-blue-200 text-blue-800 border-none dark:bg-blue-900/60 dark:text-blue-300">Selected</Badge>}
                       </DropdownMenuItem>
                       <DropdownMenuItem 
-                        className={filterType === 'OTHER' ? 'bg-primary/10' : ''} 
+                        className={`mb-1 rounded-lg gap-2 ${filterType === 'OTHER' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 text-purple-900 dark:text-purple-400 font-medium' : ''}`} 
                         onClick={() => setFilterType('OTHER')}
                       >
-                        <Package className="w-4 h-4 mr-2" /> Other
+                        <Package className="w-4 h-4 text-purple-600" /> 
+                        Other
+                        {filterType === 'OTHER' && <Badge className="ml-auto bg-purple-200 text-purple-800 border-none dark:bg-purple-900/60 dark:text-purple-300">Selected</Badge>}
                       </DropdownMenuItem>
                       
-                      <DropdownMenuSeparator />
+                      <DropdownMenuSeparator className="my-2" />
                       
-                      <DropdownMenuLabel>Status</DropdownMenuLabel>
+                      <DropdownMenuLabel className="text-xs font-medium text-gray-500 dark:text-gray-400 px-2">Status</DropdownMenuLabel>
                       <DropdownMenuItem 
-                        className={filterActive === 'ALL' ? 'bg-primary/10' : ''} 
+                        className={`mb-1 rounded-lg gap-2 ${filterActive === 'ALL' ? 'bg-primary/10 text-primary font-medium' : ''}`} 
                         onClick={() => setFilterActive('ALL')}
                       >
+                        <Package className="w-4 h-4" />
                         All Status
+                        {filterActive === 'ALL' && <Badge className="ml-auto bg-primary/20 text-primary border-none">Selected</Badge>}
                       </DropdownMenuItem>
                       <DropdownMenuItem 
-                        className={filterActive === 'ACTIVE' ? 'bg-primary/10' : ''} 
+                        className={`mb-1 rounded-lg gap-2 ${filterActive === 'ACTIVE' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 text-green-900 dark:text-green-400 font-medium' : ''}`} 
                         onClick={() => setFilterActive('ACTIVE')}
                       >
-                        <Eye className="w-4 h-4 mr-2" /> Active
+                        <Eye className="w-4 h-4 text-green-600" /> 
+                        Active
+                        {filterActive === 'ACTIVE' && <Badge className="ml-auto bg-green-200 text-green-800 border-none dark:bg-green-900/60 dark:text-green-300">Selected</Badge>}
                       </DropdownMenuItem>
                       <DropdownMenuItem 
-                        className={filterActive === 'INACTIVE' ? 'bg-primary/10' : ''} 
+                        className={`mb-1 rounded-lg gap-2 ${filterActive === 'INACTIVE' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300 font-medium' : ''}`} 
                         onClick={() => setFilterActive('INACTIVE')}
                       >
-                        <EyeOff className="w-4 h-4 mr-2" /> Inactive
+                        <EyeOff className="w-4 h-4 text-gray-600" /> 
+                        Inactive
+                        {filterActive === 'INACTIVE' && <Badge className="ml-auto bg-gray-200 text-gray-800 border-none dark:bg-gray-800 dark:text-gray-300">Selected</Badge>}
                       </DropdownMenuItem>
+                      
+                      {(filterType !== 'ALL' || filterActive !== 'ALL') && (
+                        <>
+                          <DropdownMenuSeparator className="my-2" />
+                          <DropdownMenuItem 
+                            className="rounded-lg text-red-600 dark:text-red-400 font-medium"
+                            onClick={() => {
+                              setFilterType('ALL');
+                              setFilterActive('ALL');
+                            }}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                              <line x1="18" y1="6" x2="6" y2="18"></line>
+                              <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                            Clear All Filters
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                   
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="flex items-center">
-                        <ArrowUpDown className="w-4 h-4 mr-2" />
-                        Sort
+                      <Button variant="outline" className="flex items-center gap-2 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-primary/50">
+                        <ArrowUpDown className="w-4 h-4" />
+                        <span>Sort</span>
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuContent align="end" className="w-48 border border-gray-100 dark:border-gray-700 shadow-lg rounded-xl p-2">
                       <DropdownMenuItem 
-                        className={sortBy === 'name' && sortOrder === 'asc' ? 'bg-primary/10' : ''}
+                        className={`mb-1 rounded-lg ${sortBy === 'name' && sortOrder === 'asc' ? 'bg-primary/10 text-primary font-medium' : ''}`}
                         onClick={() => handleSortChange('name-asc')}
                       >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                          <line x1="4" y1="9" x2="20" y2="9" />
+                          <line x1="4" y1="15" x2="14" y2="15" />
+                          <line x1="4" y1="21" x2="9" y2="21" />
+                        </svg>
                         Name (A-Z)
                       </DropdownMenuItem>
                       <DropdownMenuItem 
-                        className={sortBy === 'name' && sortOrder === 'desc' ? 'bg-primary/10' : ''}
+                        className={`mb-1 rounded-lg ${sortBy === 'name' && sortOrder === 'desc' ? 'bg-primary/10 text-primary font-medium' : ''}`}
                         onClick={() => handleSortChange('name-desc')}
                       >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                          <line x1="4" y1="9" x2="9" y2="9" />
+                          <line x1="4" y1="15" x2="14" y2="15" />
+                          <line x1="4" y1="21" x2="20" y2="21" />
+                        </svg>
                         Name (Z-A)
                       </DropdownMenuItem>
+                      <DropdownMenuSeparator className="my-1" />
                       <DropdownMenuItem 
-                        className={sortBy === 'createdAt' && sortOrder === 'desc' ? 'bg-primary/10' : ''}
+                        className={`mb-1 rounded-lg ${sortBy === 'createdAt' && sortOrder === 'desc' ? 'bg-primary/10 text-primary font-medium' : ''}`}
                         onClick={() => handleSortChange('createdAt-desc')}
                       >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                          <circle cx="12" cy="12" r="10" />
+                          <polyline points="12 6 12 12 16 14" />
+                        </svg>
                         Newest First
                       </DropdownMenuItem>
                       <DropdownMenuItem 
-                        className={sortBy === 'createdAt' && sortOrder === 'asc' ? 'bg-primary/10' : ''}
+                        className={`mb-1 rounded-lg ${sortBy === 'createdAt' && sortOrder === 'asc' ? 'bg-primary/10 text-primary font-medium' : ''}`}
                         onClick={() => handleSortChange('createdAt-asc')}
                       >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                          <circle cx="12" cy="12" r="10" />
+                          <polyline points="12 6 12 12 9 10" />
+                        </svg>
                         Oldest First
                       </DropdownMenuItem>
                       <DropdownMenuItem 
-                        className={sortBy === 'updatedAt' && sortOrder === 'desc' ? 'bg-primary/10' : ''}
+                        className={`mb-1 rounded-lg ${sortBy === 'updatedAt' && sortOrder === 'desc' ? 'bg-primary/10 text-primary font-medium' : ''}`}
                         onClick={() => handleSortChange('updatedAt-desc')}
                       >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                          <line x1="16" y1="2" x2="16" y2="6" />
+                          <line x1="8" y1="2" x2="8" y2="6" />
+                          <line x1="3" y1="10" x2="21" y2="10" />
+                          <path d="M8 14h.01" />
+                          <path d="M12 14h.01" />
+                          <path d="M16 14h.01" />
+                          <path d="M8 18h.01" />
+                          <path d="M12 18h.01" />
+                          <path d="M16 18h.01" />
+                        </svg>
                         Recently Updated
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -966,32 +1256,32 @@ export default function ItemCategoryPage() {
                   
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="flex items-center">
-                        {viewMode === "grid" ? <Grid className="w-4 h-4 mr-2" /> : <List className="w-4 h-4 mr-2" />}
-                        View
+                      <Button variant="outline" className="flex items-center gap-2 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-primary/50">
+                        {viewMode === "grid" ? <Grid className="w-4 h-4" /> : <List className="w-4 h-4" />}
+                        <span>View</span>
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent>
+                    <DropdownMenuContent className="border border-gray-100 dark:border-gray-700 shadow-lg rounded-xl p-2">
                       <DropdownMenuItem 
-                        className={viewMode === 'grid' ? 'bg-primary/10' : ''}
+                        className={`mb-1 rounded-lg gap-2 ${viewMode === 'grid' ? 'bg-primary/10 text-primary font-medium' : ''}`}
                         onClick={() => setViewMode("grid")}
                       >
-                        <Grid className="w-4 h-4 mr-2" /> Grid View
+                        <Grid className="w-4 h-4" /> Grid View
                       </DropdownMenuItem>
                       <DropdownMenuItem 
-                        className={viewMode === 'list' ? 'bg-primary/10' : ''}
+                        className={`mb-1 rounded-lg gap-2 ${viewMode === 'list' ? 'bg-primary/10 text-primary font-medium' : ''}`}
                         onClick={() => setViewMode("list")}
                       >
-                        <List className="w-4 h-4 mr-2" /> List View
+                        <List className="w-4 h-4" /> List View
                       </DropdownMenuItem>
                       
-                      <DropdownMenuSeparator />
+                      <DropdownMenuSeparator className="my-1" />
                       
-                      <DropdownMenuLabel>Items per page</DropdownMenuLabel>
+                      <DropdownMenuLabel className="text-xs font-medium text-gray-500 dark:text-gray-400 px-2">Items per page</DropdownMenuLabel>
                       {[8, 12, 24, 48].map(size => (
                         <DropdownMenuItem 
                           key={size}
-                          className={itemsPerPage === size ? 'bg-primary/10' : ''}
+                          className={`rounded-lg ${itemsPerPage === size ? 'bg-primary/10 text-primary font-medium' : ''}`}
                           onClick={() => handlePageSizeChange(size.toString())}
                         >
                           {size} items
@@ -1002,7 +1292,7 @@ export default function ItemCategoryPage() {
                 </div>
               </div>
               
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 mt-3 md:mt-0">
                 <Button variant="outline" className="whitespace-nowrap" onClick={refreshData} disabled={isRefreshing}>
                   {isRefreshing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
                   Refresh
@@ -1015,112 +1305,201 @@ export default function ItemCategoryPage() {
                 
                 <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Category
+                    <Button className="whitespace-nowrap gap-2 shadow-md hover:shadow-lg bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary transition-all duration-300">
+                      <Plus className="w-4 h-4" />
+                      <span>Add Category</span>
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                      <DialogTitle>Add New Category</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
-                      <div>
-                        <Label htmlFor="name">Name</Label>
-                        <Input
-                          id="name"
-                          value={newCategory.name}
-                          onChange={(e) => setNewCategory({ ...newCategory, name: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="description">Description</Label>
-                        <Textarea
-                          id="description"
-                          value={newCategory.description}
-                          onChange={(e) => setNewCategory({ ...newCategory, description: e.target.value })}
-                          className="min-h-24"
-                        />
-                      </div>
-                      <div>
-                        <Label>Type</Label>
-                        <RadioGroup
-                          value={newCategory.type}
-                          onValueChange={(value) =>
-                            setNewCategory({ ...newCategory, type: value as "FOOD" | "DRINK" | "OTHER" })
-                          }
-                          className="flex flex-col space-y-2 mt-2"
-                        >
-                          <div className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-50">
-                            <RadioGroupItem value="FOOD" id="food" />
-                            <Label htmlFor="food" className="flex items-center cursor-pointer">
-                              <Pizza className="w-4 h-4 mr-2 text-amber-600" /> 
-                              <span>Food</span>
-                              <Badge className={`${typeColors.FOOD} ml-2`}>FOOD</Badge>
-                            </Label>
+                  <DialogContent className="sm:max-w-[650px] p-0 overflow-hidden max-h-[90vh] w-[95vw] sm:w-auto">
+                    <div className="flex flex-col md:flex-row">
+                      <div className="md:w-2/5 relative bg-gradient-to-br from-primary/10 via-primary/5 to-transparent dark:from-primary/5 min-h-[200px] md:min-h-0">
+                        <div className="absolute inset-0 p-6 flex flex-col justify-between">
+                          <div>
+                            <h3 className="text-lg font-semibold text-primary">Add New Category</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Create a new category for your menu items</p>
                           </div>
-                          <div className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-50">
-                            <RadioGroupItem value="DRINK" id="drink" />
-                            <Label htmlFor="drink" className="flex items-center cursor-pointer">
-                              <Coffee className="w-4 h-4 mr-2 text-blue-600" /> 
-                              <span>Drink</span>
-                              <Badge className={`${typeColors.DRINK} ml-2`}>DRINK</Badge>
-                            </Label>
-                          </div>
-                          <div className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-50">
-                            <RadioGroupItem value="OTHER" id="other" />
-                            <Label htmlFor="other" className="flex items-center cursor-pointer">
-                              <Package className="w-4 h-4 mr-2 text-purple-600" /> 
-                              <span>Other</span>
-                              <Badge className={`${typeColors.OTHER} ml-2`}>OTHER</Badge>
-                            </Label>
-                          </div>
-                        </RadioGroup>
-                      </div>
-                      <div>
-                        <Label htmlFor="image">Image</Label>
-                        <div className="mt-2">
-                          <Input 
-                            id="image" 
-                            type="file" 
-                            accept="image/*" 
-                            onChange={(e) => handleImageUpload(e, false)} 
-                          />
-                          {newCategory.imageBase64 && (
-                            <div className="mt-2 relative w-full h-32 rounded-md overflow-hidden">
-                              <Image 
-                                src={newCategory.imageBase64} 
-                                alt="Preview" 
-                                fill 
-                                className="object-cover" 
+                          
+                          {newCategory.imageBase64 ? (
+                            <div className="relative w-full aspect-square rounded-lg overflow-hidden shadow-lg border-2 border-white dark:border-gray-800 mt-4">
+                              <Image
+                                src={newCategory.imageBase64}
+                                alt="Preview"
+                                fill
+                                className="object-cover"
                               />
+                              <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent p-4">
+                                <p className="text-white text-sm font-medium truncate">{newCategory.name || "New Category"}</p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center w-full aspect-square bg-gray-100 dark:bg-gray-800 rounded-lg mt-4 border-2 border-dashed border-gray-300 dark:border-gray-700">
+                              <div className="text-center">
+                                <Package className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+                                <p className="text-sm text-gray-400 dark:text-gray-500">Upload image</p>
+                                <p className="text-xs text-gray-400 dark:text-gray-500">for preview</p>
+                              </div>
                             </div>
                           )}
+                          
+                          <div className="space-y-2 mt-4">
+                            {newCategory.type && (
+                              <Badge className={`${typeColors[newCategory.type]} shadow-sm`}>
+                                {React.createElement(typeIcons[newCategory.type], { className: "w-3.5 h-3.5 mr-1.5" })}
+                                {newCategory.type}
+                              </Badge>
+                            )}
+                            <Badge 
+                              variant={newCategory.isActive ? "default" : "outline"}
+                              className={newCategory.isActive ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 shadow-sm" : "shadow-sm"}
+                            >
+                              {newCategory.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center space-x-2 p-3 rounded-md bg-gray-50">
-                        <Switch
-                          id="isActive"
-                          checked={newCategory.isActive}
-                          onCheckedChange={(checked) => setNewCategory({ ...newCategory, isActive: checked })}
-                        />
-                        <Label htmlFor="isActive" className="flex items-center cursor-pointer">
-                          {newCategory.isActive ? (
-                            <>
-                              <Eye className="w-4 h-4 mr-2 text-green-600" /> Active
-                            </>
-                          ) : (
-                            <>
-                              <EyeOff className="w-4 h-4 mr-2 text-gray-600" /> Inactive
-                            </>
-                          )}
-                        </Label>
+                      
+                      <div className="md:w-3/5 p-4 sm:p-6">
+                        <DialogHeader className="mb-4">
+                          <DialogTitle>Add New Category</DialogTitle>
+                        </DialogHeader>
+                        
+                        <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1 fancy-scrollbar">
+                          <div>
+                            <Label htmlFor="name" className="text-gray-700 dark:text-gray-300">Name</Label>
+                            <Input
+                              id="name"
+                              value={newCategory.name}
+                              onChange={(e) => setNewCategory({ ...newCategory, name: e.target.value })}
+                              className="mt-1.5 bg-white dark:bg-gray-800"
+                              placeholder="Enter category name"
+                            />
+                          </div>
+                          
+                          <div>
+                            <Label htmlFor="description" className="text-gray-700 dark:text-gray-300">Description</Label>
+                            <Textarea
+                              id="description"
+                              value={newCategory.description}
+                              onChange={(e) => setNewCategory({ ...newCategory, description: e.target.value })}
+                              className="min-h-24 mt-1.5 bg-white dark:bg-gray-800"
+                              placeholder="Enter category description"
+                            />
+                          </div>
+                          
+                          <div>
+                            <Label className="text-gray-700 dark:text-gray-300">Type</Label>
+                            <RadioGroup
+                              value={newCategory.type}
+                              onValueChange={(value) =>
+                                setNewCategory({ ...newCategory, type: value as "FOOD" | "DRINK" | "OTHER" })
+                              }
+                              className="flex flex-col space-y-2 mt-2"
+                            >
+                              <div className="flex items-center space-x-2 p-2 rounded-md bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30">
+                                <RadioGroupItem value="FOOD" id="food" className="text-amber-600" />
+                                <Label htmlFor="food" className="flex items-center cursor-pointer">
+                                  <Pizza className="w-4 h-4 mr-2 text-amber-600" />
+                                  <span>Food</span>
+                                  <Badge className={`${typeColors.FOOD} ml-2 shadow-sm`}>FOOD</Badge>
+                                </Label>
+                              </div>
+                              
+                              <div className="flex items-center space-x-2 p-2 rounded-md bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30">
+                                <RadioGroupItem value="DRINK" id="drink" className="text-blue-600" />
+                                <Label htmlFor="drink" className="flex items-center cursor-pointer">
+                                  <Coffee className="w-4 h-4 mr-2 text-blue-600" />
+                                  <span>Drink</span>
+                                  <Badge className={`${typeColors.DRINK} ml-2 shadow-sm`}>DRINK</Badge>
+                                </Label>
+                              </div>
+                              
+                              <div className="flex items-center space-x-2 p-2 rounded-md bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30">
+                                <RadioGroupItem value="OTHER" id="other" className="text-purple-600" />
+                                <Label htmlFor="other" className="flex items-center cursor-pointer">
+                                  <Package className="w-4 h-4 mr-2 text-purple-600" />
+                                  <span>Other</span>
+                                  <Badge className={`${typeColors.OTHER} ml-2 shadow-sm`}>OTHER</Badge>
+                                </Label>
+                              </div>
+                            </RadioGroup>
+                          </div>
+                          
+                          <div>
+                            <Label htmlFor="image" className="text-gray-700 dark:text-gray-300">Image</Label>
+                            <div className="mt-2">
+                              <div className="relative group">
+                                <Input 
+                                  id="image" 
+                                  type="file" 
+                                  accept="image/*" 
+                                  onChange={(e) => handleImageUpload(e, false)} 
+                                  className="bg-white dark:bg-gray-800"
+                                />
+                                <div className="absolute inset-0 pointer-events-none border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-md bg-gray-50/50 dark:bg-gray-900/20 flex items-center justify-center opacity-0 group-hover:opacity-30 transition-opacity">
+                                  <div className="text-sm text-gray-500 dark:text-gray-400 text-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto h-8 w-8 text-gray-400">
+                                      <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h7" />
+                                      <line x1="16" y1="5" x2="22" y2="5" />
+                                      <line x1="19" y1="2" x2="19" y2="8" />
+                                      <circle cx="9" cy="9" r="2" />
+                                      <path d="M21 15l-3.086-3.086a2 2 0 00-2.828 0L6 21" />
+                                    </svg>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center justify-between p-3 rounded-md bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700">
+                            <Label htmlFor="isActive" className="flex items-center cursor-pointer">
+                              {newCategory.isActive ? (
+                                <>
+                                  <Eye className="w-4 h-4 mr-2 text-green-600 dark:text-green-500" /> 
+                                  <span>Active Status</span>
+                                </>
+                              ) : (
+                                <>
+                                  <EyeOff className="w-4 h-4 mr-2 text-gray-600 dark:text-gray-400" /> 
+                                  <span>Inactive Status</span>
+                                </>
+                              )}
+                            </Label>
+                            <Switch
+                              id="isActive"
+                              checked={newCategory.isActive}
+                              onCheckedChange={(checked) => setNewCategory({ ...newCategory, isActive: checked })}
+                              className="data-[state=checked]:bg-green-600"
+                            />
+                          </div>
+                        </div>
+                        
+                        <DialogFooter className="mt-6 gap-2">
+                          <Button 
+                            variant="outline" 
+                            onClick={() => {
+                              setIsAddDialogOpen(false);
+                              // Reset form when closing
+                              setNewCategory({
+                                name: "",
+                                description: "",
+                                type: "FOOD",
+                                imageBase64: "",
+                                isActive: true,
+                              });
+                            }}
+                            className="flex-1"
+                          >
+                            Cancel
+                          </Button>
+                          <Button 
+                            onClick={handleAddCategory}
+                            className="flex-1 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-sm"
+                          >
+                            Add Category
+                          </Button>
+                        </DialogFooter>
                       </div>
                     </div>
-                    <DialogFooter className="mt-4">
-                      <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-                      <Button onClick={handleAddCategory}>Add Category</Button>
-                    </DialogFooter>
                   </DialogContent>
                 </Dialog>
               </div>
@@ -1247,25 +1626,25 @@ export default function ItemCategoryPage() {
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[...Array(itemsPerPage)].map((_, index) => (
-            <Card key={index} className="flex flex-col justify-between h-full group">
+            <Card key={index} className="flex flex-col justify-between h-full group backdrop-blur-sm overflow-hidden border border-gray-200 dark:border-gray-800">
               <CardHeader className="pb-2">
                 <div className="flex justify-between">
-                  <Skeleton className="h-6 w-32" />
-                  <Skeleton className="h-6 w-16" />
+                  <Skeleton className="h-6 w-32 bg-gray-200 dark:bg-gray-700" />
+                  <Skeleton className="h-6 w-16 bg-gray-200 dark:bg-gray-700" />
                 </div>
               </CardHeader>
               <CardContent className="pb-2">
-                <Skeleton className="h-40 w-full mb-2 rounded-md" />
-                <Skeleton className="h-4 w-full mb-2" />
-                <Skeleton className="h-4 w-2/3 mb-2" />
+                <Skeleton className="h-40 w-full mb-2 rounded-md bg-gray-200 dark:bg-gray-700" />
+                <Skeleton className="h-4 w-full mb-2 bg-gray-200 dark:bg-gray-700" />
+                <Skeleton className="h-4 w-2/3 mb-2 bg-gray-200 dark:bg-gray-700" />
                 <div className="flex justify-between mt-2">
-                  <Skeleton className="h-6 w-16" />
-                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-6 w-16 bg-gray-200 dark:bg-gray-700" />
+                  <Skeleton className="h-4 w-20 bg-gray-200 dark:bg-gray-700" />
                 </div>
               </CardContent>
               <CardFooter className="flex justify-between pt-2">
-                <Skeleton className="h-9 w-20" />
-                <Skeleton className="h-9 w-20" />
+                <Skeleton className="h-9 w-20 bg-gray-200 dark:bg-gray-700" />
+                <Skeleton className="h-9 w-20 bg-gray-200 dark:bg-gray-700" />
               </CardFooter>
             </Card>
           ))}
@@ -1275,28 +1654,30 @@ export default function ItemCategoryPage() {
           {viewMode === "grid" ? renderGridView() : renderListView()}
           
           <motion.div
-            className="mt-8 flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0"
+            className="mt-6 md:mt-8 flex flex-col sm:flex-row justify-between items-center space-y-3 sm:space-y-0"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.4 }}
           >
-            <div className="text-sm text-gray-500">
-              Showing {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} categories
+            <div className="text-sm text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 px-4 py-2 rounded-md shadow-sm border border-gray-100 dark:border-gray-700">
+              Showing <span className="font-medium text-primary">{(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, totalItems)}</span> of <span className="font-medium text-primary">{totalItems}</span> categories
             </div>
             
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-md shadow-sm border border-gray-100 dark:border-gray-700">
               <Button
-                variant="outline"
-                size="sm"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
                 onClick={() => setCurrentPage(1)}
                 disabled={currentPage === 1}
               >
-                <ChevronLeft className="w-4 h-4 mr-1" />
-                <ChevronLeft className="w-4 h-4" />
+                <ChevronLeft className="w-3 h-3 mr-[-3px]" />
+                <ChevronLeft className="w-3 h-3" />
               </Button>
               <Button
-                variant="outline"
-                size="sm"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
                 onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                 disabled={currentPage === 1}
               >
@@ -1329,9 +1710,13 @@ export default function ItemCategoryPage() {
                   return (
                     <Button
                       key={i}
-                      variant={currentPage === pageNum ? "default" : "outline"}
-                      size="sm"
-                      className="w-9 h-9 p-0"
+                      variant={currentPage === pageNum ? "default" : "ghost"}
+                      size="icon"
+                      className={`w-8 h-8 rounded-full text-sm ${
+                        currentPage === pageNum 
+                          ? "shadow-sm" 
+                          : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                      }`}
                       onClick={() => setCurrentPage(pageNum)}
                     >
                       {pageNum}
@@ -1341,146 +1726,260 @@ export default function ItemCategoryPage() {
               </div>
               
               <Button
-                variant="outline"
-                size="sm"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
                 onClick={() => setCurrentPage((prev) => prev + 1)}
                 disabled={currentPage >= Math.ceil(totalItems / itemsPerPage)}
               >
                 <ChevronRight className="w-4 h-4" />
               </Button>
               <Button
-                variant="outline"
-                size="sm"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
                 onClick={() => setCurrentPage(Math.ceil(totalItems / itemsPerPage))}
                 disabled={currentPage >= Math.ceil(totalItems / itemsPerPage)}
               >
-                <ChevronRight className="w-4 h-4" />
-                <ChevronRight className="w-4 h-4 ml-1" />
+                <ChevronRight className="w-3 h-3" />
+                <ChevronRight className="w-3 h-3 ml-[-3px]" />
               </Button>
             </div>
           </motion.div>
         </>
       ) : (
-        <div className="py-12 flex flex-col items-center justify-center text-center space-y-4">
-          <div className="p-4 rounded-full bg-gray-100">
-            <Package className="w-10 h-10 text-gray-400" />
-          </div>
-          <h3 className="text-xl font-medium">No categories found</h3>
-          <p className="text-gray-500 max-w-md">
+        <motion.div 
+          className="py-16 flex flex-col items-center justify-center text-center space-y-6"
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+        >
+          <motion.div 
+            className="p-6 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 shadow-md"
+            whileHover={{ scale: 1.05, rotate: 5 }}
+            transition={{ type: "spring", stiffness: 300 }}
+          >
+            <Package className="w-16 h-16 text-gray-400 dark:text-gray-500" />
+          </motion.div>
+          <h3 className="text-2xl font-bold bg-gradient-to-r from-gray-700 to-gray-500 dark:from-gray-200 dark:to-gray-400 bg-clip-text text-transparent">No categories found</h3>
+          <p className="text-gray-500 dark:text-gray-400 max-w-md">
             {searchTerm || filterType !== 'ALL' || filterActive !== 'ALL'
               ? "Try adjusting your search or filter to find what you're looking for."
               : "Get started by adding a new category to your menu."}
           </p>
-          <Button onClick={() => setIsAddDialogOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Category
-          </Button>
-        </div>
+          
+          <div className="flex flex-col sm:flex-row gap-4 mt-4">
+            {(searchTerm || filterType !== 'ALL' || filterActive !== 'ALL') && (
+              <Button variant="outline" onClick={() => {
+                setSearchTerm('');
+                setFilterType('ALL');
+                setFilterActive('ALL');
+              }}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Clear Filters
+              </Button>
+            )}
+            
+            <Button 
+              onClick={() => setIsAddDialogOpen(true)}
+              className="bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-md hover:shadow-lg transition-all duration-300"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add First Category
+            </Button>
+          </div>
+          
+          <motion.div 
+            className="w-full max-w-md h-[1px] bg-gradient-to-r from-transparent via-gray-300 dark:via-gray-700 to-transparent my-8"
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ delay: 0.3, duration: 0.7 }}
+          />
+          
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full max-w-2xl">
+            <div className="flex flex-col items-center p-6 rounded-lg bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700">
+              <Pizza className="w-8 h-8 text-amber-500 mb-2" />
+              <h4 className="font-medium text-gray-900 dark:text-gray-100">Food Categories</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center mt-1">Organize your food menu with categories</p>
+            </div>
+            
+            <div className="flex flex-col items-center p-6 rounded-lg bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700">
+              <Coffee className="w-8 h-8 text-blue-500 mb-2" />
+              <h4 className="font-medium text-gray-900 dark:text-gray-100">Drink Categories</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center mt-1">Group your beverages by type</p>
+            </div>
+            
+            <div className="flex flex-col items-center p-6 rounded-lg bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700">
+              <Package className="w-8 h-8 text-purple-500 mb-2" />
+              <h4 className="font-medium text-gray-900 dark:text-gray-100">Other Items</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center mt-1">Create categories for merchandise and more</p>
+            </div>
+          </div>
+        </motion.div>
       )}
       
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Edit Category</DialogTitle>
-          </DialogHeader>
-          {currentCategory && (
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
-              <div>
-                <Label htmlFor="edit-name">Name</Label>
-                <Input
-                  id="edit-name"
-                  value={currentCategory.name}
-                  onChange={(e) => setCurrentCategory({ ...currentCategory, name: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-description">Description</Label>
-                <Textarea
-                  id="edit-description"
-                  value={currentCategory.description}
-                  onChange={(e) => setCurrentCategory({ ...currentCategory, description: e.target.value })}
-                  className="min-h-24"
-                />
-              </div>
-              <div>
-                <Label>Type</Label>
-                <RadioGroup
-                  value={currentCategory.type}
-                  onValueChange={(value) =>
-                    setCurrentCategory({ ...currentCategory, type: value as "FOOD" | "DRINK" | "OTHER" })
-                  }
-                  className="flex flex-col space-y-2 mt-2"
-                >
-                  <div className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-50">
-                    <RadioGroupItem value="FOOD" id="edit-food" />
-                    <Label htmlFor="edit-food" className="flex items-center cursor-pointer">
-                      <Pizza className="w-4 h-4 mr-2 text-amber-600" />
-                      <span>Food</span>
-                      <Badge className={`${typeColors.FOOD} ml-2`}>FOOD</Badge>
-                    </Label>
+        <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden">
+          <div className="flex flex-col md:flex-row">
+            <div className="md:w-2/5 relative bg-gradient-to-br from-primary/10 to-transparent dark:from-primary/5">
+              {currentCategory && (
+                <div className="absolute inset-0 p-6 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-primary">Edit Category</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Update category details</p>
                   </div>
-                  <div className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-50">
-                    <RadioGroupItem value="DRINK" id="edit-drink" />
-                    <Label htmlFor="edit-drink" className="flex items-center cursor-pointer">
-                      <Coffee className="w-4 h-4 mr-2 text-blue-600" />
-                      <span>Drink</span>
-                      <Badge className={`${typeColors.DRINK} ml-2`}>DRINK</Badge>
-                    </Label>
+                  
+                  {currentCategory.imageBase64 || currentCategory.imageUrl ? (
+                    <div className="relative w-full aspect-square rounded-lg overflow-hidden shadow-lg border-2 border-white dark:border-gray-800 mt-4">
+                      <Image
+                        src={currentCategory.imageBase64 || currentCategory.imageUrl}
+                        alt={currentCategory.name}
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center w-full aspect-square bg-gray-100 dark:bg-gray-800 rounded-lg mt-4">
+                      <Package className="w-16 h-16 text-gray-300 dark:text-gray-600" />
+                    </div>
+                  )}
+                  
+                  <div className="space-y-2 mt-4">
+                    <Badge className={`${typeColors[currentCategory?.type || "FOOD"]} shadow-sm`}>
+                      {React.createElement(typeIcons[currentCategory?.type || "FOOD"], { className: "w-3.5 h-3.5 mr-1.5" })}
+                      {currentCategory?.type}
+                    </Badge>
+                    <Badge 
+                      variant={currentCategory?.isActive ? "default" : "outline"}
+                      className={currentCategory?.isActive ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 shadow-sm" : "shadow-sm"}
+                    >
+                      {currentCategory?.isActive ? "Active" : "Inactive"}
+                    </Badge>
                   </div>
-                  <div className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-50">
-                    <RadioGroupItem value="OTHER" id="edit-other" />
-                    <Label htmlFor="edit-other" className="flex items-center cursor-pointer">
-                      <Package className="w-4 h-4 mr-2 text-purple-600" />
-                      <span>Other</span>
-                      <Badge className={`${typeColors.OTHER} ml-2`}>OTHER</Badge>
-                    </Label>
+                </div>
+              )}
+            </div>
+            
+            <div className="md:w-3/5 p-6">
+              <DialogHeader className="mb-4">
+                <DialogTitle>Edit Category</DialogTitle>
+              </DialogHeader>
+              
+              {currentCategory && (
+                <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1 fancy-scrollbar">
+                  <div>
+                    <Label htmlFor="edit-name" className="text-gray-700 dark:text-gray-300">Name</Label>
+                    <Input
+                      id="edit-name"
+                      value={currentCategory.name}
+                      onChange={(e) => setCurrentCategory({ ...currentCategory, name: e.target.value })}
+                      className="mt-1.5"
+                    />
                   </div>
-                </RadioGroup>
-              </div>
-              <div>
-                <Label htmlFor="edit-image">Image</Label>
-                <div className="mt-2">
-                  <Input 
-                    id="edit-image" 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={(e) => handleImageUpload(e, true)} 
-                  />
-                  <div className="mt-4 relative w-full h-40 rounded-md overflow-hidden">
-                    <Image
-                      src={currentCategory.imageBase64 || currentCategory.imageUrl || "/placeholder.svg"}
-                      alt={currentCategory.name}
-                      fill
-                      className="object-cover"
+                  
+                  <div>
+                    <Label htmlFor="edit-description" className="text-gray-700 dark:text-gray-300">Description</Label>
+                    <Textarea
+                      id="edit-description"
+                      value={currentCategory.description}
+                      onChange={(e) => setCurrentCategory({ ...currentCategory, description: e.target.value })}
+                      className="min-h-24 mt-1.5"
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label className="text-gray-700 dark:text-gray-300">Type</Label>
+                    <RadioGroup
+                      value={currentCategory.type}
+                      onValueChange={(value) =>
+                        setCurrentCategory({ ...currentCategory, type: value as "FOOD" | "DRINK" | "OTHER" })
+                      }
+                      className="flex flex-col space-y-2 mt-2"
+                    >
+                      <div className="flex items-center space-x-2 p-2 rounded-md bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30">
+                        <RadioGroupItem value="FOOD" id="edit-food" className="text-amber-600" />
+                        <Label htmlFor="edit-food" className="flex items-center cursor-pointer">
+                          <Pizza className="w-4 h-4 mr-2 text-amber-600" />
+                          <span>Food</span>
+                          <Badge className={`${typeColors.FOOD} ml-2 shadow-sm`}>FOOD</Badge>
+                        </Label>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2 p-2 rounded-md bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30">
+                        <RadioGroupItem value="DRINK" id="edit-drink" className="text-blue-600" />
+                        <Label htmlFor="edit-drink" className="flex items-center cursor-pointer">
+                          <Coffee className="w-4 h-4 mr-2 text-blue-600" />
+                          <span>Drink</span>
+                          <Badge className={`${typeColors.DRINK} ml-2 shadow-sm`}>DRINK</Badge>
+                        </Label>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2 p-2 rounded-md bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30">
+                        <RadioGroupItem value="OTHER" id="edit-other" className="text-purple-600" />
+                        <Label htmlFor="edit-other" className="flex items-center cursor-pointer">
+                          <Package className="w-4 h-4 mr-2 text-purple-600" />
+                          <span>Other</span>
+                          <Badge className={`${typeColors.OTHER} ml-2 shadow-sm`}>OTHER</Badge>
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="edit-image" className="text-gray-700 dark:text-gray-300">Image</Label>
+                    <div className="mt-2">
+                      <Input 
+                        id="edit-image" 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={(e) => handleImageUpload(e, true)} 
+                        className="bg-white dark:bg-gray-800"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-3 rounded-md bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700">
+                    <Label htmlFor="edit-isActive" className="flex items-center cursor-pointer">
+                      {currentCategory.isActive ? (
+                        <>
+                          <Eye className="w-4 h-4 mr-2 text-green-600 dark:text-green-500" /> 
+                          <span>Active Status</span>
+                        </>
+                      ) : (
+                        <>
+                          <EyeOff className="w-4 h-4 mr-2 text-gray-600 dark:text-gray-400" /> 
+                          <span>Inactive Status</span>
+                        </>
+                      )}
+                    </Label>
+                    <Switch
+                      id="edit-isActive"
+                      checked={currentCategory.isActive}
+                      onCheckedChange={(checked) => setCurrentCategory({ ...currentCategory, isActive: checked })}
+                      className="data-[state=checked]:bg-green-600"
                     />
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center space-x-2 p-3 rounded-md bg-gray-50">
-                <Switch
-                  id="edit-isActive"
-                  checked={currentCategory.isActive}
-                  onCheckedChange={(checked) => setCurrentCategory({ ...currentCategory, isActive: checked })}
-                />
-                <Label htmlFor="edit-isActive" className="flex items-center cursor-pointer">
-                  {currentCategory.isActive ? (
-                    <>
-                      <Eye className="w-4 h-4 mr-2 text-green-600" /> Active
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="w-4 h-4 mr-2 text-gray-600" /> Inactive
-                    </>
-                  )}
-                </Label>
-              </div>
+              )}
+              
+              <DialogFooter className="mt-6 gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsEditDialogOpen(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleEditCategory}
+                  className="flex-1 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary"
+                >
+                  Update Category
+                </Button>
+              </DialogFooter>
             </div>
-          )}
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleEditCategory}>Update Category</Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
       
