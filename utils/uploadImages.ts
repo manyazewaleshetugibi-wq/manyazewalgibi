@@ -10,9 +10,10 @@ import { s3Client } from "@/lib/s3config";
 export async function uploadImage(base64Image: string): Promise<string> {
   const buffer = Buffer.from(base64Image.split(",")[1], "base64"); // Decode base64 image
   const fileName = `item-${Date.now()}.jpg`; // Unique filename based on timestamp
+  const bucketName = process.env.S3_BUCKET_NAME || "eresto";
 
   const command = new PutObjectCommand({
-    Bucket: "eresto", // Replace with your actual bucket name
+    Bucket: bucketName,
     Key: fileName,
     Body: buffer,
     ContentType: "image/jpeg",
@@ -20,7 +21,9 @@ export async function uploadImage(base64Image: string): Promise<string> {
 
   try {
     await s3Client.send(command); // Upload to S3
-    return `https://fly.storage.tigris.dev/eresto/${fileName}`; // Replace with your S3 bucket URL format
+    // Use environment variable for the base URL with fallback
+    const baseUrl = process.env.S3_BASE_URL || "https://fly.storage.tigris.dev";
+    return `${baseUrl}/${bucketName}/${fileName}`;
   } catch (error) {
     console.error("Error uploading image:", error);
     throw new Error("Failed to upload image");

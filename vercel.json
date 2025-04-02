@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "buildCommand": "next build",
+  "env": {
+    "S3_BUCKET_NAME": "eresto",
+    "S3_BASE_URL": "https://fly.storage.tigris.dev"
+  },
+  "images": {
+    "domains": ["fly.storage.tigris.dev"]
+  }
+} 

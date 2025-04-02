@@ -16,11 +16,12 @@ export async function uploadFileToS3(
   onProgress?: (progress: number) => void
 ): Promise<string> {
   const key = `trainings/${Date.now()}-${fileName}`;
+  const bucketName = process.env.S3_BUCKET_NAME || "eresto";
 
   // Step 1: Initiate multipart upload
   const createResponse = await s3Client.send(
     new CreateMultipartUploadCommand({
-      Bucket: "eresto",
+      Bucket: bucketName,
       Key: key,
       ContentType: contentType,
     })
@@ -41,7 +42,7 @@ export async function uploadFileToS3(
 
       const uploadResponse = await s3Client.send(
         new UploadPartCommand({
-          Bucket: "eresto",
+          Bucket: bucketName,
           Key: key,
           PartNumber: i + 1,
           UploadId: uploadId,
@@ -62,19 +63,20 @@ export async function uploadFileToS3(
     // Step 3: Complete multipart upload
     await s3Client.send(
       new CompleteMultipartUploadCommand({
-        Bucket: "eresto",
+        Bucket: bucketName,
         Key: key,
         UploadId: uploadId,
         MultipartUpload: { Parts: parts },
       })
     );
 
-    return `https://fly.storage.tigris.dev/eresto/${key}`;
+    const baseUrl = process.env.S3_BASE_URL || "https://fly.storage.tigris.dev";
+    return `${baseUrl}/${bucketName}/${key}`;
   } catch (error) {
     // Abort upload on error
     await s3Client.send(
       new AbortMultipartUploadCommand({
-        Bucket: "eresto",
+        Bucket: bucketName,
         Key: key,
         UploadId: uploadId,
       })
