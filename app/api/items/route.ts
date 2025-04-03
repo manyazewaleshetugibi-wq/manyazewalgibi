@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     try {
       const body = await req.json();
       const dbClient = await clientPromise;
-      const db = dbClient.db("eresto_new");
+      const db = dbClient.db();
   
       // Check if image is Base64 and upload it
       let imageUrl = body.imageUrl;

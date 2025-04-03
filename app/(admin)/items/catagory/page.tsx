@@ -6,12 +6,12 @@ import { Toaster, toast } from "react-hot-toast"
 import { motion, AnimatePresence } from "framer-motion"
 import { 
   Plus, Grid, List, Search, Edit, Trash2, ChevronLeft, ChevronRight, Coffee, Pizza, 
-  Package, Filter, ArrowUpDown, Eye, EyeOff, RefreshCw, Download, Loader2
+  Package, Filter, ArrowUpDown, Eye, EyeOff, RefreshCw, Download, Loader2, X
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog"
 import { 
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, 
   DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel 
@@ -1310,62 +1310,67 @@ export default function ItemCategoryPage() {
                       <span>Add Category</span>
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="sm:max-w-[650px] p-0 overflow-hidden max-h-[90vh] w-[95vw] sm:w-auto">
-                    <div className="flex flex-col md:flex-row">
-                      <div className="md:w-2/5 relative bg-gradient-to-br from-primary/10 via-primary/5 to-transparent dark:from-primary/5 min-h-[200px] md:min-h-0">
-                        <div className="absolute inset-0 p-6 flex flex-col justify-between">
-                          <div>
-                            <h3 className="text-lg font-semibold text-primary">Add New Category</h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Create a new category for your menu items</p>
-                          </div>
-                          
+                  <DialogContent className="sm:max-w-[700px] p-0 overflow-hidden max-h-[85vh] w-[95vw] sm:w-auto">
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-primary/20 to-primary/5 dark:from-primary/10 dark:to-transparent p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                      <DialogTitle>Add New Category</DialogTitle>
+                      <DialogClose className="rounded-full opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+                        <X className="h-4 w-4" />
+                        <span className="sr-only">Close</span>
+                      </DialogClose>
+                    </div>
+                    
+                    {/* Content */}
+                    <div className="px-4 py-5 sm:p-6 overflow-y-auto max-h-[calc(85vh-142px)]">
+                      <div className="space-y-6">
+                        {/* Image Upload */}
+                        <div className="border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center">
                           {newCategory.imageBase64 ? (
-                            <div className="relative w-full aspect-square rounded-lg overflow-hidden shadow-lg border-2 border-white dark:border-gray-800 mt-4">
-                              <Image
-                                src={newCategory.imageBase64}
-                                alt="Preview"
-                                fill
-                                className="object-cover"
+                            <div className="relative w-40 h-40 mx-auto overflow-hidden rounded-lg group">
+                              <Image 
+                                src={newCategory.imageBase64} 
+                                alt="Preview" 
+                                fill 
+                                className="object-cover transition-all duration-300 group-hover:scale-105" 
                               />
-                              <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent p-4">
-                                <p className="text-white text-sm font-medium truncate">{newCategory.name || "New Category"}</p>
+                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Label 
+                                  htmlFor="image-upload" 
+                                  className="px-3 py-2 bg-white/90 dark:bg-gray-800/90 rounded-md text-xs shadow cursor-pointer"
+                                >
+                                  Change Image
+                                </Label>
                               </div>
                             </div>
                           ) : (
-                            <div className="flex items-center justify-center w-full aspect-square bg-gray-100 dark:bg-gray-800 rounded-lg mt-4 border-2 border-dashed border-gray-300 dark:border-gray-700">
-                              <div className="text-center">
-                                <Package className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-                                <p className="text-sm text-gray-400 dark:text-gray-500">Upload image</p>
-                                <p className="text-xs text-gray-400 dark:text-gray-500">for preview</p>
+                            <div className="flex flex-col items-center justify-center py-5">
+                              <div className="h-20 w-20 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
+                                <Package className="w-10 h-10 text-gray-400" />
                               </div>
+                              <Label 
+                                htmlFor="image-upload" 
+                                className="px-4 py-2 bg-primary/10 dark:bg-primary/20 text-primary rounded-md cursor-pointer hover:bg-primary/20 dark:hover:bg-primary/30 transition-colors"
+                              >
+                                Upload Image
+                              </Label>
+                              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Recommended: Square image</p>
                             </div>
                           )}
-                          
-                          <div className="space-y-2 mt-4">
-                            {newCategory.type && (
-                              <Badge className={`${typeColors[newCategory.type]} shadow-sm`}>
-                                {React.createElement(typeIcons[newCategory.type], { className: "w-3.5 h-3.5 mr-1.5" })}
-                                {newCategory.type}
-                              </Badge>
-                            )}
-                            <Badge 
-                              variant={newCategory.isActive ? "default" : "outline"}
-                              className={newCategory.isActive ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 shadow-sm" : "shadow-sm"}
-                            >
-                              {newCategory.isActive ? "Active" : "Inactive"}
-                            </Badge>
-                          </div>
+                          <Input
+                            id="image-upload"
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleImageUpload(e, false)}
+                            className="hidden"
+                          />
                         </div>
-                      </div>
-                      
-                      <div className="md:w-3/5 p-4 sm:p-6">
-                        <DialogHeader className="mb-4">
-                          <DialogTitle>Add New Category</DialogTitle>
-                        </DialogHeader>
-                        
-                        <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1 fancy-scrollbar">
+
+                        {/* Basic Info */}
+                        <div className="grid grid-cols-1 gap-5">
                           <div>
-                            <Label htmlFor="name" className="text-gray-700 dark:text-gray-300">Name</Label>
+                            <Label htmlFor="name" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                              Category Name
+                            </Label>
                             <Input
                               id="name"
                               value={newCategory.name}
@@ -1376,94 +1381,93 @@ export default function ItemCategoryPage() {
                           </div>
                           
                           <div>
-                            <Label htmlFor="description" className="text-gray-700 dark:text-gray-300">Description</Label>
+                            <Label htmlFor="description" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                              Description
+                            </Label>
                             <Textarea
                               id="description"
                               value={newCategory.description}
                               onChange={(e) => setNewCategory({ ...newCategory, description: e.target.value })}
-                              className="min-h-24 mt-1.5 bg-white dark:bg-gray-800"
+                              className="mt-1.5 bg-white dark:bg-gray-800 resize-none h-24"
                               placeholder="Enter category description"
                             />
                           </div>
-                          
-                          <div>
-                            <Label className="text-gray-700 dark:text-gray-300">Type</Label>
-                            <RadioGroup
-                              value={newCategory.type}
-                              onValueChange={(value) =>
-                                setNewCategory({ ...newCategory, type: value as "FOOD" | "DRINK" | "OTHER" })
-                              }
-                              className="flex flex-col space-y-2 mt-2"
+                        </div>
+                        
+                        {/* Category Type */}
+                        <div>
+                          <Label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+                            Category Type
+                          </Label>
+                          <div className="grid grid-cols-3 gap-3">
+                            <div
+                              className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                                newCategory.type === 'FOOD'
+                                  ? 'border-amber-200 bg-amber-50/50 dark:bg-amber-900/20 dark:border-amber-800/50'
+                                  : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                              }`}
+                              onClick={() => setNewCategory({ ...newCategory, type: 'FOOD' })}
                             >
-                              <div className="flex items-center space-x-2 p-2 rounded-md bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30">
-                                <RadioGroupItem value="FOOD" id="food" className="text-amber-600" />
-                                <Label htmlFor="food" className="flex items-center cursor-pointer">
-                                  <Pizza className="w-4 h-4 mr-2 text-amber-600" />
-                                  <span>Food</span>
-                                  <Badge className={`${typeColors.FOOD} ml-2 shadow-sm`}>FOOD</Badge>
-                                </Label>
+                              <div className="flex flex-col items-center text-center">
+                                <Pizza className={`h-8 w-8 mb-2 ${
+                                  newCategory.type === 'FOOD' ? 'text-amber-600 dark:text-amber-500' : 'text-gray-400'
+                                }`} />
+                                <span className={`text-sm font-medium ${
+                                  newCategory.type === 'FOOD' ? 'text-amber-800 dark:text-amber-400' : 'text-gray-700 dark:text-gray-300'
+                                }`}>Food</span>
                               </div>
-                              
-                              <div className="flex items-center space-x-2 p-2 rounded-md bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30">
-                                <RadioGroupItem value="DRINK" id="drink" className="text-blue-600" />
-                                <Label htmlFor="drink" className="flex items-center cursor-pointer">
-                                  <Coffee className="w-4 h-4 mr-2 text-blue-600" />
-                                  <span>Drink</span>
-                                  <Badge className={`${typeColors.DRINK} ml-2 shadow-sm`}>DRINK</Badge>
-                                </Label>
+                            </div>
+                            
+                            <div
+                              className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                                newCategory.type === 'DRINK'
+                                  ? 'border-blue-200 bg-blue-50/50 dark:bg-blue-900/20 dark:border-blue-800/50'
+                                  : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                              }`}
+                              onClick={() => setNewCategory({ ...newCategory, type: 'DRINK' })}
+                            >
+                              <div className="flex flex-col items-center text-center">
+                                <Coffee className={`h-8 w-8 mb-2 ${
+                                  newCategory.type === 'DRINK' ? 'text-blue-600 dark:text-blue-500' : 'text-gray-400'
+                                }`} />
+                                <span className={`text-sm font-medium ${
+                                  newCategory.type === 'DRINK' ? 'text-blue-800 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                                }`}>Drink</span>
                               </div>
-                              
-                              <div className="flex items-center space-x-2 p-2 rounded-md bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30">
-                                <RadioGroupItem value="OTHER" id="other" className="text-purple-600" />
-                                <Label htmlFor="other" className="flex items-center cursor-pointer">
-                                  <Package className="w-4 h-4 mr-2 text-purple-600" />
-                                  <span>Other</span>
-                                  <Badge className={`${typeColors.OTHER} ml-2 shadow-sm`}>OTHER</Badge>
-                                </Label>
-                              </div>
-                            </RadioGroup>
-                          </div>
-                          
-                          <div>
-                            <Label htmlFor="image" className="text-gray-700 dark:text-gray-300">Image</Label>
-                            <div className="mt-2">
-                              <div className="relative group">
-                                <Input 
-                                  id="image" 
-                                  type="file" 
-                                  accept="image/*" 
-                                  onChange={(e) => handleImageUpload(e, false)} 
-                                  className="bg-white dark:bg-gray-800"
-                                />
-                                <div className="absolute inset-0 pointer-events-none border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-md bg-gray-50/50 dark:bg-gray-900/20 flex items-center justify-center opacity-0 group-hover:opacity-30 transition-opacity">
-                                  <div className="text-sm text-gray-500 dark:text-gray-400 text-center">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto h-8 w-8 text-gray-400">
-                                      <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h7" />
-                                      <line x1="16" y1="5" x2="22" y2="5" />
-                                      <line x1="19" y1="2" x2="19" y2="8" />
-                                      <circle cx="9" cy="9" r="2" />
-                                      <path d="M21 15l-3.086-3.086a2 2 0 00-2.828 0L6 21" />
-                                    </svg>
-                                  </div>
-                                </div>
+                            </div>
+                            
+                            <div
+                              className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                                newCategory.type === 'OTHER'
+                                  ? 'border-purple-200 bg-purple-50/50 dark:bg-purple-900/20 dark:border-purple-800/50'
+                                  : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                              }`}
+                              onClick={() => setNewCategory({ ...newCategory, type: 'OTHER' })}
+                            >
+                              <div className="flex flex-col items-center text-center">
+                                <Package className={`h-8 w-8 mb-2 ${
+                                  newCategory.type === 'OTHER' ? 'text-purple-600 dark:text-purple-500' : 'text-gray-400'
+                                }`} />
+                                <span className={`text-sm font-medium ${
+                                  newCategory.type === 'OTHER' ? 'text-purple-800 dark:text-purple-400' : 'text-gray-700 dark:text-gray-300'
+                                }`}>Other</span>
                               </div>
                             </div>
                           </div>
-                          
-                          <div className="flex items-center justify-between p-3 rounded-md bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700">
-                            <Label htmlFor="isActive" className="flex items-center cursor-pointer">
-                              {newCategory.isActive ? (
-                                <>
-                                  <Eye className="w-4 h-4 mr-2 text-green-600 dark:text-green-500" /> 
-                                  <span>Active Status</span>
-                                </>
-                              ) : (
-                                <>
-                                  <EyeOff className="w-4 h-4 mr-2 text-gray-600 dark:text-gray-400" /> 
-                                  <span>Inactive Status</span>
-                                </>
-                              )}
-                            </Label>
+                        </div>
+                        
+                        {/* Category Status */}
+                        <div className="flex justify-between items-center border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800/70">
+                          <div>
+                            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Category Status</h3>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {newCategory.isActive ? 'Category will be visible to customers' : 'Category will be hidden from customers'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className={`text-sm ${newCategory.isActive ? 'text-green-600 dark:text-green-400' : 'text-gray-500'}`}>
+                              {newCategory.isActive ? 'Active' : 'Inactive'}
+                            </span>
                             <Switch
                               id="isActive"
                               checked={newCategory.isActive}
@@ -1472,34 +1476,34 @@ export default function ItemCategoryPage() {
                             />
                           </div>
                         </div>
-                        
-                        <DialogFooter className="mt-6 gap-2">
-                          <Button 
-                            variant="outline" 
-                            onClick={() => {
-                              setIsAddDialogOpen(false);
-                              // Reset form when closing
-                              setNewCategory({
-                                name: "",
-                                description: "",
-                                type: "FOOD",
-                                imageBase64: "",
-                                isActive: true,
-                              });
-                            }}
-                            className="flex-1"
-                          >
-                            Cancel
-                          </Button>
-                          <Button 
-                            onClick={handleAddCategory}
-                            className="flex-1 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-sm"
-                          >
-                            Add Category
-                          </Button>
-                        </DialogFooter>
                       </div>
                     </div>
+                    
+                    {/* Footer */}
+                    <DialogFooter className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setIsAddDialogOpen(false);
+                          setNewCategory({
+                            name: "",
+                            description: "",
+                            type: "FOOD",
+                            imageBase64: "",
+                            isActive: true,
+                          });
+                        }}
+                        className="mr-2"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={handleAddCategory}
+                        className="bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary"
+                      >
+                        Create Category
+                      </Button>
+                    </DialogFooter>
                   </DialogContent>
                 </Dialog>
               </div>
