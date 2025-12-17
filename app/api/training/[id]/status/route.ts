@@ -4,7 +4,7 @@ import clientPromise from "@/lib/mongodb";
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const training = await db.collection("trainings").findOne({ _id: params.id });
 
     if (!training) {

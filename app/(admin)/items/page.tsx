@@ -160,10 +160,10 @@ export default function RestaurantMenuManagement() {
           api.fetchStocks(),
           api.fetchMenuItems(),
         ])
-        setCategories(categoriesData.data)
-        setStocks(stocksData.data)
-        setMenuItems(menuItemsData.items)
-        setFilteredItems(menuItemsData.items)
+        setCategories(categoriesData.data || categoriesData.categories || [])
+        setStocks(stocksData.data || stocksData.stocks || [])
+        setMenuItems(menuItemsData.items || menuItemsData.data || [])
+        setFilteredItems(menuItemsData.items || menuItemsData.data || [])
       } catch (error) {
         console.error("Failed to fetch data:", error)
         setError("Failed to load data. Please try again later.")
@@ -195,31 +195,73 @@ export default function RestaurantMenuManagement() {
   const handleCreateOrUpdate = async (data: MenuItem) => {
     setIsLoading(true)
     setError(null)
+    
     try {
       // Prepare data for API by adapting to expected format
       const apiMenuItem = {
-        ...data,
-        category: data.categoryId,
-        image: data.imageUrl || '/placeholder.svg',
+        name: data.name,
+        description: data.description,
+        categoryId: data.categoryId,
+        price: data.price,
+        imageUrl: data.imageUrl || '/placeholder.svg',
+        requiredStock: data.requiredStock.filter(stock => stock.stockId && stock.quantity > 0), // Filter out empty stock items
+        nutritionalInfo: data.nutritionalInfo,
+        preparationTime: data.preparationTime,
+        isActive: data.isActive,
+        isFeatured: data.isFeatured,
+        category: data.categoryId, // Add category field for compatibility
       };
       
-      if (selectedItem) {
-        await api.updateMenuItem(selectedItem._id!, apiMenuItem)
-        toast.success("Item updated successfully")
+      console.log("Sending data to API:", apiMenuItem); // Debug log
+      
+      let response;
+      if (selectedItem && selectedItem._id) {
+        // Update existing item
+        response = await api.updateMenuItem(selectedItem._id, apiMenuItem);
+        if (response && response.success) {
+          toast.success("Item updated successfully");
+        } else {
+          throw new Error(response?.message || "Failed to update item");
+        }
       } else {
-        await api.createMenuItem(apiMenuItem)
-        toast.success("Item created successfully")
+        // Create new item - remove _id if present
+        const { _id, id, ...createData } = apiMenuItem;
+        response = await api.createMenuItem(createData);
+        if (response && response.success) {
+          toast.success("Item created successfully");
+        } else {
+          throw new Error(response?.message || "Failed to create item");
+        }
       }
-      const updatedItems = await api.fetchMenuItems()
-      setMenuItems(updatedItems.items)
-      setIsDialogOpen(false)
-      reset()
-    } catch (error) {
-      console.error("Error saving item:", error)
-      setError("Failed to save item. Please try again.")
-      toast.error("An error occurred while saving the item")
+      
+      // Refresh menu items
+      const updatedItems = await api.fetchMenuItems();
+      const items = updatedItems.items || updatedItems.data || [];
+      setMenuItems(items);
+      setFilteredItems(items);
+      setIsDialogOpen(false);
+      reset();
+      
+    } catch (error: any) {
+      console.error("Error saving item:", error);
+      
+      // Extract meaningful error message
+      let errorMessage = "Failed to save item. Please try again.";
+      
+      if (error.message && error.message.includes("500")) {
+        errorMessage = "Server error occurred. Please check your API endpoint.";
+      } else if (error.message && error.message.includes("400")) {
+        errorMessage = "Invalid data sent to server. Please check your inputs.";
+      } else if (error.message && error.message.includes("404")) {
+        errorMessage = "API endpoint not found. Please check your API configuration.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
@@ -236,7 +278,9 @@ export default function RestaurantMenuManagement() {
     try {
       await api.deleteMenuItem(itemToDelete);
       const updatedItems = await api.fetchMenuItems();
-      setMenuItems(updatedItems.items);
+      const items = updatedItems.items || updatedItems.data || [];
+      setMenuItems(items);
+      setFilteredItems(items);
       toast.success("Item deleted successfully");
     } catch (error) {
       console.error("Error deleting item:", error);
@@ -251,7 +295,14 @@ export default function RestaurantMenuManagement() {
 
   const handleEdit = (item: MenuItem) => {
     setSelectedItem(item)
-    reset(item)
+    // Ensure requiredStock is properly set
+    const itemToEdit = {
+      ...item,
+      requiredStock: item.requiredStock && item.requiredStock.length > 0 
+        ? item.requiredStock 
+        : [{ stockId: "", quantity: 0 }]
+    }
+    reset(itemToEdit)
     setIsDialogOpen(true)
   }
 
@@ -261,19 +312,42 @@ export default function RestaurantMenuManagement() {
   }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setValue("imageUrl", reader.result as string)
-      }
-      reader.readAsDataURL(file)
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Please upload a valid image file (JPEG, PNG, GIF, WebP)');
+      return;
     }
+    
+    // Validate file size (max 2MB)
+    const maxSize = 2 * 1024 * 1024; // 2MB
+    if (file.size > maxSize) {
+      toast.error('Image size should be less than 2MB');
+      return;
+    }
+    
+    const reader = new FileReader();
+    
+    reader.onloadend = () => {
+      if (reader.result) {
+        setValue("imageUrl", reader.result as string);
+        toast.success('Image uploaded successfully');
+      }
+    };
+    
+    reader.onerror = () => {
+      toast.error('Failed to read image file');
+    };
+    
+    reader.readAsDataURL(file);
   }
 
   const watchedImage = watch("imageUrl")
 
-  if (isLoading) {
+  if (isLoading && menuItems.length === 0) {
     return (
       <div className="flex flex-col justify-center items-center h-screen bg-gray-50">
         <div className="relative w-20 h-20">
@@ -287,7 +361,7 @@ export default function RestaurantMenuManagement() {
     )
   }
 
-  if (error) {
+  if (error && menuItems.length === 0) {
     return (
       <div className="flex flex-col justify-center items-center h-screen bg-red-50">
         <div className="max-w-md w-full p-8 bg-white rounded-lg shadow-lg">
@@ -379,9 +453,15 @@ export default function RestaurantMenuManagement() {
                 <Button
                   onClick={() => {
                     setSelectedItem(null)
-                    reset()
+                    reset({
+                      requiredStock: [{ stockId: "", quantity: 0 }],
+                      nutritionalInfo: { calories: 0, protein: 0, carbohydrates: 0, fat: 0 },
+                      isActive: true,
+                      isFeatured: false,
+                    })
                   }}
                   className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
+                  disabled={isLoading}
                 >
                   <Plus className="mr-2" /> Add New Item
                 </Button>
@@ -415,7 +495,12 @@ export default function RestaurantMenuManagement() {
                           <div className="space-y-4 pt-3">
                             <div className="grid gap-2">
                               <Label htmlFor="name">Item Name</Label>
-                              <Input id="name" {...register("name")} placeholder="e.g., Spicy Chicken Burger" />
+                              <Input 
+                                id="name" 
+                                {...register("name")} 
+                                placeholder="e.g., Spicy Chicken Burger" 
+                                disabled={isLoading}
+                              />
                               {errors.name && <p className="text-red-500 text-sm">{errors.name.message}</p>}
                             </div>
                             <div className="grid gap-2">
@@ -424,7 +509,11 @@ export default function RestaurantMenuManagement() {
                                 name="categoryId"
                                 control={control}
                                 render={({ field }) => (
-                                  <Select onValueChange={field.onChange} value={field.value || undefined}>
+                                  <Select 
+                                    onValueChange={field.onChange} 
+                                    value={field.value || undefined}
+                                    disabled={isLoading}
+                                  >
                                     <SelectTrigger id="category">
                                       <SelectValue placeholder="Select Category" />
                                     </SelectTrigger>
@@ -447,6 +536,7 @@ export default function RestaurantMenuManagement() {
                                 {...register("description")} 
                                 placeholder="Describe the item, its ingredients, flavors, etc." 
                                 className="min-h-[100px]" 
+                                disabled={isLoading}
                               />
                               {errors.description && <p className="text-red-500 text-sm">{errors.description.message}</p>}
                             </div>
@@ -459,6 +549,7 @@ export default function RestaurantMenuManagement() {
                                   type="number"
                                   step="0.01"
                                   placeholder="0.00"
+                                  disabled={isLoading}
                                 />
                                 {errors.price && <p className="text-red-500 text-sm">{errors.price.message}</p>}
                               </div>
@@ -469,6 +560,7 @@ export default function RestaurantMenuManagement() {
                                   {...register("preparationTime", { valueAsNumber: true })}
                                   type="number"
                                   placeholder="10"
+                                  disabled={isLoading}
                                 />
                                 {errors.preparationTime && (
                                   <p className="text-red-500 text-sm">{errors.preparationTime.message}</p>
@@ -483,9 +575,10 @@ export default function RestaurantMenuManagement() {
                                     <Input 
                                       id="imageUpload" 
                                       type="file" 
-                                      accept="image/*" 
+                                      accept="image/jpeg,image/jpg,image/png,image/gif,image/webp" 
                                       onChange={handleImageUpload} 
                                       className="p-2" 
+                                      disabled={isLoading}
                                     />
                                   </div>
                                 </div>
@@ -497,6 +590,11 @@ export default function RestaurantMenuManagement() {
                                         alt="Item Preview"
                                         className="w-full h-full object-cover"
                                       />
+                                      {isLoading && (
+                                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                          <Loader2 className="h-6 w-6 text-white animate-spin" />
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 )}
@@ -513,6 +611,7 @@ export default function RestaurantMenuManagement() {
                                         id="isActive"
                                         checked={field.value}
                                         onCheckedChange={field.onChange}
+                                        disabled={isLoading}
                                       />
                                       <Label htmlFor="isActive" className="cursor-pointer">Active Item</Label>
                                     </div>
@@ -529,6 +628,7 @@ export default function RestaurantMenuManagement() {
                                         id="isFeatured"
                                         checked={field.value}
                                         onCheckedChange={field.onChange}
+                                        disabled={isLoading}
                                       />
                                       <Label htmlFor="isFeatured" className="cursor-pointer">Featured Item</Label>
                                     </div>
@@ -548,6 +648,7 @@ export default function RestaurantMenuManagement() {
                                 size="sm"
                                 onClick={() => append({ stockId: "", quantity: 0 })}
                                 className="text-xs h-8"
+                                disabled={isLoading}
                               >
                                 <Plus className="mr-1 h-3 w-3" /> Add Ingredient
                               </Button>
@@ -566,7 +667,11 @@ export default function RestaurantMenuManagement() {
                                     name={`requiredStock.${index}.stockId`}
                                     control={control}
                                     render={({ field }) => (
-                                      <Select onValueChange={field.onChange} value={field.value || undefined}>
+                                      <Select 
+                                        onValueChange={field.onChange} 
+                                        value={field.value || undefined}
+                                        disabled={isLoading}
+                                      >
                                         <SelectTrigger id={`stock-${index}`} className="w-full">
                                           <SelectValue placeholder="Select Ingredient" />
                                         </SelectTrigger>
@@ -589,10 +694,18 @@ export default function RestaurantMenuManagement() {
                                     type="number"
                                     placeholder="0"
                                     className="w-full"
+                                    disabled={isLoading}
                                   />
                                 </div>
                                 <div className="flex items-end pb-1">
-                                  <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)} className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50">
+                                  <Button 
+                                    type="button" 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    onClick={() => remove(index)} 
+                                    className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    disabled={isLoading}
+                                  >
                                     <X className="h-4 w-4" />
                                   </Button>
                                 </div>
@@ -611,6 +724,7 @@ export default function RestaurantMenuManagement() {
                                   {...register("nutritionalInfo.calories", { valueAsNumber: true })}
                                   type="number"
                                   placeholder="0"
+                                  disabled={isLoading}
                                 />
                               </div>
                               <div className="grid gap-2">
@@ -620,6 +734,7 @@ export default function RestaurantMenuManagement() {
                                   {...register("nutritionalInfo.protein", { valueAsNumber: true })}
                                   type="number"
                                   placeholder="0"
+                                  disabled={isLoading}
                                 />
                               </div>
                               <div className="grid gap-2">
@@ -629,6 +744,7 @@ export default function RestaurantMenuManagement() {
                                   {...register("nutritionalInfo.carbohydrates", { valueAsNumber: true })}
                                   type="number"
                                   placeholder="0"
+                                  disabled={isLoading}
                                 />
                               </div>
                               <div className="grid gap-2">
@@ -638,6 +754,7 @@ export default function RestaurantMenuManagement() {
                                   {...register("nutritionalInfo.fat", { valueAsNumber: true })}
                                   type="number"
                                   placeholder="0"
+                                  disabled={isLoading}
                                 />
                               </div>
                             </div>
@@ -647,7 +764,11 @@ export default function RestaurantMenuManagement() {
                     </div>
                   </ScrollArea>
                   <DialogFooter className="pt-2">
-                    <Button type="submit" className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700" disabled={isLoading}>
+                    <Button 
+                      type="submit" 
+                      className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700" 
+                      disabled={isLoading}
+                    >
                       {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                       {selectedItem ? "Update Item" : "Create Item"}
                     </Button>
@@ -662,7 +783,7 @@ export default function RestaurantMenuManagement() {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {currentItems.length > 0 ? (
           currentItems.map((item) => (
-            <Card key={item._id} className="overflow-hidden hover:shadow-lg transition-shadow duration-300 group border border-gray-200">
+            <Card key={item._id || item.id} className="overflow-hidden hover:shadow-lg transition-shadow duration-300 group border border-gray-200">
               <div className="relative">
                 <CardHeader className="p-0">
                   <img 
@@ -709,15 +830,33 @@ export default function RestaurantMenuManagement() {
               </CardContent>
               <Separator />
               <CardFooter className="flex justify-between p-3 bg-gray-50">
-                <Button variant="ghost" size="sm" onClick={() => handleViewDetails(item)} className="flex-1 mr-1">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => handleViewDetails(item)} 
+                  className="flex-1 mr-1"
+                  disabled={isLoading}
+                >
                   <Eye className="mr-1.5" size={15} />
                   View
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleEdit(item)} className="flex-1 mr-1">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => handleEdit(item)} 
+                  className="flex-1 mr-1"
+                  disabled={isLoading}
+                >
                   <Edit className="mr-1.5" size={15} />
                   Edit
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleDelete(item._id!)} className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => handleDelete(item._id!)} 
+                  className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                  disabled={isLoading}
+                >
                   <Trash2 className="mr-1.5" size={15} />
                   Delete
                 </Button>
@@ -741,7 +880,7 @@ export default function RestaurantMenuManagement() {
                 variant="outline"
                 size="icon"
                 onClick={() => currentPage > 1 && paginate(currentPage - 1)}
-                disabled={currentPage === 1}
+                disabled={currentPage === 1 || isLoading}
                 className="h-9 w-9"
               >
                 <PaginationPrevious className="h-4 w-4" />
@@ -749,7 +888,11 @@ export default function RestaurantMenuManagement() {
             </PaginationItem>
             {Array.from({ length: Math.ceil(filteredItems.length / itemsPerPage) }).map((_, index) => (
               <PaginationItem key={index}>
-                <PaginationLink onClick={() => paginate(index + 1)} isActive={currentPage === index + 1}>
+                <PaginationLink 
+                  onClick={() => paginate(index + 1)} 
+                  isActive={currentPage === index + 1}
+                  disabled={isLoading}
+                >
                   {index + 1}
                 </PaginationLink>
               </PaginationItem>
@@ -759,7 +902,7 @@ export default function RestaurantMenuManagement() {
                 variant="outline"
                 size="icon"
                 onClick={() => currentPage < Math.ceil(filteredItems.length / itemsPerPage) && paginate(currentPage + 1)}
-                disabled={currentPage === Math.ceil(filteredItems.length / itemsPerPage)}
+                disabled={currentPage === Math.ceil(filteredItems.length / itemsPerPage) || isLoading}
                 className="h-9 w-9"
               >
                 <PaginationNext className="h-4 w-4" />
@@ -862,7 +1005,7 @@ export default function RestaurantMenuManagement() {
                 
                 <div>
                   <h3 className="text-lg font-semibold mb-2">Required Stock</h3>
-                  {selectedItem.requiredStock.length > 0 ? (
+                  {selectedItem.requiredStock && selectedItem.requiredStock.length > 0 ? (
                     <div className="bg-gray-50 rounded-lg p-3">
                       <table className="w-full text-sm">
                         <thead>

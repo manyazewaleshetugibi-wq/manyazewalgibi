@@ -225,7 +225,7 @@ export default function OrderManagement() {
       const response = await fetch("/api/waitress")
       if (!response.ok) throw new Error("Failed to fetch waitresses")
       const data = await response.json()
-      setWaitresses(data)
+      setWaitresses(data.waitresses || [])
     } catch (error) {
       console.error("Error fetching waitresses:", error)
       toast.error("Failed to fetch waitresses")
@@ -807,4 +807,3 @@ export default function OrderManagement() {
     </div>
   )
 }
-

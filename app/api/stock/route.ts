@@ -8,7 +8,7 @@ import { createResponse } from "@/lib/utils";
 export async function GET(req: NextRequest) {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const stocks = await db.collection("stocks").find().toArray();
 
     return createResponse(200, true, "Stocks retrieved successfully", stocks);
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     parsedData.updatedAt = new Date();
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const result = await db.collection("stocks").insertOne(parsedData);
 
     if (!result.acknowledged) {

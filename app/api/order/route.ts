@@ -6,7 +6,7 @@ import { TableOrderSchema } from "@/models/Orders"; // Ensure correct schema imp
 export async function POST(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
     const body = await req.json();
 
     // Validate that items are present in the request body
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
 
     // Fetch all orders from the 'orders' collection
     const orders = await db.collection("orders").find().toArray();

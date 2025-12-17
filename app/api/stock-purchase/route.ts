@@ -6,7 +6,7 @@ import { PurchaseSchema } from "@/models/Stock";
 export async function GET() {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const purchases = await db.collection("stock_purchases").find({}).toArray();
 
     return NextResponse.json({ success: true, purchases }, { status: 200 });
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     const parsed = PurchaseSchema.parse(body);
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const result = await db.collection("stock_purchases").insertOne(parsed);
 
     return NextResponse.json({ success: true, id: result.insertedId }, { status: 201 });

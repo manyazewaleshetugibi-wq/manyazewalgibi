@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Eye, EyeOff, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Loader2, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import toast from "react-hot-toast";
 import { useTheme } from "next-themes";
@@ -19,6 +19,37 @@ const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
+
+// Function to redirect based on user role
+const redirectBasedOnRole = (role: string, router: any) => {
+  switch (role.toLowerCase()) {
+    case "admin":
+      router.replace("/dashboard");
+      break;
+    case "pos":
+      router.replace("/pos");
+      break;
+    case "kitchen":
+      router.replace("/kitchen");
+      break;
+    case "fb":
+    case "f&b":
+      router.replace("/food-beverage");
+      break;
+    case "marketing":
+      router.replace("/blog");
+      break;
+    case "finance":
+      router.replace("/finance");
+      break;
+    case "stock_manager":
+      router.replace("/stock");
+      break;
+    default:
+      // Stay on login page for unknown roles
+      console.warn(`Unknown role: ${role}`);
+  }
+};
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({ email: "", password: "" });
@@ -34,8 +65,8 @@ export default function LoginPage() {
   useEffect(() => {
     const checkAuth = async () => {
       const session = await getSession();
-      if (session) {
-        router.replace("/dashboard");
+      if (session?.user?.role) {
+        redirectBasedOnRole(session.user.role, router);
       }
     };
 
@@ -135,12 +166,24 @@ export default function LoginPage() {
           },
         });
 
-        // Smooth transition
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        router.replace("/dashboard");
+        // Wait a moment for the session to be updated
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Get updated session with role
+        const session = await getSession();
+        
+        if (session?.user?.role) {
+          // Redirect based on role
+          redirectBasedOnRole(session.user.role, router);
+        } else {
+          // If no role is found, show error and stay on login page
+          toast.error("Your account doesn't have a valid role. Please contact administrator.");
+          console.error("No role found in session:", session);
+        }
       }
-    } catch (error) {
-      toast.error("An unexpected error occurred");
+    } catch (error: any) {
+      console.error("Login error:", error);
+      toast.error(error.message || "An unexpected error occurred");
     } finally {
       setIsLoading(false);
     }
@@ -388,4 +431,4 @@ export default function LoginPage() {
       </div>
     </motion.div>
   );
-} 
+}

@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     try {
       const body = await req.json();
       const dbClient = await clientPromise;
-      const db = dbClient.db();
+      const db = dbClient.db("gold");
   
       // Check if image is Base64 and upload it
       let imageUrl = body.imageUrl;
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const items = await db.collection("items").find({}).toArray();
 
     return NextResponse.json({ success: true, items }, { status: 200 });

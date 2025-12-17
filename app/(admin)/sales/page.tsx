@@ -87,7 +87,16 @@ type Item = {
   updatedAt: string
 }
 
-async function fetchSalesData() {
+type SalesData = {
+  totalSales: number
+  orderCount: number
+  totalTax: number
+  totalDiscounts: number
+  dailySales: Record<string, number>
+  orders: Order[]
+}
+
+async function fetchSalesData(): Promise<SalesData> {
   const response = await fetch("/api/order/report")
   const data = await response.json()
   return data
@@ -111,7 +120,7 @@ async function fetchItems(itemIds: string[]): Promise<Record<string, Item>> {
   return items
 }
 
-function exportToExcel(data, filename) {
+function exportToExcel(data: any[], filename: string) {
   const worksheet = XLSX.utils.json_to_sheet(data)
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, "Sales Data")
@@ -154,12 +163,12 @@ function SalesChart({ data }: { data: Record<string, number> }) {
 }
 
 export default function DashboardPage() {
-  const [salesData, setSalesData] = useState(null)
-  const [filteredOrders, setFilteredOrders] = useState([])
+  const [salesData, setSalesData] = useState<SalesData | null>(null)
+  const [filteredOrders, setFilteredOrders] = useState<Order[]>([])
   const [filterDate, setFilterDate] = useState("")
-  const [sortBy, setSortBy] = useState("date")
+  const [sortBy, setSortBy] = useState<keyof Order>("createdAt")
   const [sortOrder, setSortOrder] = useState("desc")
-  const [selectedOrder, setSelectedOrder] = useState(null)
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [selectedWaitress, setSelectedWaitress] = useState<Waitress | null>(null)
   const [selectedItems, setSelectedItems] = useState<Record<string, Item>>({})
   const [isLoading, setIsLoading] = useState(true)
@@ -169,19 +178,20 @@ export default function DashboardPage() {
       setIsLoading(true)
       const data = await fetchSalesData()
       setSalesData(data)
-      setFilteredOrders(data.orders)
+      setFilteredOrders(data.orders || [])
       setIsLoading(false)
     }
     loadData()
   }, [])
 
-  const handleFilter = (date) => {
+  const handleFilter = (date: string) => {
     setFilterDate(date)
-    const filtered = salesData.orders.filter((order) => order.createdAt.startsWith(date))
+    if (!salesData) return
+    const filtered = salesData.orders.filter((order: Order) => order.createdAt.startsWith(date))
     setFilteredOrders(filtered)
   }
 
-  const handleSort = (field) => {
+  const handleSort = (field: keyof Order) => {
     const order = field === sortBy && sortOrder === "asc" ? "desc" : "asc"
     setSortBy(field)
     setSortOrder(order)
@@ -197,7 +207,7 @@ export default function DashboardPage() {
     exportToExcel(filteredOrders, "sales_report")
   }
 
-  const handleViewDetails = async (order) => {
+  const handleViewDetails = async (order: Order) => {
     setSelectedOrder(order)
     const waitress = await fetchWaitress(order.waiterId)
     setSelectedWaitress(waitress)
@@ -213,7 +223,7 @@ export default function DashboardPage() {
     {
       accessorKey: "totalAmount",
       header: "Total",
-      cell: ({ row }) => {
+      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
         const amount = Number.parseFloat(row.getValue("totalAmount"))
         const formatted = new Intl.NumberFormat("en-US", {
           style: "currency",
@@ -225,7 +235,7 @@ export default function DashboardPage() {
     {
       accessorKey: "discount",
       header: "Discount",
-      cell: ({ row }) => {
+      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
         const amount = Number.parseFloat(row.getValue("discount"))
         const formatted = new Intl.NumberFormat("en-US", {
           style: "currency",
@@ -237,7 +247,7 @@ export default function DashboardPage() {
     {
       accessorKey: "tax",
       header: "Tax",
-      cell: ({ row }) => {
+      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
         const amount = Number.parseFloat(row.getValue("tax"))
         const formatted = new Intl.NumberFormat("en-US", {
           style: "currency",
@@ -249,7 +259,7 @@ export default function DashboardPage() {
     {
       accessorKey: "finalAmount",
       header: "Final Amount",
-      cell: ({ row }) => {
+      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
         const amount = Number.parseFloat(row.getValue("finalAmount"))
         const formatted = new Intl.NumberFormat("en-US", {
           style: "currency",
@@ -261,10 +271,10 @@ export default function DashboardPage() {
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => {
+      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
         const status = row.getValue("status") as string
         return (
-          <Badge variant={status === "COMPLETED" ? "success" : status === "PENDING" ? "warning" : "default"}>
+          <Badge variant={status === "COMPLETED" ? "default" : status === "PENDING" ? "default" : "default"}>
             {status}
           </Badge>
         )
@@ -273,13 +283,13 @@ export default function DashboardPage() {
     {
       accessorKey: "createdAt",
       header: "Date",
-      cell: ({ row }) => {
+      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
         return new Date(row.getValue("createdAt")).toLocaleString()
       },
     },
     {
       id: "actions",
-      cell: ({ row }) => {
+      cell: ({ row }: { row: { original: Order } }) => {
         const order = row.original
         return (
           <Button variant="ghost" onClick={() => handleViewDetails(order)}>
@@ -331,7 +341,7 @@ export default function DashboardPage() {
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{salesData.totalSales.toFixed(2)} ETB</div>
+                  <div className="text-2xl font-bold">{salesData?.totalSales.toFixed(2)} ETB</div>
                 </CardContent>
               </Card>
               <Card>
@@ -340,7 +350,7 @@ export default function DashboardPage() {
                   <ShoppingCart className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{salesData.orderCount}</div>
+                  <div className="text-2xl font-bold">{salesData?.orderCount}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -349,7 +359,7 @@ export default function DashboardPage() {
                   <BarChart className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{salesData.totalTax.toFixed(2)} ETB</div>
+                  <div className="text-2xl font-bold">{salesData?.totalTax.toFixed(2)} ETB</div>
                 </CardContent>
               </Card>
               <Card>
@@ -358,7 +368,7 @@ export default function DashboardPage() {
                   <ArrowDownIcon className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{salesData.totalDiscounts.toFixed(2)} ETB</div>
+                  <div className="text-2xl font-bold">{salesData?.totalDiscounts.toFixed(2)} ETB</div>
                   <p className="text-xs text-muted-foreground">+201 since last hour</p>
                 </CardContent>
               </Card>
@@ -369,7 +379,7 @@ export default function DashboardPage() {
                   <CardTitle>Sales Overview</CardTitle>
                 </CardHeader>
                 <CardContent className="pl-2">
-                  <SalesChart data={salesData.dailySales} />
+                  <SalesChart data={salesData?.dailySales || {}} />
                 </CardContent>
               </Card>
               <Card className="col-span-3">
@@ -378,7 +388,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-8">
-                    {salesData.orders.slice(0, 5).map((order) => (
+                    {salesData?.orders.slice(0, 5).map((order: Order) => (
                       <div className="flex items-center" key={order._id}>
                         <div className="space-y-1">
                           <p className="text-sm font-medium leading-none">{order.orderNumber}</p>
@@ -404,7 +414,7 @@ export default function DashboardPage() {
                   onChange={(e) => handleFilter(e.target.value)}
                   className="w-[180px]"
                 />
-                <Select onValueChange={(value) => handleSort(value)}>
+                <Select onValueChange={(value) => handleSort(value as keyof Order)}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Sort by" />
                   </SelectTrigger>
@@ -427,11 +437,11 @@ export default function DashboardPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredOrders.map((order) => (
-                    <TableRow key={order._id}>
+                    <TableRow key={order?._id}>
                       {columns.map((column) => (
-                        <TableCell key={`${order._id}-${column.accessorKey || column.id}`}>
+                        <TableCell key={`${order?._id}-${column.accessorKey || column.id}`}>
                           {column.cell
-                            ? column.cell({ row: { getValue: (key) => order[key], original: order } })
+                            ? column.cell({ row: { getValue: (key: string) => order[key as keyof Order], original: order } })
                             : order[column.accessorKey]}
                         </TableCell>
                       ))}
@@ -569,7 +579,7 @@ export default function DashboardPage() {
                         selectedOrder.status === "COMPLETED"
                           ? "success"
                           : selectedOrder.status === "PENDING"
-                            ? "warning"
+                            ? "default"
                             : "default"
                       }
                     >
@@ -596,4 +606,3 @@ export default function DashboardPage() {
     </div>
   )
 }
-

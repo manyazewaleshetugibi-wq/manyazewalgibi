@@ -8,7 +8,7 @@ const COLLECTION_NAME = "waitresses";
 export async function GET() {
     try {
         const client = await clientPromise;
-        const db = client.db();
+        const db = client.db("gold");
         const waitresses = await db.collection<Waitress>(COLLECTION_NAME).find({}).toArray();
 
         return NextResponse.json(waitresses, { status: 200 });
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
         };
 
         const client = await clientPromise;
-        const db = client.db();
+        const db = client.db("gold");
         await db.collection(COLLECTION_NAME).insertOne(newWaitress);
 
         return NextResponse.json({ message: "Waitress added successfully" }, { status: 201 });

@@ -6,7 +6,7 @@ import { FeedbackSchema } from "@/models/Feedback";
 export async function POST(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
     const body = await req.json();
 
     // Validate and parse feedback data
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
 
     // Extract query parameters for filtering and pagination
     const url = new URL(req.url);

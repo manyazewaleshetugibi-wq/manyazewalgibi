@@ -10,7 +10,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const category = await db.collection("stock_categories").findOne({ _id: new ObjectId(id) });
 
     if (!category) return NextResponse.json({ error: "Category not found" }, { status: 404 });
@@ -32,7 +32,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const parsed = StockCategorySubschema.partial().parse(body); // Partial update
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const result = await db.collection("stock_categories").updateOne(
       { _id: new ObjectId(id) },
       { $set: { ...parsed, updatedAt: new Date() } }
@@ -54,7 +54,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const result = await db.collection("stock_categories").deleteOne({ _id: new ObjectId(id) });
 
     if (result.deletedCount === 0) return NextResponse.json({ error: "Category not found" }, { status: 404 });

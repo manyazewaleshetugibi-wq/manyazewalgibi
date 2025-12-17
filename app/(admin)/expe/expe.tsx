@@ -73,7 +73,7 @@ export default function ExpensesPage() {
   const [filterCategory, setFilterCategory] = useState("")
   const [filterPriority, setFilterPriority] = useState("")
   const [filterStatus, setFilterStatus] = useState("")
-  const [sortBy, setSortBy] = useState("date")
+  const [sortBy, setSortBy] = useState<keyof Expense>("date")
   const [sortOrder, setSortOrder] = useState("desc")
   const [searchTerm, setSearchTerm] = useState("")
 
@@ -141,7 +141,7 @@ export default function ExpensesPage() {
     {
       accessorKey: "amount",
       header: "Amount",
-      cell: ({ row }) => {
+      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
         const amount = Number.parseFloat(row.getValue("amount"))
         const formatted = new Intl.NumberFormat("en-US", {
           style: "currency",
@@ -154,13 +154,13 @@ export default function ExpensesPage() {
     {
       accessorKey: "date",
       header: "Date",
-      cell: ({ row }) => format(new Date(row.getValue("date")), "PP"),
+      cell: ({ row }: { row: { getValue: (key: string) => string } }) => format(new Date(row.getValue("date")), "PP"),
     },
     {
       accessorKey: "priority",
       header: "Priority",
-      cell: ({ row }) => {
-        const priority = row.getValue("priority") as string
+      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
+        const priority = row.getValue("priority")
         return (
           <Badge variant={priority === "High" ? "destructive" : priority === "Medium" ? "default" : "secondary"}>
             {priority}
@@ -171,14 +171,14 @@ export default function ExpensesPage() {
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => {
-        const status = row.getValue("status") as string
-        return <Badge variant={status === "Paid" ? "success" : "warning"}>{status}</Badge>
+      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
+        const status = row.getValue("status")
+        return <Badge variant={status === "Paid" ? "default" : "secondary"}>{status}</Badge>
       },
     },
     {
       id: "actions",
-      cell: ({ row }) => {
+      cell: ({ row }: { row: { original: Expense } }) => {
         const expense = row.original
         return (
           <Dialog>
@@ -252,7 +252,7 @@ export default function ExpensesPage() {
                 <div className="grid grid-cols-4 items-center gap-4">
                   <span className="font-bold">Status:</span>
                   <span className="col-span-3">
-                    <Badge variant={expense.status === "Paid" ? "success" : "warning"}>{expense.status}</Badge>
+                    <Badge variant={expense.status === "Paid" ? "default" : "secondary"}>{expense.status}</Badge>
                   </span>
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
@@ -442,7 +442,7 @@ export default function ExpensesPage() {
                 </div>
               </div>
               <div className="flex items-center space-x-2">
-                <Select value={sortBy} onValueChange={setSortBy}>
+                <Select value={sortBy} onValueChange={(value) => setSortBy(value as keyof Expense)}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Sort by" />
                   </SelectTrigger>
@@ -475,10 +475,10 @@ export default function ExpensesPage() {
                     <TableRow key={expense._id}>
                       {columns.map((column) => (
                         <TableCell key={`${expense._id}-${column.accessorKey || column.id}`}>
-                          {column.cell
+                          {column.cell && column.accessorKey
                             ? column.cell({
-                                row: { getValue: (key) => expense[key as keyof Expense], original: expense },
-                              })
+                                row: { getValue: (key: string) => expense[key as keyof Expense], original: expense },
+                              } as any) // Using any here to satisfy the union type of cell signatures
                             : expense[column.accessorKey as keyof Expense]}
                         </TableCell>
                       ))}
@@ -493,7 +493,3 @@ export default function ExpensesPage() {
     </div>
   )
 }
-
-
-
-

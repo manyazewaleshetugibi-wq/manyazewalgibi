@@ -10,7 +10,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid purchase ID" }, { status: 400 });
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const purchase = await db.collection("stock_purchases").findOne({ _id: new ObjectId(id) });
 
     if (!purchase) return NextResponse.json({ error: "Purchase not found" }, { status: 404 });
@@ -29,7 +29,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid purchase ID" }, { status: 400 });
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const result = await db.collection("stock_purchases").deleteOne({ _id: new ObjectId(id) });
 
     if (result.deletedCount === 0) return NextResponse.json({ error: "Purchase not found" }, { status: 404 });
@@ -55,7 +55,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       const parsed = PurchaseSchema.partial().parse(body); // Allow partial updates
   
       const client = await clientPromise;
-      const db = client.db();
+      const db = client.db("gold");
       const result = await db.collection("stock_purchases").updateOne(
         { _id: new ObjectId(id) },
         { $set: parsed }

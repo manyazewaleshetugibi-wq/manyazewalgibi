@@ -6,7 +6,7 @@ import { ObjectId } from "mongodb"
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const client = await clientPromise
-    const db = client.db()
+    const db = client.db("gold")
     const expenseCollection = db.collection<Expense>("expenses")
 
     const expense = await expenseCollection.findOne({ _id: new ObjectId(params.id) })
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const client = await clientPromise
-    const db = client.db()
+    const db = client.db("gold")
     const expenseCollection = db.collection<Expense>("expenses")
 
     const expenseData: Partial<Expense> = await req.json()
@@ -49,7 +49,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const client = await clientPromise
-    const db = client.db()
+    const db = client.db("gold")
     const expenseCollection = db.collection<Expense>("expenses")
 
     const result = await expenseCollection.deleteOne({ _id: new ObjectId(params.id) })

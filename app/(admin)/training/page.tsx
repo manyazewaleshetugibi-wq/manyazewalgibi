@@ -38,6 +38,7 @@ import {
   FileIcon as FilePdf,
   FileAudio,
   FileText,
+  Image as ImageIcon,
   Upload,
   Search,
   Trash2,
@@ -54,26 +55,35 @@ import {
   AlertCircle,
   Loader2,
   Download,
+  File,
+  ExternalLink,
 } from "lucide-react"
 import ReactPlayer from "react-player"
-import { Table, TableBody, TableCell, TableHeader, TableHead, TableRow } from "@/components/ui/table"
 
-// Types
+// Updated Types to match Cloudinary response
 interface Training {
   _id: string
   title: string
   description: string
-  type: "video" | "pdf" | "audio" | "text"
+  type: "video" | "pdf" | "audio" | "text" | "image"
   fileUrl?: string
-  uploadStatus: "pending" | "uploading" | "completed" | "failed"
+  publicId?: string
+  format?: string
+  fileSize?: number
+  originalFileName?: string
+  mimeType?: string
+  uploadStatus: "pending" | "uploading" | "processing" | "completed" | "failed"
   uploadProgress: number
+  createdAt?: string
+  completedAt?: string
+  error?: string
 }
 
 export default function TrainingPage() {
   const [trainings, setTrainings] = useState<Training[]>([])
   const [search, setSearch] = useState("")
   const [typeFilter, setTypeFilter] = useState<string>("all")
-  const [sortBy, setSortBy] = useState<string>("title")
+  const [sortBy, setSortBy] = useState<string>("createdAt")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -86,79 +96,199 @@ export default function TrainingPage() {
     type: "video" as const,
   })
   const [isCreating, setIsCreating] = useState(false)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const playerRef = useRef<ReactPlayer>(null)
 
   // Fetch trainings
   const fetchTrainings = useCallback(async () => {
     try {
       const response = await fetch("/api/training")
+      if (!response.ok) throw new Error("Failed to fetch")
+      
       const data = await response.json()
-      setTrainings(data)
+      if (data.success) {
+        setTrainings(data.data || data.trainings || [])
+      } else {
+        throw new Error(data.error || "Failed to fetch trainings")
+      }
     } catch (error) {
+      console.error("Fetch error:", error)
       toast.error("Failed to fetch trainings")
     }
   }, [])
 
   useEffect(() => {
     fetchTrainings()
+    
+    // Set up polling for upload progress
+    const interval = setInterval(() => {
+      fetchTrainings()
+    }, 5000) // Poll every 5 seconds
+    
+    return () => clearInterval(interval)
   }, [fetchTrainings])
 
-  // File upload handling
-  const onDrop = useCallback(
-    async (acceptedFiles: File[]) => {
-      const file = acceptedFiles[0]
-      if (!file) return
-
-      setIsUploading(true)
-      const formData = new FormData()
-      formData.append("title", newTraining.title)
-      formData.append("description", newTraining.description)
-      formData.append("type", newTraining.type)
-      formData.append("file", file)
-
-      try {
-        const response = await fetch("/api/training", {
-          method: "POST",
-          body: formData,
-        })
-
-        if (!response.ok) throw new Error("Upload failed")
-
-        toast.success("Training uploaded successfully")
-        setIsCreating(false)
-        fetchTrainings()
-      } catch (error) {
-        toast.error("Failed to upload training")
-      } finally {
-        setIsUploading(false)
-        setUploadProgress(0)
-        setNewTraining({ title: "", description: "", type: "video" })
-      }
-    },
-    [newTraining, fetchTrainings],
-  )
+  // File upload handling with Cloudinary
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    const file = acceptedFiles[0]
+    if (!file) return
+    setUploadedFile(file)
+  }, [])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      "video/*": [".mp4", ".webm"],
-      "audio/*": [".mp3", ".wav"],
+      "video/*": [".mp4", ".webm", ".mov", ".avi"],
+      "audio/*": [".mp3", ".wav", ".ogg", ".m4a"],
       "application/pdf": [".pdf"],
-      "text/*": [".txt", ".md"],
+      "text/*": [".txt", ".md", ".json", ".html"],
+      "image/*": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"],
     },
-    disabled: !newTraining.title || !newTraining.description,
+    disabled: isUploading,
   })
+
+  // Format file size
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes) return "Unknown size"
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  // Validation helper function
+  const validateFileUpload = () => {
+    if (!newTraining.title.trim()) {
+      toast.error("Title is required")
+      return false
+    }
+    
+    if (newTraining.title.length < 3) {
+      toast.error("Title must be at least 3 characters")
+      return false
+    }
+    
+    if (!newTraining.description.trim()) {
+      toast.error("Description is required")
+      return false
+    }
+    
+    if (newTraining.description.length < 10) {
+      toast.error("Description must be at least 10 characters")
+      return false
+    }
+    
+    if (!uploadedFile) {
+      toast.error("Please select a file to upload")
+      return false
+    }
+    
+    // Check file size (100MB max)
+    const maxSize = 100 * 1024 * 1024 // 100MB
+    if (uploadedFile.size > maxSize) {
+      toast.error(`File size must be less than ${formatFileSize(maxSize)}`)
+      return false
+    }
+    
+    return true
+  }
+
+  const handleUpload = async () => {
+    if (!validateFileUpload()) {
+      return
+    }
+
+    setIsUploading(true)
+    setUploadProgress(0)
+
+    const formData = new FormData()
+    formData.append("title", newTraining.title)
+    formData.append("description", newTraining.description)
+    formData.append("type", newTraining.type)
+    formData.append("file", uploadedFile)
+
+    console.log("Uploading file:", {
+      title: newTraining.title,
+      description: newTraining.description,
+      type: newTraining.type,
+      fileName: uploadedFile?.name,
+      fileSize: uploadedFile?.size,
+      fileType: uploadedFile?.type,
+    })
+
+    try {
+      const response = await fetch("/api/training", {
+        method: "POST",
+        body: formData,
+      })
+
+      console.log("Response status:", response.status, response.statusText)
+
+      let data
+      try {
+        data = await response.json()
+        console.log("Response data:", data)
+      } catch (jsonError) {
+        console.error("Failed to parse JSON response:", jsonError)
+        throw new Error(`Server returned invalid response: ${response.status}`)
+      }
+
+      if (!response.ok) {
+        console.error("Server error response:", data)
+        throw new Error(
+          data.error || 
+          data.message || 
+          data.details || 
+          `Upload failed with status ${response.status}: ${response.statusText}`
+        )
+      }
+
+      if (data.success) {
+        toast.success("Training upload started successfully!")
+        setIsCreating(false)
+        setNewTraining({ title: "", description: "", type: "video" })
+        setUploadedFile(null)
+        fetchTrainings()
+      } else {
+        throw new Error(data.error || data.message || "Upload failed")
+      }
+    } catch (error: any) {
+      console.error("Upload error details:", error)
+      
+      // More specific error messages
+      if (error.name === "TypeError" && error.message.includes("fetch")) {
+        toast.error("Network error. Please check your connection and try again.")
+      } else if (error.message.includes("413")) {
+        toast.error("File too large. Please upload a smaller file.")
+      } else if (error.message.includes("415")) {
+        toast.error("Unsupported file type. Please check the file format.")
+      } else if (error.message.includes("500")) {
+        toast.error("Server error. Please try again later.")
+      } else {
+        toast.error(error.message || "Failed to upload training. Please check your inputs.")
+      }
+    } finally {
+      setIsUploading(false)
+      setUploadProgress(0)
+    }
+  }
 
   // Delete training
   const deleteTraining = async (id: string) => {
     try {
-      await fetch(`/api/training/${id}`, {
+      const response = await fetch(`/api/training/${id}`, {
         method: "DELETE",
       })
+      
+      const data = await response.json()
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Delete failed")
+      }
+      
       toast.success("Training deleted successfully")
       fetchTrainings()
-    } catch (error) {
-      toast.error("Failed to delete training")
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete training")
     }
   }
 
@@ -177,6 +307,8 @@ export default function TrainingPage() {
           return a.uploadStatus.localeCompare(b.uploadStatus)
         case "progress":
           return b.uploadProgress - a.uploadProgress
+        case "createdAt":
+          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
         default:
           return 0
       }
@@ -193,14 +325,16 @@ export default function TrainingPage() {
         return <FileAudio className="w-5 h-5" />
       case "text":
         return <FileText className="w-5 h-5" />
+      case "image":
+        return <ImageIcon className="w-5 h-5" />
       default:
-        return null
+        return <File className="w-5 h-5" />
     }
   }
 
   // Get status badge
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (training: Training) => {
+    switch (training.uploadStatus) {
       case "completed":
         return (
           <Badge variant="success" className="flex items-center gap-1">
@@ -208,15 +342,28 @@ export default function TrainingPage() {
           </Badge>
         )
       case "uploading":
+      case "processing":
         return (
           <Badge variant="warning" className="flex items-center gap-1">
-            <Loader2 className="w-3 h-3 animate-spin" /> Uploading
+            <Loader2 className="w-3 h-3 animate-spin" /> {training.uploadStatus === "uploading" ? "Uploading" : "Processing"}
           </Badge>
         )
       case "failed":
         return (
           <Badge variant="destructive" className="flex items-center gap-1">
             <XCircle className="w-3 h-3" /> Failed
+            {training.error && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <AlertCircle className="w-3 h-3 ml-1" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{training.error}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </Badge>
         )
       case "pending":
@@ -234,14 +381,21 @@ export default function TrainingPage() {
     }
   }
 
-  // Download handler
-  const handleDownload = (fileUrl: string, fileName: string) => {
-    const link = document.createElement("a")
-    link.href = fileUrl
-    link.download = fileName
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  // Format date
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "Unknown date"
+    return new Date(dateString).toLocaleDateString()
+  }
+
+  // Get Cloudinary video thumbnail
+  const getVideoThumbnail = (publicId?: string) => {
+    if (!publicId) return "/placeholder.svg"
+    return `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/video/upload/w_300,h_200,c_fill/${publicId}.jpg`
+  }
+
+  // Get max file size
+  const getMaxFileSize = () => {
+    return 100 * 1024 * 1024 // 100MB
   }
 
   return (
@@ -249,97 +403,186 @@ export default function TrainingPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">Training Management</h1>
-          <p className="text-muted-foreground mt-1">Create and manage training materials</p>
+          <p className="text-muted-foreground mt-1">Create and manage training materials with Cloudinary</p>
         </div>
-        <Dialog open={isCreating} onOpenChange={setIsCreating}>
-          <DialogTrigger asChild>
-            <Button>
-              <Upload className="w-4 h-4 mr-2" />
-              Create Training
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Create New Training</DialogTitle>
-              <DialogDescription>Fill in the training details and upload your content</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-6">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="title">Title</Label>
-                  <Input
-                    id="title"
-                    placeholder="Enter training title"
-                    value={newTraining.title}
-                    onChange={(e) => setNewTraining((prev) => ({ ...prev, title: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    placeholder="Enter training description"
-                    value={newTraining.description}
-                    onChange={(e) => setNewTraining((prev) => ({ ...prev, description: e.target.value }))}
-                    className="min-h-[100px]"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Type</Label>
-                  <Select
-                    value={newTraining.type}
-                    onValueChange={(value: "video" | "pdf" | "audio" | "text") =>
-                      setNewTraining((prev) => ({ ...prev, type: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="video">Video</SelectItem>
-                      <SelectItem value="pdf">PDF</SelectItem>
-                      <SelectItem value="audio">Audio</SelectItem>
-                      <SelectItem value="text">Text</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+      
+
+<Dialog open={isCreating} onOpenChange={setIsCreating}>
+  <DialogTrigger asChild>
+    <Button>
+      <Upload className="w-4 h-4 mr-2" />
+      Create Training
+    </Button>
+  </DialogTrigger>
+  <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden">
+    <DialogHeader className="px-1">
+      <DialogTitle>Create New Training</DialogTitle>
+      <DialogDescription>
+        Fill in the training details and upload your content to Cloudinary
+      </DialogDescription>
+    </DialogHeader>
+    
+    {/* Add scrollable container */}
+    <div className="overflow-y-auto max-h-[calc(90vh-180px)] px-1">
+      <div className="space-y-6">
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="title">Title *</Label>
+            <Input
+              id="title"
+              placeholder="Enter training title"
+              value={newTraining.title}
+              onChange={(e) => setNewTraining((prev) => ({ ...prev, title: e.target.value }))}
+              disabled={isUploading}
+              className={newTraining.title.length > 0 && newTraining.title.length < 3 ? "border-destructive" : ""}
+            />
+            {newTraining.title.length > 0 && newTraining.title.length < 3 && (
+              <p className="text-xs text-destructive">Title must be at least 3 characters</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="description">Description *</Label>
+            <Textarea
+              id="description"
+              placeholder="Enter training description"
+              value={newTraining.description}
+              onChange={(e) => setNewTraining((prev) => ({ ...prev, description: e.target.value }))}
+              className={`min-h-[100px] ${newTraining.description.length > 0 && newTraining.description.length < 10 ? "border-destructive" : ""}`}
+              disabled={isUploading}
+            />
+            {newTraining.description.length > 0 && newTraining.description.length < 10 && (
+              <p className="text-xs text-destructive">Description must be at least 10 characters</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Type *</Label>
+            <Select
+              value={newTraining.type}
+              onValueChange={(value: "video" | "pdf" | "audio" | "text" | "image") =>
+                setNewTraining((prev) => ({ ...prev, type: value }))
+              }
+              disabled={isUploading}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="video">Video</SelectItem>
+                <SelectItem value="image">Image</SelectItem>
+                <SelectItem value="pdf">PDF</SelectItem>
+                <SelectItem value="audio">Audio</SelectItem>
+                <SelectItem value="text">Text</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        
+        <div className="space-y-4">
+          <Label>File Upload *</Label>
+          <div
+            {...getRootProps()}
+            className={`
+              border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
+              transition-colors duration-200 min-h-[200px] flex flex-col items-center justify-center
+              ${isDragActive ? "border-primary bg-primary/5" : "border-border"}
+              ${isUploading ? "opacity-50 cursor-not-allowed" : "hover:border-primary/50"}
+              ${uploadedFile && uploadedFile.size > getMaxFileSize() ? "border-destructive bg-destructive/5" : ""}
+            `}
+          >
+            <input {...getInputProps()} />
+            {uploadedFile ? (
+              <div className="space-y-2">
+                <File className="w-12 h-12 mx-auto mb-2 text-primary" />
+                <p className="font-medium">{uploadedFile.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {formatFileSize(uploadedFile.size)} • {uploadedFile.type}
+                </p>
+                {uploadedFile.size > getMaxFileSize() && (
+                  <p className="text-sm text-destructive font-medium">
+                    File too large! Max {formatFileSize(getMaxFileSize())}
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setUploadedFile(null)
+                  }}
+                  disabled={isUploading}
+                >
+                  Remove File
+                </Button>
               </div>
-              <div
-                {...getRootProps()}
-                className={`
-                  border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
-                  transition-colors duration-200
-                  ${isDragActive ? "border-primary bg-primary/5" : "border-border"}
-                  ${!newTraining.title || !newTraining.description ? "opacity-50 cursor-not-allowed" : ""}
-                `}
-              >
-                <input {...getInputProps()} />
+            ) : (
+              <>
                 <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
-                  {!newTraining.title || !newTraining.description
-                    ? "Please fill in the title and description first"
-                    : "Drag and drop your file here or click to browse"}
+                  {isDragActive ? "Drop the file here" : "Drag and drop your file here or click to browse"}
                 </p>
-                <p className="text-xs text-muted-foreground mt-2">Supported formats: Video, Audio, PDF, Text</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Supported formats: Video, Image, Audio, PDF, Text
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Max file size: {formatFileSize(getMaxFileSize())}
+                </p>
+              </>
+            )}
+          </div>
+          
+          {uploadedFile && (
+            <div className="flex items-center justify-between text-sm">
+              <div>
+                <span className="text-muted-foreground">Ready to upload • </span>
+                <span className="font-medium">{formatFileSize(uploadedFile.size)}</span>
               </div>
-              {isUploading && (
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Uploading...</span>
-                    <span>{uploadProgress}%</span>
-                  </div>
-                  <Progress value={uploadProgress} className="w-full" />
-                </div>
+              {uploadedFile.size > getMaxFileSize() && (
+                <span className="text-red-500 text-sm font-medium">File too large!</span>
               )}
             </div>
-          </DialogContent>
-        </Dialog>
+          )}
+        </div>
+      </div>
+    </div>
+    
+    {/* Fixed position button at bottom */}
+    <div className="pt-4 border-t sticky bottom-0 bg-background px-1">
+      <Button
+        onClick={handleUpload}
+        disabled={
+          !newTraining.title || 
+          !newTraining.description || 
+          !uploadedFile || 
+          isUploading ||
+          newTraining.title.length < 3 ||
+          newTraining.description.length < 10 ||
+          (uploadedFile && uploadedFile.size > getMaxFileSize())
+        }
+        className="w-full"
+      >
+        {isUploading ? (
+          <>
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            Uploading to Cloudinary...
+          </>
+        ) : (
+          <>
+            <Upload className="w-4 h-4 mr-2" />
+            Upload to Cloudinary
+          </>
+        )}
+      </Button>
+    </div>
+  </DialogContent>
+</Dialog>
+
+
       </div>
 
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Search and Filter</CardTitle>
+            <CardTitle>Training Materials ({trainings.length})</CardTitle>
             <div className="flex items-center gap-2">
               <Button
                 variant={viewMode === "grid" ? "secondary" : "ghost"}
@@ -359,7 +602,7 @@ export default function TrainingPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
               <Label htmlFor="search">Search</Label>
               <div className="relative">
@@ -373,28 +616,30 @@ export default function TrainingPage() {
                 />
               </div>
             </div>
-            <div className="w-[200px]">
+            <div className="w-full sm:w-[200px]">
               <Label>Type</Label>
               <Select value={typeFilter} onValueChange={setTypeFilter}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select type" />
+                  <SelectValue placeholder="All Types" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Types</SelectItem>
                   <SelectItem value="video">Video</SelectItem>
+                  <SelectItem value="image">Image</SelectItem>
                   <SelectItem value="pdf">PDF</SelectItem>
                   <SelectItem value="audio">Audio</SelectItem>
                   <SelectItem value="text">Text</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="w-[200px]">
+            <div className="w-full sm:w-[200px]">
               <Label>Sort By</Label>
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger>
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="createdAt">Newest First</SelectItem>
                   <SelectItem value="title">Title</SelectItem>
                   <SelectItem value="status">Status</SelectItem>
                   <SelectItem value="progress">Progress</SelectItem>
@@ -422,150 +667,36 @@ export default function TrainingPage() {
                 exit={{ opacity: 0, scale: 0.9 }}
                 className="group"
               >
-                <Card className="overflow-hidden transition-all duration-200 hover:shadow-lg">
-                  <CardHeader className="space-y-4">
+                <Card className="overflow-hidden transition-all duration-200 hover:shadow-lg h-full flex flex-col">
+                  <CardHeader className="space-y-4 pb-4">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-2">
                         <div className="p-2 bg-secondary rounded-lg">{getIcon(training.type)}</div>
-                        {getStatusBadge(training.uploadStatus)}
+                        {getStatusBadge(training)}
                       </div>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This action cannot be undone. This will permanently delete the training material and
-                              remove all associated data.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => deleteTraining(training._id)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                    <div className="space-y-1">
-                      <CardTitle className="flex items-center justify-between">
-                        <span>{training.title}</span>
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="flex items-center space-x-1">
-                                <span className="text-sm font-normal">{training.type}</span>
-                                <span className="text-sm font-normal">•</span>
-                                <span className="text-sm font-normal">{training.uploadProgress}%</span>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Type: {training.type}</p>
-                              <p>Status: {training.uploadStatus}</p>
-                              <p>Progress: {training.uploadProgress}%</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </CardTitle>
-                      <CardDescription className="line-clamp-2">{training.description}</CardDescription>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {training.uploadStatus === "uploading" && (
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Uploading...</span>
-                          <span className="text-muted-foreground">{training.uploadProgress}%</span>
-                        </div>
-                        <Progress value={training.uploadProgress} className="w-full" />
-                      </div>
-                    )}
-                  </CardContent>
-                  <CardFooter>
-                    <div className="w-full flex justify-between">
-                      <Button
-                        className="flex-1 mr-2"
-                        onClick={() => setSelectedTraining(training)}
-                        disabled={training.uploadStatus !== "completed"}
-                      >
-                        View Content
-                      </Button>
-                      {(training.type === "pdf" || training.type === "audio") && training.fileUrl && (
-                        <Button
-                          variant="outline"
-                          onClick={() => handleDownload(training.fileUrl!, `${training.title}.${training.type}`)}
-                        >
-                          <Download className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </CardFooter>
-                </Card>
-              </motion.div>
-            ))}
-          </motion.div>
-        ) : (
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Progress</TableHead>
-                  <TableHead className="w-[100px]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTrainings.map((training) => (
-                  <TableRow key={training._id}>
-                    <TableCell>{getIcon(training.type)}</TableCell>
-                    <TableCell className="font-medium">{training.title}</TableCell>
-                    <TableCell className="max-w-[300px] truncate">{training.description}</TableCell>
-                    <TableCell>{getStatusBadge(training.uploadStatus)}</TableCell>
-                    <TableCell>
-                      <Progress value={training.uploadProgress} className="w-full" />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setSelectedTraining(training)}
-                          disabled={training.uploadStatus !== "completed"}
-                        >
-                          <Play className="h-4 w-4" />
-                        </Button>
-                        {(training.type === "pdf" || training.type === "audio") && training.fileUrl && (
+                      <div className="flex items-center gap-1">
+                        {training.uploadStatus === "completed" && training.fileUrl && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDownload(training.fileUrl!, `${training.title}.${training.type}`)}
+                            className="h-8 w-8"
+                            onClick={() => window.open(training.fileUrl, '_blank')}
                           >
-                            <Download className="h-4 w-4" />
+                            <ExternalLink className="h-4 w-4" />
                           </Button>
                         )}
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon">
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                              <AlertDialogTitle>Delete Training</AlertDialogTitle>
                               <AlertDialogDescription>
-                                This action cannot be undone. This will permanently delete the training material and
-                                remove all associated data.
+                                This will permanently delete this training material from Cloudinary and your database.
+                                This action cannot be undone.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
@@ -580,115 +711,327 @@ export default function TrainingPage() {
                           </AlertDialogContent>
                         </AlertDialog>
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </div>
+                    <div className="space-y-2">
+                      <CardTitle className="text-lg leading-tight">{training.title}</CardTitle>
+                      <CardDescription className="line-clamp-2">{training.description}</CardDescription>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="flex-grow space-y-4">
+                    {/* Video thumbnail preview */}
+                    {training.type === "video" && training.publicId && (
+                      <div className="relative aspect-video rounded-lg overflow-hidden bg-muted">
+                        <img
+                          src={getVideoThumbnail(training.publicId)}
+                          alt={training.title}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                          <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                            <Play className="w-6 h-6 text-white" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* File info */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Type</span>
+                        <span className="font-medium capitalize">{training.type}</span>
+                      </div>
+                      {training.fileSize && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Size</span>
+                          <span className="font-medium">{formatFileSize(training.fileSize)}</span>
+                        </div>
+                      )}
+                      {training.createdAt && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Created</span>
+                          <span className="font-medium">{formatDate(training.createdAt)}</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Upload progress */}
+                    {(training.uploadStatus === "uploading" || training.uploadStatus === "processing") && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground capitalize">{training.uploadStatus}...</span>
+                          <span className="font-medium">{training.uploadProgress}%</span>
+                        </div>
+                        <Progress value={training.uploadProgress} className="w-full" />
+                      </div>
+                    )}
+                    
+                    {/* Error message */}
+                    {training.uploadStatus === "failed" && training.error && (
+                      <div className="p-3 bg-destructive/10 rounded-lg">
+                        <p className="text-sm text-destructive font-medium">Error: {training.error}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                  <CardFooter className="pt-4">
+                    <div className="w-full flex justify-between">
+                      <Button
+                        className="flex-1"
+                        onClick={() => setSelectedTraining(training)}
+                        disabled={training.uploadStatus !== "completed"}
+                      >
+                        {training.uploadStatus === "completed" ? "View Content" : "Processing..."}
+                      </Button>
+                      {training.uploadStatus === "completed" && training.fileUrl && (
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="ml-2"
+                          onClick={() => {
+                            const link = document.createElement('a')
+                            link.href = training.fileUrl!
+                            link.download = training.originalFileName || `${training.title}.${training.format || training.type}`
+                            link.click()
+                          }}
+                        >
+                          <Download className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </CardFooter>
+                </Card>
+              </motion.div>
+            ))}
+          </motion.div>
+        ) : (
+          // List view (similar structure but in table format)
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-4 font-medium">Type</th>
+                    <th className="text-left p-4 font-medium">Title</th>
+                    <th className="text-left p-4 font-medium">Status</th>
+                    <th className="text-left p-4 font-medium">Size</th>
+                    <th className="text-left p-4 font-medium">Created</th>
+                    <th className="text-left p-4 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTrainings.map((training) => (
+                    <tr key={training._id} className="border-b hover:bg-muted/50">
+                      <td className="p-4">
+                        <div className="flex items-center gap-2">
+                          {getIcon(training.type)}
+                          <span className="capitalize">{training.type}</span>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div>
+                          <p className="font-medium">{training.title}</p>
+                          <p className="text-sm text-muted-foreground truncate max-w-[300px]">
+                            {training.description}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="p-4">{getStatusBadge(training)}</td>
+                      <td className="p-4">{formatFileSize(training.fileSize)}</td>
+                      <td className="p-4">{formatDate(training.createdAt)}</td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setSelectedTraining(training)}
+                            disabled={training.uploadStatus !== "completed"}
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteTraining(training._id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Card>
         )}
       </AnimatePresence>
 
+      {/* Preview Dialog */}
       <Dialog open={!!selectedTraining} onOpenChange={() => setSelectedTraining(null)}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedTraining?.title}</DialogTitle>
             <DialogDescription>{selectedTraining?.description}</DialogDescription>
           </DialogHeader>
-          <Tabs defaultValue="preview" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="preview">Preview</TabsTrigger>
-              <TabsTrigger value="details">Details</TabsTrigger>
-            </TabsList>
-            <TabsContent value="preview">
-              {selectedTraining?.type === "video" && selectedTraining.fileUrl && (
-                <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-                  <ReactPlayer
-                    ref={playerRef}
-                    url={selectedTraining.fileUrl}
-                    width="100%"
-                    height="100%"
-                    playing={isPlaying}
-                    muted={isMuted}
-                    controls
-                    config={{
-                      file: {
-                        attributes: {
-                          controlsList: "nodownload",
+          
+          {selectedTraining && (
+            <Tabs defaultValue="preview" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="preview">Preview</TabsTrigger>
+                <TabsTrigger value="details">Details</TabsTrigger>
+                <TabsTrigger value="info">File Info</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="preview" className="space-y-4">
+                {selectedTraining.type === "video" && selectedTraining.fileUrl && (
+                  <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
+                    <ReactPlayer
+                      ref={playerRef}
+                      url={selectedTraining.fileUrl}
+                      width="100%"
+                      height="100%"
+                      playing={isPlaying}
+                      muted={isMuted}
+                      controls
+                      config={{
+                        file: {
+                          attributes: {
+                            controlsList: "nodownload",
+                          },
                         },
-                      },
-                    }}
-                  />
-                  <div className="absolute bottom-4 left-4 right-4 flex items-center gap-2">
-                    <Button size="icon" variant="secondary" onClick={() => setIsPlaying(!isPlaying)}>
-                      {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                    </Button>
-                    <Button size="icon" variant="secondary" onClick={() => setIsMuted(!isMuted)}>
-                      {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="secondary"
-                      onClick={() => {
-                        const element = document.documentElement
-                        if (element.requestFullscreen) {
-                          element.requestFullscreen()
-                        }
                       }}
-                    >
-                      <Maximize2 className="h-4 w-4" />
-                    </Button>
+                    />
                   </div>
-                </div>
-              )}
-              {selectedTraining?.type === "pdf" && selectedTraining.fileUrl && (
-                <iframe
-                  src={selectedTraining.fileUrl}
-                  className="w-full h-[600px] border rounded-lg"
-                  title={selectedTraining.title}
-                />
-              )}
-              {selectedTraining?.type === "audio" && selectedTraining.fileUrl && (
-                <audio controls className="w-full">
-                  <source src={selectedTraining.fileUrl} type="audio/mpeg" />
-                  Your browser does not support the audio element.
-                </audio>
-              )}
-              {selectedTraining?.type === "text" && selectedTraining.fileUrl && (
-                <div className="max-h-[600px] overflow-y-auto p-4 border rounded-lg">
-                  <pre className="whitespace-pre-wrap">{selectedTraining.fileUrl}</pre>
-                </div>
-              )}
-            </TabsContent>
-            <TabsContent value="details">
-              <div className="space-y-4">
+                )}
+                
+                {selectedTraining.type === "image" && selectedTraining.fileUrl && (
+                  <div className="relative rounded-lg overflow-hidden">
+                    <img
+                      src={selectedTraining.fileUrl}
+                      alt={selectedTraining.title}
+                      className="w-full h-auto max-h-[60vh] object-contain"
+                    />
+                  </div>
+                )}
+                
+                {selectedTraining.type === "pdf" && selectedTraining.fileUrl && (
+                  <iframe
+                    src={`${selectedTraining.fileUrl}#view=fitH`}
+                    className="w-full h-[60vh] border rounded-lg"
+                    title={selectedTraining.title}
+                  />
+                )}
+                
+                {selectedTraining.type === "audio" && selectedTraining.fileUrl && (
+                  <div className="p-4 border rounded-lg">
+                    <audio controls className="w-full" src={selectedTraining.fileUrl}>
+                      Your browser does not support the audio element.
+                    </audio>
+                  </div>
+                )}
+                
+                {selectedTraining.type === "text" && selectedTraining.fileUrl && (
+                  <div className="p-4 border rounded-lg">
+                    <iframe
+                      src={selectedTraining.fileUrl}
+                      className="w-full h-[60vh] border-0"
+                      title={selectedTraining.title}
+                    />
+                  </div>
+                )}
+              </TabsContent>
+              
+              <TabsContent value="details" className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label>Type</Label>
-                    <div className="flex items-center gap-2 mt-1">
-                      {getIcon(selectedTraining?.type || "")}
-                      <span className="capitalize">{selectedTraining?.type}</span>
+                    <Label>Upload Status</Label>
+                    <div className="mt-2">{getStatusBadge(selectedTraining)}</div>
+                  </div>
+                  <div>
+                    <Label>Progress</Label>
+                    <Progress value={selectedTraining.uploadProgress} className="mt-2" />
+                  </div>
+                  <div>
+                    <Label>File Type</Label>
+                    <p className="mt-2 text-sm">{selectedTraining.mimeType || selectedTraining.type}</p>
+                  </div>
+                  <div>
+                    <Label>Format</Label>
+                    <p className="mt-2 text-sm">{selectedTraining.format || "N/A"}</p>
+                  </div>
+                </div>
+                
+                {selectedTraining.error && (
+                  <div className="p-3 bg-destructive/10 rounded-lg">
+                    <Label className="text-destructive">Error Details</Label>
+                    <p className="mt-1 text-sm">{selectedTraining.error}</p>
+                  </div>
+                )}
+              </TabsContent>
+              
+              <TabsContent value="info" className="space-y-4">
+                <div className="space-y-4">
+                  <div>
+                    <Label>File Name</Label>
+                    <p className="mt-1 text-sm">{selectedTraining.originalFileName || "N/A"}</p>
+                  </div>
+                  <div>
+                    <Label>File Size</Label>
+                    <p className="mt-1 text-sm">{formatFileSize(selectedTraining.fileSize)}</p>
+                  </div>
+                  <div>
+                    <Label>Cloudinary Public ID</Label>
+                    <p className="mt-1 text-sm font-mono text-muted-foreground break-all">
+                      {selectedTraining.publicId || "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <Label>Created At</Label>
+                    <p className="mt-1 text-sm">{formatDate(selectedTraining.createdAt)}</p>
+                  </div>
+                  {selectedTraining.completedAt && (
+                    <div>
+                      <Label>Completed At</Label>
+                      <p className="mt-1 text-sm">{formatDate(selectedTraining.completedAt)}</p>
+                    </div>
+                  )}
+                </div>
+                
+                {selectedTraining.fileUrl && (
+                  <div className="space-y-2">
+                    <Label>Direct URL</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={selectedTraining.fileUrl}
+                        readOnly
+                        className="font-mono text-sm"
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => navigator.clipboard.writeText(selectedTraining.fileUrl!)}
+                      >
+                        Copy
+                      </Button>
                     </div>
                   </div>
-                  <div>
-                    <Label>Status</Label>
-                    <div className="mt-1">{getStatusBadge(selectedTraining?.uploadStatus || "")}</div>
-                  </div>
-                  <div>
-                    <Label>Upload Progress</Label>
-                    <Progress value={selectedTraining?.uploadProgress} className="mt-2" />
-                  </div>
-                </div>
-                <div>
-                  <Label>Description</Label>
-                  <p className="mt-1 text-muted-foreground">{selectedTraining?.description}</p>
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
+                )}
+              </TabsContent>
+            </Tabs>
+          )}
         </DialogContent>
       </Dialog>
+
+      {filteredTrainings.length === 0 && (
+        <div className="text-center py-12">
+          <Upload className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+          <h3 className="text-lg font-medium mb-2">No training materials yet</h3>
+          <p className="text-muted-foreground mb-4">Upload your first training material to get started</p>
+          <Button onClick={() => setIsCreating(true)}>
+            <Upload className="w-4 h-4 mr-2" />
+            Upload Training Material
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
-

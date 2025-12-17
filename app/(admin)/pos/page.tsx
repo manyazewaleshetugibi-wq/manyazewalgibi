@@ -518,7 +518,7 @@ export default function OrderPage() {
         router.refresh()
 
         let progress = 0
-        const interval = setInterval(() => {
+        const interval = setInterval(() => { // This logic seems to be for UI feedback and is fine.
           progress += 10
           setOrderProgress(progress)
           if (progress >= 100) {
@@ -527,11 +527,13 @@ export default function OrderPage() {
           }
         }, 1000)
       } else {
-        if (responseData.message?.includes("Insufficient stock")) {
-          setInsufficientStockItem(responseData.message.split(":")[1].trim())
-          toast.error(`Insufficient stock for ${responseData.message.split(":")[1].trim()}`, { id: orderToast })
+        const errorMessage = responseData.message || "An unknown error occurred";
+        if (errorMessage.includes("Insufficient stock")) {
+          const itemName = responseData.itemName || "the selected item";
+          setInsufficientStockItem(itemName);
+          toast.error(`Insufficient stock for ${itemName}`, { id: orderToast });
         } else {
-          throw new Error(responseData.message || "Failed to place order")
+          throw new Error(errorMessage);
         }
       }
     } catch (error) {
@@ -793,31 +795,35 @@ export default function OrderPage() {
             </div>
       </main>
 
-      {/* Insufficient Stock Dialog */}
+      {/* Insufficient Stock Dialog - FIXED */}
       <Dialog open={!!insufficientStockItem} onOpenChange={() => setInsufficientStockItem(null)}>
         <DialogContent className="sm:max-w-md border-primary/10 bg-background/95 backdrop-blur-md rounded-2xl max-w-[90%] p-4 sm:p-6">
-          <DialogHeader>
-            <DialogTitle className="text-base sm:text-xl font-semibold flex items-center gap-2">
-              <div className="bg-destructive/10 rounded-full p-1.5">
-                <X className="h-4 w-4 sm:h-5 sm:w-5 text-destructive" />
-              </div>
-              Insufficient Stock
-            </DialogTitle>
-            <DialogDescription className="pt-2 sm:pt-3 text-xs sm:text-base">
-              We're sorry, but there is insufficient stock for the item:
-              <Badge variant="outline" className="ml-2 font-medium text-foreground border-primary/20 px-2 py-1 text-xs">
-                {insufficientStockItem}
-              </Badge>
-              <p className="mt-2">Please adjust your order or check back later.</p>
+          <DialogHeader className="text-left">
+            <DialogTitle>Insufficient Stock</DialogTitle>
+            <DialogDescription>
+              We're sorry, but there is not enough stock for the requested item.
             </DialogDescription>
           </DialogHeader>
+          <div className="flex items-center gap-2">
+            <div className="bg-destructive/10 rounded-full p-2">
+              <X className="h-5 w-5 text-destructive" />
+            </div>
+            <div>
+              <p className="font-medium">{insufficientStockItem}</p>
+              <p className="text-sm text-muted-foreground">
+                Please adjust your order or check back later.
+              </p>
+            </div>
+          </div>
+          
           <DialogFooter className="sm:justify-end">
             <Button 
               onClick={() => setInsufficientStockItem(null)}
               className="w-full sm:w-auto rounded-xl text-sm"
               variant="default"
             >
-              <Check className="mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" /> Understood
+              <Check className="mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" /> 
+              Understood
             </Button>
           </DialogFooter>
         </DialogContent>

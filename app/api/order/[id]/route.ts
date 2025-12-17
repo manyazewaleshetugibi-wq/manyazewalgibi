@@ -10,7 +10,7 @@ export async function GET(
 ) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
 
     const orderId = params.id;
 
@@ -46,7 +46,7 @@ export async function PUT(
 ) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
 
     const orderId = params.id;
 
@@ -99,7 +99,7 @@ export async function DELETE(
 ) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
 
     const orderId = params.id;
 
@@ -133,7 +133,7 @@ export async function DELETE(
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
     const ordersCollection = db.collection("orders");
 
     if (!ObjectId.isValid(params.id)) {

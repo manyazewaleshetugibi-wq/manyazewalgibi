@@ -8,7 +8,7 @@ import { authOptions } from "../auth/[...nextauth]/auth";
 export async function POST(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
 
     const body = await req.json();
 
@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
 
     // Fetch all orders from the 'delivery' collection
     const orders = await db.collection("delivery").find().toArray();

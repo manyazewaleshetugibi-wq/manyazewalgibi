@@ -6,7 +6,7 @@ import { uploadFileToS3 } from "@/lib/s3tr";
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
 
     const training = await db.collection("trainings").findOne({ _id: new ObjectId(params.id) });
 
@@ -34,7 +34,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
 
     let fileUrl: string | undefined;
     if (file) {
@@ -58,7 +58,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     await db.collection("trainings").deleteOne({ _id: new ObjectId(params.id) }); // Convert id to ObjectId
 
     return NextResponse.json({ message: "Training deleted successfully" }, { status: 200 });

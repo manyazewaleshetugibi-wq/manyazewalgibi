@@ -7,7 +7,7 @@ import { ObjectId } from "mongodb";
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
     const feedbackId = params.id;
 
     // Validate the feedback ID
@@ -40,7 +40,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
     const feedbackId = params.id;
 
     // Validate feedback ID

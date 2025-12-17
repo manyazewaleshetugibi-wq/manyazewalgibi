@@ -5,7 +5,7 @@ import { ObjectId } from "mongodb";
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const contentCollection = db.collection("contents");
 
     const content = await contentCollection.findOne({ _id: new ObjectId(params.id) });
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const contentCollection = db.collection("contents");
 
     const data = await req.json();
@@ -50,7 +50,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const contentCollection = db.collection("contents");
 
     const result = await contentCollection.deleteOne({ _id: new ObjectId(params.id) });

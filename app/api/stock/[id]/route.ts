@@ -14,7 +14,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     }
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const stock = await db.collection("stocks").findOne({ _id: new ObjectId(id) });
 
     if (!stock) {
@@ -51,7 +51,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     };
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const result = await db.collection("stocks").updateOne(
       { _id: new ObjectId(id) },
       { $set: updateData }
@@ -78,7 +78,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     }
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const result = await db.collection("stocks").deleteOne({ _id: new ObjectId(id) });
 
     if (result.deletedCount === 0) {

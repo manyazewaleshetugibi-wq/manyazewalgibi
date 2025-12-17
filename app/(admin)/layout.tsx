@@ -24,7 +24,7 @@ export default function DashboardLayout({
       } 
       
       if (session.user?.role !== "ADMIN" && window.location.pathname.includes("/dashboard")) {
-        await router.replace("/training");
+        await router.replace("/dashboard");
         return;
       }
       

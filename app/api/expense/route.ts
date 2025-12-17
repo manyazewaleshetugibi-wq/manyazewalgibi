@@ -6,7 +6,7 @@ import { ObjectId } from "mongodb"
 export async function POST(req: NextRequest) {
   try {
     const client = await clientPromise
-    const db = client.db()
+    const db = client.db("gold")
     const expenseCollection = db.collection<Expense>("expenses")
 
     const expenseData: Expense = await req.json()
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const client = await clientPromise
-    const db = client.db()
+    const db = client.db("gold")
     const expenseCollection = db.collection<Expense>("expenses")
 
     const expenses = await expenseCollection.find().toArray()

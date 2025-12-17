@@ -22,7 +22,7 @@ export async function GET(
     }
 
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
         const item = await db.collection('items').findOne({ _id: new ObjectId(id) })
 
     if (!item) {
@@ -52,7 +52,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
     const body = await req.json();
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
 
     // Handle image upload if `imageBase64` is provided
     let imageUrl = body.imageUrl;
@@ -111,7 +111,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     }
 
     const dbClient = await clientPromise;
-    const db = dbClient.db();
+    const db = dbClient.db("gold");
 
     const deleteResult = await db.collection("items").deleteOne({ _id: new ObjectId(id) });
 

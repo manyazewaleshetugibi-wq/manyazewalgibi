@@ -7,7 +7,7 @@ import { createResponse } from "@/lib/utils";
 export async function GET() {
   try {
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const categories = await db.collection("stock_categories").find({}).toArray();
 
     return createResponse(200, true, "Stock categories retrieved successfully", categories);
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     const parsed = StockCategorySubschema.parse(body); // Validation using Zod
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
     const result = await db.collection("stock_categories").insertOne(parsed);
 
     return createResponse(201, true, "Stock category created successfully", { id: result.insertedId });

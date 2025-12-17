@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route"; // Adjust the import path for your auth configuration
+import { authOptions } from "../app/api/auth/[...nextauth]/auth"; // Adjust the import path for your auth configuration
 
 type Role = "POS" | "KITCHEN" | "FB" | "MARKETING" | "ADMIN" | "CUSTOMER" | "FINANCE" | "STOCK_MANAGER" | "ALL";
 

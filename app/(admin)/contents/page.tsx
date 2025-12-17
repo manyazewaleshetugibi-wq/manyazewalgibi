@@ -108,7 +108,7 @@ export default function Page() {
   const [filters, setFilters] = useState({
     platform: "all",
     postType: "all",
-    dateRange: { from: undefined, to: undefined },
+    dateRange: { from: undefined as Date | undefined, to: undefined as Date | undefined },
     status: "all",
   })
   const [isLoading, setIsLoading] = useState(true)
@@ -760,4 +760,3 @@ function ContentCard({
     </Card>
   )
 }
-
