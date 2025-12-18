@@ -30,11 +30,11 @@ const redirectBasedOnRole = (role: string, router: any) => {
       router.replace("/pos");
       break;
     case "kitchen":
-      router.replace("/kitchen");
+      router.replace("/orders");
       break;
     case "fb":
     case "f&b":
-      router.replace("/food-beverage");
+      router.replace("/expenses");
       break;
     case "marketing":
       router.replace("/blog");

@@ -23,7 +23,7 @@ export default function DashboardLayout({
         return;
       } 
       
-      if (session.user?.role !== "ADMIN" && window.location.pathname.includes("/dashboard")) {
+      if (session.user?.role?.toUpperCase() !== "ADMIN" && window.location.pathname.includes("/dashboard")) {
         await router.replace("/dashboard");
         return;
       }

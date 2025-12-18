@@ -68,6 +68,7 @@ interface Training {
   type: "video" | "pdf" | "audio" | "text" | "image"
   fileUrl?: string
   publicId?: string
+  thumbnailUrl?: string
   format?: string
   fileSize?: number
   originalFileName?: string
@@ -91,9 +92,10 @@ export default function TrainingPage() {
   const [isMuted, setIsMuted] = useState(false)
   const [selectedTraining, setSelectedTraining] = useState<Training | null>(null)
   const [newTraining, setNewTraining] = useState({
-    title: "",
+    title: "", 
     description: "",
     type: "video" as const,
+    linkUrl: "", // New field for manual link input
   })
   const [isCreating, setIsCreating] = useState(false)
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
@@ -177,18 +179,20 @@ export default function TrainingPage() {
       return false
     }
     
-    if (!uploadedFile) {
-      toast.error("Please select a file to upload")
+    if (!uploadedFile && !newTraining.linkUrl.trim()) {
+      toast.error("Please select a file to upload or provide a link")
       return false
     }
     
-    // Check file size (100MB max)
-    const maxSize = 100 * 1024 * 1024 // 100MB
-    if (uploadedFile.size > maxSize) {
-      toast.error(`File size must be less than ${formatFileSize(maxSize)}`)
-      return false
+    // Only validate file size if a file is actually present
+    if (uploadedFile) {
+      const maxSize = 100 * 1024 * 1024 // 100MB
+      if (uploadedFile.size > maxSize) {
+        toast.error(`File size must be less than ${formatFileSize(maxSize)}`)
+        return false
+      }
     }
-    
+
     return true
   }
 
@@ -200,13 +204,18 @@ export default function TrainingPage() {
     setIsUploading(true)
     setUploadProgress(0)
 
-    const formData = new FormData()
-    formData.append("title", newTraining.title)
-    formData.append("description", newTraining.description)
-    formData.append("type", newTraining.type)
-    formData.append("file", uploadedFile)
+    const formData = new FormData();
+    formData.append("title", newTraining.title);
+    formData.append("description", newTraining.description);
+    formData.append("type", newTraining.type);
 
-    console.log("Uploading file:", {
+    if (uploadedFile) {
+      formData.append("file", uploadedFile);
+    } else if (newTraining.linkUrl.trim()) {
+      formData.append("linkUrl", newTraining.linkUrl.trim());
+    }
+
+    console.log("Submitting training data:", {
       title: newTraining.title,
       description: newTraining.description,
       type: newTraining.type,
@@ -245,7 +254,7 @@ export default function TrainingPage() {
       if (data.success) {
         toast.success("Training upload started successfully!")
         setIsCreating(false)
-        setNewTraining({ title: "", description: "", type: "video" })
+        setNewTraining({ title: "", description: "", type: "video", linkUrl: "" })
         setUploadedFile(null)
         fetchTrainings()
       } else {
@@ -337,14 +346,14 @@ export default function TrainingPage() {
     switch (training.uploadStatus) {
       case "completed":
         return (
-          <Badge variant="success" className="flex items-center gap-1">
+          <Badge variant="default" className="bg-green-600 hover:bg-green-600/80 flex items-center gap-1">
             <CheckCircle2 className="w-3 h-3" /> Completed
           </Badge>
         )
       case "uploading":
       case "processing":
         return (
-          <Badge variant="warning" className="flex items-center gap-1">
+          <Badge variant="secondary" className="bg-yellow-500 text-secondary-foreground hover:bg-yellow-500/80 flex items-center gap-1">
             <Loader2 className="w-3 h-3 animate-spin" /> {training.uploadStatus === "uploading" ? "Uploading" : "Processing"}
           </Badge>
         )
@@ -475,6 +484,20 @@ export default function TrainingPage() {
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="linkUrl">Direct Link (Optional)</Label>
+            <Input
+              id="linkUrl"
+              placeholder="Enter a direct link (e.g., YouTube, PDF URL)"
+              value={newTraining.linkUrl}
+              onChange={(e) => setNewTraining((prev) => ({ ...prev, linkUrl: e.target.value }))}
+              disabled={isUploading || !!uploadedFile} // Disable if file is selected or uploading
+              className={newTraining.linkUrl.trim() && !newTraining.linkUrl.startsWith('http') ? "border-destructive" : ""}
+            />
+            {newTraining.linkUrl.trim() && !newTraining.linkUrl.startsWith('http') && (
+              <p className="text-xs text-destructive">Please enter a valid URL starting with http(s)://</p>
+            )}
+          </div>
         </div>
         
         <div className="space-y-4">
@@ -484,7 +507,7 @@ export default function TrainingPage() {
             className={`
               border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
               transition-colors duration-200 min-h-[200px] flex flex-col items-center justify-center
-              ${isDragActive ? "border-primary bg-primary/5" : "border-border"}
+              ${isDragActive ? "border-primary bg-primary/5" : "border-border"} ${newTraining.linkUrl.trim() ? "opacity-50 cursor-not-allowed" : ""}
               ${isUploading ? "opacity-50 cursor-not-allowed" : "hover:border-primary/50"}
               ${uploadedFile && uploadedFile.size > getMaxFileSize() ? "border-destructive bg-destructive/5" : ""}
             `}
@@ -509,7 +532,7 @@ export default function TrainingPage() {
                     e.stopPropagation()
                     setUploadedFile(null)
                   }}
-                  disabled={isUploading}
+                  disabled={!!isUploading}
                 >
                   Remove File
                 </Button>
@@ -523,7 +546,7 @@ export default function TrainingPage() {
                 <p className="text-xs text-muted-foreground mt-2">
                   Supported formats: Video, Image, Audio, PDF, Text
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground"> (Max file size: {formatFileSize(getMaxFileSize())})
                   Max file size: {formatFileSize(getMaxFileSize())}
                 </p>
               </>
@@ -550,12 +573,13 @@ export default function TrainingPage() {
       <Button
         onClick={handleUpload}
         disabled={
-          !newTraining.title || 
-          !newTraining.description || 
-          !uploadedFile || 
+          !newTraining.title.trim() || 
+          !newTraining.description.trim() || 
+          (!uploadedFile && !newTraining.linkUrl.trim()) || // Either file or link must be present
           isUploading ||
           newTraining.title.length < 3 ||
           newTraining.description.length < 10 ||
+          (newTraining.linkUrl.trim() && !newTraining.linkUrl.startsWith('http')) ||
           (uploadedFile && uploadedFile.size > getMaxFileSize())
         }
         className="w-full"
@@ -718,21 +742,24 @@ export default function TrainingPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="flex-grow space-y-4">
-                    {/* Video thumbnail preview */}
-                    {training.type === "video" && training.publicId && (
-                      <div className="relative aspect-video rounded-lg overflow-hidden bg-muted">
-                        <img
-                          src={getVideoThumbnail(training.publicId)}
-                          alt={training.title}
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                          <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                            <Play className="w-6 h-6 text-white" />
-                          </div>
+                    {/* Clickable placeholder to open details */}
+                    <div 
+                      className="relative aspect-video rounded-lg overflow-hidden bg-muted cursor-pointer group-hover:bg-muted/80 transition-colors"
+                      onClick={() => setSelectedTraining(training)}
+                    >
+                      {training.type === 'video' && training.thumbnailUrl ? (
+                        <img src={training.thumbnailUrl} alt={training.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                          {getIcon(training.type)}
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                          <Play className="w-6 h-6 text-white" />
                         </div>
                       </div>
-                    )}
+                    </div>
                     
                     {/* File info */}
                     <div className="space-y-2">

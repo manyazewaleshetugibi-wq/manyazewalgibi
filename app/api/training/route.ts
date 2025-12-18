@@ -156,55 +156,80 @@ export async function POST(request: Request) {
     const title = formData.get("title") as string;
     const description = formData.get("description") as string;
     const type = formData.get("type") as "audio" | "pdf" | "video" | "text" | "image";
-    const file = formData.get("file") as File;
+    const file = formData.get("file") as File | null; // Can be null if linkUrl is provided
+    const linkUrl = formData.get("linkUrl") as string | null; // New field
 
-    console.log('Form data:', { title, description, type, fileName: file?.name, fileSize: file?.size });
+    console.log('Form data:', { title, description, type, fileName: file?.name, fileSize: file?.size, linkUrl });
 
     // Validate required fields
-    if (!title || !description || !type || !file) {
-      console.log('Missing required fields:', { title: !!title, description: !!description, type: !!type, file: !!file });
+    if (!title || !description || !type || (!file && !linkUrl)) {
+      console.log('Missing required fields:', { title: !!title, description: !!description, type: !!type, file: !!file, linkUrl: !!linkUrl });
       return NextResponse.json({ 
         success: false,
-        error: "Missing required fields: title, description, type, and file are required" 
+        error: "Missing required fields: title, description, type. Either a file or a link is required." 
+      }, { status: 400 });
+    }
+    
+    // If a linkUrl is provided, ensure it's a valid URL
+    if (linkUrl && !linkUrl.startsWith('http')) {
+      return NextResponse.json({
+        success: false,
+        error: "Invalid link URL. Must start with http(s)://",
       }, { status: 400 });
     }
 
-    // Validate file type
-    const allowedTypes = ALLOWED_TYPES[type as keyof typeof ALLOWED_TYPES];
-    if (!allowedTypes || !allowedTypes.includes(file.type)) {
+    // Validate file type if a file is provided
+    if (file) {
+      const allowedTypes = ALLOWED_TYPES[type as keyof typeof ALLOWED_TYPES];
+      if (!allowedTypes || !allowedTypes.includes(file.type)) {
       console.log('Invalid file type:', { type, fileType: file.type, allowedTypes });
       return NextResponse.json({ 
         success: false,
         error: `Invalid file type for ${type}. Allowed types: ${allowedTypes?.join(', ') || 'None specified'}` 
       }, { status: 400 });
     }
+    }
 
     // Validate file size
-    const maxSize = MAX_FILE_SIZES[type as keyof typeof MAX_FILE_SIZES] || 10 * 1024 * 1024;
-    if (file.size > maxSize) {
-      const maxSizeMB = maxSize / (1024 * 1024);
-      const fileSizeMB = file.size / (1024 * 1024);
-      console.log('File too large:', { type, maxSizeMB, fileSizeMB });
-      return NextResponse.json({ 
-        success: false,
-        error: `File too large for ${type}. Max: ${maxSizeMB}MB, Your file: ${fileSizeMB.toFixed(2)}MB` 
-      }, { status: 400 });
+    if (file) { // Only validate size if a file is actually uploaded
+      const maxSize = MAX_FILE_SIZES[type as keyof typeof MAX_FILE_SIZES] || 10 * 1024 * 1024;
+      if (file.size > maxSize) {
+        const maxSizeMB = maxSize / (1024 * 1024);
+        const fileSizeMB = file.size / (1024 * 1024);
+        console.log('File too large:', { type, maxSizeMB, fileSizeMB });
+        return NextResponse.json({ 
+          success: false,
+          error: `File too large for ${type}. Max: ${maxSizeMB}MB, Your file: ${fileSizeMB.toFixed(2)}MB` 
+        }, { status: 400 });
+      }
     }
 
     const client = await clientPromise;
     const db = client.db("gold");
 
     // Step 1: Create a pending training record
-    const trainingDoc = { 
+    let trainingDoc: any = { 
       title, 
       description, 
-      type, 
-      uploadStatus: "uploading", 
+      type,
       uploadProgress: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
     
+    if (linkUrl) { 
+      // If a link is provided, create the complete document right away
+      trainingDoc = {
+        ...trainingDoc,
+        fileUrl: linkUrl,
+        uploadStatus: "completed",
+        completedAt: new Date(),
+      };
+    } else {
+      // If a file is to be uploaded, set the status to uploading
+      trainingDoc.uploadStatus = "uploading";
+    }
+
     console.log('Creating training document:', trainingDoc);
     
     const result = await db.collection("trainings").insertOne(trainingDoc);
@@ -231,73 +256,72 @@ export async function POST(request: Request) {
       }
     };
 
-    try {
-      // Step 2: Upload to Cloudinary with progress tracking
-      console.log('Starting Cloudinary upload...');
-      const cloudinaryResult = await uploadToCloudinary(file, type, updateProgress);
-      
-      console.log('Cloudinary upload successful:', cloudinaryResult);
-      
-      // Step 3: Update training record with Cloudinary URL
-      const updatedTraining: any = {
-        fileUrl: cloudinaryResult.url,
-        publicId: cloudinaryResult.publicId,
-        format: cloudinaryResult.format,
-        fileSize: cloudinaryResult.bytes,
-        originalFileName: file.name,
-        mimeType: file.type,
-        uploadStatus: "completed",
-        uploadProgress: 100,
-        completedAt: new Date(),
-        updatedAt: new Date(),
-      };
-      
-      // Generate thumbnail URL for videos
-      if (type === 'video') {
-        updatedTraining.thumbnailUrl = generateVideoThumbnailUrl(cloudinaryResult.publicId);
-      }
-      
-      await db.collection("trainings").updateOne(
-        { _id: trainingId },
-        { $set: updatedTraining }
-      );
-
-      console.log('Training updated with Cloudinary data');
-
-      // Get the complete training record
-      const training = await db.collection("trainings").findOne({ _id: trainingId });
-
-      return NextResponse.json({ 
-        success: true,
-        message: "Training created and uploaded successfully",
-        training,
-        cloudinary: {
-          url: cloudinaryResult.url,
+    // If a file is provided, handle the upload process
+    if (file) {
+      try {
+        // Step 2: Upload to Cloudinary with progress tracking
+        console.log('Starting Cloudinary upload...');
+        const cloudinaryResult = await uploadToCloudinary(file, type, updateProgress);
+        
+        console.log('Cloudinary upload successful:', cloudinaryResult);
+        
+        // Step 3: Update training record with Cloudinary URL
+        const updatedTraining: any = {
+          fileUrl: cloudinaryResult.url,
           publicId: cloudinaryResult.publicId,
           format: cloudinaryResult.format,
+          fileSize: cloudinaryResult.bytes,
+          originalFileName: file.name,
+          mimeType: file.type,
+          uploadStatus: "completed",
+          uploadProgress: 100,
+          completedAt: new Date(),
+          updatedAt: new Date(),
+        };
+        
+        // Generate thumbnail URL for videos
+        if (type === 'video') {
+          updatedTraining.thumbnailUrl = generateVideoThumbnailUrl(cloudinaryResult.publicId);
         }
-      }, { status: 201 });
-
-    } catch (uploadError: any) {
-      console.error('Upload error:', uploadError);
-      
-      // Update with error status
-      await db.collection("trainings").updateOne(
-        { _id: trainingId },
-        { 
-          $set: { 
-            uploadStatus: "failed", 
-            uploadProgress: 0,
-            error: uploadError.message,
-            failedAt: new Date(),
-            updatedAt: new Date(),
-          } 
-        }
-      );
-      
-      throw uploadError;
+        
+        await db.collection("trainings").updateOne(
+          { _id: trainingId },
+          { $set: updatedTraining }
+        );
+  
+        console.log('Training updated with Cloudinary data');
+  
+      } catch (uploadError: any) {
+        console.error('Upload error:', uploadError);
+        
+        // Update with error status
+        await db.collection("trainings").updateOne(
+          { _id: trainingId },
+          { 
+            $set: { 
+              uploadStatus: "failed", 
+              uploadProgress: 0,
+              error: uploadError.message,
+              failedAt: new Date(),
+              updatedAt: new Date(),
+            } 
+          }
+        );
+        
+        // Re-throw to be caught by the outer catch block
+        throw uploadError;
+      }
     }
 
+    // Get the complete training record to return
+    const training = await db.collection("trainings").findOne({ _id: trainingId });
+
+    return NextResponse.json({ 
+      success: true,
+      message: "Training created successfully",
+      training,
+    }, { status: 201 });
+    
   } catch (error: any) {
     console.error("Error creating training:", error);
     return NextResponse.json({ 
@@ -337,13 +361,9 @@ export async function GET() {
 // DELETE training (dynamic route handler)
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { id } = params;
-    const url = new URL(request.url);
-    const pathSegments = url.pathname.split('/');
-    const trainingId = pathSegments[pathSegments.length - 1];
-    
+    const trainingId = params.id;
     console.log('Deleting training:', trainingId);
-    
+
     if (!ObjectId.isValid(trainingId)) {
       return NextResponse.json({ 
         success: false,

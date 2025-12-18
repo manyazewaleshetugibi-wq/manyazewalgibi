@@ -13,43 +13,18 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     console.log("📝 POST request body:", body); // Debug log
 
-    // ✅ Handle image - store base64 directly in MongoDB
-    let imageUrl: string | undefined;
-    
-    if (body.imageBase64) {
-      // Validate it's a proper base64 image
-      if (!body.imageBase64.startsWith('data:image/')) {
-        return createResponse(400, false, "Invalid image format. Must be a base64 image string starting with 'data:image/'");
-      }
-      
-      // Validate size (max 2MB recommended)
-      const base64Size = (body.imageBase64.length * 3) / 4; // Approximate byte size
-      const maxSize = 2 * 1024 * 1024; // 2MB
-      
-      if (base64Size > maxSize) {
-        return createResponse(400, false, `Image too large. Maximum size is 2MB, current size: ${Math.round(base64Size/1024)}KB`);
-      }
-      
-      imageUrl = body.imageBase64; // Store base64 directly
-      console.log("📸 Image will be stored as base64 (size:", Math.round(base64Size/1024), "KB)");
-      
-      // Remove from body to avoid duplication
-      delete body.imageBase64;
-    }
-    
     // Prepare data for validation
     const dataToValidate = {
       ...body,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    
-    // Add image URL if we have one
-    if (imageUrl !== undefined) {
-      dataToValidate.imageUrl = imageUrl;
-    } else if (body.imageUrl) {
-      // Keep existing image URL if provided
+
+    // The frontend now sends a Cloudinary URL directly.
+    // If body.imageUrl is present and not an empty string, use it. Otherwise, use a placeholder.
+    if (body.imageUrl) {
       dataToValidate.imageUrl = body.imageUrl;
+      console.log("📸 Using provided image URL:", body.imageUrl);
     } else {
       // Default placeholder
       dataToValidate.imageUrl = "/placeholder-category.svg";
@@ -60,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     console.log("✅ Parsed Data:", {
       ...parsed,
-      imageUrl: parsed.imageUrl ? `${parsed.imageUrl.substring(0, 50)}...` : 'No image'
+      imageUrl: parsed.imageUrl
     });
 
     const client = await clientPromise;

@@ -485,7 +485,7 @@ export default function OrderPage() {
       waiterId: selectedWaiter,
       customerId: "walk-in",
       numberOfGuests,
-      items: cart.map((item) => ({
+      items: cart.map(item => ({
         itemId: item._id,
         quantity: item.quantity,
         specialInstructions: item.specialInstructions || "",

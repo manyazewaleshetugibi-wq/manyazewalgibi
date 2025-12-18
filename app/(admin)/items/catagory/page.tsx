@@ -70,6 +70,12 @@ const typeColors = {
   OTHER: "bg-purple-100/80 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800",
 }
 
+const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
+const CLOUDINARY_PHOTO_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
+const CLOUDINARY_PHOTO_FOLDER = 'photoss';
+
+
+
 export default function ItemCategoryPage() {
   const [categories, setCategories] = useState<ItemCategory[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -98,6 +104,7 @@ export default function ItemCategoryPage() {
     other: 0,
   })
 
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [newCategory, setNewCategory] = useState({
     name: "",
     description: "",
@@ -260,11 +267,56 @@ export default function ItemCategoryPage() {
     }
   };
 
+  const uploadToCloudinary = async (file: File): Promise<string | null> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_PHOTO_UPLOAD_PRESET);
+    formData.append('folder', CLOUDINARY_PHOTO_FOLDER);
+
+    try {
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Cloudinary response error:', errorText);
+        toast.error(`Cloudinary upload failed: ${errorText}`);
+        return null;
+      }
+
+      const data = await response.json();
+      console.log('Cloudinary upload success:', data);
+      return data.secure_url;
+    } catch (error: any) {
+      console.error('Cloudinary upload error:', error);
+      toast.error(`Failed to upload to Cloudinary: ${error.message}`);
+      return null;
+    }
+  };
+
   const handleAddCategory = async () => {
     const startTime = performance.now();
     const requestId = Math.random().toString(36).substring(2, 10);
     
     try {
+      let imageUrl = "";
+      if (imageFile) {
+        toast.loading("Uploading image to Cloudinary...");
+        const uploadedUrl = await uploadToCloudinary(imageFile);
+        toast.dismiss();
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl;
+        } else {
+          toast.error("Image upload failed. Category not created.");
+          return;
+        }
+      }
+
       console.group(`%c[ADD CATEGORY REQUEST ${requestId}]`, 'color: #0070f3; font-weight: bold;');
       console.log(`%c[Request] Initiated at ${new Date().toISOString()}`, 'color: #0070f3');
       console.log(`[Request Data]`, { 
@@ -272,14 +324,14 @@ export default function ItemCategoryPage() {
         description: newCategory.description?.substring(0, 20) + (newCategory.description?.length > 20 ? '...' : ''),
         type: newCategory.type,
         isActive: newCategory.isActive,
-        hasImage: !!newCategory.imageBase64,
-        imageSize: newCategory.imageBase64 ? Math.round(newCategory.imageBase64.length * 0.75 / 1024) + 'KB (approx)' : 'None'
+        hasImage: !!imageUrl,
+        imageSize: imageFile ? `${(imageFile.size / 1024).toFixed(2)}KB` : 'None'
       });
       
       const response = await fetch("/api/item-category", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newCategory),
+        body: JSON.stringify({ ...newCategory, imageUrl, imageBase64: undefined }),
       });
       
       const data = await response.json();
@@ -333,6 +385,7 @@ export default function ItemCategoryPage() {
           imageBase64: "",
           isActive: true,
         });
+        setImageFile(null);
       } else {
         console.error(`%c[Error] ${data.message || "Unknown error"}`, 'color: #e74c3c; font-weight: bold;');
         console.error('[Error Details]', data.error || data.errors || 'No detailed error information');
@@ -360,16 +413,31 @@ export default function ItemCategoryPage() {
     const requestId = Math.random().toString(36).substring(2, 10);
     
     try {
+      let imageUrl = currentCategory.imageUrl;
+
+      if (imageFile) {
+        toast.loading("Uploading new image to Cloudinary...");
+        const uploadedUrl = await uploadToCloudinary(imageFile);
+        toast.dismiss();
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl;
+        } else {
+          toast.error("Image upload failed. Category not updated.");
+          return;
+        }
+      }
+
       console.group(`%c[EDIT CATEGORY REQUEST ${requestId}]`, 'color: #0070f3; font-weight: bold;');
       console.log(`%c[Request] Initiated at ${new Date().toISOString()}`, 'color: #0070f3');
       
       // Create a new object with only the fields we want to update
       const updateData = {
         name: currentCategory.name,
-        description: currentCategory.description,
+        description: currentCategory.description, 
         type: currentCategory.type,
         isActive: currentCategory.isActive,
-        ...(currentCategory.imageBase64 ? { imageBase64: currentCategory.imageBase64 } : {}),
+        imageUrl: imageUrl,
+        imageBase64: undefined // Ensure base64 is not sent
       };
 
       console.log(`[Request Data]`, { 
@@ -378,9 +446,9 @@ export default function ItemCategoryPage() {
         description: updateData.description?.substring(0, 20) + (updateData.description?.length > 20 ? '...' : ''),
         type: updateData.type,
         isActive: updateData.isActive,
-        hasImage: !!updateData.imageBase64,
-        imageSize: updateData.imageBase64 ? Math.round(updateData.imageBase64.length * 0.75 / 1024) + 'KB (approx)' : 'None',
-        isImageUpdate: !!updateData.imageBase64
+        hasImage: !!updateData.imageUrl,
+        imageSize: imageFile ? `${(imageFile.size / 1024).toFixed(2)}KB` : 'Not changed',
+        isImageUpdate: !!imageFile
       });
 
       const response = await fetch(`/api/item-category/${currentCategory._id}`, {
@@ -431,13 +499,14 @@ export default function ItemCategoryPage() {
         console.log(`%c[Success] Category updated successfully`, 'color: #2ecc71; font-weight: bold;');
         toast.success("Category updated successfully");
         setIsEditDialogOpen(false);
+        setImageFile(null);
         fetchCategories();
       } else {
         console.error(`%c[Error] ${data.message || "Unknown error"}`, 'color: #e74c3c; font-weight: bold;');
         console.error('[Error Details]', data.error || data.errors || 'No detailed error information');
         toast.error(data.message || "Failed to update category");
       }
-      
+
       console.groupEnd();
     } catch (error) {
       const requestDuration = ((performance.now() - startTime) / 1000).toFixed(2);
@@ -467,33 +536,19 @@ export default function ItemCategoryPage() {
     }
   }
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
-    const file = e.target.files?.[0]
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (file) {
-      console.log(`[Image Upload] Processing file: ${file.name}, size: ${Math.round(file.size / 1024)}KB, type: ${file.type}`)
-      
-      const reader = new FileReader()
+      setImageFile(file);
+      // Create a preview URL for the UI
+      const reader = new FileReader();
       reader.onloadend = () => {
-        const base64String = reader.result as string
-        console.log(`[Image Upload] Successfully converted file to base64`)
-        
-        if (isEdit && currentCategory) {
-          setCurrentCategory({ ...currentCategory, imageBase64: base64String })
-          console.log(`[Image Upload] Updated current category with new image`)
-        } else {
-          setNewCategory({ ...newCategory, imageBase64: base64String })
-          console.log(`[Image Upload] Updated new category with image`)
-        }
-      }
-      
-      reader.onerror = (error) => {
-        console.error(`[Image Upload] Error reading file: `, error)
-        toast.error("Failed to read image file")
-      }
-      
-      reader.readAsDataURL(file)
+        const base64String = reader.result as string;
+        isEditDialogOpen ? setCurrentCategory(cat => cat ? { ...cat, imageBase64: base64String } : null) : setNewCategory(cat => ({ ...cat, imageBase64: base64String }));
+      };
+      reader.readAsDataURL(file);
     }
-  }
+  };
 
   const toggleSelectCategory = (id: string) => {
     setSelectedCategories(prev => {
@@ -540,7 +595,7 @@ export default function ItemCategoryPage() {
     if (!currentCategory) return null;
     
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-4 -mr-4">
         <div className="relative w-full h-72 mx-auto overflow-hidden rounded-lg mb-4 group">
           <Image
             src={currentCategory.imageUrl || "/placeholder.svg"}
@@ -1360,7 +1415,7 @@ export default function ItemCategoryPage() {
                             id="image-upload"
                             type="file"
                             accept="image/*"
-                            onChange={(e) => handleImageUpload(e, false)}
+                            onChange={handleImageChange}
                             className="hidden"
                           />
                         </div>
@@ -1937,7 +1992,7 @@ export default function ItemCategoryPage() {
                         id="edit-image" 
                         type="file" 
                         accept="image/*" 
-                        onChange={(e) => handleImageUpload(e, true)} 
+                        onChange={handleImageChange}
                         className="bg-white dark:bg-gray-800"
                       />
                     </div>
@@ -1999,4 +2054,3 @@ export default function ItemCategoryPage() {
     </div>
   )
 }
-

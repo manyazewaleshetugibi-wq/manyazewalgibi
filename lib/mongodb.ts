@@ -12,7 +12,7 @@ let clientPromise: Promise<MongoClient>;
 
 const options = {
   maxPoolSize: 10,
-  serverSelectionTimeoutMS: 10000,
+  serverSelectionTimeoutMS: 1000000,
   socketTimeoutMS: 45000,
 };
 
