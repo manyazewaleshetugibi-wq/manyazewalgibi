@@ -36,6 +36,11 @@ export function NavProjects({
 }) {
   const { isMobile } = useSidebar()
 
+  // Don't render anything if there are no projects
+  if (!projects || projects.length === 0) {
+    return null;
+  }
+
   return (
     <SidebarGroup className="group-data-[collapsible=icon]:hidden">
       <SidebarGroupLabel>Main</SidebarGroupLabel>
@@ -48,10 +53,8 @@ export function NavProjects({
                 <span>{item.name}</span>
               </a>
             </SidebarMenuButton>
-        
           </SidebarMenuItem>
         ))}
-       
       </SidebarMenu>
     </SidebarGroup>
   )

@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { signIn, getSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { useRouter, usePathname } from "next/navigation";
+import { motion, AnimatePresence, Variants } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,13 +34,13 @@ const redirectBasedOnRole = (role: string, router: any) => {
       break;
     case "fb":
     case "f&b":
-      router.replace("/expenses");
+      router.replace("/items");
       break;
     case "marketing":
       router.replace("/blog");
       break;
     case "finance":
-      router.replace("/finance");
+      router.replace("/sales");
       break;
     case "stock_manager":
       router.replace("/stock");
@@ -202,7 +202,7 @@ export default function LoginPage() {
     },
   };
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { opacity: 0, x: -20 },
     visible: {
       opacity: 1,

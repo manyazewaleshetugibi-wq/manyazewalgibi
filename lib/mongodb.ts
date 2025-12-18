@@ -1,4 +1,3 @@
-// lib/mongodb.ts - Make sure it connects to 'gold' database
 import { MongoClient } from "mongodb";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://aweke2011:awe2011@gold.av49bjz.mongodb.net/gold?retryWrites=true&w=majority";

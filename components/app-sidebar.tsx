@@ -45,6 +45,62 @@ import {
 
 // Define role-based navigation configurations
 const roleBasedNavigation = {
+  ADMIN: {
+    navMain: [
+      {
+        title: "Stock Management",
+        url: "#",
+        icon: Package,
+        items: [
+          { title: "Stock", url: "/stock" },
+          { title: "Categories", url: "/stock/category" },
+        ],
+      },
+      {
+        title: "Menu Management",
+        url: "#",
+        icon: ClipboardList,
+        items: [
+          { title: "Items", url: "/items" },
+          { title: "Item Categories", url: "/items/catagory" },
+        ],
+      },
+      {
+        title: "Orders",
+        url: "#",
+        icon: ShoppingCart,
+        items: [
+          { title: "In-Restaurant", url: "/orders" },
+        ],
+      },
+      {
+        title: "Marketing",
+        url: "#",
+        icon: AudioWaveform,
+        items: [
+          { title: "Blogs", url: "/blog" },
+          { title: "Contents", url: "/contents" },
+        ],
+      },
+      {
+        title: "Reports",
+        url: "#",
+        icon: FileText,
+        items: [
+          { title: "Sales", url: "/sales" },
+          { title: "Expenses", url: "/expe" },
+        ],
+      },
+    ],
+    projects: [
+      { name: "Dashboard", url: "/dashboard", icon: Tag },
+      { name: "POS", url: "/pos", icon: SquareTerminal },
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "Expenses", url: "/expenses", icon: DollarSign },
+      { name: "Feedback", url: "/feedback", icon: Pen },
+      { name: "Waitress", url: "/waitress", icon: UserSquare2Icon },
+    ],
+  },
   KITCHEN: {
     navMain: [
       {
@@ -138,11 +194,11 @@ const roleBasedNavigation = {
   POS: {
     navMain: [
       {
-        title: "Orders",
+        title: "pos",
         url: "#",
         icon: ShoppingCart,
         items: [
-          { title: "In-Restaurant", url: "/orders" },
+          { title: "pos", url: "/pos" },
         ],
       },
     ],
@@ -151,60 +207,11 @@ const roleBasedNavigation = {
       { name: "Training", url: "/training", icon: BookCheckIcon },
     ],
   },
-  ADMIN: {
-    navMain: [
-      {
-        title: "Stock Management",
-        url: "#",
-        icon: Package,
-        items: [
-          { title: "Stock", url: "/stock" },
-          { title: "Categories", url: "/stock/category" },
-        ],
-      },
-      {
-        title: "Menu Management",
-        url: "#",
-        icon: ClipboardList,
-        items: [
-          { title: "Items", url: "/items" },
-          { title: "Item Categories", url: "/items/catagory" },
-        ],
-      },
-      {
-        title: "Orders",
-        url: "#",
-        icon: ShoppingCart,
-        items: [
-          { title: "In-Restaurant", url: "orders" },
-        ],
-      },
-      {
-        title: "Marketing",
-        url: "#",
-        icon: AudioWaveform,
-        items: [
-          { title: "Blogs", url: "/blog" },
-          { title: "Contents", url: "/contents" },
-        ],
-      },
-      {
-        title: "Reports",
-        url: "#",
-        icon: FileText,
-        items: [
-          { title: "Sales", url: "/sales" },
-          { title: "Expenses", url: "/expe" },
-        ],
-      },
-    ],
+  // Add a default/fallback role configuration
+  DEFAULT: {
+    navMain: [],
     projects: [
-      { name: "Dashboard", url: "/dashboard", icon: Tag },
-      { name: "POS", url: "/pos", icon: SquareTerminal },
       { name: "Training", url: "/training", icon: BookCheckIcon },
-      { name: "Expenses", url: "/expenses", icon: DollarSign },
-      { name: "Feedback", url: "/feedback", icon: Pen },
-      { name: "Waitress", url: "/waitress", icon: UserSquare2Icon },
     ],
   },
 };
@@ -225,11 +232,29 @@ const data = {
   ],
 };
 
+// Helper function to normalize role (remove case sensitivity)
+const normalizeRole = (role: string | undefined): string => {
+  if (!role) return 'DEFAULT';
+  return role.toUpperCase().trim();
+};
+
+// Function to get navigation for a role
+const getNavigationForRole = (role: string) => {
+  const normalizedRole = normalizeRole(role);
+  
+  // Check if the role exists in our configuration
+  if (roleBasedNavigation[normalizedRole as keyof typeof roleBasedNavigation]) {
+    return roleBasedNavigation[normalizedRole as keyof typeof roleBasedNavigation];
+  }
+  
+  // Fall back to DEFAULT if role not found
+  return roleBasedNavigation.DEFAULT;
+};
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { data: session } = useSession();
-  const userRole = session?.user?.role || 'ADMIN'; // Default to ADMIN if no role
-  
-  const navigation = roleBasedNavigation[userRole as keyof typeof roleBasedNavigation] || roleBasedNavigation.ADMIN;
+  const userRole = session?.user?.role;
+  const navigation = getNavigationForRole(userRole);
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -237,11 +262,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <TeamSwitcher />
       </SidebarHeader>
       <SidebarContent>
-        <NavProjects projects={navigation.projects} />
-        <NavMain items={navigation.navMain} />
+        {navigation.projects && navigation.projects.length > 0 && (
+          <NavProjects projects={navigation.projects} />
+        )}
+        {navigation.navMain && navigation.navMain.length > 0 && (
+          <NavMain items={navigation.navMain} />
+        )}
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={{...data.user, role: userRole}} />
+        <NavUser user={{...data.user, role: userRole || 'DEFAULT'}} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
