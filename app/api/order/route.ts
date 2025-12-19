@@ -1,7 +1,9 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { TableOrderSchema } from "@/models/Orders";
+import { getToken } from "next-auth/jwt";
 
 // Debug flag
 const DEBUG = true;
@@ -26,6 +28,152 @@ function isOrderCompleted(order: any): boolean {
 // Helper function to normalize status to lowercase
 function normalizeStatus(status: string): string {
   return status?.toLowerCase() || "pending";
+}
+
+// Helper function to get current user from JWT token
+async function getCurrentUserData(req: NextRequest) {
+  try {
+    const token = await getToken({ 
+      req, 
+      secret: process.env.NEXTAUTH_SECRET 
+    });
+    
+    if (!token) {
+      debugLog("No authentication token found");
+      return null;
+    }
+    
+    return {
+      ...token,
+      id: token.sub || token.id,
+      name: token.name || "Unknown User",
+      email: token.email || "unknown@example.com",
+      role: token.role || "employee",
+      employeeId: token.employeeId || null
+    };
+  } catch (error) {
+    debugError("Error getting user data from token:", error);
+    return null;
+  }
+}
+
+// Helper function to register user activity in employee_rank collection
+async function registerEmployeeActivity(db: any, userData: any, orderData: any) {
+  try {
+    if (!userData || !userData.id) {
+      debugLog("No user data available for employee rank registration");
+      return { success: false, message: "No user data available" };
+    }
+    
+    debugLog("Registering employee activity:", {
+      userId: userData.id,
+      userName: userData.name,
+      orderId: orderData._id,
+      orderNumber: orderData.orderNumber
+    });
+    
+    // Check if employee_rank collection exists
+    const collections = await db.listCollections({ name: "employee_rank" }).toArray();
+    
+    if (collections.length === 0) {
+      debugLog("Creating employee_rank collection...");
+      await db.createCollection("employee_rank");
+      debugLog("employee_rank collection created");
+    }
+    
+    // Prepare user identifier - handle both string and ObjectId
+    let userId;
+    if (ObjectId.isValid(userData.id)) {
+      userId = new ObjectId(userData.id);
+    } else {
+      userId = userData.id;
+    }
+    
+    // Generate employee ID if not provided
+    const employeeId = userData.employeeId || `EMP-${Date.now().toString().slice(-6)}`;
+    
+    // Upsert operation: update if exists, insert if not
+    const updateResult = await db.collection("employee_rank").updateOne(
+      { 
+        $or: [
+          { userId: userId },
+          { employeeId: employeeId },
+          { email: userData.email }
+        ]
+      },
+      {
+        $set: {
+          name: userData.name,
+          email: userData.email,
+          role: userData.role,
+          employeeId: employeeId,
+          lastActivity: new Date(),
+          lastActivityType: "order_completed",
+          lastOrderId: orderData._id,
+          lastOrderNumber: orderData.orderNumber
+        },
+        $inc: { 
+          completedOrders: 1,
+          totalOrdersProcessed: 1,
+          points: 10 // Award points for completing an order
+        },
+        $setOnInsert: {
+          userId: userId,
+          createdAt: new Date(),
+          totalPoints: 10,
+          activityHistory: []
+        }
+      },
+      { upsert: true }
+    );
+    
+    // Add to activity history
+    const activityRecord = {
+      type: "order_completed",
+      orderId: orderData._id,
+      orderNumber: orderData.orderNumber,
+      timestamp: new Date(),
+      pointsAwarded: 10
+    };
+    
+    await db.collection("employee_rank").updateOne(
+      { 
+        $or: [
+          { userId: userId },
+          { employeeId: employeeId }
+        ]
+      },
+      {
+        $push: {
+          activityHistory: {
+            $each: [activityRecord],
+            $slice: -50 // Keep last 50 activities
+          }
+        }
+      }
+    );
+    
+    debugLog("Employee activity registered successfully:", {
+      userId: userData.id,
+      upsertedId: updateResult.upsertedId,
+      matchedCount: updateResult.matchedCount,
+      modifiedCount: updateResult.modifiedCount
+    });
+    
+    return { 
+      success: true, 
+      message: "Employee activity registered",
+      employeeId: employeeId
+    };
+    
+  } catch (error) {
+    debugError("Failed to register employee activity:", error);
+    return { 
+      success: false, 
+      message: "Failed to register employee activity",
+      error: (error as any).message 
+    };
+  }
 }
 
 // Helper function to process stock usage for a single order
@@ -241,7 +389,7 @@ export async function processOrderStockUsage(order: any) {
 }
 
 // Main function to find and process all completed orders
-async function processAllCompletedOrders() {
+async function processAllCompletedOrders(req?: NextRequest) {
   try {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
@@ -275,6 +423,15 @@ async function processAllCompletedOrders() {
         });
         
         const result = await processOrderStockUsage(order);
+        
+        // If this was triggered by a PATCH request with user context, register employee activity
+        if (req) {
+          const userData = await getCurrentUserData(req);
+          if (userData) {
+            await registerEmployeeActivity(db, userData, order);
+          }
+        }
+        
         results.push({
           orderId: order._id,
           orderNumber: order.orderNumber,
@@ -286,7 +443,7 @@ async function processAllCompletedOrders() {
         results.push({
           orderId: order._id,
           success: false,
-          error: error.message
+          error: (error as any).message
         });
       }
     }
@@ -326,6 +483,7 @@ async function handleDiagnosticRequest() {
       const status = order.status || 'unknown';
       acc[status] = (acc[status] || 0) + 1;
       acc.stockProcessed = (acc.stockProcessed || 0) + (order.stockProcessed ? 1 : 0);
+      acc.completedBy = (acc.completedBy || 0) + (order.completedBy ? 1 : 0);
       return acc;
     }, {} as Record<string, number>);
     
@@ -346,6 +504,7 @@ async function handleDiagnosticRequest() {
       _id: order._id,
       orderNumber: order.orderNumber,
       status: order.status,
+      completedBy: order.completedBy,
       stockProcessed: order.stockProcessed,
       stockProcessedAt: order.stockProcessedAt,
       itemsCount: order.items?.length || 0,
@@ -380,6 +539,18 @@ async function handleDiagnosticRequest() {
     
     debugLog(`Items with requiredStock defined: ${itemsWithStock.length}`);
 
+    // 6. Check employee_rank collection
+    const employeeRankCount = await db.collection("employee_rank").countDocuments();
+    debugLog(`Employee rank records: ${employeeRankCount}`);
+    
+    const topEmployees = await db.collection("employee_rank")
+      .find({})
+      .sort({ completedOrders: -1 })
+      .limit(5)
+      .toArray();
+    
+    debugLog("Top 5 employees by completed orders:", topEmployees);
+
     return NextResponse.json({
       success: true,
       diagnostic: {
@@ -390,6 +561,8 @@ async function handleDiagnosticRequest() {
         unprocessedCompletedOrders: queryResult.length,
         usedStockCount,
         itemsWithRequiredStock: itemsWithStock.length,
+        employeeRankCount,
+        topEmployees,
         sampleItem: itemsWithStock.length > 0 ? {
           _id: itemsWithStock[0]._id,
           name: itemsWithStock[0].name,
@@ -545,7 +718,7 @@ export async function GET(req: NextRequest) {
     if (autoProcess) {
       try {
         debugLog("Auto-processing completed orders...");
-        const processResult = await processAllCompletedOrders();
+        const processResult = await processAllCompletedOrders(req);
         if (processResult.processedOrders > 0) {
           debugLog(`Auto-processed ${processResult.processedOrders} completed orders`);
         }
@@ -732,7 +905,7 @@ export async function POST(req: NextRequest) {
 
     debugLog("Inserting new order...");
 
-    const result = await db.collection("orders").insertOne(newOrder);
+    const result = await db.collection("orders").insertOne(newOrder as any);
 
     debugLog("Order inserted:", {
       insertedId: result.insertedId,
@@ -778,7 +951,7 @@ export async function PATCH(req: NextRequest) {
     // Handle manual stock processing for all completed orders
     if (action === "processStock") {
       debugLog("Manual stock processing requested");
-      const result = await processAllCompletedOrders();
+      const result = await processAllCompletedOrders(req);
       
       return NextResponse.json(
         {
@@ -801,20 +974,38 @@ export async function PATCH(req: NextRequest) {
 
       debugLog(`Updating order ${orderId} status to: ${status}`);
 
+      // Get current user data
+      const userData = await getCurrentUserData(req);
+
       // Normalize status
       const normalizedStatus = normalizeStatus(status);
       
+      // Prepare update data
+      const updateData: any = {
+        status: normalizedStatus,
+        updatedAt: new Date(),
+      };
+
+      // If completing order, add completion details
+      if (normalizedStatus === "completed") {
+        updateData.completedAt = new Date();
+        
+        // Store who completed the order if user data is available
+        if (userData) {
+          updateData.completedBy = {
+            userId: userData.id,
+            name: userData.name,
+            email: userData.email,
+            role: userData.role,
+            completedAt: new Date()
+          };
+        }
+      }
+
       // Update order status
       const updateResult = await db.collection("orders").updateOne(
         { _id: new ObjectId(orderId) },
-        { 
-          $set: { 
-            status: normalizedStatus,
-            updatedAt: new Date(),
-            // If completing order, set completedAt timestamp
-            ...(normalizedStatus === "completed" && { completedAt: new Date() })
-          } 
-        }
+        { $set: updateData }
       );
 
       if (updateResult.matchedCount === 0) {
@@ -824,7 +1015,7 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      // If order is completed, process stock
+      // If order is completed, process stock and register employee activity
       if (normalizedStatus === "completed") {
         try {
           const updatedOrder = await db.collection("orders").findOne({ 
@@ -833,10 +1024,24 @@ export async function PATCH(req: NextRequest) {
           
           if (updatedOrder) {
             debugLog("Processing stock for newly completed order");
+            
+            // Register employee activity if user data is available
+            let employeeRegistration = null;
+            if (userData) {
+              employeeRegistration = await registerEmployeeActivity(db, userData, updatedOrder);
+              debugLog("Employee registration result:", employeeRegistration);
+            }
+            
+            // Process stock usage
             const stockResult = await processOrderStockUsage(updatedOrder);
             
             return NextResponse.json(
-              { ...stockResult, orderId },
+              { 
+                ...stockResult, 
+                orderId,
+                employeeRegistered: !!employeeRegistration?.success,
+                employeeRegistration: employeeRegistration
+              },
               { status: 200 }
             );
           }
@@ -855,7 +1060,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({
         success: true,
         message: `Order status updated to ${normalizedStatus}`,
-        orderId
+        orderId,
+        updatedBy: userData ? { name: userData.name, id: userData.id } : null
       }, { status: 200 });
     }
 
@@ -929,6 +1135,64 @@ export async function POST_TEST_PROCESS(req: NextRequest) {
       { 
         success: false,
         error: "Test processing failed", 
+        details: errorMessage 
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// New endpoint to get employee rankings
+export async function GET_EMPLOYEE_RANKINGS(req: NextRequest) {
+  try {
+    const dbClient = await clientPromise;
+    const db = dbClient.db("gold");
+
+    const url = new URL(req.url);
+    const limit = parseInt(url.searchParams.get("limit") || "10");
+    const sortBy = url.searchParams.get("sortBy") || "completedOrders";
+
+    debugLog("Employee rankings request:", { limit, sortBy });
+
+    // Get employee rankings
+    const rankings = await db.collection("employee_rank")
+      .find({})
+      .sort({ [sortBy]: -1 })
+      .limit(limit)
+      .toArray();
+
+    // Get summary statistics
+    const stats = await db.collection("employee_rank").aggregate([
+      {
+        $group: {
+          _id: null,
+          totalEmployees: { $sum: 1 },
+          totalCompletedOrders: { $sum: "$completedOrders" },
+          totalPoints: { $sum: "$points" },
+          averageCompletedOrders: { $avg: "$completedOrders" },
+          averagePoints: { $avg: "$points" }
+        }
+      }
+    ]).toArray();
+
+    return NextResponse.json(
+      {
+        success: true,
+        rankings,
+        stats: stats[0] || {},
+        count: rankings.length,
+        timestamp: new Date()
+      },
+      { status: 200 }
+    );
+
+  } catch (error) {
+    debugError("Error fetching employee rankings:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    return NextResponse.json(
+      { 
+        success: false,
+        error: "Failed to fetch employee rankings", 
         details: errorMessage 
       },
       { status: 500 }

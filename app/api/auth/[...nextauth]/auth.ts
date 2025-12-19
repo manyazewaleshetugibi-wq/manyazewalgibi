@@ -6,10 +6,10 @@ import { MongoClient, ObjectId } from "mongodb"
 import { UserRole } from "@/models/User"
 
 // HARDCODED CONFIGURATION
-const MONGODB_URI = "mongodb+srv://aweke2011:awe2011@gold.av49bjz.mongodb.net/?retryWrites=true&w=majority";
-const DATABASE_NAME = "gold"
-const NEXTAUTH_SECRET = "snbcsbdnbjkdbhjddfbdnbfhdhrhfrfjkfjdkja"
-const NEXTAUTH_URL = "http://localhost:3000"
+const MONGODB_URI = process.env.MONGODB_URI || "";
+const DATABASE_NAME = process.env.MONGODB_DATABASE || "";
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET || "";
+const NEXTAUTH_URL = process.env.NEXTAUTH_URL 
 
 const client = new MongoClient(MONGODB_URI)
 const clientPromise = client.connect()
@@ -160,6 +160,29 @@ export const authOptions: NextAuthOptions = {
       if (trigger === "update" && session?.requiresPasswordChange !== undefined) {
         console.log("🔄 Updating JWT with new requiresPasswordChange:", session.requiresPasswordChange);
         token.requiresPasswordChange = session.requiresPasswordChange;
+      }
+      
+      // 🔴 CRITICAL ADDITION: Always check database for latest requiresPasswordChange value
+      // This ensures the token reflects the current database state
+      if (token.id) {
+        try {
+          const client = await clientPromise;
+          const db = client.db(DATABASE_NAME);
+          
+          const userDoc = await db.collection("users").findOne(
+            { _id: new ObjectId(token.id as string) },
+            { projection: { requiresPasswordChange: 1 } }
+          );
+          
+          if (userDoc) {
+            // Update token with latest value from database
+            token.requiresPasswordChange = userDoc.requiresPasswordChange || false;
+            console.log("🔄 Token updated with latest requiresPasswordChange from DB:", token.requiresPasswordChange);
+          }
+        } catch (error) {
+          console.error("Error refreshing token from DB:", error);
+          // Don't throw - use existing token value
+        }
       }
       
       return token;

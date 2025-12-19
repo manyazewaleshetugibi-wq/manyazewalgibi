@@ -6,9 +6,10 @@ import { TableOrderSchema, OrderStatus } from "@/models/Orders"; // Ensure corre
 // GET: Retrieve an order by ID
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  props: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await props.params;
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
 
@@ -42,9 +43,10 @@ export async function GET(
 // PUT: Update an order by ID
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  props: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await props.params;
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
 
@@ -95,9 +97,10 @@ export async function PUT(
 // DELETE: Delete an order by ID
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  props: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await props.params;
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
 
@@ -130,8 +133,9 @@ export async function DELETE(
     );
   }
 }
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   try {
+    const params = await props.params;
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
     const ordersCollection = db.collection("orders");

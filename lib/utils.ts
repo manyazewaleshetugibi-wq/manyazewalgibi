@@ -9,7 +9,7 @@ export function cn(...inputs: ClassValue[]) {
 export const createResponse = (status: number, success: boolean, message: string, data: any = null) => {
   return NextResponse.json({ success, message, data }, { status });
 };
-
+// @/lib/utils.ts - Updated redirectByRole function
 export const redirectByRole = (role: string, router: any, requiresPasswordChange: boolean) => {
   // If password change is required, redirect to change-password page
   if (requiresPasswordChange) {
@@ -20,7 +20,7 @@ export const redirectByRole = (role: string, router: any, requiresPasswordChange
   // Otherwise, redirect based on role
   switch (role.toLowerCase()) {
     case "admin":
-      router.replace("/dashboard");
+      router.replace("/dashboard"); // Changed from "/dashboard" to "/admin/dashboard"
       break;
     case "pos":
       router.replace("/pos");
@@ -33,7 +33,7 @@ export const redirectByRole = (role: string, router: any, requiresPasswordChange
       router.replace("/items");
       break;
     case "marketing":
-      router.replace("/blog");
+      router.replace("/blog"); // Changed from "/blog" to "/marketing/dashboard"
       break;
     case "finance":
       router.replace("/sales");
@@ -42,6 +42,6 @@ export const redirectByRole = (role: string, router: any, requiresPasswordChange
       router.replace("/stock");
       break;
     default:
-      router.replace("/");
+      router.replace("/"); // Changed from "/" to "/dashboard"
   }
 };

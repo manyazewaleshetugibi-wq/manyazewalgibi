@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useSession, signOut, signIn, getSession } from "next-auth/react";
+import { useSession, signOut, getSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import { 
   Lock, 
@@ -12,7 +12,8 @@ import {
   XCircle,
   ArrowLeft,
   Shield,
-  AlertCircle
+  AlertCircle,
+  RefreshCw
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,7 @@ interface SessionUser {
 
 export default function ChangePasswordPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session, status, update } = useSession();
   const { toast } = useToast();
   
   const [currentPassword, setCurrentPassword] = useState("");
@@ -49,6 +50,7 @@ export default function ChangePasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [passwordStrength, setPasswordStrength] = useState(0);
+  const [isRefreshingSession, setIsRefreshingSession] = useState(false);
   
   // Check if user needs to change password
   useEffect(() => {
@@ -110,6 +112,87 @@ export default function ChangePasswordPage() {
     return "Strong";
   };
   
+  // Function to force session refresh
+  const forceSessionRefresh = async () => {
+    setIsRefreshingSession(true);
+    try {
+      console.log("🔄 Forcing session refresh...");
+      
+      // Method 1: Use NextAuth's update function
+      await update({
+        requiresPasswordChange: false
+      });
+      
+      // Method 2: Call session endpoint with no-cache headers
+      await fetch('/api/auth/session', {
+        method: 'GET',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        },
+        credentials: 'include'
+      });
+      
+      // Method 3: Small delay and get fresh session
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const newSession = await getSession();
+      console.log("🔄 New session after refresh:", newSession?.user);
+      
+      if (newSession?.user) {
+        const user = newSession.user as SessionUser;
+        console.log("✅ Session refreshed successfully, requiresPasswordChange:", user.requiresPasswordChange);
+        
+        if (!user.requiresPasswordChange) {
+          // Redirect based on role
+          toast({
+            title: "Success!",
+            description: "Session updated successfully. Redirecting...",
+            variant: "default",
+          });
+          redirectByRole(user.role, router, user.requiresPasswordChange);
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error("❌ Session refresh error:", error);
+      return false;
+    } finally {
+      setIsRefreshingSession(false);
+    }
+  };
+  
+  // Check for password change completion cookie
+  useEffect(() => {
+    const checkPasswordChangeCookie = () => {
+      const cookies = document.cookie.split(';');
+      const passwordChanged = cookies.some(cookie => 
+        cookie.trim().startsWith('password-change-complete=')
+      );
+      const forceRefresh = cookies.some(cookie =>
+        cookie.trim().startsWith('force-session-refresh=')
+      );
+      
+      return passwordChanged || forceRefresh;
+    };
+    
+    if (checkPasswordChangeCookie()) {
+      // Clear the cookies
+      document.cookie = 'password-change-complete=; max-age=0; path=/';
+      document.cookie = 'force-session-refresh=; max-age=0; path=/';
+      
+      // Force session refresh
+      if (session?.user) {
+        setTimeout(() => {
+          forceSessionRefresh();
+        }, 500);
+      }
+    }
+  }, [session]);
+  
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -165,34 +248,51 @@ export default function ChangePasswordPage() {
       if (data.success) {
         toast({
           title: "Success!",
-          description: "Password changed successfully. Logging you in...",
+          description: data.message || "Password changed successfully. Updating your session...",
           variant: "default",
         });
         
-        // Re-authenticate with the new password to get a fresh session
-        // and trigger role-based redirect.
-        const signInResult = await signIn("credentials", {
-          redirect: false,
-          email: session?.user?.email,
-          password: newPassword,
+        // Try multiple methods to refresh session
+        console.log("🔄 Attempting to refresh session after password change...");
+        
+        // Method 1: Use NextAuth's update function
+        await update({
+          requiresPasswordChange: false
         });
-
-        if (signInResult?.error) {
-          setError(`Login after password change failed: ${signInResult.error}. Please log in manually.`);
-          // Log out to force manual login
-          setTimeout(() => handleLogout(), 3000);
-        } else {
-          // On successful sign-in, the session is updated. We can now redirect.
-          const newSession = await getSession();
-          if (newSession?.user) {
-            const user = newSession.user as SessionUser;
+        
+        // Method 2: Add a small delay
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Method 3: Get fresh session
+        const newSession = await getSession();
+        
+        if (newSession?.user) {
+          const user = newSession.user as SessionUser;
+          console.log("✅ Fresh session obtained, requiresPasswordChange:", user.requiresPasswordChange);
+          
+          if (!user.requiresPasswordChange) {
+            // Redirect based on role
+            toast({
+              title: "Redirecting...",
+              description: "Your session has been updated successfully.",
+              variant: "default",
+            });
             redirectByRole(user.role, router, user.requiresPasswordChange);
+          } else {
+            // If session still shows requiresPasswordChange, try force refresh
+            console.log("🔄 Session still shows requiresPasswordChange=true, forcing refresh...");
+            await forceSessionRefresh();
           }
+        } else {
+          // If no session, try force refresh
+          console.log("🔄 No session found, forcing refresh...");
+          await forceSessionRefresh();
         }
       } else {
         setError(data.message || "Failed to change password");
       }
     } catch (err) {
+      console.error("❌ Password change error:", err);
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
@@ -200,8 +300,20 @@ export default function ChangePasswordPage() {
   };
   
   const handleLogout = async () => {
-    await signOut({ redirect: false });
-    router.push("/login");
+    await signOut({ callbackUrl: "/login" });
+  };
+  
+  const handleManualRefresh = async () => {
+    setIsRefreshingSession(true);
+    const success = await forceSessionRefresh();
+    
+    if (!success) {
+      toast({
+        title: "Session Refresh Failed",
+        description: "Please try logging out and logging back in.",
+        variant: "destructive",
+      });
+    }
   };
   
   if (status === "loading") {
@@ -238,6 +350,16 @@ export default function ChangePasswordPage() {
               <CardDescription className="text-center">
                 For security reasons, you must change your password before accessing the system.
               </CardDescription>
+              
+              {/* Session Refresh Status */}
+              {isRefreshingSession && (
+                <Alert className="mt-4 bg-blue-50 border-blue-200">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <AlertDescription>
+                    Refreshing your session after password change...
+                  </AlertDescription>
+                </Alert>
+              )}
             </CardHeader>
             
             <CardContent>
@@ -247,6 +369,9 @@ export default function ChangePasswordPage() {
                   <div className="p-3 bg-muted rounded-md">
                     <p className="text-sm font-medium">Account: {user.email}</p>
                     <p className="text-xs text-muted-foreground">Role: {user.role}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Status: {user.requiresPasswordChange ? "Password Change Required" : "Active"}
+                    </p>
                   </div>
                 )}
                 
@@ -261,6 +386,7 @@ export default function ChangePasswordPage() {
                       onChange={(e) => setCurrentPassword(e.target.value)}
                       placeholder="Enter current password"
                       className="pr-10"
+                      disabled={loading || isRefreshingSession}
                     />
                     <Button
                       type="button"
@@ -268,6 +394,7 @@ export default function ChangePasswordPage() {
                       size="sm"
                       className="absolute right-0 top-0 h-full px-3"
                       onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                      disabled={loading || isRefreshingSession}
                     >
                       {showCurrentPassword ? (
                         <EyeOff className="h-4 w-4" />
@@ -289,6 +416,7 @@ export default function ChangePasswordPage() {
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Enter new password"
                       className="pr-10"
+                      disabled={loading || isRefreshingSession}
                     />
                     <Button
                       type="button"
@@ -296,6 +424,7 @@ export default function ChangePasswordPage() {
                       size="sm"
                       className="absolute right-0 top-0 h-full px-3"
                       onClick={() => setShowNewPassword(!showNewPassword)}
+                      disabled={loading || isRefreshingSession}
                     >
                       {showNewPassword ? (
                         <EyeOff className="h-4 w-4" />
@@ -355,6 +484,7 @@ export default function ChangePasswordPage() {
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="Confirm new password"
                       className="pr-10"
+                      disabled={loading || isRefreshingSession}
                     />
                     <Button
                       type="button"
@@ -362,6 +492,7 @@ export default function ChangePasswordPage() {
                       size="sm"
                       className="absolute right-0 top-0 h-full px-3"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      disabled={loading || isRefreshingSession}
                     >
                       {showConfirmPassword ? (
                         <EyeOff className="h-4 w-4" />
@@ -394,7 +525,7 @@ export default function ChangePasswordPage() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={loading}
+                  disabled={loading || isRefreshingSession}
                 >
                   {loading ? (
                     <>
@@ -413,14 +544,36 @@ export default function ChangePasswordPage() {
             
             <CardFooter className="flex flex-col space-y-3">
               <div className="text-center text-sm text-gray-600">
-                <p>After changing your password, you will be redirected to the dashboard.</p>
+                <p>After changing your password, your session will be automatically refreshed.</p>
+                <p className="mt-1 text-xs">If you encounter issues, try the manual refresh button below.</p>
               </div>
+              
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleManualRefresh}
+                disabled={loading || isRefreshingSession}
+              >
+                {isRefreshingSession ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
+                    Refreshing Session...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Manual Session Refresh
+                  </>
+                )}
+              </Button>
+              
               <Button
                 type="button"
                 variant="outline"
                 className="w-full"
                 onClick={handleLogout}
-                disabled={loading}
+                disabled={loading || isRefreshingSession}
               >
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Login

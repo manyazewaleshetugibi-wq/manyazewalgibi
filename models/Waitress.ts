@@ -1,9 +1,10 @@
+// In @/models/Waitress.ts
 import { ObjectId } from "mongodb";
 
 export enum ShiftType {
-    MORNING = "Morning",
-    EVENING = "Evening",
-    FULL_DAY = "Full Day",
+    MORNING = "MORNING",
+    AFTERNOON = "AFTERNOON",
+    EVENING = "EVENING"
 }
 
 export interface Waitress {
@@ -14,4 +15,11 @@ export interface Waitress {
     isActive: boolean;
     createdAt: Date;
     updatedAt: Date;
+    
+    // New optional fields for POS user registration
+    userId?: ObjectId;
+    email?: string;
+    role?: string;
+    registeredFromUser?: boolean;
+    registrationDate?: Date;
 }

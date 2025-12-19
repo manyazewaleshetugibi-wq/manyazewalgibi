@@ -5,10 +5,7 @@ export const logoutAndRedirect = async (router: any) => {
   localStorage.removeItem("rememberedEmail");
   
   // Sign out from NextAuth
-  await signOut({ redirect: false });
-  
-  // Redirect to login page
-  router.push("/login");
+  await signOut({ callbackUrl: "/login" });
 };
 
 export const redirectBasedOnRole = (role: string, router: any, requiresPasswordChange: boolean) => {

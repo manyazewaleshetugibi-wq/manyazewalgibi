@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
   try {
     const token = await getToken({ 
       req: request, 
-      secret: process.env.NEXTAUTH_SECRET || 'snbcsbdnbjkdbhjddfbdnbfhdhrhfrfjkfjdkja'
+      secret: process.env.NEXTAUTH_SECRET || ''
     });
 
     if (!token) {
@@ -157,6 +157,7 @@ export async function POST(request: NextRequest) {
         $set: { 
           password: hashedNewPassword,
           requiresPasswordChange: false, // ← SET TO FALSE
+          lastPasswordChange: new Date(),
           updatedAt: new Date()
         } 
       }
@@ -178,13 +179,44 @@ export async function POST(request: NextRequest) {
     
     console.log('✅ Password updated successfully, requiresPasswordChange set to false');
     
-    return NextResponse.json({
+    // 🔴 CRITICAL: Set a cookie that middleware can use to refresh the session
+    // This tells the client that password was changed and session needs refresh
+    const response = NextResponse.json({
       success: true,
-      message: 'Password changed successfully. You can now access the system.',
+      message: 'Password changed successfully. Please wait while we update your session...',
       data: { 
-        requiresPasswordChange: false // Important for frontend to update session
+        requiresPasswordChange: false,
+        // Add refresh instructions for frontend
+        refreshSession: true,
+        redirectTo: '/api/auth/session?refresh=true'
       }
     });
+    
+    // Set a cookie that will be checked by middleware
+    response.cookies.set('password-changed', 'true', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 // 30 seconds - short-lived cookie
+    });
+    
+    // Also set a flag for the frontend
+    response.cookies.set('password-change-complete', 'true', {
+      httpOnly: false, // Allow frontend to read this
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30
+    });
+    
+    // Set a secure flag for the frontend to detect immediate session refresh
+    response.cookies.set('force-session-refresh', 'true', {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 5 // 5 seconds - very short-lived
+    });
+    
+    return response;
     
   } catch (error: any) {
     console.error('🔥 Change password error:', error);

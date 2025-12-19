@@ -2,10 +2,107 @@ import { NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import type { NextRequest } from "next/server";
 
+// Security configuration
+const SECURITY_CONFIG = {
+  blockedDomains: [
+    'bedpage.com',
+    'bedpage.',
+    'malicious.',
+    '.xyz',
+    '.top',
+    '.club',
+    '.click',
+    '.stream',
+    '.download',
+  ],
+  allowedRedirectProtocols: ['http:', 'https:'],
+  maxCallbackUrlLength: 500,
+};
+
+// Security helper functions
+function validateRedirectUrl(urlString: string, baseOrigin: string): { 
+  valid: boolean; 
+  reason?: string; 
+} {
+  try {
+    const url = new URL(urlString);
+    
+    // 1. Check length
+    if (urlString.length > SECURITY_CONFIG.maxCallbackUrlLength) {
+      return { valid: false, reason: 'URL too long' };
+    }
+    
+    // 2. Check protocol
+    if (!SECURITY_CONFIG.allowedRedirectProtocols.includes(url.protocol)) {
+      return { valid: false, reason: 'Invalid protocol' };
+    }
+    
+    // 3. Check against blocked domains
+    const hostname = url.hostname.toLowerCase();
+    const isBlocked = SECURITY_CONFIG.blockedDomains.some(domain => {
+      if (domain.startsWith('.')) {
+        return hostname.endsWith(domain);
+      } else if (domain.endsWith('.')) {
+        return hostname.startsWith(domain);
+      } else {
+        return hostname === domain || hostname.includes(domain);
+      }
+    });
+    
+    if (isBlocked) {
+      return { valid: false, reason: 'Blocked domain' };
+    }
+    
+    // 4. Ensure it's same-origin or relative
+    if (url.origin !== baseOrigin && !urlString.startsWith('/')) {
+      return { valid: false, reason: 'External redirect not allowed' };
+    }
+    
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, reason: 'Invalid URL format' };
+  }
+}
+
+function logSecurityIncident(
+  req: NextRequest, 
+  type: string, 
+  details: Record<string, any>
+) {
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    type,
+    path: req.nextUrl.pathname,
+    method: req.method,
+    ...details,
+  };
+  
+  console.error('🔒 SECURITY INCIDENT:', logEntry);
+}
+
 export async function middleware(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   const url = req.nextUrl.clone();
-
+  
+  // === SECURITY: VALIDATE ALL REDIRECTS ===
+  const callbackUrl = url.searchParams.get('callbackUrl');
+  if (callbackUrl) {
+    const validation = validateRedirectUrl(callbackUrl, req.nextUrl.origin);
+    if (!validation.valid) {
+      console.error(`🚨 SECURITY: ${validation.reason}`, callbackUrl);
+      url.searchParams.delete('callbackUrl');
+      
+      logSecurityIncident(req, 'malicious_redirect', {
+        attemptedUrl: callbackUrl,
+        reason: validation.reason,
+        userAgent: req.headers.get('user-agent'),
+        ip: req.headers.get('x-forwarded-for') || req.ip,
+      });
+      
+      return NextResponse.redirect(new URL('/dashboard', req.url));
+    }
+  }
+  
   // Public routes that don't require authentication
   const publicRoutes = [
     "/",
@@ -41,6 +138,33 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // 🔴 CRITICAL: Handle password change completion
+  // Check if password was just changed (via cookie or query param)
+  const passwordChanged = url.searchParams.get('passwordChanged') === 'true' || 
+                         req.cookies.get('password-changed')?.value === 'true';
+  
+  if (passwordChanged && token) {
+    console.log('🔄 Password change detected, refreshing session...');
+    
+    // Clear the cookie if it exists
+    const response = NextResponse.next();
+    response.cookies.delete('password-changed');
+    
+    // Remove query param
+    url.searchParams.delete('passwordChanged');
+    
+    // Force a session refresh by calling updateSession
+    // This will trigger the JWT callback with trigger: "update"
+    const headers = new Headers(req.headers);
+    headers.set('x-force-session-refresh', 'true');
+    
+    return NextResponse.next({
+      request: {
+        headers,
+      },
+    });
+  }
+
   // Check if password change is required
   const requiresPasswordChange = token.requiresPasswordChange === true;
 
@@ -53,6 +177,11 @@ export async function middleware(req: NextRequest) {
     
     // Allow access to logout
     if (url.pathname.startsWith("/api/auth/signout")) {
+      return NextResponse.next();
+    }
+
+    // Allow access to session endpoint so client can detect the flag without error
+    if (url.pathname.startsWith("/api/auth/session")) {
       return NextResponse.next();
     }
     
@@ -93,16 +222,9 @@ export async function middleware(req: NextRequest) {
   });
 }
 
+// For App Router, use route segment config instead of export config
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for:
-     * 1. /api/auth (NextAuth API routes)
-     * 2. /_next/static (static files)
-     * 3. /_next/image (image optimization files)
-     * 4. /favicon.ico (favicon file)
-     * 5. Public routes defined above
-     */
     "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 };

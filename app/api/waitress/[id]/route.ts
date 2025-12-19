@@ -27,9 +27,9 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ message: "Error fetching waitress", error }, { status: 500 });
     }
 }
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
-        const { id } = params;
+        const { id } = await params;
         if (!ObjectId.isValid(id)) {
             return NextResponse.json({ message: "Invalid ID format" }, { status: 400 });
         }
@@ -54,19 +54,25 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
-        const { id } = params;
+        const { id } = await params;
         if (!ObjectId.isValid(id)) {
             return NextResponse.json({ message: "Invalid ID format" }, { status: 400 });
         }
 
         const client = await clientPromise;
         const db = client.db("gold");
+        const waitress = await db.collection(COLLECTION_NAME).findOne({ _id: new ObjectId(id) });
+
+        if (!waitress) {
+            return NextResponse.json({ message: "Waitress not found" }, { status: 404 });
+        }
+
         const result = await db.collection(COLLECTION_NAME).deleteOne({ _id: new ObjectId(id) });
 
-        if (!result.deletedCount) {
-            return NextResponse.json({ message: "Waitress not found" }, { status: 404 });
+        if (result.deletedCount && waitress.userId) {
+            await db.collection("users").deleteOne({ _id: new ObjectId(waitress.userId) });
         }
 
         return NextResponse.json({ message: "Waitress deleted successfully" }, { status: 200 });
