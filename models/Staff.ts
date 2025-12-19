@@ -9,6 +9,7 @@ export interface IStaff extends Document {
   role: string;
   status: 'active' | 'inactive' | 'suspended';
   permissions: string[];
+  requiresPasswordChange: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,8 +48,8 @@ const StaffSchema: Schema = new Schema({
   role: {
     type: String,
     required: [true, 'Role is required'],
-    enum: ['admin', 'kitchen', 'stock_manager', 'fb', 'marketing', 'finance', 'pos', 'waitress'],
-    default: 'waitress'
+    enum: ['admin', 'kitchen', 'stock_manager', 'fb', 'marketing', 'finance', 'pos'],
+    default: 'pos'
   },
   status: {
     type: String,
@@ -58,6 +59,10 @@ const StaffSchema: Schema = new Schema({
   permissions: {
     type: [String],
     default: []
+  },
+  requiresPasswordChange: {
+    type: Boolean,
+    default: true
   },
   createdAt: {
     type: Date,

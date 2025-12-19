@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
-import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 
 // Define role-based permissions
 const rolePermissions: Record<string, string[]> = {
@@ -71,34 +71,32 @@ const rolePermissions: Record<string, string[]> = {
   ]
 };
 
-// Password hashing utility with PBKDF2
-const hashPassword = (password: string): string => {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const iterations = 100000;
-  const keylen = 64;
-  const digest = 'sha512';
-  
-  const hash = crypto.pbkdf2Sync(password, salt, iterations, keylen, digest).toString('hex');
-  return `${salt}:${iterations}:${keylen}:${digest}:${hash}`;
-};
-
-// Check if password is already hashed (for backward compatibility)
-const isAlreadyHashed = (password: string): boolean => {
-  const parts = password.split(':');
-  return parts.length === 5 && 
-         !!parts[1]?.match(/^\d+$/) && 
-         !!parts[2]?.match(/^\d+$/);
-};
-
-// Password verification utility
-const verifyPassword = (password: string, storedHash: string): boolean => {
+// Password hashing utility with bcrypt
+const hashPassword = async (password: string): Promise<string> => {
   try {
-    const [salt, iterationsStr, keylenStr, digest, originalHash] = storedHash.split(':');
-    const iterations = parseInt(iterationsStr, 10);
-    const keylen = parseInt(keylenStr, 10);
-    
-    const hash = crypto.pbkdf2Sync(password, salt, iterations, keylen, digest).toString('hex');
-    return hash === originalHash;
+    const saltRounds = 10;
+    const salt = await bcrypt.genSalt(saltRounds);
+    const hash = await bcrypt.hash(password, salt);
+    return hash;
+  } catch (error) {
+    console.error('Error hashing password:', error);
+    throw new Error('Failed to hash password');
+  }
+};
+
+// Check if password is already hashed with bcrypt format
+const isAlreadyHashed = (password: string): boolean => {
+  // BCrypt hash format: $2a$[cost]$[salt][hash]
+  // Example: $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
+  const bcryptRegex = /^\$2[ayb]\$\d{2}\$[A-Za-z0-9./]{53}$/;
+  return bcryptRegex.test(password);
+};
+
+// Password verification utility with bcrypt
+const verifyPassword = async (password: string, storedHash: string): Promise<boolean> => {
+  try {
+    const isMatch = await bcrypt.compare(password, storedHash);
+    return isMatch;
   } catch (error) {
     console.error('Error verifying password:', error);
     return false;
@@ -113,7 +111,7 @@ export async function GET(
   try {
     const client = await clientPromise;
     const db = client.db('gold');
-    const usersCollection = db.collection('users'); // Changed to 'users'
+    const usersCollection = db.collection('users');
     
     // Validate ObjectId
     if (!ObjectId.isValid(params.id)) {
@@ -157,7 +155,7 @@ export async function PUT(
   try {
     const client = await clientPromise;
     const db = client.db('gold');
-    const usersCollection = db.collection('users'); // Changed to 'users'
+    const usersCollection = db.collection('users');
     
     // Validate ObjectId
     if (!ObjectId.isValid(params.id)) {
@@ -257,8 +255,8 @@ export async function PUT(
         // If it's already hashed (for backward compatibility or migration)
         updateData.password = password;
       } else {
-        // Hash the new password
-        updateData.password = hashPassword(password);
+        // Hash the new password with bcrypt
+        updateData.password = await hashPassword(password);
       }
     }
     
@@ -302,7 +300,7 @@ export async function DELETE(
   try {
     const client = await clientPromise;
     const db = client.db('gold');
-    const usersCollection = db.collection('users'); // Changed to 'users'
+    const usersCollection = db.collection('users');
     
     // Validate ObjectId
     if (!ObjectId.isValid(params.id)) {
@@ -357,7 +355,7 @@ export async function PATCH(
   try {
     const client = await clientPromise;
     const db = client.db('gold');
-    const usersCollection = db.collection('users'); // Changed to 'users'
+    const usersCollection = db.collection('users');
     
     // Validate ObjectId
     if (!ObjectId.isValid(params.id)) {
@@ -377,6 +375,14 @@ export async function PATCH(
       );
     }
     
+    // Validate new password strength (optional but recommended)
+    if (newPassword.length < 8) {
+      return NextResponse.json(
+        { success: false, message: 'New password must be at least 8 characters long' },
+        { status: 400 }
+      );
+    }
+    
     // Get user with password
     const user = await usersCollection.findOne({ _id: new ObjectId(params.id) });
     
@@ -387,8 +393,8 @@ export async function PATCH(
       );
     }
     
-    // Verify current password
-    const isPasswordValid = verifyPassword(currentPassword, user.password);
+    // Verify current password using bcrypt
+    const isPasswordValid = await verifyPassword(currentPassword, user.password);
     
     if (!isPasswordValid) {
       return NextResponse.json(
@@ -397,8 +403,8 @@ export async function PATCH(
       );
     }
     
-    // Hash new password
-    const hashedNewPassword = hashPassword(newPassword);
+    // Hash new password with bcrypt
+    const hashedNewPassword = await hashPassword(newPassword);
     
     // Update password
     await usersCollection.updateOne(

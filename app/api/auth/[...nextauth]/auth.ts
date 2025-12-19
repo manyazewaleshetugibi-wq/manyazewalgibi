@@ -2,6 +2,8 @@ import NextAuth, { type NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { MongoDBAdapter } from "@next-auth/mongodb-adapter"
 import bcrypt from "bcrypt"
+import { MongoClient, ObjectId } from "mongodb"
+import { UserRole } from "@/models/User"
 
 // HARDCODED CONFIGURATION
 const MONGODB_URI = "mongodb+srv://aweke2011:awe2011@gold.av49bjz.mongodb.net/?retryWrites=true&w=majority";
@@ -9,7 +11,6 @@ const DATABASE_NAME = "gold"
 const NEXTAUTH_SECRET = "snbcsbdnbjkdbhjddfbdnbfhdhrhfrfjkfjdkja"
 const NEXTAUTH_URL = "http://localhost:3000"
 
-import { MongoClient } from "mongodb"
 const client = new MongoClient(MONGODB_URI)
 const clientPromise = client.connect()
 
@@ -39,9 +40,9 @@ export const authOptions: NextAuthOptions = {
           
           console.log(`📁 Looking for user: ${credentials.email}`);
           
-          // Find user
+          // Try to find user in users collection
           const user = await db.collection("users").findOne({ 
-            email: credentials.email 
+            email: credentials.email.toLowerCase().trim()
           });
           
           if (!user) {
@@ -49,19 +50,30 @@ export const authOptions: NextAuthOptions = {
             throw new Error("Invalid credentials");
           }
           
+          // Check if account is active
+          if (user.status && user.status !== "active") {
+            console.log(`❌ Account is ${user.status}`);
+            throw new Error("Account is not active. Please contact administrator.");
+          }
+          
+          // Check if account is locked
+          if (user.loginAttempts >= 5 && user.lastLogin) {
+            const lockDuration = 15 * 60 * 1000; // 15 minutes
+            const timeSinceLastAttempt = Date.now() - user.lastLogin.getTime();
+            
+            if (timeSinceLastAttempt < lockDuration) {
+              const remainingTime = Math.ceil((lockDuration - timeSinceLastAttempt) / 60000);
+              throw new Error(`Account is temporarily locked. Try again in ${remainingTime} minutes.`);
+            }
+          }
+          
           console.log(`✅ User found: ${user.email}`);
-          console.log(`📝 User has password: ${!!user.password}`);
+          console.log(`📋 User requires password change: ${user.requiresPasswordChange}`);
           
           if (!user.password) {
             console.log("❌ User has no password set");
             throw new Error("Invalid credentials");
           }
-          
-          // DEBUG: Log password details
-          console.log(`🔑 Password comparison:`);
-          console.log(`   Input password length: ${credentials.password.length}`);
-          console.log(`   Stored hash length: ${user.password.length}`);
-          console.log(`   Stored hash prefix: ${user.password.substring(0, 20)}...`);
           
           // Compare password
           const isPasswordValid = await bcrypt.compare(
@@ -72,27 +84,50 @@ export const authOptions: NextAuthOptions = {
           console.log(`🔐 Password valid: ${isPasswordValid}`);
           
           if (!isPasswordValid) {
+            // Update login attempts
+            const attempts = (user.loginAttempts || 0) + 1;
+            await db.collection("users").updateOne(
+              { _id: user._id },
+              { 
+                $set: { 
+                  loginAttempts: attempts,
+                  lastLogin: new Date()
+                } 
+              }
+            );
+            
             console.log("❌ Password comparison failed");
-            
-            // DEBUG: Try to see if it's a bcrypt hash
-            const isBcryptHash = user.password.startsWith('$2b$') || 
-                                 user.password.startsWith('$2a$') || 
-                                 user.password.startsWith('$2y$');
-            console.log(`🔍 Is bcrypt hash: ${isBcryptHash}`);
-            
             throw new Error("Invalid credentials");
           }
           
-          // Return user object
+          // Reset login attempts on successful login
+          await db.collection("users").updateOne(
+            { _id: user._id },
+            { 
+              $set: { 
+                loginAttempts: 0,
+                lastLogin: new Date()
+              } 
+            }
+          );
+          
+          // Return user object with requiresPasswordChange flag
+          // If field doesn't exist, default to true (force password change)
           const userData = {
             id: user._id.toString(),
             email: user.email,
             name: user.name || user.email,
-            role: user.role || "user",
-            image: user.image
+            role: (user.role || "user") as UserRole,
+            image: user.image,
+            employeeId: user.employeeId || "",
+            permissions: user.permissions || [],
+            requiresPasswordChange: user.requiresPasswordChange !== undefined 
+              ? user.requiresPasswordChange 
+              : true // Default to true if field doesn't exist
           };
           
           console.log(`🎉 Login successful for: ${userData.email}`);
+          console.log(`🔑 Requires password change: ${userData.requiresPasswordChange}`);
           console.log(`👤 User data:`, userData);
           
           return userData;
@@ -106,16 +141,27 @@ export const authOptions: NextAuthOptions = {
   ],
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 8 * 60 * 60, // 8 hours
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
+      // Initial sign in
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.email = user.email;
         token.name = user.name;
+        token.employeeId = user.employeeId;
+        token.permissions = user.permissions;
+        token.requiresPasswordChange = user.requiresPasswordChange;
       }
+      
+      // Update session when password is changed (via updateSession trigger)
+      if (trigger === "update" && session?.requiresPasswordChange !== undefined) {
+        console.log("🔄 Updating JWT with new requiresPasswordChange:", session.requiresPasswordChange);
+        token.requiresPasswordChange = session.requiresPasswordChange;
+      }
+      
       return token;
     },
     async session({ session, token }) {
@@ -123,16 +169,20 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id as string;
         session.user.email = token.email as string;
         session.user.name = token.name as string;
-        session.user.role = token.role as string;
+        session.user.role = token.role as UserRole;
+        session.user.employeeId = token.employeeId as string;
+        session.user.permissions = token.permissions as string[];
+        session.user.requiresPasswordChange = token.requiresPasswordChange as boolean;
+        session.user.image = token.image as string;
       }
       return session;
     },
   },
   pages: {
-    signIn: "/auth/signin",
+    signIn: "/login",
     error: "/auth/error",
   },
-  debug: true, // Enable debug mode
+  debug: true,
 }
 
 export default NextAuth(authOptions);

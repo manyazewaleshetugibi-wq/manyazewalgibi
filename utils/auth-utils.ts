@@ -1,16 +1,17 @@
-import { clsx, type ClassValue } from "clsx"
-import { NextResponse } from "next/server";
-import { twMerge } from "tailwind-merge"
+import { signOut } from "next-auth/react";
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
-
-export const createResponse = (status: number, success: boolean, message: string, data: any = null) => {
-  return NextResponse.json({ success, message, data }, { status });
+export const logoutAndRedirect = async (router: any) => {
+  // Clear any stored data
+  localStorage.removeItem("rememberedEmail");
+  
+  // Sign out from NextAuth
+  await signOut({ redirect: false });
+  
+  // Redirect to login page
+  router.push("/login");
 };
 
-export const redirectByRole = (role: string, router: any, requiresPasswordChange: boolean) => {
+export const redirectBasedOnRole = (role: string, router: any, requiresPasswordChange: boolean) => {
   // If password change is required, redirect to change-password page
   if (requiresPasswordChange) {
     router.replace("/change-password");

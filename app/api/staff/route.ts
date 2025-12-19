@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
-import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 
 // Define role-based permissions
 const rolePermissions: Record<string, string[]> = {
@@ -71,29 +71,36 @@ const rolePermissions: Record<string, string[]> = {
   ]
 };
 
-// Password hashing utility with PBKDF2
-const hashPassword = (password: string): string => {
-  // Generate a random salt
-  const salt = crypto.randomBytes(16).toString('hex');
-  
-  // Use PBKDF2 for key derivation
-  const iterations = 100000;
-  const keylen = 64;
-  const digest = 'sha512';
-  
-  const hash = crypto.pbkdf2Sync(password, salt, iterations, keylen, digest).toString('hex');
-  
-  // Store salt, iterations, keylen, digest, and hash together
-  return `${salt}:${iterations}:${keylen}:${digest}:${hash}`;
+// Password hashing utility with bcrypt
+const hashPassword = async (password: string): Promise<string> => {
+  try {
+    const saltRounds = 10;
+    const salt = await bcrypt.genSalt(saltRounds);
+    const hash = await bcrypt.hash(password, salt);
+    return hash;
+  } catch (error) {
+    console.error('Error hashing password:', error);
+    throw new Error('Failed to hash password');
+  }
 };
 
-// Check if password is already hashed (for backward compatibility)
+// Check if password is already hashed with bcrypt format
 const isAlreadyHashed = (password: string): boolean => {
-  // Check if it has the format of our hash: salt:iterations:keylen:digest:hash
-  const parts = password.split(':');
-  return parts.length === 5 && 
-         !!parts[1]?.match(/^\d+$/) && 
-         !!parts[2]?.match(/^\d+$/);
+  // BCrypt hash format: $2a$[cost]$[salt][hash]
+  // Example: $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
+  const bcryptRegex = /^\$2[ayb]\$\d{2}\$[A-Za-z0-9./]{53}$/;
+  return bcryptRegex.test(password);
+};
+
+// Password verification utility with bcrypt
+const verifyPassword = async (password: string, storedHash: string): Promise<boolean> => {
+  try {
+    const isMatch = await bcrypt.compare(password, storedHash);
+    return isMatch;
+  } catch (error) {
+    console.error('Error verifying password:', error);
+    return false;
+  }
 };
 
 // GET all staff
@@ -101,7 +108,7 @@ export async function GET(request: NextRequest) {
   try {
     const client = await clientPromise;
     const db = client.db('gold');
-    const usersCollection = db.collection('users'); // Changed to 'users'
+    const usersCollection = db.collection('users');
     
     const { searchParams } = new URL(request.url);
     const role = searchParams.get('role');
@@ -142,7 +149,7 @@ export async function POST(request: NextRequest) {
   try {
     const client = await clientPromise;
     const db = client.db('gold');
-    const usersCollection = db.collection('users'); // Changed to 'users'
+    const usersCollection = db.collection('users');
     
     const body = await request.json();
     const {
@@ -213,19 +220,22 @@ export async function POST(request: NextRequest) {
     const rolePerms = rolePermissions[role] || [];
     const finalPermissions = permissions.length > 0 ? permissions : rolePerms;
     
-    // Hash password using crypto PBKDF2
-    const hashedPassword = hashPassword(password);
+    // Hash password using bcrypt
+    const hashedPassword = await hashPassword(password);
     
-    // Create new user document
+    // Create new user document - ADD requiresPasswordChange: true
     const newUser = {
       name: name.trim(),
       email: email.toLowerCase().trim(),
       phone: phone.trim(),
       employeeId: employeeId.toUpperCase().trim(),
       role,
-      password: hashedPassword, // Store hashed password
+      password: hashedPassword,
       status,
       permissions: finalPermissions,
+      requiresPasswordChange: true, // ← CRITICAL: Force password change on first login
+      loginAttempts: 0,
+      lastLogin: null,
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -237,7 +247,7 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json({
       success: true,
-      message: 'User registered successfully',
+      message: 'User registered successfully. User will be required to change password on first login.',
       data: {
         _id: result.insertedId,
         ...userResponse

@@ -15,7 +15,10 @@ import {
   XCircle,
   Shield,
   UserCheck,
-  BadgeCheck
+  BadgeCheck,
+  Eye,
+  EyeOff,
+  AlertCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -51,6 +54,13 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // Define role-based permissions
 const rolePermissions = {
@@ -111,13 +121,29 @@ const rolePermissions = {
     "view_orders",
     "create_orders",
     "process_payments"
-  ],
-  waitress: [
-    "view_orders",
-    "create_orders",
-    "update_order_status",
-    "view_menu"
   ]
+};
+
+// Password strength indicator function
+const getPasswordStrength = (password: string) => {
+  if (!password) return { score: 0, text: "No password", color: "bg-gray-200" };
+  
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (/[A-Z]/.test(password)) score++;
+  if (/[a-z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  
+  const strength = [
+    { text: "Very Weak", color: "bg-red-500" },
+    { text: "Weak", color: "bg-orange-500" },
+    { text: "Fair", color: "bg-yellow-500" },
+    { text: "Good", color: "bg-blue-500" },
+    { text: "Strong", color: "bg-green-500" }
+  ];
+  
+  return strength[Math.min(score, 4)];
 };
 
 // Define the form schema
@@ -126,10 +152,16 @@ const formSchema = z.object({
   email: z.string().email("Invalid email address"),
   phone: z.string().min(10, "Phone number must be at least 10 digits"),
   employeeId: z.string().min(3, "Employee ID must be at least 3 characters"),
-  role: z.enum(["admin", "kitchen", "stock_manager", "fb", "marketing", "finance", "pos", "waitress"]),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  confirmPassword: z.string().min(6, "Password must be at least 6 characters"),
+  role: z.enum(["admin", "kitchen", "stock_manager", "fb", "marketing", "finance", "pos"]),
+  password: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number")
+    .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character"),
+  confirmPassword: z.string().min(8, "Password must be at least 8 characters"),
   status: z.enum(["active", "inactive"]).default("active"),
+  requiresPasswordChange: z.boolean().default(true),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -141,6 +173,9 @@ export function StaffRegistrationForm() {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [generatedPassword, setGeneratedPassword] = useState("");
   const { toast } = useToast();
 
   const form = useForm<FormValues>({
@@ -150,15 +185,17 @@ export function StaffRegistrationForm() {
       email: "",
       phone: "",
       employeeId: "",
-      role: "waitress",
+      role: "pos",
       password: "",
       confirmPassword: "",
       status: "active",
+      requiresPasswordChange: true,
     },
   });
 
   // Watch role changes to update permissions
   const selectedRole = form.watch("role");
+  const password = form.watch("password");
 
   useEffect(() => {
     if (selectedRole) {
@@ -176,7 +213,6 @@ export function StaffRegistrationForm() {
       marketing: "MKT",
       finance: "FIN",
       pos: "POS",
-      waitress: "WAIT",
     };
     const prefix = roleMap[role] || "EMP";
     const randomNum = Math.floor(1000 + Math.random() * 9000);
@@ -187,14 +223,42 @@ export function StaffRegistrationForm() {
     form.setValue("employeeId", generateEmployeeId());
   };
 
-  const generatePassword = () => {
-    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+  const generateSecurePassword = () => {
+    const lowercase = "abcdefghijklmnopqrstuvwxyz";
+    const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const numbers = "0123456789";
+    const symbols = "!@#$%^&*";
+    
+    const allChars = lowercase + uppercase + numbers + symbols;
     let password = "";
-    for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    
+    // Ensure at least one of each type
+    password += lowercase[Math.floor(Math.random() * lowercase.length)];
+    password += uppercase[Math.floor(Math.random() * uppercase.length)];
+    password += numbers[Math.floor(Math.random() * numbers.length)];
+    password += symbols[Math.floor(Math.random() * symbols.length)];
+    
+    // Fill the rest with random characters
+    for (let i = 4; i < 12; i++) {
+      password += allChars[Math.floor(Math.random() * allChars.length)];
     }
+    
+    // Shuffle the password
+    password = password.split('').sort(() => Math.random() - 0.5).join('');
+    
+    setGeneratedPassword(password);
     form.setValue("password", password);
     form.setValue("confirmPassword", password);
+  };
+
+  const copyToClipboard = () => {
+    if (generatedPassword) {
+      navigator.clipboard.writeText(generatedPassword);
+      toast({
+        title: "Password copied!",
+        description: "Password has been copied to clipboard.",
+      });
+    }
   };
 
   const onSubmit = async (values: FormValues) => {
@@ -203,6 +267,7 @@ export function StaffRegistrationForm() {
       const staffData = {
         ...values,
         permissions: rolePermissions[values.role] || [],
+        requiresPasswordChange: values.requiresPasswordChange ?? true, // Force password change on first login
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -214,11 +279,22 @@ export function StaffRegistrationForm() {
       
       toast({
         title: "Staff Registered Successfully",
-        description: `${values.name} has been added to the system.`,
+        description: (
+          <div className="space-y-2">
+            <p>{values.name} has been added to the system.</p>
+            <Alert className="mt-2">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-sm">
+                <strong>Important:</strong> User will be required to change their password on first login.
+              </AlertDescription>
+            </Alert>
+          </div>
+        ),
         variant: "default",
       });
 
       form.reset();
+      setGeneratedPassword("");
       setOpen(false);
     } catch (error: any) {
       toast({
@@ -239,8 +315,9 @@ export function StaffRegistrationForm() {
     marketing: "Marketing and content creation",
     finance: "Financial management and reporting",
     pos: "Point of Sale operations",
-    waitress: "Order taking and customer service",
   };
+
+  const passwordStrength = getPasswordStrength(password);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -411,32 +488,126 @@ export function StaffRegistrationForm() {
                   )}
                 />
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <FormLabel className="flex items-center gap-2">
                     <Key className="h-4 w-4" />
                     Password
                   </FormLabel>
-                  <div className="flex gap-2">
-                    <FormField
-                      control={form.control}
-                      name="password"
-                      render={({ field }) => (
-                        <FormItem className="flex-1">
-                          <FormControl>
-                            <Input type="password" placeholder="Enter password" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={generatePassword}
-                    >
-                      Generate
-                    </Button>
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <FormField
+                          control={form.control}
+                          name="password"
+                          render={({ field }) => (
+                            <FormItem className="flex-1">
+                              <FormControl>
+                                <Input 
+                                  type={showPassword ? "text" : "password"} 
+                                  placeholder="Enter password" 
+                                  {...field} 
+                                  className="pr-10"
+                                />
+                              </FormControl>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                                onClick={() => setShowPassword(!showPassword)}
+                              >
+                                {showPassword ? (
+                                  <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <Eye className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </Button>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={generateSecurePassword}
+                      >
+                        Generate
+                      </Button>
+                    </div>
+                    
+                    {/* Password Strength Indicator */}
+                    {password && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-muted-foreground">Password strength:</span>
+                          <span className="text-xs font-medium">{passwordStrength.text}</span>
+                        </div>
+                        <div className="h-1 w-full bg-gray-200 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full ${passwordStrength.color} transition-all duration-300`}
+                            style={{ width: `${((passwordStrength.score + 1) / 5) * 100}%` }}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-xs">
+                          <div className={`flex items-center gap-1 ${password.length >= 8 ? "text-green-600" : "text-gray-400"}`}>
+                            {password.length >= 8 ? "✓" : "○"} At least 8 characters
+                          </div>
+                          <div className={`flex items-center gap-1 ${/[A-Z]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
+                            {/[A-Z]/.test(password) ? "✓" : "○"} Uppercase letter
+                          </div>
+                          <div className={`flex items-center gap-1 ${/[a-z]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
+                            {/[a-z]/.test(password) ? "✓" : "○"} Lowercase letter
+                          </div>
+                          <div className={`flex items-center gap-1 ${/[0-9]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
+                            {/[0-9]/.test(password) ? "✓" : "○"} Number
+                          </div>
+                          <div className={`flex items-center gap-1 ${/[^A-Za-z0-9]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
+                            {/[^A-Za-z0-9]/.test(password) ? "✓" : "○"} Special character
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Generated Password Display */}
+                    {generatedPassword && (
+                      <div className="p-2 bg-muted rounded-md">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm">
+                            <span className="text-muted-foreground">Generated password: </span>
+                            <span className="font-mono">{showPassword ? generatedPassword : "••••••••••••"}</span>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => setShowPassword(!showPassword)}
+                              title={showPassword ? "Hide password" : "Show password"}
+                            >
+                              {showPassword ? (
+                                <EyeOff className="h-3 w-3" />
+                              ) : (
+                                <Eye className="h-3 w-3" />
+                              )}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={copyToClipboard}
+                              title="Copy password"
+                            >
+                              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                              </svg>
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -446,9 +617,29 @@ export function StaffRegistrationForm() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Confirm Password</FormLabel>
-                      <FormControl>
-                        <Input type="password" placeholder="Confirm password" {...field} />
-                      </FormControl>
+                      <div className="relative">
+                        <FormControl>
+                          <Input 
+                            type={showConfirmPassword ? "text" : "password"} 
+                            placeholder="Confirm password" 
+                            {...field} 
+                            className="pr-10"
+                          />
+                        </FormControl>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        >
+                          {showConfirmPassword ? (
+                            <EyeOff className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </Button>
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -456,6 +647,14 @@ export function StaffRegistrationForm() {
               </div>
 
               <Separator />
+
+              {/* Security Notice */}
+              <Alert className="bg-amber-50 border-amber-200">
+                <AlertCircle className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-800 text-sm">
+                  <strong>Security Notice:</strong> New users will be required to change their password on their first login for enhanced security.
+                </AlertDescription>
+              </Alert>
 
               {/* Permissions Section */}
               <div className="space-y-4">
@@ -494,7 +693,11 @@ export function StaffRegistrationForm() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setOpen(false)}
+                  onClick={() => {
+                    form.reset();
+                    setGeneratedPassword("");
+                    setOpen(false);
+                  }}
                   disabled={isSubmitting}
                 >
                   Cancel

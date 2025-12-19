@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { signIn, getSession } from "next-auth/react";
-import { useRouter, usePathname } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { signIn, getSession, useSession } from "next-auth/react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence, Variants } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Loader2, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import toast from "react-hot-toast";
 import { useTheme } from "next-themes";
+import { redirectByRole } from "@/lib/utils";
 import { z } from "zod";
 
 const loginSchema = z.object({
@@ -20,38 +21,33 @@ const loginSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
-// Function to redirect based on user role
-const redirectBasedOnRole = (role: string, router: any) => {
-  switch (role.toLowerCase()) {
-    case "admin":
-      router.replace("/dashboard");
-      break;
-    case "pos":
-      router.replace("/pos");
-      break;
-    case "kitchen":
-      router.replace("/orders");
-      break;
-    case "fb":
-    case "f&b":
-      router.replace("/items");
-      break;
-    case "marketing":
-      router.replace("/blog");
-      break;
-    case "finance":
-      router.replace("/sales");
-      break;
-    case "stock_manager":
-      router.replace("/stock");
-      break;
-    default:
-      // Stay on login page for unknown roles
-      console.warn(`Unknown role: ${role}`);
-  }
-};
+// Define the session user type
+interface SessionUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  employeeId?: string;
+  permissions: string[];
+  requiresPasswordChange: boolean;
+  image?: string;
+}
 
-export default function LoginPage() {
+export default function LoginPageWrapper() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen w-full items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      }
+    >
+      <LoginPage />
+    </Suspense>
+  );
+}
+
+function LoginPage() {
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -60,13 +56,23 @@ export default function LoginPage() {
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [isBlocked, setIsBlocked] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
   const { theme } = useTheme();
+  const { data: session, status } = useSession();
 
   useEffect(() => {
+    // Check if already authenticated
     const checkAuth = async () => {
-      const session = await getSession();
-      if (session?.user?.role) {
-        redirectBasedOnRole(session.user.role, router);
+      if (status === "loading") return;
+      
+      if (session?.user) {
+        const user = session.user as SessionUser;
+        redirectByRole(
+          user.role, 
+          router, 
+          user.requiresPasswordChange
+        );
       }
     };
 
@@ -77,7 +83,7 @@ export default function LoginPage() {
     }
 
     checkAuth();
-  }, [router]);
+  }, [session, status, router]);
 
   const validateForm = () => {
     try {
@@ -127,6 +133,7 @@ export default function LoginPage() {
         redirect: false,
         email: formData.email,
         password: formData.password,
+        callbackUrl: callbackUrl,
       });
 
       if (result?.error) {
@@ -157,7 +164,7 @@ export default function LoginPage() {
           localStorage.removeItem("rememberedEmail");
         }
 
-        toast.success("Welcome back! Redirecting...", {
+        toast.success("Welcome back!", {
           icon: '🎉',
           style: {
             borderRadius: '10px',
@@ -169,16 +176,17 @@ export default function LoginPage() {
         // Wait a moment for the session to be updated
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        // Get updated session with role
+        // Get updated session
         const session = await getSession();
         
-        if (session?.user?.role) {
-          // Redirect based on role
-          redirectBasedOnRole(session.user.role, router);
-        } else {
-          // If no role is found, show error and stay on login page
-          toast.error("Your account doesn't have a valid role. Please contact administrator.");
-          console.error("No role found in session:", session);
+        if (session?.user) {
+          const user = session.user as SessionUser;
+          // Redirect based on role and password change requirement
+          redirectByRole(
+            user.role, 
+            router, 
+            user.requiresPasswordChange
+          );
         }
       }
     } catch (error: any) {
@@ -361,7 +369,7 @@ export default function LoginPage() {
                     <span className={cn(isLoading ? "opacity-0" : "opacity-100")}>
                       Login
                     </span>
-                  </Button>
+                </Button>
                 </motion.div>
 
                 {isBlocked && (
