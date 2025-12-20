@@ -1,5 +1,18 @@
 [build]
   command = "npm install --legacy-peer-deps --force && npm run build"
-  
+  publish = ".next"
+
 [build.environment]
-  NODE_VERSION = "18"
+  NODE_ENV = "production"
+  # Optional: Set dummy values for build
+  MONGODB_URI = "mongodb://localhost:27017/dummy"
+  MONGODB_DATABASE = "dummy"
+  NEXTAUTH_SECRET = "dummy-secret-for-build"
+  NEXTAUTH_URL = "http://localhost:3000"
+
+[context.production.environment]
+  # These will override the build values
+  MONGODB_URI = "your-real-mongodb-uri"
+  MONGODB_DATABASE = "your-database-name"
+  NEXTAUTH_SECRET = "your-secret-key"
+  NEXTAUTH_URL = "your-production-url"

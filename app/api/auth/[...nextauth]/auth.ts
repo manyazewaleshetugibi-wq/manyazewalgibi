@@ -9,15 +9,60 @@ import { UserRole } from "@/models/User"
 const MONGODB_URI = process.env.MONGODB_URI || "";
 const DATABASE_NAME = process.env.MONGODB_DATABASE || "";
 const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET || "";
-const NEXTAUTH_URL = process.env.NEXTAUTH_URL 
+const NEXTAUTH_URL = process.env.NEXTAUTH_URL;
 
-const client = new MongoClient(MONGODB_URI)
-const clientPromise = client.connect()
+// Build-safe MongoDB client promise
+function getClientPromise() {
+  // During build phase, return a mock client
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    console.log("🔨 Build phase detected - using mock MongoDB client");
+    return Promise.resolve({
+      db: () => ({
+        collection: () => ({
+          findOne: () => Promise.resolve(null),
+          updateOne: () => Promise.resolve({ modifiedCount: 0 }),
+        })
+      }),
+      close: () => Promise.resolve()
+    } as unknown as MongoClient);
+  }
+  
+  // If no MongoDB URI, return a rejected promise
+  if (!MONGODB_URI) {
+    console.warn("⚠️ MONGODB_URI is not set");
+    return Promise.reject(new Error("MongoDB URI is required"));
+  }
+  
+  // Create real MongoDB connection
+  console.log("🔌 Connecting to MongoDB");
+  const client = new MongoClient(MONGODB_URI);
+  return client.connect();
+}
+
+const clientPromise = getClientPromise();
+
+// Build-safe MongoDB adapter
+function getAdapter() {
+  // During build phase, return undefined adapter
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    console.log("🔨 Build phase - skipping MongoDB adapter");
+    return undefined;
+  }
+  
+  // If no MongoDB URI, return undefined
+  if (!MONGODB_URI) {
+    console.warn("⚠️ MONGODB_URI missing - skipping MongoDB adapter");
+    return undefined;
+  }
+  
+  // Return real MongoDB adapter
+  return MongoDBAdapter(clientPromise, {
+    databaseName: DATABASE_NAME
+  });
+}
 
 export const authOptions: NextAuthOptions = {
-  adapter: MongoDBAdapter(clientPromise, {
-    databaseName: DATABASE_NAME
-  }),
+  adapter: getAdapter(),
   secret: NEXTAUTH_SECRET,
   providers: [
     CredentialsProvider({
@@ -27,11 +72,23 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials): Promise<any> {
+        // During build phase, return null
+        if (process.env.NEXT_PHASE === 'phase-production-build') {
+          console.log("🔨 Build phase - skipping authentication");
+          return null;
+        }
+        
         console.log("🔐 Login attempt for:", credentials?.email);
         
         if (!credentials?.email || !credentials?.password) {
           console.log("❌ Missing credentials");
           throw new Error("Email and password required");
+        }
+        
+        // Check if MongoDB URI is available
+        if (!MONGODB_URI) {
+          console.error("❌ MONGODB_URI is not configured");
+          throw new Error("Authentication service is not configured");
         }
         
         try {
@@ -112,7 +169,6 @@ export const authOptions: NextAuthOptions = {
           );
           
           // Return user object with requiresPasswordChange flag
-          // If field doesn't exist, default to true (force password change)
           const userData = {
             id: user._id.toString(),
             email: user.email,
@@ -123,12 +179,11 @@ export const authOptions: NextAuthOptions = {
             permissions: user.permissions || [],
             requiresPasswordChange: user.requiresPasswordChange !== undefined 
               ? user.requiresPasswordChange 
-              : true // Default to true if field doesn't exist
+              : true
           };
           
           console.log(`🎉 Login successful for: ${userData.email}`);
           console.log(`🔑 Requires password change: ${userData.requiresPasswordChange}`);
-          console.log(`👤 User data:`, userData);
           
           return userData;
           
@@ -145,6 +200,11 @@ export const authOptions: NextAuthOptions = {
   },
   callbacks: {
     async jwt({ token, user, trigger, session }) {
+      // Skip during build
+      if (process.env.NEXT_PHASE === 'phase-production-build') {
+        return token;
+      }
+      
       // Initial sign in
       if (user) {
         token.id = user.id;
@@ -156,15 +216,14 @@ export const authOptions: NextAuthOptions = {
         token.requiresPasswordChange = user.requiresPasswordChange;
       }
       
-      // Update session when password is changed (via updateSession trigger)
+      // Update session when password is changed
       if (trigger === "update" && session?.requiresPasswordChange !== undefined) {
         console.log("🔄 Updating JWT with new requiresPasswordChange:", session.requiresPasswordChange);
         token.requiresPasswordChange = session.requiresPasswordChange;
       }
       
-      // 🔴 CRITICAL ADDITION: Always check database for latest requiresPasswordChange value
-      // This ensures the token reflects the current database state
-      if (token.id) {
+      // Check database for latest requiresPasswordChange value
+      if (token.id && MONGODB_URI) {
         try {
           const client = await clientPromise;
           const db = client.db(DATABASE_NAME);
@@ -175,13 +234,10 @@ export const authOptions: NextAuthOptions = {
           );
           
           if (userDoc) {
-            // Update token with latest value from database
             token.requiresPasswordChange = userDoc.requiresPasswordChange || false;
-            console.log("🔄 Token updated with latest requiresPasswordChange from DB:", token.requiresPasswordChange);
           }
         } catch (error) {
           console.error("Error refreshing token from DB:", error);
-          // Don't throw - use existing token value
         }
       }
       
@@ -205,7 +261,8 @@ export const authOptions: NextAuthOptions = {
     signIn: "/login",
     error: "/auth/error",
   },
-  debug: true,
+  debug: process.env.NODE_ENV === "development",
 }
 
+// Export a build-safe NextAuth instance
 export default NextAuth(authOptions);
