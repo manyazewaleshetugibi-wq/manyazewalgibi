@@ -29,8 +29,26 @@ export async function GET(
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
+    // Fetch waiter details if it's a table order
+    let additionalDetails = {};
+    if (order.inTable === true && (!order.delivery) && order.waiterId) {
+      try {
+        if (ObjectId.isValid(order.waiterId)) {
+          const waiter = await db.collection("waiters").findOne(
+            { _id: new ObjectId(order.waiterId) },
+            { projection: { name: 1, avatar: 1, shift: 1 } }
+          );
+          if (waiter) {
+            additionalDetails = { waiter };
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to fetch waiter for order ${order._id}`, err);
+      }
+    }
+
     // Return the order
-    return NextResponse.json({ success: true, order }, { status: 200 });
+    return NextResponse.json({ success: true, order: { ...order, ...additionalDetails } }, { status: 200 });
   } catch (error) {
     console.error("Error fetching order:", error);
     return NextResponse.json(

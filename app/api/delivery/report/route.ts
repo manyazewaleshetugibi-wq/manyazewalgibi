@@ -6,7 +6,7 @@ export async function GET(req: NextRequest) {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
     
-    const orders = await db.collection("delivery").find().toArray();
+    const orders = await db.collection("orders").find({ delivery: true }).toArray();
 
     let totalSales = 0;
     let totalTax = 0;

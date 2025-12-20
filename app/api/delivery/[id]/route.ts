@@ -21,7 +21,7 @@ export async function GET(
 
     // Find the order by ID
     const order = await db
-      .collection("delivery")
+      .collection("orders")
       .findOne({ _id: new ObjectId(orderId) });
 
     if (!order) {
@@ -61,7 +61,7 @@ export async function PUT(
     const validatedOrder = DeliveryOrderSchema.omit({ _id: true }).parse(body); // Omit _id for validation
 
     // Update the order in the database
-    const result = await db.collection("delivery").updateOne(
+    const result = await db.collection("orders").updateOne(
       { _id: new ObjectId(orderId) },
       {
         $set: {
@@ -107,7 +107,7 @@ export async function DELETE(
 
     // Delete the order from the database
     const result = await db
-      .collection("delivery")
+      .collection("orders")
       .deleteOne({ _id: new ObjectId(orderId) });
 
     if (result.deletedCount === 0) {
@@ -133,7 +133,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
-    const ordersCollection = db.collection("delivery");
+    const ordersCollection = db.collection("orders");
 
     if (!ObjectId.isValid(params.id)) {
       return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });

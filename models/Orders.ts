@@ -40,6 +40,8 @@ export const TableOrderSchema = z.object({
   paymentMethod: z.enum(["CASH", "CARD", "MOBILE_PAYMENT"]),
   specialRequirements: z.string().optional(),
   isActive: z.boolean().default(true),
+  delivery: z.boolean().default(false),
+  inTable: z.boolean().default(true),
   createdAt: z.date().default(() => new Date()),
   updatedAt: z.date().default(() => new Date()),
   completedAt: z.date().optional()

@@ -26,6 +26,9 @@ import {
   CreditCard,
   Check,
   Tag,
+  MapPin,
+  Phone,
+  User as UserIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -283,6 +286,8 @@ export default function OrderPage() {
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [isTablet, setIsTablet] = useState(false)
   const [activeView, setActiveView] = useState<'grid' | 'list'>('grid')
+  const [activeTab, setActiveTab] = useState<'menu' | 'intable' | 'delivery' | 'pos'>('menu')
+  const [orders, setOrders] = useState<any[]>([])
 
   // Use debounce hook for search
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -389,6 +394,25 @@ export default function OrderPage() {
     fetchData()
   }, [])
 
+  // Fetch orders for the dashboard view
+  useEffect(() => {
+    const fetchOrders = async () => {
+      try {
+        const res = await fetch("/api/order?autoProcess=false");
+        const data = await res.json();
+        if (data.success) {
+          setOrders(data.orders || []);
+        }
+      } catch (error) {
+        console.error("Error fetching orders:", error);
+      }
+    };
+    fetchOrders();
+    // Set up polling for real-time updates
+    const interval = setInterval(fetchOrders, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Use memoized filtered items for better performance
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -397,6 +421,20 @@ export default function OrderPage() {
       return matchesCategory && matchesSearch
     })
   }, [items, selectedCategory, debouncedSearchQuery])
+
+  // Filter orders based on active tab
+  const filteredOrders = useMemo(() => {
+    return orders.filter(order => {
+      if (activeTab === 'delivery') {
+        return order.delivery === true;
+      } else if (activeTab === 'intable') {
+        return order.inTable === true;
+      } else {
+        // POS orders: neither delivery nor inTable (or explicitly false)
+        return !order.delivery && !order.inTable;
+      }
+    });
+  }, [orders, activeTab]);
 
   const addToCart = useCallback((item: MenuItem) => {
     // Check for insufficient stock (simulated check)
@@ -515,6 +553,8 @@ export default function OrderPage() {
         toast.success("Order placed successfully!", { id: orderToast })
         setCart([])
         setOrderNumber(`ORD-${Date.now()}`)
+        // Refresh orders list
+        fetch("/api/order?autoProcess=false").then(res => res.json()).then(data => { if(data.success) setOrders(data.orders || []) });
         router.refresh()
 
         let progress = 0
@@ -592,6 +632,42 @@ export default function OrderPage() {
             </div>
           </div>
             
+            {/* Tab Switcher */}
+            <div className="flex bg-muted/50 p-1 rounded-lg order-4 w-full sm:w-auto justify-center sm:justify-start mt-2 sm:mt-0">
+              <Button
+                variant={activeTab === 'menu' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveTab('menu')}
+                className="text-xs h-7 px-3"
+              >
+                Menu
+              </Button>
+              <Button
+                variant={activeTab === 'intable' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveTab('intable')}
+                className="text-xs h-7 px-3"
+              >
+                In Table
+              </Button>
+              <Button
+                variant={activeTab === 'delivery' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveTab('delivery')}
+                className="text-xs h-7 px-3"
+              >
+                Delivery
+              </Button>
+              <Button
+                variant={activeTab === 'pos' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setActiveTab('pos')}
+                className="text-xs h-7 px-3"
+              >
+                POS
+              </Button>
+            </div>
+
             <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap order-3 sm:order-2 w-full sm:w-auto mt-2 sm:mt-0">
               <Select value={tableNumber} onValueChange={setTableNumber}>
                 <SelectTrigger className="w-[70px] sm:w-[85px] lg:w-[100px] bg-background/70 text-xs h-8">
@@ -691,6 +767,7 @@ export default function OrderPage() {
         </header>
         
         {/* Search & Categories */}
+        {activeTab === 'menu' && (
         <div className="border-b bg-background/60 p-2 sm:p-3">
           <div className="max-w-6xl mx-auto space-y-2 sm:space-y-3 w-full">
             <div className="relative">
@@ -732,10 +809,13 @@ export default function OrderPage() {
             </div>
           </div>
         </div>
+        )}
         
         {/* Menu Items */}
         <div className="flex-1 p-2 sm:p-3 overflow-auto">
           <div className="max-w-6xl mx-auto">
+            {activeTab === 'menu' ? (
+              <>
             {filteredItems.length > 0 ? (
               <div className={
                 activeView === 'grid'
@@ -790,6 +870,94 @@ export default function OrderPage() {
                     </Button>
                 )}
               </motion.div>
+            )}
+              </>
+            ) : (
+              /* Order List View for Delivery and InTable */
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredOrders.length > 0 ? (
+                  filteredOrders.map((order) => (
+                    <Card key={order._id} className="overflow-hidden border-l-4 border-l-primary">
+                      <CardContent className="p-4 space-y-3">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h3 className="font-bold text-sm">{order.orderNumber}</h3>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                          <Badge variant={order.status === 'COMPLETED' ? 'default' : 'secondary'} className="text-[10px]">
+                            {order.status}
+                          </Badge>
+                        </div>
+
+                        <Separator />
+
+                        {/* Delivery Specific Info */}
+                        {activeTab === 'delivery' && order.deliveryInfo && (
+                          <div className="space-y-2 text-xs bg-muted/30 p-2 rounded-md">
+                            <div className="flex items-center gap-2">
+                              <UserIcon className="h-3 w-3 text-muted-foreground" />
+                              <span className="font-medium">{order.deliveryInfo.fullName}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Phone className="h-3 w-3 text-muted-foreground" />
+                              <span>{order.deliveryInfo.phoneNumber}</span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <MapPin className="h-3 w-3 text-muted-foreground mt-0.5" />
+                              <span className="line-clamp-2">{order.deliveryInfo.address}, {order.deliveryInfo.city}</span>
+                            </div>
+                            {order.paymentScreenshotUrl && (
+                              <div className="mt-2">
+                                <p className="text-[10px] text-muted-foreground mb-1">Payment Proof:</p>
+                                <div className="relative h-20 w-full rounded-md overflow-hidden border">
+                                  <Image 
+                                    src={order.paymentScreenshotUrl} 
+                                    alt="Payment" 
+                                    fill 
+                                    className="object-cover"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Table Specific Info */}
+                        {activeTab === 'intable' && (
+                          <div className="flex justify-between text-xs bg-muted/30 p-2 rounded-md">
+                            <div>
+                              <span className="text-muted-foreground">Table:</span>
+                              <span className="font-bold ml-1">{order.tableNumber}</span>
+                            </div>
+                            {order.waiter && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-muted-foreground">Server:</span>
+                                <span>{order.waiter.name}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center pt-2">
+                          <span className="text-xs font-medium">Total Amount</span>
+                          <span className="text-sm font-bold text-primary">
+                            {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(order.finalAmount || order.totalAmount)}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                ) : (
+                  <div className="col-span-full flex flex-col items-center justify-center h-64 text-muted-foreground">
+                    <div className="bg-muted/50 p-4 rounded-full mb-3">
+                      <Receipt className="h-8 w-8" />
+                    </div>
+                    <p>No {activeTab === 'intable' ? 'table' : activeTab === 'delivery' ? 'delivery' : 'POS'} orders found</p>
+                  </div>
+                )}
+              </div>
             )}
             </div>
             </div>

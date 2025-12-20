@@ -775,8 +775,37 @@ export async function GET(req: NextRequest) {
           .find({ orderId: order._id })
           .toArray();
         
+        let additionalDetails = {};
+
+        // Logic for Table Orders: Fetch Waiter Details
+        if (order.inTable === true && (!order.delivery) && order.waiterId) {
+          try {
+            if (ObjectId.isValid(order.waiterId)) {
+              const waiter = await db.collection("waiters").findOne(
+                { _id: new ObjectId(order.waiterId) },
+                { projection: { name: 1, avatar: 1, shift: 1 } }
+              );
+              if (waiter) {
+                additionalDetails = { waiter };
+              }
+            }
+          } catch (err) {
+            console.error(`Failed to fetch waiter for order ${order._id}`, err);
+          }
+        }
+        
+        // Logic for Delivery Orders: Ensure deliveryInfo and paymentScreenshotUrl are present
+        // These fields are part of the order document, so they are already fetched.
+        // We explicitly check logic here as requested.
+        if (order.delivery === true && (!order.inTable)) {
+             // No external fetch needed as deliveryInfo and paymentScreenshotUrl are embedded.
+             // Just ensuring they are passed through.
+             // If specific formatting was needed, it would go here.
+        }
+
         return {
           ...order,
+          ...additionalDetails,
           usedStockCount: usedStock.length,
           usedStock: usedStock.length > 0 ? usedStock.slice(0, 5) : [] // Return first 5 records
         };

@@ -7,8 +7,8 @@ const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || '
 const CLOUDINARY_VIDEO_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_VIDEO_UPLOAD_PRESET || 'goldgold';
 const CLOUDINARY_PHOTO_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
 const CLOUDINARY_VIDEO_FOLDER = process.env.NEXT_PUBLIC_CLOUDINARY_FOLDER || 'videos';
-const CLOUDINARY_PHOTO_FOLDER = 'photoss';
-const CLOUDINARY_RAW_FOLDER = 'raw_files'; // For PDFs, text files, etc.
+const CLOUDINARY_PHOTO_FOLDER =process.env.NEXT_PUBLIC_CLOUDINARY_PHOTO_FOLDER || 'photoss';
+const CLOUDINARY_RAW_FOLDER = process.env.NEXT_PUBLIC_CLOUDINARY_RAW_FOLDER ||'raw_files'; // For PDFs, text files, etc.
 
 // Maximum file sizes (adjust as needed)
 const MAX_FILE_SIZES = {
