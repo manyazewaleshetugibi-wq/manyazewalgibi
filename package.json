@@ -58,7 +58,7 @@
     "jsonwebtoken": "^9.0.3",
     "lodash.debounce": "^4.0.8",
     "lucide-react": "^0.475.0",
-    "mongodb": "^6.21.0",
+    "mongodb": "^5.9.2",
     "mongoose": "^8.9.5",
     "next": "^15.5.9",
     "next-auth": "^4.24.11",
