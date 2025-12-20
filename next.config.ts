@@ -28,12 +28,8 @@ const nextConfig = {
       },
     ],
   },
-  // ADD THIS WEBPACK CONFIGURATION
-  webpack: (config) => {
-    // Alias 'xlsx' to 'sheetjs' so imports work without code changes
-    config.resolve.alias['xlsx'] = 'sheetjs';
-    return config;
-  }
+  // NO webpack configuration needed!
+  // You have the actual xlsx package installed
 }
 
 module.exports = nextConfig;

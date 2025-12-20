@@ -21,7 +21,7 @@ import {
   Pie,
   Cell,
 } from "recharts"
-import * as XLSX from "sheetjs";
+import * as XLSX from "xlsx";
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
