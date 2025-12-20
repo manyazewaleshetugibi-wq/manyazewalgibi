@@ -26,12 +26,14 @@ const nextConfig = {
         port: "",
         pathname: "/**",
       },
-
-
-
-     
     ],
   },
+  // ADD THIS WEBPACK CONFIGURATION
+  webpack: (config) => {
+    // Alias 'xlsx' to 'sheetjs' so imports work without code changes
+    config.resolve.alias['xlsx'] = 'sheetjs';
+    return config;
+  }
 }
 
-module.exports = nextConfig
+module.exports = nextConfig;

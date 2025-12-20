@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, LineChart, Line } from "recharts"
-import { read, write, utils } from 'sheetjs';
+import * as XLSX from "sheetjs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
@@ -441,8 +441,10 @@ export default function DashboardPage() {
                       {columns.map((column) => (
                         <TableCell key={`${order?._id}-${column.accessorKey || column.id}`}>
                           {column.cell
-                            ? column.cell({ row: { getValue: (key: string) => order[key as keyof Order], original: order } })
-                            : order[column.accessorKey]}
+                            ? column.cell({
+                                row: { getValue: (key: string) => order[key as keyof Order], original: order },
+                              } as any)
+                            : (order[column.accessorKey as keyof Order] as any)}
                         </TableCell>
                       ))}
                     </TableRow>
@@ -577,10 +579,10 @@ export default function DashboardPage() {
                     <Badge
                       variant={
                         selectedOrder.status === "COMPLETED"
-                          ? "success"
+                          ? "default"
                           : selectedOrder.status === "PENDING"
-                            ? "default"
-                            : "default"
+                            ? "secondary"
+                            : "secondary"
                       }
                     >
                       {selectedOrder.status}
