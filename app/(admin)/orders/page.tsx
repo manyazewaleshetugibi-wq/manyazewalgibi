@@ -102,6 +102,15 @@ type Order = {
   isActive: boolean
   createdAt: string
   updatedAt: string
+  inTable?: boolean
+  delivery?: boolean
+  deliveryInfo?: {
+    fullName: string
+    phoneNumber: string
+    address: string
+    city: string
+  }
+  paymentScreenshotUrl?: string
 }
 
 type Waitress = {
@@ -196,6 +205,7 @@ export default function OrderManagement() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<OrderStatus | null>(null)
   const [waitressFilter, setWaitressFilter] = useState<string | null>(null)
+  const [orderTypeFilter, setOrderTypeFilter] = useState<string | null>(null)
   const [dateFilter, setDateFilter] = useState<Date | null>(null)
   const [sortField, setSortField] = useState<keyof Order>("createdAt")
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc")
@@ -276,7 +286,12 @@ export default function OrderManagement() {
     const matchesStatus = !statusFilter || order.status === statusFilter
     const matchesWaitress = !waitressFilter || order.waiterId === waitressFilter
     const matchesDate = !dateFilter || new Date(order.createdAt).toDateString() === dateFilter.toDateString()
-    return matchesSearch && matchesStatus && matchesWaitress && matchesDate
+    const matchesType = !orderTypeFilter || 
+      (orderTypeFilter === 'intable' && order.inTable === true) ||
+      (orderTypeFilter === 'delivery' && order.delivery === true) ||
+      (orderTypeFilter === 'pos' && !order.inTable && !order.delivery)
+
+    return matchesSearch && matchesStatus && matchesWaitress && matchesDate && matchesType
   })
 
   const sortedOrders = [...filteredOrders].sort((a, b) => {
@@ -384,12 +399,33 @@ export default function OrderManagement() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-lg font-semibold flex items-center">
-                      <User className="mr-2 h-5 w-5" />
-                      Waitress Information
+                      {order.delivery ? <Truck className="mr-2 h-5 w-5" /> : <User className="mr-2 h-5 w-5" />}
+                      {order.delivery ? "Delivery Information" : "Waitress Information"}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    {waitress ? (
+                    {order.delivery ? (
+                      <div className="space-y-3">
+                        {order.deliveryInfo ? (
+                          <>
+                            <div className="flex items-center">
+                              <User className="mr-2 h-4 w-4 text-muted-foreground" />
+                              <span className="font-medium">{order.deliveryInfo.fullName}</span>
+                            </div>
+                            <div className="flex items-center">
+                              <Phone className="mr-2 h-4 w-4 text-muted-foreground" />
+                              <span>{order.deliveryInfo.phoneNumber}</span>
+                            </div>
+                            <div className="flex items-start">
+                              <MapPin className="mr-2 h-4 w-4 text-muted-foreground mt-1" />
+                              <span>{order.deliveryInfo.address}, {order.deliveryInfo.city}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No delivery information available</p>
+                        )}
+                      </div>
+                    ) : waitress ? (
                       <>
                         <div className="flex items-center space-x-4">
                           <Avatar>
@@ -410,6 +446,19 @@ export default function OrderManagement() {
                       <div className="flex items-center space-x-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span>Loading waitress information...</span>
+                      </div>
+                    )}
+
+                    {order.paymentScreenshotUrl && (
+                      <div className="pt-4 mt-2 border-t">
+                        <p className="text-sm font-medium mb-2">Payment Proof</p>
+                        <div className="relative w-full h-48 rounded-md overflow-hidden border bg-muted/30">
+                          <img 
+                            src={order.paymentScreenshotUrl} 
+                            alt="Payment Proof" 
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
                       </div>
                     )}
                   </CardContent>
@@ -515,16 +564,28 @@ export default function OrderManagement() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center space-x-4">
-            <Avatar>
-              <AvatarImage src="/placeholder-avatar.jpg" />
-              <AvatarFallback>{waitress?.name.charAt(0) || "W"}</AvatarFallback>
-            </Avatar>
-            <div>
-              <p className="font-medium">{waitress?.name || "Unknown Waitress"}</p>
-              <p className="text-sm text-muted-foreground">{waitress?.shift || "Unknown"} Shift</p>
+          {order.delivery ? (
+            <div className="flex items-center space-x-4">
+              <Avatar>
+                <AvatarFallback><Truck className="h-4 w-4" /></AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="font-medium">{order.deliveryInfo?.fullName || "Delivery"}</p>
+                <p className="text-sm text-muted-foreground">{order.deliveryInfo?.phoneNumber || "No Phone"}</p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center space-x-4">
+              <Avatar>
+                <AvatarImage src="/placeholder-avatar.jpg" />
+                <AvatarFallback>{waitress?.name.charAt(0) || "W"}</AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="font-medium">{waitress?.name || "Unknown Waitress"}</p>
+                <p className="text-sm text-muted-foreground">{waitress?.shift || "Unknown"} Shift</p>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="flex items-center">
               <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -609,6 +670,17 @@ export default function OrderManagement() {
                 ))}
               </SelectContent>
             </Select>
+            <Select onValueChange={(value) => setOrderTypeFilter(value === "All" ? null : value)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Types</SelectItem>
+                <SelectItem value="intable">In Table</SelectItem>
+                <SelectItem value="delivery">Delivery</SelectItem>
+                <SelectItem value="pos">POS</SelectItem>
+              </SelectContent>
+            </Select>
             <Select onValueChange={(value) => setWaitressFilter(value || null)}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filter by waitress" />
@@ -643,6 +715,7 @@ export default function OrderManagement() {
                 setSearchTerm("")
                 setStatusFilter(null)
                 setWaitressFilter(null)
+                setOrderTypeFilter(null)
                 setDateFilter(null)
               }}
               variant="secondary"

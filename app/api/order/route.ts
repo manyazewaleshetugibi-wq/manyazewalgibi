@@ -92,15 +92,20 @@ async function registerEmployeeActivity(db: any, userData: any, orderData: any) 
     // Generate employee ID if not provided
     const employeeId = userData.employeeId || `EMP-${Date.now().toString().slice(-6)}`;
     
+    const matchQuery: any = {
+      $or: [
+        { userId: userId },
+        { employeeId: employeeId }
+      ]
+    };
+
+    if (userData.email) {
+      matchQuery.$or.push({ email: userData.email });
+    }
+
     // Upsert operation: update if exists, insert if not
     const updateResult = await db.collection("employee_rank").updateOne(
-      { 
-        $or: [
-          { userId: userId },
-          { employeeId: employeeId },
-          { email: userData.email }
-        ]
-      },
+      matchQuery,
       {
         $set: {
           name: userData.name,
@@ -173,6 +178,38 @@ async function registerEmployeeActivity(db: any, userData: any, orderData: any) 
       message: "Failed to register employee activity",
       error: (error as any).message 
     };
+  }
+}
+
+// Helper function to register waitress activity
+async function registerWaitressActivity(db: any, order: any) {
+  try {
+    if (!order.waiterId || !ObjectId.isValid(order.waiterId)) return;
+
+    // Try to find waiter in 'waiters' collection first (standard)
+    let waiter = await db.collection("waiters").findOne({ _id: new ObjectId(order.waiterId) });
+    
+    // Fallback to 'waitresses' if not found
+    if (!waiter) {
+      waiter = await db.collection("waitresses").findOne({ _id: new ObjectId(order.waiterId) });
+    }
+
+    if (!waiter) {
+      debugLog(`Waitress not found for order ${order._id}`);
+      return;
+    }
+
+    const waitressData = {
+      id: waiter._id,
+      name: waiter.name,
+      email: waiter.email,
+      role: "waitress",
+      employeeId: waiter.employeeId || `W-${waiter._id.toString().slice(-6)}`
+    };
+
+    await registerEmployeeActivity(db, waitressData, order);
+  } catch (error) {
+    debugError("Error registering waitress activity:", error);
   }
 }
 
@@ -424,6 +461,9 @@ async function processAllCompletedOrders(req?: NextRequest) {
         
         const result = await processOrderStockUsage(order);
         
+        // Register waitress activity
+        await registerWaitressActivity(db, order);
+
         // If this was triggered by a PATCH request with user context, register employee activity
         if (req) {
           const userData = await getCurrentUserData(req);
@@ -778,13 +818,21 @@ export async function GET(req: NextRequest) {
         let additionalDetails = {};
 
         // Logic for Table Orders: Fetch Waiter Details
-        if (order.inTable === true && (!order.delivery) && order.waiterId) {
+        if ((order.inTable === true || order.waiterId) && (!order.delivery)) {
           try {
             if (ObjectId.isValid(order.waiterId)) {
-              const waiter = await db.collection("waiters").findOne(
+              let waiter = await db.collection("waitresses").findOne(
                 { _id: new ObjectId(order.waiterId) },
                 { projection: { name: 1, avatar: 1, shift: 1 } }
               );
+              
+              if (!waiter) {
+                waiter = await db.collection("waitresses").findOne(
+                  { _id: new ObjectId(order.waiterId) },
+                  { projection: { name: 1, avatar: 1, shift: 1 } }
+                );
+              }
+              
               if (waiter) {
                 additionalDetails = { waiter };
               }
@@ -853,8 +901,21 @@ export async function POST(req: NextRequest) {
     }
 
     // Generate order number
-    const orderCount = await db.collection("orders").countDocuments();
-    const orderNumber = `ORD-${String(orderCount + 1).padStart(6, '0')}`;
+    const lastOrder = await db.collection("orders")
+      .find({}, { projection: { orderNumber: 1 } })
+      .sort({ orderNumber: -1 })
+      .limit(1)
+      .toArray();
+
+    let nextOrderNum = 1;
+    if (lastOrder.length > 0 && lastOrder[0].orderNumber) {
+      const match = lastOrder[0].orderNumber.match(/ORD-(\d+)/);
+      if (match && match[1]) {
+        nextOrderNum = parseInt(match[1], 10) + 1;
+      }
+    }
+
+    const orderNumber = `ORD-${String(nextOrderNum).padStart(6, '0')}`;
 
     debugLog(`Generated order number: ${orderNumber}`);
 
@@ -931,6 +992,14 @@ export async function POST(req: NextRequest) {
       completedAt: null,
       stockProcessedAt: null,
     };
+
+    // Check if user has session
+    const userData = await getCurrentUserData(req);
+    if (userData) {
+      // If user has session, do not register inTable and delivery fields
+      delete (newOrder as any).inTable;
+      delete (newOrder as any).delivery;
+    }
 
     debugLog("Inserting new order...");
 
@@ -1061,6 +1130,9 @@ export async function PATCH(req: NextRequest) {
               debugLog("Employee registration result:", employeeRegistration);
             }
             
+            // Register waitress activity
+            await registerWaitressActivity(db, updatedOrder);
+
             // Process stock usage
             const stockResult = await processOrderStockUsage(updatedOrder);
             

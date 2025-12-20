@@ -1,19 +1,32 @@
 [build]
-  command = "npm install --legacy-peer-deps --force && npm run build"
+  command = "npm run build"
   publish = ".next"
 
 [build.environment]
-  NODE_ENV = "production"
-  # Dummy values for build (safe to commit)
-  MONGODB_URI = "mongodb://localhost:27017/dummy"
-  MONGODB_DATABASE = "dummy"
-  NEXTAUTH_SECRET = "dummy-secret-for-build-only-change-in-production"
-  NEXTAUTH_URL = "http://localhost:3000"
+  NODE_VERSION = "18"
+  NEXT_PUBLIC_SITE_URL = "https://your-site-name.netlify.app"
 
-# Production environment variables (set in Netlify UI, not here!)
-# DO NOT put real secrets in this file!
-# [context.production.environment]
-#   MONGODB_URI = "set-this-in-netlify-dashboard"
-#   MONGODB_DATABASE = "set-this-in-netlify-dashboard"
-#   NEXTAUTH_SECRET = "set-this-in-netlify-dashboard"
-#   NEXTAUTH_URL = "https://your-site-name.netlify.app"
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Handle Next.js API routes
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Handle Next.js pages and assets
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = false
+
+# Security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
