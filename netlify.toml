@@ -4,15 +4,16 @@
 
 [build.environment]
   NODE_ENV = "production"
-  # Optional: Set dummy values for build
+  # Dummy values for build (safe to commit)
   MONGODB_URI = "mongodb://localhost:27017/dummy"
   MONGODB_DATABASE = "dummy"
-  NEXTAUTH_SECRET = "dummy-secret-for-build"
+  NEXTAUTH_SECRET = "dummy-secret-for-build-only-change-in-production"
   NEXTAUTH_URL = "http://localhost:3000"
 
-[context.production.environment]
-  # These will override the build values
- MONGODB_URI=mongodb+srv://aweke2011:6MQLbWEw9Xhhu-j@gold.av49bjz.mongodb.net/gold?retryWrites=true&w=majority
-NEXTAUTH_SECRET=9Wh3xJTU/PiHPIiXun2eYVjjOErHXPGvXB6oAvjSaJI=
-NEXTAUTH_URL=http://localhost:3000
-DATABASE_NAME =gold
+# Production environment variables (set in Netlify UI, not here!)
+# DO NOT put real secrets in this file!
+# [context.production.environment]
+#   MONGODB_URI = "set-this-in-netlify-dashboard"
+#   MONGODB_DATABASE = "set-this-in-netlify-dashboard"
+#   NEXTAUTH_SECRET = "set-this-in-netlify-dashboard"
+#   NEXTAUTH_URL = "https://your-site-name.netlify.app"
