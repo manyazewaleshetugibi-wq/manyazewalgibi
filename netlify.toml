@@ -4,25 +4,11 @@
 
 [build.environment]
   NODE_VERSION = "18"
-  NEXT_PUBLIC_SITE_URL = "https://your-site-name.netlify.app"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-# Handle Next.js API routes
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-
-# Handle Next.js pages and assets
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-  force = false
-
-# Security headers
+# Security headers only - keep this
 [[headers]]
   for = "/*"
   [headers.values]
