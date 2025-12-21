@@ -383,14 +383,14 @@ function LoginPage() {
                 )}
 
                 <motion.div variants={itemVariants} className="text-center text-sm">
-                  Don&apos;t have an account?{" "}
+                
                   <motion.a
-                    href="/signup"
-                    className="text-primary underline-offset-4 hover:underline"
+                    href="/"
+                    className="text-primary underline-offset-4 hover:underline decoration-non"
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
-                    Sign up
+                   Go Home
                   </motion.a>
                 </motion.div>
               </div>

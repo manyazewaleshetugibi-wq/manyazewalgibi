@@ -20,6 +20,13 @@ import {
   LogOut,
   ClipboardList,
   LayoutDashboard,
+  Sparkles,
+  ArrowRight,
+  ShoppingCart,
+  ChefHat,
+  Megaphone,
+  DollarSign,
+  Package,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -30,7 +37,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 
-type Role = "KITCHEN" | "FB" | "MARKETING" | "ADMIN" | "CUSTOMER" | "FINANCE" | "STOCK_MANAGER"
+type Role = "admin" | "pos" | "kitchen" | "fb" | "f&b" | "marketing" | "finance" | "stock_manager" | "customer"
 
 interface NavLinkProps {
   href: string
@@ -75,64 +82,193 @@ export function NavBar() {
   }
 
   const handleLogout = async () => {
-    await signOut({ redirect: false })
-    router.push("/")
+    // Clear any stored data
+    localStorage.removeItem("rememberedEmail")
+    await signOut({ callbackUrl: "/login" })
   }
 
-  const getDashboardLink = (role: Role) => {
-    const dashboardRoutes: Record<Role, string> = {
-      KITCHEN: "/dashboard",
-      FB: "/dashboard",
-      MARKETING: "/dashboard",
-      ADMIN: "/dashboard",
-      CUSTOMER: "/dashboard",
-      FINANCE: "/dashboard",
-      STOCK_MANAGER: "/dashboard",
+  const getDashboardLink = (role: string): { path: string, label: string, icon: React.ComponentType<{ className?: string }> } => {
+    const roleRoutes: Record<string, { path: string, label: string, icon: React.ComponentType<{ className?: string }> }> = {
+      admin: { 
+        path: "/dashboard", 
+        label: "Admin Dashboard", 
+        icon: LayoutDashboard 
+      },
+      pos: { 
+        path: "/pos", 
+        label: "Point of Sale", 
+        icon: ShoppingCart 
+      },
+      kitchen: { 
+        path: "/orders", 
+        label: "Kitchen Orders", 
+        icon: ChefHat 
+      },
+      fb: { 
+        path: "/items", 
+        label: "Food & Beverage", 
+        icon: UtensilsCrossed 
+      },
+      "f&b": { 
+        path: "/items", 
+        label: "Food & Beverage", 
+        icon: UtensilsCrossed 
+      },
+      marketing: { 
+        path: "/blog", 
+        label: "Marketing Blog", 
+        icon: Megaphone 
+      },
+      finance: { 
+        path: "/sales", 
+        label: "Sales & Finance", 
+        icon: DollarSign 
+      },
+      stock_manager: { 
+        path: "/stock", 
+        label: "Stock Management", 
+        icon: Package 
+      },
+      customer: { 
+        path: "/blogs", 
+        label: "Blogs", 
+        icon: BookOpen 
+      },
     }
-    return dashboardRoutes[role] || "/"
+    
+    return roleRoutes[role.toLowerCase()] || { 
+      path: "/", 
+      label: "Dashboard", 
+      icon: LayoutDashboard 
+    }
+  }
+
+  // Function to handle login button click - redirects based on role
+  const handleLoginClick = () => {
+    if (session?.user) {
+      // User is already logged in, redirect based on role
+      const userRole = session.user.role as string
+      const { path } = getDashboardLink(userRole)
+      
+      // If user requires password change, redirect to change password page
+      if (session.user.requiresPasswordChange) {
+        router.push("/change-password")
+      } else {
+        router.push(path)
+      }
+    } else {
+      // User is not logged in, go to login page
+      router.push("/login")
+    }
   }
 
   const renderUserMenu = () => {
-    if (status === "loading") return null
+    if (status === "loading") {
+      return (
+        <Button 
+          variant="ghost" 
+          size="icon"
+          disabled
+          className="relative"
+        >
+          <div className="animate-pulse">
+            <User className="w-5 h-5 text-gray-400" />
+          </div>
+        </Button>
+      )
+    }
 
     if (session?.user) {
-      const userRole = session.user.role as Role
-      const isCustomer = userRole === "CUSTOMER"
+      const userRole = session.user.role as string
+      const { path: dashboardPath, label: dashboardLabel, icon: DashboardIcon } = getDashboardLink(userRole)
+      const isCustomer = userRole.toLowerCase() === "customer"
+      const displayName = session.user.name || session.user.email?.split('@')[0] || "User"
 
       return (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <User className="w-5 h-5" />
+            <Button 
+              variant="ghost" 
+              size="default"
+              className="relative group hover:bg-[#1a1942]/10 transition-colors px-4"
+            >
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <User className="w-5 h-5 text-[#1a1942]" />
+                  <motion.div
+                    className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full border border-white"
+                    animate={{ scale: [1, 1.3, 1] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                  />
+                </div>
+                <span className="hidden md:inline font-medium text-[#1a1942]">
+                  {displayName}
+                </span>
+                <ArrowRight className="w-4 h-4 text-[#1a1942]/60 hidden md:inline" />
+              </div>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="w-64">
+            {/* User info section */}
+            <div className="px-2 py-1.5">
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {session.user.name || session.user.email}
+              </p>
+              <p className="text-xs text-gray-500 capitalize">
+                {userRole.toLowerCase().replace(/_/g, ' ')}
+              </p>
+            </div>
+            <DropdownMenuSeparator />
+
+            {/* Dashboard link */}
+            <DropdownMenuItem asChild>
+              <Link 
+                href={dashboardPath} 
+                className="flex items-center w-full cursor-pointer"
+              >
+                <DashboardIcon className="w-4 h-4 mr-2 text-[#1a1942]" />
+                <span className="font-medium">{dashboardLabel}</span>
+              </Link>
+            </DropdownMenuItem>
+
+            {/* Customer-specific links */}
             {isCustomer && (
               <>
-                <DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
                   <Link href="/profile" className="flex items-center w-full">
                     <User className="w-4 h-4 mr-2" />
                     Profile
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link href="/orders" className="flex items-center w-full">
                     <ClipboardList className="w-4 h-4 mr-2" />
                     Order History
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
               </>
             )}
-            {!isCustomer && (
-              <DropdownMenuItem>
-                <Link href={getDashboardLink(userRole)} className="flex items-center w-full">
-                  <LayoutDashboard className="w-4 h-4 mr-2" />
-                  Go to {userRole} Dashboard
-                </Link>
-              </DropdownMenuItem>
+
+            {/* Change password if required */}
+            {session.user.requiresPasswordChange && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/change-password" className="flex items-center w-full text-amber-600">
+                    <AlertCircle className="w-4 h-4 mr-2" />
+                    <span className="font-medium">Change Password</span>
+                  </Link>
+                </DropdownMenuItem>
+              </>
             )}
-            <DropdownMenuItem onClick={handleLogout}>
+
+            <DropdownMenuSeparator />
+            {/* Logout */}
+            <DropdownMenuItem 
+              onClick={handleLogout}
+              className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer"
+            >
               <LogOut className="w-4 h-4 mr-2" />
               Logout
             </DropdownMenuItem>
@@ -141,35 +277,76 @@ export function NavBar() {
       )
     }
 
+    // Enhanced login button for non-authenticated users
     return (
-      <>
-        <Link href="/login">
-          <Button variant="ghost" size="sm" className="hidden md:inline-flex mr-2">
-            <LogIn className="w-4 h-4 mr-2" />
-            Login
+      <div className="flex items-center gap-3">
+        <motion.div
+          initial={false}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="relative"
+        >
+          <Button 
+            variant="default" 
+            size="default"
+            onClick={handleLoginClick}
+            className="relative overflow-hidden group bg-gradient-to-r from-[#1a1942] to-[#3a378f] hover:from-[#3a378f] hover:to-[#1a1942] shadow-lg hover:shadow-xl transition-all duration-300 border-0 px-6"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
+            <Sparkles className="w-4 h-4 mr-2 opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
+            <span className="font-semibold text-white tracking-wide">
+              Login
+            </span>
+            <div className="absolute inset-0 rounded-md bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 group-hover:opacity-100 blur-sm transition-opacity duration-300" />
           </Button>
-        </Link>
-        <Link href="/register">
-          <Button variant="default" size="sm" className="hidden md:inline-flex">
-            <UserPlus className="w-4 h-4 mr-2" />
-            Register
-          </Button>
-        </Link>
-      </>
+        </motion.div>
+
+      </div>
     )
   }
 
+  // AlertCircle icon component
+  const AlertCircle = ({ className }: { className?: string }) => (
+    <svg 
+      xmlns="http://www.w3.org/2000/svg" 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      className={className}
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" x2="12" y1="8" y2="12" />
+      <line x1="12" x2="12.01" y2="16" />
+    </svg>
+  )
+
   return (
-    <header className="sticky top-0 z-50 bg-white shadow-sm">
+    <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/60 shadow-sm">
       <div className="px-4 mx-auto max-w-7xl sm:px-6 lg:px-8">
         <nav className="flex items-center justify-between h-16 md:h-20">
-          <div className="flex items-center">
-            <Link href="/" className="flex items-center">
-              <Image src="/man_logo.png" alt="Manyazewal Logo" width={80} height={80} className="w-auto h-10 md:h-12" />
+          {/* Logo on the left */}
+          <div className="flex items-center flex-1">
+            <Link href="/" className="flex items-center group">
+              <motion.div
+                whileHover={{ scale: 1.05 }}
+                transition={{ type: "spring", stiffness: 400, damping: 10 }}
+              >
+                <Image 
+                  src="/man_logo.png" 
+                  alt="Manyazewal Logo" 
+                  width={80} 
+                  height={80} 
+                  className="w-auto h-10 md:h-12 transition-transform duration-300 group-hover:scale-105" 
+                />
+              </motion.div>
             </Link>
           </div>
 
-          <div className="hidden md:flex md:items-center md:justify-center md:gap-8">
+          {/* Center navigation links */}
+          <div className="hidden md:flex md:items-center md:justify-center md:flex-1 md:gap-8">
             {navLinks.map((link) => (
               <NavLink key={link.href} href={link.href} icon={link.icon}>
                 {link.label}
@@ -177,14 +354,21 @@ export function NavBar() {
             ))}
           </div>
 
-          <div className="flex items-center">
+          {/* Right side - User menu and mobile menu */}
+          <div className="flex items-center justify-end flex-1 gap-4">
+            {/* User menu / Auth buttons */}
+            <div className="hidden md:flex items-center">
+              {renderUserMenu()}
+            </div>
+
+            {/* Mobile menu button */}
             <div className="md:hidden">
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
                 aria-label="Toggle menu"
-                className="text-[#1a1942]"
+                className="relative text-[#1a1942] hover:bg-[#1a1942]/10"
               >
                 <AnimatePresence initial={false} mode="wait">
                   <motion.div
@@ -203,6 +387,7 @@ export function NavBar() {
         </nav>
       </div>
 
+      {/* Mobile menu */}
       <AnimatePresence>
         {isMenuOpen && (
           <motion.div
@@ -210,15 +395,108 @@ export function NavBar() {
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="md:hidden bg-white border-t border-gray-100"
+            className="md:hidden bg-white/95 backdrop-blur-sm border-t border-gray-100"
           >
-            <div className="px-4 py-4 space-y-4">
+            <div className="px-4 py-6 space-y-3">
               {navLinks.map((link) => (
                 <NavLink key={link.href} href={link.href} icon={link.icon}>
                   {link.label}
                 </NavLink>
               ))}
-             
+              
+              {/* Mobile auth buttons */}
+              <div className="pt-4 mt-4 border-t border-gray-100 space-y-3">
+                {!session?.user ? (
+                  <>
+                    <Button 
+                      variant="default" 
+                      size="lg"
+                      className="w-full bg-gradient-to-r from-[#1a1942] to-[#3a378f] hover:from-[#3a378f] hover:to-[#1a1942]"
+                      onClick={() => {
+                        handleLoginClick()
+                        setIsMenuOpen(false)
+                      }}
+                    >
+                      <LogIn className="w-4 h-4 mr-2" />
+                      Login
+                    </Button>
+                    <Link href="/register" className="block" onClick={() => setIsMenuOpen(false)}>
+                      <Button 
+                        variant="outline" 
+                        size="lg"
+                        className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
+                      >
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Register
+                      </Button>
+                    </Link>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <User className="w-5 h-5 text-[#1a1942]" />
+                      <div>
+                        <p className="font-medium text-gray-700">
+                          {session.user.name || session.user.email}
+                        </p>
+                        <p className="text-xs text-gray-500 capitalize">
+                          {session.user.role?.toLowerCase().replace(/_/g, ' ') || 'user'}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Mobile dashboard link */}
+                    <Button 
+                      variant="outline" 
+                      size="lg"
+                      className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
+                      onClick={() => {
+                        const userRole = session.user.role as string
+                        const { path, icon: DashboardIcon, label } = getDashboardLink(userRole)
+                        
+                        if (session.user.requiresPasswordChange) {
+                          router.push("/change-password")
+                        } else {
+                          router.push(path)
+                        }
+                        setIsMenuOpen(false)
+                      }}
+                    >
+                      <LayoutDashboard className="w-4 h-4 mr-2" />
+                      {getDashboardLink(session.user.role as string).label}
+                    </Button>
+
+                    {/* Change password if required */}
+                    {session.user.requiresPasswordChange && (
+                      <Button 
+                        variant="outline" 
+                        size="lg"
+                        className="w-full border-amber-200 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                        onClick={() => {
+                          router.push("/change-password")
+                          setIsMenuOpen(false)
+                        }}
+                      >
+                        <AlertCircle className="w-4 h-4 mr-2" />
+                        Change Password
+                      </Button>
+                    )}
+                    
+                    <Button 
+                      variant="outline" 
+                      size="lg"
+                      className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => {
+                        handleLogout()
+                        setIsMenuOpen(false)
+                      }}
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Logout
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           </motion.div>
         )}
@@ -226,4 +504,3 @@ export function NavBar() {
     </header>
   )
 }
-

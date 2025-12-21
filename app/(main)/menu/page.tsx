@@ -1002,46 +1002,6 @@ export default function ItemMenu() {
     return true
   }
 
-  // Handle place order
-  const handlePlaceOrder = async () => {
-    if (cart.length === 0) {
-      toast.error('Please add items to your cart')
-      return
-    }
-
-    if (!orderType) {
-      toast.error('Please select order type (Table or Delivery)')
-      return
-    }
-
-    if (orderType === 'table') {
-      if (!tableNumber) {
-        toast.error('Please select a table number')
-        return
-      }
-      if (!selectedWaiter) {
-        toast.error('Please select a waitress/server')
-        return
-      }
-    }
-
-    if (orderType === 'delivery' && !validateDeliveryInfo()) {
-      return
-    }
-
-    if (!paymentMethod) {
-      toast.error('Please select a payment method')
-      return
-    }
-
-    if (paymentMethod === 'online' && !paymentScreenshot.uploaded) {
-      toast.error('Please upload payment screenshot for online payment')
-      return
-    }
-
-    setShowPaymentUpload(true)
-  }
-
   const handleFinalizeOrder = async () => {
     setIsPlacingOrder(true)
     const orderToast = toast.loading('Placing your order...')
@@ -1141,6 +1101,45 @@ export default function ItemMenu() {
       toast.error(error instanceof Error ? error.message : 'Failed to place order', { id: orderToast })
     } finally {
       setIsPlacingOrder(false)
+    }
+  }
+
+  // Handle place order
+  const handlePlaceOrder = async () => {
+    if (cart.length === 0) {
+      toast.error('Please add items to your cart')
+      return
+    }
+
+    if (!orderType) {
+      toast.error('Please select order type (Table or Delivery)')
+      return
+    }
+
+    if (orderType === 'table') {
+      if (!tableNumber) {
+        toast.error('Please select a table number')
+        return
+      }
+      if (!selectedWaiter) {
+        toast.error('Please select a waitress/server')
+        return
+      }
+    }
+
+    if (orderType === 'delivery' && !validateDeliveryInfo()) {
+      return
+    }
+
+    if (!paymentMethod) {
+      toast.error('Please select a payment method')
+      return
+    }
+
+    if (paymentMethod === 'online') {
+      setShowPaymentUpload(true)
+    } else {
+      await handleFinalizeOrder()
     }
   }
 
