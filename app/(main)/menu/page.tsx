@@ -641,12 +641,6 @@ const CartPanel = ({
                 className="flex flex-col gap-2"
               >
                 <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="cash" id="cash" />
-                  <Label htmlFor="cash" className="cursor-pointer">
-                    Cash on Delivery
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
                   <RadioGroupItem value="online" id="online" />
                   <Label htmlFor="online" className="cursor-pointer">
                     Online Payment (Bank Transfer)
@@ -1003,6 +997,11 @@ export default function ItemMenu() {
   }
 
   const handleFinalizeOrder = async () => {
+    if (!paymentScreenshot.uploaded) {
+      toast.error('Please upload payment screenshot')
+      return
+    }
+
     setIsPlacingOrder(true)
     const orderToast = toast.loading('Placing your order...')
 
@@ -1136,11 +1135,7 @@ export default function ItemMenu() {
       return
     }
 
-    if (paymentMethod === 'online') {
-      setShowPaymentUpload(true)
-    } else {
-      await handleFinalizeOrder()
-    }
+    setShowPaymentUpload(true)
   }
 
   const ItemCard = ({ item }: { item: Item }) => (
