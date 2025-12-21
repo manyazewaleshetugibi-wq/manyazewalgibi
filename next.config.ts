@@ -35,8 +35,7 @@ const nextConfig = {
   // Optional: Enable React Strict Mode (recommended)
   reactStrictMode: true,
   
-  // Optional: For better Netlify compatibility
-  swcMinify: true,
+ 
   
   // Important for API routes in Netlify
   async headers() {
