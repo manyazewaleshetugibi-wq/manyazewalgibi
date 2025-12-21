@@ -180,7 +180,7 @@ const PaymentUploadDialog = ({
               </div>
               <div className="flex justify-between">
                 <span>Account Name:</span>
-                <span className="font-semibold">Your Restaurant Name</span>
+                <span className="font-semibold">Manyazewal Eshetu Gibi</span>
               </div>
             </div>
           </AlertDescription>
