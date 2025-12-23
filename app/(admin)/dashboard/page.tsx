@@ -98,8 +98,8 @@ interface Staff {
 }
 
 interface EmployeeRank {
-  _id: ObjectId;
-  userId: ObjectId;
+  _id: string;
+  userId: string;
   name: string;
   email: string;
   role: string;
@@ -107,14 +107,14 @@ interface EmployeeRank {
   performanceScore: number;
   attendance: number;
   efficiency: number;
-  completedOrders: number; // This is now the primary ranking metric
+  completedOrders: number;
   salesTarget?: number;
   salesAchieved?: number;
   customerRating: number;
   points: number;
-  rank: number; // Role-specific rank (1 = most completedOrders in that role)
-  roleRank: number; // Same as rank, for clarity
-  globalRank: number; // Global rank across all roles
+  rank: number;
+  roleRank: number;
+  globalRank: number;
   lastUpdated: Date;
   createdAt: Date;
 }
@@ -127,6 +127,12 @@ const formatCurrency = (amount: number) => {
 const calculatePercentageChange = (current: number, previous: number) => {
   if (previous === 0) return 100
   return ((current - previous) / previous) * 100
+}
+
+// Helper function to safely format role
+const formatRole = (role?: string) => {
+  if (!role) return 'Unassigned'
+  return role.replace('_', ' ')
 }
 
 // Components
@@ -988,7 +994,7 @@ function Dashboard() {
                                         capitalize
                                       `}
                                     >
-                                      {staffMember.role.replace('_', ' ')}
+                                      {formatRole(staffMember.role)}
                                     </Badge>
                                   </TableCell>
                                   <TableCell>
@@ -1093,7 +1099,7 @@ function Dashboard() {
                   </Card>
                 </motion.div>
 
-                {/* Employee Performance Ranking Table - ADDED HERE */}
+                {/* Employee Performance Ranking Table */}
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
@@ -1122,7 +1128,7 @@ function Dashboard() {
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <Badge variant="outline" className="capitalize text-sm font-semibold px-3 py-1 bg-gray-100 dark:bg-gray-800">
-                                    {role.replace('_', ' ')}
+                                    {formatRole(role)}
                                   </Badge>
                                   <span className="text-xs text-muted-foreground">
                                     {employees.length} Staff
@@ -1173,10 +1179,10 @@ function Dashboard() {
                                           <TableCell className="font-medium">
                                             <div className="flex items-center gap-2">
                                               <div className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-white text-sm font-bold">
-                                                {emp.name.charAt(0).toUpperCase()}
+                                                {emp.name?.charAt(0).toUpperCase() || '?'}
                                               </div>
                                               <div>
-                                                <div className="font-medium">{emp.name}</div>
+                                                <div className="font-medium">{emp.name || 'Unknown'}</div>
                                                 <div className="text-xs text-gray-500 dark:text-gray-400">{emp.department || "General"}</div>
                                               </div>
                                             </div>
@@ -1186,17 +1192,17 @@ function Dashboard() {
                                               <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
                                                 <div 
                                                   className={`h-2 rounded-full ${
-                                                    emp.performanceScore >= 80 ? 'bg-emerald-500' :
-                                                    emp.performanceScore >= 60 ? 'bg-amber-500' : 'bg-red-500'
+                                                    (emp.performanceScore || 0) >= 80 ? 'bg-emerald-500' :
+                                                    (emp.performanceScore || 0) >= 60 ? 'bg-amber-500' : 'bg-red-500'
                                                   }`}
-                                                  style={{ width: `${emp.performanceScore}%` }}
+                                                  style={{ width: `${emp.performanceScore || 0}%` }}
                                                 />
                                               </div>
                                               <span className={`font-medium ${
-                                                emp.performanceScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' :
-                                                emp.performanceScore >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
+                                                (emp.performanceScore || 0) >= 80 ? 'text-emerald-600 dark:text-emerald-400' :
+                                                (emp.performanceScore || 0) >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
                                               }`}>
-                                                {emp.performanceScore}%
+                                                {(emp.performanceScore || 0)}%
                                               </span>
                                             </div>
                                           </TableCell>
@@ -1205,13 +1211,13 @@ function Dashboard() {
                                               <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
                                                 <div 
                                                   className={`h-2 rounded-full ${
-                                                    emp.attendance >= 95 ? 'bg-emerald-500' :
-                                                    emp.attendance >= 90 ? 'bg-amber-500' : 'bg-red-500'
+                                                    (emp.attendance || 0) >= 95 ? 'bg-emerald-500' :
+                                                    (emp.attendance || 0) >= 90 ? 'bg-amber-500' : 'bg-red-500'
                                                   }`}
-                                                  style={{ width: `${emp.attendance}%` }}
+                                                  style={{ width: `${emp.attendance || 0}%` }}
                                                 />
                                               </div>
-                                              <span className="font-medium">{emp.attendance}%</span>
+                                              <span className="font-medium">{emp.attendance || 0}%</span>
                                             </div>
                                           </TableCell>
                                           <TableCell className="text-right">
@@ -1289,5 +1295,5 @@ export default function DashboardWithQueryClient() {
     <QueryClientProvider client={queryClient}>
       <Dashboard />
     </QueryClientProvider>
-  )
+  ) 
 }
