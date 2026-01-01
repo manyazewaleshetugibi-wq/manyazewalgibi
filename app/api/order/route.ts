@@ -103,6 +103,9 @@ async function registerEmployeeActivity(db: any, userData: any, orderData: any) 
       matchQuery.$or.push({ email: userData.email });
     }
 
+    // Calculate total quantity of items in the order
+    const totalItemsQuantity = orderData.items?.reduce((acc: number, item: any) => acc + (Number(item.quantity) || 0), 0) || 0;
+
     // Upsert operation: update if exists, insert if not
     const updateResult = await db.collection("employee_rank").updateOne(
       matchQuery,
@@ -118,7 +121,7 @@ async function registerEmployeeActivity(db: any, userData: any, orderData: any) 
           lastOrderNumber: orderData.orderNumber
         },
         $inc: { 
-          completedOrders: 1,
+          completedOrders: totalItemsQuantity,
           totalOrdersProcessed: 1,
           points: 10 // Award points for completing an order
         },
@@ -793,6 +796,19 @@ export async function GET(req: NextRequest) {
         ]
       };
     }
+
+    // Enforce delivery order visibility rule: Delivery orders must be confirmed to be fetched
+    const deliveryRestriction = {
+      $or: [
+        { delivery: { $ne: true } },
+        { 
+          delivery: true, 
+          status: { $in: ["confirmed", "CONFIRMED", "Confirmed"] } 
+        }
+      ]
+    };
+
+    query = { $and: [query, deliveryRestriction] };
 
     debugLog("Database query:", query);
 
