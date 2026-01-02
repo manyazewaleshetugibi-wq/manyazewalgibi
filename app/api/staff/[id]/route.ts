@@ -106,15 +106,17 @@ const verifyPassword = async (password: string, storedHash: string): Promise<boo
 // GET single user by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // Changed to Promise
 ) {
   try {
+    const { id } = await params; // Await params here
+    
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');
     
     // Validate ObjectId
-    if (!ObjectId.isValid(params.id)) {
+    if (!ObjectId.isValid(id)) { // Use id instead of params.id
       return NextResponse.json(
         { success: false, message: 'Invalid user ID format' },
         { status: 400 }
@@ -122,7 +124,7 @@ export async function GET(
     }
     
     const user = await usersCollection.findOne(
-      { _id: new ObjectId(params.id) },
+      { _id: new ObjectId(id) }, // Use id instead of params.id
       { projection: { password: 0 } } // Exclude password
     );
     
@@ -150,15 +152,17 @@ export async function GET(
 // PUT update user
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // Changed to Promise
 ) {
   try {
+    const { id } = await params; // Await params here
+    
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');
     
     // Validate ObjectId
-    if (!ObjectId.isValid(params.id)) {
+    if (!ObjectId.isValid(id)) { // Use id instead of params.id
       return NextResponse.json(
         { success: false, message: 'Invalid user ID format' },
         { status: 400 }
@@ -178,7 +182,7 @@ export async function PUT(
     } = body;
     
     // Check if user exists
-    const existingUser = await usersCollection.findOne({ _id: new ObjectId(params.id) });
+    const existingUser = await usersCollection.findOne({ _id: new ObjectId(id) }); // Use id
     if (!existingUser) {
       return NextResponse.json(
         { success: false, message: 'User not found' },
@@ -190,7 +194,7 @@ export async function PUT(
     if (email && email !== existingUser.email) {
       const emailExists = await usersCollection.findOne({
         email: email.toLowerCase(),
-        _id: { $ne: new ObjectId(params.id) }
+        _id: { $ne: new ObjectId(id) } // Use id
       });
       if (emailExists) {
         return NextResponse.json(
@@ -204,7 +208,7 @@ export async function PUT(
     if (employeeId && employeeId !== existingUser.employeeId) {
       const employeeIdExists = await usersCollection.findOne({ 
         employeeId,
-        _id: { $ne: new ObjectId(params.id) }
+        _id: { $ne: new ObjectId(id) } // Use id
       });
       if (employeeIdExists) {
         return NextResponse.json(
@@ -262,7 +266,7 @@ export async function PUT(
     
     // Update user
     const result = await usersCollection.findOneAndUpdate(
-      { _id: new ObjectId(params.id) },
+      { _id: new ObjectId(id) }, // Use id
       { $set: updateData },
       { 
         returnDocument: 'after',
@@ -295,22 +299,24 @@ export async function PUT(
 // DELETE user
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // Changed to Promise
 ) {
   try {
+    const { id } = await params; // Await params here
+    
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');
     
     // Validate ObjectId
-    if (!ObjectId.isValid(params.id)) {
+    if (!ObjectId.isValid(id)) { // Use id instead of params.id
       return NextResponse.json(
         { success: false, message: 'Invalid user ID format' },
         { status: 400 }
       );
     }
     
-    const user = await usersCollection.findOne({ _id: new ObjectId(params.id) });
+    const user = await usersCollection.findOne({ _id: new ObjectId(id) }); // Use id
     
     if (!user) {
       return NextResponse.json(
@@ -331,7 +337,7 @@ export async function DELETE(
       }
     }
     
-    await usersCollection.deleteOne({ _id: new ObjectId(params.id) });
+    await usersCollection.deleteOne({ _id: new ObjectId(id) }); // Use id
     
     return NextResponse.json({
       success: true,
@@ -350,15 +356,17 @@ export async function DELETE(
 // PATCH endpoint for password change with verification
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // Changed to Promise
 ) {
   try {
+    const { id } = await params; // Await params here
+    
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');
     
     // Validate ObjectId
-    if (!ObjectId.isValid(params.id)) {
+    if (!ObjectId.isValid(id)) { // Use id instead of params.id
       return NextResponse.json(
         { success: false, message: 'Invalid user ID format' },
         { status: 400 }
@@ -384,7 +392,7 @@ export async function PATCH(
     }
     
     // Get user with password
-    const user = await usersCollection.findOne({ _id: new ObjectId(params.id) });
+    const user = await usersCollection.findOne({ _id: new ObjectId(id) }); // Use id
     
     if (!user) {
       return NextResponse.json(
@@ -408,7 +416,7 @@ export async function PATCH(
     
     // Update password
     await usersCollection.updateOne(
-      { _id: new ObjectId(params.id) },
+      { _id: new ObjectId(id) }, // Use id
       { 
         $set: { 
           password: hashedNewPassword,

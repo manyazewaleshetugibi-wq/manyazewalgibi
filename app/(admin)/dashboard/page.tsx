@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useState, useMemo, useCallback } from "react"
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query"
 import axios from "axios"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip } from "recharts"
 import { motion, AnimatePresence } from "framer-motion"
@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowDownIcon, ArrowUpIcon, DollarSign, ShoppingCart, Package, TrendingUp, Calendar, Users, Clock, ArrowUp, ArrowDown, Star } from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, DollarSign, ShoppingCart, Package, TrendingUp, Calendar, Users, Clock, ArrowUp, ArrowDown, Star, Trash2 } from "lucide-react"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { DateRangePicker } from "./date-range-picker"
 import { Progress } from "@/components/ui/progress"
@@ -285,6 +285,7 @@ function Dashboard() {
   })
   const [isRecalculating, setIsRecalculating] = useState(false)
   const { theme, setTheme } = useTheme()
+  const queryClient = useQueryClient()
 
   const { data: expenses, isLoading: isLoadingExpenses } = useQuery<Expense[]>({ 
     queryKey: ["expenses"], 
@@ -364,6 +365,20 @@ function Dashboard() {
     const newTo = new Date()
     setDateRange({ from: newFrom, to: newTo })
   }, [])
+
+  // Handle delete staff member
+  const handleDeleteStaff = async (id: string) => {
+    if (confirm("Are you sure you want to delete this staff member?")) {
+      try {
+        await api.delete(`/staff/${id}`);
+        // Refresh staff data
+        queryClient.invalidateQueries({ queryKey: ["staff"] });
+      } catch (error: any) {
+        console.error("Failed to delete staff", error);
+        alert(error.response?.data?.message || "Failed to delete staff member");
+      }
+    }
+  };
 
   const filteredSalesData = useMemo(() => {
     if (!orderReport) return []
@@ -1044,6 +1059,7 @@ function Dashboard() {
                                 <TableHead>Phone</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead>Joined</TableHead>
+                                <TableHead className="w-[100px]">Actions</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -1096,6 +1112,19 @@ function Dashboard() {
                                   </TableCell>
                                   <TableCell className="text-gray-500 dark:text-gray-400">
                                     {new Date(staffMember.createdAt).toLocaleDateString()}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                                        onClick={() => handleDeleteStaff(staffMember._id)}
+                                        title="Delete staff member"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </div>
                                   </TableCell>
                                 </TableRow>
                               ))}

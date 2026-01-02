@@ -114,9 +114,18 @@ export async function GET(request: NextRequest) {
     const role = searchParams.get('role');
     const status = searchParams.get('status');
     
-    let query: any = {};
+    let query: any = {
+      role: { $ne: 'user' }
+    };
     
     if (role) {
+      if (role === 'user') {
+        return NextResponse.json({
+          success: true,
+          data: [],
+          count: 0
+        });
+      }
       query.role = role;
     }
     

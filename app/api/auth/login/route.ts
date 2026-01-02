@@ -70,13 +70,22 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    // IMPORTANT: Check if this is a new user who needs to set their password
+    // If password field doesn't exist or is empty/null, force password change
+    const requiresPasswordChange = !staff.password || staff.password.trim() === '' || 
+                                 staff.requiresPasswordChange === true;
+    
     // Reset login attempts on successful login
     await staffCollection.updateOne(
       { _id: staff._id },
       { 
         $set: { 
           loginAttempts: 0,
-          lastLogin: new Date()
+          lastLogin: new Date(),
+          // Update requiresPasswordChange field if it doesn't exist
+          ...(staff.requiresPasswordChange === undefined && { 
+            requiresPasswordChange: requiresPasswordChange 
+          })
         } 
       }
     );
@@ -89,7 +98,7 @@ export async function POST(request: NextRequest) {
         name: staff.name,
         role: staff.role,
         permissions: staff.permissions,
-        requiresPasswordChange: staff.requiresPasswordChange ?? true,
+        requiresPasswordChange: requiresPasswordChange, // Use the calculated value
         employeeId: staff.employeeId
       },
       process.env.JWT_SECRET || 'your-secret-key-change-in-production',
@@ -105,7 +114,7 @@ export async function POST(request: NextRequest) {
       data: {
         user: staffWithoutPassword,
         token,
-        requiresPasswordChange: staff.requiresPasswordChange ?? true
+        requiresPasswordChange: requiresPasswordChange // Use the same calculated value
       }
     });
     
