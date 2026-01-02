@@ -58,18 +58,19 @@ export function NavBar() {
   const pathname = usePathname()
   const router = useRouter()
   const { data: session, status } = useSession()
+  const isUserRole = session?.user?.role === "user"
 
   const NavLink = ({ href, icon: Icon, children }: NavLinkProps) => {
     const isActive = pathname === href || (href === "/" && pathname === "/home")
     return (
       <Link
         href={href}
-        className={`relative flex items-center text-base font-medium transition-colors duration-200 ${
+        className={`relative flex items-center text-base font-medium transition-colors duration-200 whitespace-nowrap ${
           isActive ? "text-[#1a1942]" : "text-gray-600 hover:text-[#1a1942]"
         }`}
       >
-        <Icon className="w-5 h-5 mr-2 md:mr-0 md:w-0 md:h-0" />
-        <span className="md:inline">{children}</span>
+        <Icon className="w-5 h-5 mr-2 md:hidden" />
+        <span>{children}</span>
         {isActive && (
           <motion.div
             className="absolute bottom-0 left-0 w-full h-0.5 bg-[#1a1942]"
@@ -134,6 +135,11 @@ export function NavBar() {
         label: "Blogs", 
         icon: BookOpen 
       },
+      user: {
+        path: "/user/dashboard",
+        label: "Accounts",
+        icon: LayoutDashboard
+      }
     }
     
     return roleRoutes[role.toLowerCase()] || { 
@@ -143,38 +149,23 @@ export function NavBar() {
     }
   }
 
-  // Function to handle login button click - redirects based on role
+  // Function to handle login button click
   const handleLoginClick = () => {
-    if (session?.user) {
-      // User is already logged in, redirect based on role
-      const userRole = session.user.role as string
-      const { path } = getDashboardLink(userRole)
-      
-      // If user requires password change, redirect to change password page
-      if (session.user.requiresPasswordChange) {
-        router.push("/change-password")
-      } else {
-        router.push(path)
-      }
-    } else {
-      // User is not logged in, go to login page
-      router.push("/login")
-    }
+    router.push("/login")
+  }
+
+  // Function to handle register button click
+  const handleRegisterClick = () => {
+    router.push("/Register")
   }
 
   const renderUserMenu = () => {
     if (status === "loading") {
       return (
-        <Button 
-          variant="ghost" 
-          size="icon"
-          disabled
-          className="relative"
-        >
-          <div className="animate-pulse">
-            <User className="w-5 h-5 text-gray-400" />
-          </div>
-        </Button>
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-20 bg-gray-200 rounded-md animate-pulse"></div>
+          <div className="h-9 w-20 bg-gray-200 rounded-md animate-pulse"></div>
+        </div>
       )
     }
 
@@ -185,101 +176,125 @@ export function NavBar() {
       const displayName = session.user.name || session.user.email?.split('@')[0] || "User"
 
       return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button 
-              variant="ghost" 
-              size="default"
-              className="relative group hover:bg-[#1a1942]/10 transition-colors px-4"
-            >
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <User className="w-5 h-5 text-[#1a1942]" />
-                  <motion.div
-                    className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full border border-white"
-                    animate={{ scale: [1, 1.3, 1] }}
-                    transition={{ repeat: Infinity, duration: 2 }}
-                  />
-                </div>
-                <span className="hidden md:inline font-medium text-[#1a1942]">
-                  {displayName}
-                </span>
-                <ArrowRight className="w-4 h-4 text-[#1a1942]/60 hidden md:inline" />
-              </div>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            {/* User info section */}
-            <div className="px-2 py-1.5">
-              <p className="text-sm font-medium text-gray-900 truncate">
-                {session.user.name || session.user.email}
-              </p>
-              <p className="text-xs text-gray-500 capitalize">
-                {userRole.toLowerCase().replace(/_/g, ' ')}
-              </p>
-            </div>
-            <DropdownMenuSeparator />
-
-            {/* Dashboard link */}
-            <DropdownMenuItem asChild>
-              <Link 
-                href={dashboardPath} 
-                className="flex items-center w-full cursor-pointer"
+        <div className="flex items-center gap-3">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="ghost" 
+                size="default"
+                className="relative group hover:bg-[#1a1942]/10 transition-colors px-4"
               >
-                <DashboardIcon className="w-4 h-4 mr-2 text-[#1a1942]" />
-                <span className="font-medium">{dashboardLabel}</span>
-              </Link>
-            </DropdownMenuItem>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <User className="w-5 h-5 text-[#1a1942]" />
+                    <motion.div
+                      className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full border border-white"
+                      animate={{ scale: [1, 1.3, 1] }}
+                      transition={{ repeat: Infinity, duration: 2 }}
+                    />
+                  </div>
+                  <span className="hidden md:inline font-medium text-[#1a1942]">
+                    {displayName}
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-[#1a1942]/60 hidden md:inline" />
+                </div>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              {/* User info section */}
+              <div className="px-2 py-1.5">
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {session.user.name || session.user.email}
+                </p>
+                <p className="text-xs text-gray-500 capitalize">
+                  {userRole.toLowerCase().replace(/_/g, ' ')}
+                </p>
+              </div>
+              <DropdownMenuSeparator />
 
-            {/* Customer-specific links */}
-            {isCustomer && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/profile" className="flex items-center w-full">
-                    <User className="w-4 h-4 mr-2" />
-                    Profile
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/orders" className="flex items-center w-full">
-                    <ClipboardList className="w-4 h-4 mr-2" />
-                    Order History
-                  </Link>
-                </DropdownMenuItem>
-              </>
-            )}
+              {/* Dashboard link */}
+              <DropdownMenuItem asChild>
+                <Link 
+                  href={dashboardPath} 
+                  className="flex items-center w-full cursor-pointer"
+                >
+                  <DashboardIcon className="w-4 h-4 mr-2 text-[#1a1942]" />
+                  <span className="font-medium">{dashboardLabel}</span>
+                </Link>
+              </DropdownMenuItem>
 
-            {/* Change password if required */}
-            {session.user.requiresPasswordChange && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/change-password" className="flex items-center w-full text-amber-600">
-                    <AlertCircle className="w-4 h-4 mr-2" />
-                    <span className="font-medium">Change Password</span>
-                  </Link>
-                </DropdownMenuItem>
-              </>
-            )}
+              {/* Customer-specific links */}
+              {isCustomer && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/profile" className="flex items-center w-full">
+                      <User className="w-4 h-4 mr-2" />
+                      Profile
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/orders" className="flex items-center w-full">
+                      <ClipboardList className="w-4 h-4 mr-2" />
+                      Order History
+                    </Link>
+                  </DropdownMenuItem>
+                </>
+              )}
 
-            <DropdownMenuSeparator />
-            {/* Logout */}
-            <DropdownMenuItem 
-              onClick={handleLogout}
-              className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              {/* Change password if required */}
+              {session.user.requiresPasswordChange && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/change-password" className="flex items-center w-full text-amber-600">
+                      <AlertCircle className="w-4 h-4 mr-2" />
+                      <span className="font-medium">Change Password</span>
+                    </Link>
+                  </DropdownMenuItem>
+                </>
+              )}
+
+              <DropdownMenuSeparator />
+              {/* Logout */}
+              <DropdownMenuItem 
+                onClick={handleLogout}
+                className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer"
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       )
     }
 
-    // Enhanced login button for non-authenticated users
+    // For non-authenticated users - show both Login and Register buttons
     return (
       <div className="flex items-center gap-3">
+        {/* Register Button */}
+        <motion.div
+          initial={false}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="relative"
+        >
+          <Button 
+            variant="outline" 
+            size="default"
+            onClick={handleRegisterClick}
+            className="relative overflow-hidden group border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white transition-all duration-300 px-6"
+          >
+            <UserPlus className="w-4 h-4 mr-2" />
+            <span className="font-medium tracking-wide">
+              Register
+            </span>
+            <div className="absolute inset-0 rounded-md bg-gradient-to-r from-transparent via-[#1a1942]/10 to-transparent opacity-0 group-hover:opacity-100 blur-sm transition-opacity duration-300" />
+          </Button>
+        </motion.div>
+
+        {/* Login Button */}
         <motion.div
           initial={false}
           whileHover={{ scale: 1.05 }}
@@ -300,7 +315,6 @@ export function NavBar() {
             <div className="absolute inset-0 rounded-md bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 group-hover:opacity-100 blur-sm transition-opacity duration-300" />
           </Button>
         </motion.div>
-
       </div>
     )
   }
@@ -346,12 +360,17 @@ export function NavBar() {
           </div>
 
           {/* Center navigation links */}
-          <div className="hidden md:flex md:items-center md:justify-center md:flex-1 md:gap-8">
+          <div className="hidden md:flex md:items-center md:justify-center md:flex-1 md:gap-4 lg:gap-8">
             {navLinks.map((link) => (
               <NavLink key={link.href} href={link.href} icon={link.icon}>
                 {link.label}
               </NavLink>
             ))}
+            {isUserRole && (
+              <NavLink href="/user/dashboard" icon={LayoutDashboard}>
+                Accounts
+              </NavLink>
+            )}
           </div>
 
           {/* Right side - User menu and mobile menu */}
@@ -403,11 +422,17 @@ export function NavBar() {
                   {link.label}
                 </NavLink>
               ))}
+              {isUserRole && (
+                <NavLink href="/user/dashboard" icon={LayoutDashboard}>
+                  Accounts
+                </NavLink>
+              )}
               
               {/* Mobile auth buttons */}
               <div className="pt-4 mt-4 border-t border-gray-100 space-y-3">
                 {!session?.user ? (
                   <>
+                    {/* Mobile Login Button */}
                     <Button 
                       variant="default" 
                       size="lg"
@@ -417,19 +442,23 @@ export function NavBar() {
                         setIsMenuOpen(false)
                       }}
                     >
-                      <LogIn className="w-4 h-4 mr-2" />
+                      <Sparkles className="w-4 h-4 mr-2" />
                       Login
                     </Button>
-                    <Link href="/register" className="block" onClick={() => setIsMenuOpen(false)}>
-                      <Button 
-                        variant="outline" 
-                        size="lg"
-                        className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
-                      >
-                        <UserPlus className="w-4 h-4 mr-2" />
-                        Register
-                      </Button>
-                    </Link>
+                    
+                    {/* Mobile Register Button */}
+                    <Button 
+                      variant="outline" 
+                      size="lg"
+                      className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
+                      onClick={() => {
+                        handleRegisterClick()
+                        setIsMenuOpen(false)
+                      }}
+                    >
+                      <UserPlus className="w-4 h-4 mr-2" />
+                      Register
+                    </Button>
                   </>
                 ) : (
                   <div className="space-y-2">
@@ -482,6 +511,7 @@ export function NavBar() {
                       </Button>
                     )}
                     
+                    {/* Mobile Logout Button */}
                     <Button 
                       variant="outline" 
                       size="lg"

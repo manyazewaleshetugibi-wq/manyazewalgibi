@@ -25,6 +25,7 @@ interface EmployeeRank {
   name: string;
   role: string;
   completedOrders: number;
+  points: number;
   performanceScore?: number;
   attendance?: number;
   efficiency?: number;
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
         name: emp.name,
         role: emp.role,
         completedOrders,
+        points: emp.points || 0,
         performanceScore: emp.performanceScore || 0,
         attendance: emp.attendance || 0,
         efficiency: emp.efficiency || 0
@@ -76,9 +78,13 @@ export async function POST(req: NextRequest) {
     for (const [role, employees] of Object.entries(employeesByRole)) {
       if (employees.length === 0) continue;
       
-      // Sort employees in this role by completedOrders (descending)
+      // Sort employees in this role by completedOrders (descending), then by points (descending)
       employees.sort((a: EmployeeRank, b: EmployeeRank) => {
-        return b.completedOrders - a.completedOrders;
+        if (b.completedOrders !== a.completedOrders) {
+          return b.completedOrders - a.completedOrders;
+        }
+        // Tie-breaker: points
+        return b.points - a.points;
       });
       
       // Now assign ranks with proper handling for ties
@@ -122,6 +128,7 @@ export async function POST(req: NextRequest) {
       name: emp.name,
       role: emp.role,
       completedOrders: emp.completedOrders || 0,
+      points: emp.points || 0,
       performanceScore: emp.performanceScore || 0,
       attendance: emp.attendance || 0,
       efficiency: emp.efficiency || 0
@@ -129,7 +136,10 @@ export async function POST(req: NextRequest) {
     
     // Sort all employees globally
     allEmployees.sort((a: EmployeeRank, b: EmployeeRank) => {
-      return b.completedOrders - a.completedOrders;
+      if (b.completedOrders !== a.completedOrders) {
+        return b.completedOrders - a.completedOrders;
+      }
+      return b.points - a.points;
     });
     
     // Assign global ranks with tie handling

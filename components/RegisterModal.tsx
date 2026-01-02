@@ -8,14 +8,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { UserPlus, Phone, Mail, Lock, Key, User, MapPin } from 'lucide-react'
-import { RainbowButton } from "@/components/ui/rainbow-button"
+import { RainbowButton } from "../components/rainbow-button"
 import { useToast } from "@/hooks/use-toast"
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSeparator,
   InputOTPSlot,
-} from "@/components/ui/input-otp"
+} from "@/components/input-otp"
 
 interface RegisterModalProps {
   isOpen: boolean

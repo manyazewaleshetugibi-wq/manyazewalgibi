@@ -1,69 +1,117 @@
 import { NextResponse } from "next/server";
-import { ObjectId } from "mongodb";  // Import ObjectId
 import clientPromise from "@/lib/mongodb";
-import { uploadFileToS3 } from "@/lib/s3tr";
+import { ObjectId } from "mongodb";
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+// PUT - Update training details
+export async function PUT(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
+    const trainingId = params.id;
+    const body = await request.json();
+    const { title, description, linkUrl, type } = body;
 
-    const training = await db.collection("trainings").findOne({ _id: new ObjectId(params.id) });
-
-    if (!training) {
-      return NextResponse.json({ error: "Training not found" }, { status: 404 });
-    }
-
-    return NextResponse.json(training, { status: 200 });
-  } catch (error) {
-    console.error("Error fetching training:", error);
-    return NextResponse.json({ error: "Failed to fetch training" }, { status: 500 });
-  }
-}
-
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
-  try {
-    const formData = await request.formData();
-    const title = formData.get("title") as string;
-    const description = formData.get("description") as string;
-    const type = formData.get("type") as "audio" | "pdf" | "video" | "text";
-    const file = formData.get("file") as File;
-
-    if (!title || !description || !type) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    if (!ObjectId.isValid(trainingId)) {
+      return NextResponse.json({ 
+        success: false,
+        error: "Invalid training ID" 
+      }, { status: 400 });
     }
 
     const client = await clientPromise;
     const db = client.db("gold");
 
-    let fileUrl: string | undefined;
-    if (file) {
-      const buffer = Buffer.from(await file.arrayBuffer());
-      fileUrl = await uploadFileToS3(buffer, file.name, file.type);
+    const updateData: any = {
+      title,
+      description,
+      type,
+      updatedAt: new Date(),
+    };
+
+    // If linkUrl is provided, update it and ensure fileUrl is updated
+    if (linkUrl !== undefined) {
+      if (linkUrl && !linkUrl.startsWith('http')) {
+        return NextResponse.json({
+          success: false,
+          error: "Invalid link URL. Must start with http(s)://",
+        }, { status: 400 });
+      }
+      updateData.fileUrl = linkUrl;
     }
 
-    const updateData = { title, description, type, ...(fileUrl && { fileUrl }) };
-    await db.collection("trainings").updateOne(
-      { _id: new ObjectId(params.id) }, // Convert id to ObjectId
+    const result = await db.collection("trainings").updateOne(
+      { _id: new ObjectId(trainingId) },
       { $set: updateData }
     );
 
-    return NextResponse.json({ message: "Training updated successfully" }, { status: 200 });
-  } catch (error) {
+    if (result.matchedCount === 0) {
+      return NextResponse.json({ 
+        success: false,
+        error: "Training not found" 
+      }, { status: 404 });
+    }
+
+    return NextResponse.json({ 
+      success: true,
+      message: "Training updated successfully" 
+    }, { status: 200 });
+
+  } catch (error: any) {
     console.error("Error updating training:", error);
-    return NextResponse.json({ error: "Failed to update training" }, { status: 500 });
+    return NextResponse.json({ 
+      success: false,
+      error: error.message || "Failed to update training" 
+    }, { status: 500 });
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+// DELETE - Delete training
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
   try {
+    const trainingId = params.id;
+    console.log('Deleting training:', trainingId);
+
+    if (!ObjectId.isValid(trainingId)) {
+      return NextResponse.json({ 
+        success: false,
+        error: "Invalid training ID" 
+      }, { status: 400 });
+    }
+
     const client = await clientPromise;
     const db = client.db("gold");
-    await db.collection("trainings").deleteOne({ _id: new ObjectId(params.id) }); // Convert id to ObjectId
+    
+    // Get training first
+    const training = await db.collection("trainings").findOne({ 
+      _id: new ObjectId(trainingId) 
+    });
 
-    return NextResponse.json({ message: "Training deleted successfully" }, { status: 200 });
-  } catch (error) {
+    if (!training) {
+      return NextResponse.json({ 
+        success: false,
+        error: "Training not found" 
+      }, { status: 404 });
+    }
+
+    // Delete from MongoDB
+    const result = await db.collection("trainings").deleteOne({ 
+      _id: new ObjectId(trainingId) 
+    });
+
+    return NextResponse.json({ 
+      success: true,
+      message: "Training deleted successfully",
+      deletedId: trainingId
+    }, { status: 200 });
+  } catch (error: any) {
     console.error("Error deleting training:", error);
-    return NextResponse.json({ error: "Failed to delete training" }, { status: 500 });
+    return NextResponse.json({ 
+      success: false,
+      error: error.message || "Failed to delete training" 
+    }, { status: 500 });
   }
 }

@@ -10,16 +10,16 @@ const CLOUDINARY_VIDEO_FOLDER = process.env.NEXT_PUBLIC_CLOUDINARY_FOLDER || 'vi
 const CLOUDINARY_PHOTO_FOLDER =process.env.NEXT_PUBLIC_CLOUDINARY_PHOTO_FOLDER || 'photoss';
 const CLOUDINARY_RAW_FOLDER = process.env.NEXT_PUBLIC_CLOUDINARY_RAW_FOLDER ||'raw_files'; // For PDFs, text files, etc.
 
-// Maximum file sizes (adjust as needed)
+
 const MAX_FILE_SIZES = {
-  video: 100 * 1024 * 1024, // 100MB for videos
-  audio: 50 * 1024 * 1024,  // 50MB for audio
-  pdf: 20 * 1024 * 1024,    // 20MB for PDFs
-  text: 5 * 1024 * 1024,    // 5MB for text
-  image: 10 * 1024 * 1024,  // 10MB for images
+  video: 100 * 1024 * 1024, 
+  audio: 50 * 1024 * 1024,  
+  pdf: 20 * 1024 * 1024,    
+  text: 5 * 1024 * 1024,    
+  image: 10 * 1024 * 1024,  
 };
 
-// Allowed file types
+
 const ALLOWED_TYPES = {
   video: ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/webm'],
   audio: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4'],
@@ -354,62 +354,6 @@ export async function GET() {
     return NextResponse.json({ 
       success: false,
       error: "Failed to fetch trainings" 
-    }, { status: 500 });
-  }
-}
-
-// DELETE training (dynamic route handler)
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
-  try {
-    const trainingId = params.id;
-    console.log('Deleting training:', trainingId);
-
-    if (!ObjectId.isValid(trainingId)) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Invalid training ID" 
-      }, { status: 400 });
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
-    // Get training first
-    const training = await db.collection("trainings").findOne({ 
-      _id: new ObjectId(trainingId) 
-    });
-
-    if (!training) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Training not found" 
-      }, { status: 404 });
-    }
-
-    // Delete from MongoDB
-    const result = await db.collection("trainings").deleteOne({ 
-      _id: new ObjectId(trainingId) 
-    });
-
-    if (result.deletedCount === 0) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Failed to delete training" 
-      }, { status: 500 });
-    }
-
-    console.log('Training deleted successfully:', trainingId);
-    
-    return NextResponse.json({ 
-      success: true,
-      message: "Training deleted successfully",
-      deletedId: trainingId
-    }, { status: 200 });
-  } catch (error: any) {
-    console.error("Error deleting training:", error);
-    return NextResponse.json({ 
-      success: false,
-      error: error.message || "Failed to delete training" 
     }, { status: 500 });
   }
 }

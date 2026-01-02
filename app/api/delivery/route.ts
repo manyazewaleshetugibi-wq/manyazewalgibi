@@ -8,6 +8,21 @@ import { authOptions } from "../auth/[...nextauth]/auth";
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
 const CLOUDINARY_PHOTO_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
 
+// Define valid statuses
+const VALID_STATUSES = [
+  "PENDING",
+  "CONFIRMED", 
+  "PREPARING",
+  "PICKUP",  
+  "SERVED",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "COMPLETED",
+  "CANCELLED"
+] as const;
+
+type OrderStatus = typeof VALID_STATUSES[number];
+
 export async function POST(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
@@ -148,7 +163,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Check if required stock is sufficient
-      for (const requiredStock of itemData.requiredStock) {
+      for (const requiredStock of itemData.requiredStock || []) {
         const stock = await db
           .collection("stocks")
           .findOne({ _id: new ObjectId(requiredStock.stockId) });
@@ -203,20 +218,123 @@ export async function GET(req: NextRequest) {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
 
-    // Fetch all orders from the 'delivery' collection
-    const orders = await db.collection("orders").find({ delivery: true }).toArray();
+    // Parse query parameters
+    const url = new URL(req.url);
+    const statusParam = url.searchParams.get("status");
+    const includeAll = url.searchParams.get("all") === "true";
+    
+    // Build match query
+    let matchQuery: any = {
+      delivery: true
+    };
 
-    // If no orders are found
-    if (orders.length === 0) {
-      return NextResponse.json(
-        { message: "No orders found" },
-        { status: 404 }
-      );
+    // If status parameter is provided
+    if (statusParam) {
+      if (statusParam === "all") {
+        // Fetch all delivery orders regardless of status
+        matchQuery = { delivery: true };
+      } else if (statusParam === "notConfirmed") {
+        // Fetch all delivery orders that are NOT CONFIRMED
+        matchQuery = {
+          delivery: true,
+          status: { $ne: "CONFIRMED" }
+        };
+      } else {
+        // Validate specific status
+        if (!VALID_STATUSES.includes(statusParam as OrderStatus)) {
+          return NextResponse.json(
+            { error: `Invalid status parameter. Must be one of: ${VALID_STATUSES.join(", ")}, "all", or "notConfirmed"` },
+            { status: 400 }
+          );
+        }
+        matchQuery.status = statusParam;
+      }
     }
+    // Default: Fetch orders that are NOT CONFIRMED
+    else {
+      matchQuery = {
+        delivery: true,
+        status: { $ne: "CONFIRMED" }
+      };
+    }
+
+    // If includeAll is true (alternative parameter), fetch all delivery orders
+    if (includeAll) {
+      matchQuery = { delivery: true };
+    }
+
+    // Fetch all orders from the 'delivery' collection based on the match query
+    const orders = await db.collection("orders").aggregate([
+      {
+        $match: matchQuery
+      },
+      // Lookup User Details
+      {
+        $addFields: {
+          userIdObj: {
+            $cond: {
+              if: { $and: [{ $ne: ["$userId", null] }, { $ne: ["$userId", ""] }] },
+              then: { $toObjectId: "$userId" },
+              else: null
+            }
+          }
+        }
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "userIdObj",
+          foreignField: "_id",
+          as: "userDetails"
+        }
+      },
+      { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
+      // Lookup Item Details
+      { $unwind: "$items" },
+      {
+        $addFields: {
+          "items.itemIdObj": { $toObjectId: "$items.itemId" }
+        }
+      },
+      {
+        $lookup: {
+          from: "items",
+          localField: "items.itemIdObj",
+          foreignField: "_id",
+          as: "items.itemDetails"
+        }
+      },
+      {
+        $unwind: {
+          path: "$items.itemDetails",
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $group: {
+          _id: "$_id",
+          root: { $first: "$$ROOT" },
+          items: { $push: "$items" }
+        }
+      },
+      {
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: ["$root", { items: "$items" }]
+          }
+        }
+      },
+      { $sort: { createdAt: -1 } }
+    ]).toArray();
 
     // Return the orders in the response
     return NextResponse.json(
-      { orders },
+      { 
+        success: true,
+        orders,
+        count: orders.length,
+        filter: matchQuery
+      },
       { status: 200 }
     );
   } catch (error) {

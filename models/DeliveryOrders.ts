@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { ObjectId } from "mongodb";
 
-// Order Status Enum
-export const OrderStatus = z.enum([
+// Order Status Enum - Rename this to avoid conflict
+export const OrderStatusEnum = z.enum([
   "PENDING",
   "CONFIRMED",
   "PREPARING",
@@ -40,7 +40,7 @@ const DeliveryInfoSchema = z.object({
 
 // Delivery Order Schema
 export const DeliveryOrderSchema = z.object({
-  _id: z.string().optional(),  // Make _id optional
+  _id: z.string().optional(),
   userId: z.string().optional().nullable(),
   orderNumber: z.string().min(1, "Order number is required"),
   waiterId: z.string().optional().nullable(),
@@ -49,7 +49,7 @@ export const DeliveryOrderSchema = z.object({
   note: z.string().optional().nullable(),
   specialRequirements: z.string().optional().nullable(),
   items: z.array(OrderItemSchema).min(1, "At least one item is required"),
-  status: OrderStatus.default("PENDING"),
+  status: OrderStatusEnum.default("PENDING"),  // Use OrderStatusEnum here
   totalAmount: z.number().min(0, "Total amount must be non-negative"),
   subtotal: z.number().optional().nullable(),
   deliveryFee: z.number().optional().nullable(),
@@ -68,6 +68,10 @@ export const DeliveryOrderSchema = z.object({
   completedAt: z.date().optional().nullable()
 });
 
-export type OrderStatus = z.infer<typeof OrderStatus>;
+// Export types
+export type OrderStatus = z.infer<typeof OrderStatusEnum>;
 export type OrderItem = z.infer<typeof OrderItemSchema>;
 export type DeliveryOrder = z.infer<typeof DeliveryOrderSchema>;
+
+// Export the array of status options for validation
+export const OrderStatusOptions = OrderStatusEnum.options;

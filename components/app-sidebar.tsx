@@ -21,6 +21,7 @@ import {
   FileText,
   LayoutDashboard,
   Tag,
+  Cake,
   Truck,
   Store,
   BookCheckIcon,
@@ -29,6 +30,8 @@ import {
   Hand,
   ListOrderedIcon,
   UserSquare2Icon,
+  User,
+  Settings,
 } from "lucide-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -71,6 +74,7 @@ const roleBasedNavigation = {
         icon: ShoppingCart,
         items: [
           { title: "In-Restaurant", url: "/orders" },
+          { title: "Pending Delivery", url: "/orders/delivery" },
         ],
       },
       {
@@ -94,6 +98,7 @@ const roleBasedNavigation = {
     ],
     projects: [
       { name: "Dashboard", url: "/dashboard", icon: Tag },
+      { name: "BirthDate", url: "/BirthDate", icon: Cake },
       { name: "POS", url: "/pos", icon: SquareTerminal },
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Expenses", url: "/expenses", icon: DollarSign },
@@ -109,6 +114,7 @@ const roleBasedNavigation = {
         icon: ShoppingCart,
         items: [
           { title: "In-Restaurant", url: "/orders" },
+          { title: "Pending Delivery", url: "/orders/delivery" },
         ],
       },
     ],
@@ -198,7 +204,8 @@ const roleBasedNavigation = {
         url: "#",
         icon: ShoppingCart,
         items: [
-          { title: "pos", url: "/pos" },
+          { title: "POs", url: "/pos"  },
+           { title: "edit", url: "/orders/edit"  },
         ],
       },
     ],
@@ -251,10 +258,23 @@ const getNavigationForRole = (role: string) => {
   return roleBasedNavigation.DEFAULT;
 };
 
+// Function to add Edit Profile for all roles
+const addEditProfileForAllRoles = (projects: Array<{ name: string; url: string; icon: any }>) => {
+  return [
+    // Add Edit Profile at the top for easy access for ALL roles
+    { name: "Edit Profile", url: "/profile/edit", icon: Settings },
+    // Then the existing projects
+    ...projects,
+  ];
+};
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { data: session } = useSession();
   const userRole = session?.user?.role;
   const navigation = getNavigationForRole(userRole);
+  
+  // Add Edit Profile to projects for ALL roles
+  const enhancedProjects = addEditProfileForAllRoles(navigation.projects || []);
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -262,10 +282,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <TeamSwitcher />
       </SidebarHeader>
       <SidebarContent>
-        {navigation.projects && navigation.projects.length > 0 && (
-          <NavProjects projects={navigation.projects} />
+        {enhancedProjects.length > 0 && (
+          <NavProjects projects={enhancedProjects} />
         )}
-        {navigation.navMain && navigation.navMain.length > 0 && (
+        {navigation.navMain.length > 0 && (
           <NavMain items={navigation.navMain} />
         )}
       </SidebarContent>

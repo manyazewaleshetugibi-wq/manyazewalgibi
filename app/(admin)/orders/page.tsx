@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { toast, Toaster } from "react-hot-toast"
 import { format } from "date-fns"
 import {
@@ -90,6 +90,7 @@ type Order = {
     itemId: string
     quantity: number
     unitPrice: number
+    price?: number
     subtotal: number
     status: string
   }>
@@ -132,7 +133,7 @@ type MenuItem = {
 
 const statusOptions: OrderStatus[] = ["PENDING", "CONFIRMED", "PREPARING", "PICKUP", "SERVED", "COMPLETED", "CANCELLED"]
 
-const statusIcons: Record<OrderStatus, JSX.Element> = {
+const statusIcons: Record<OrderStatus, React.ReactNode> = {
   PENDING: <Clock className="h-4 w-4" />,
   CONFIRMED: <ThumbsUp className="h-4 w-4" />,
   PREPARING: <ChefHat className="h-4 w-4" />,
@@ -295,8 +296,13 @@ export default function OrderManagement() {
   })
 
   const sortedOrders = [...filteredOrders].sort((a, b) => {
-    if (a[sortField] < b[sortField]) return sortDirection === "asc" ? -1 : 1
-    if (a[sortField] > b[sortField]) return sortDirection === "asc" ? 1 : -1
+    const aValue = a[sortField]
+    const bValue = b[sortField]
+    if (aValue === bValue) return 0
+    if (aValue === undefined || aValue === null) return 1
+    if (bValue === undefined || bValue === null) return -1
+    if (aValue < bValue) return sortDirection === "asc" ? -1 : 1
+    if (aValue > bValue) return sortDirection === "asc" ? 1 : -1
     return 0
   })
 
@@ -317,6 +323,8 @@ export default function OrderManagement() {
 
     useEffect(() => {
       const fetchWaitress = async () => {
+        if (!order.waiterId) return
+
         try {
           const response = await fetch(`/api/waitress/${order.waiterId}`)
           if (!response.ok) throw new Error("Failed to fetch waitress")
@@ -505,10 +513,10 @@ export default function OrderManagement() {
                           </TableCell>
                           <TableCell>{item.quantity}</TableCell>
                           <TableCell>
-                            {item.unitPrice.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
+                            {(item.unitPrice || item.price || 0).toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
                           </TableCell>
                           <TableCell>
-                            {item.subtotal.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
+                            {(item.subtotal || 0).toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -646,15 +654,17 @@ export default function OrderManagement() {
         <CardContent className="p-6">
           <div className="flex flex-wrap gap-4 items-center">
             <div className="flex-1 min-w-[200px]">
-              <Input
-                placeholder="Search orders..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full"
-                icon={<Search className="h-4 w-4" />}
-              />
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search orders..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-8"
+                />
+              </div>
             </div>
-            <Select onValueChange={(value) => setStatusFilter(value || null)}>
+            <Select onValueChange={(value) => setStatusFilter((value as OrderStatus) || null)}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
@@ -859,7 +869,8 @@ export default function OrderManagement() {
           <PaginationItem>
             <PaginationPrevious
               onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-              disabled={currentPage === 1}
+              className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+              aria-disabled={currentPage === 1}
             />
           </PaginationItem>
           {[...Array(totalPages)].map((_, i) => (
@@ -872,7 +883,8 @@ export default function OrderManagement() {
           <PaginationItem>
             <PaginationNext
               onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-              disabled={currentPage === totalPages}
+              className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+              aria-disabled={currentPage === totalPages}
             />
           </PaginationItem>
         </PaginationContent>

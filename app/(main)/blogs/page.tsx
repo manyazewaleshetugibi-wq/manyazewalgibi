@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { Search, Calendar, Clock, User, Tag } from "lucide-react"
+import { Search, Calendar, Clock, User, Tag, Video, ImageIcon, Play, Loader2, Maximize2, FileText, AlertTriangle } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -16,26 +16,144 @@ import { Pagination } from "@/components/Pagination"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
-interface Post {
+export interface Blog {
   _id: string
   title: string
   content: string
   category: string
   tags: string[]
-  publishedAt: string
+  Image?: string
+  Video?: string
+  mediaType?: "image" | "video" | "none" | string
   isActive: boolean
+  excerpt: string
+  views: number
+  uploadStatus?: "completed" | "uploading" | "processing" | "failed" | "pending"
+  uploadProgress?: number
+  fileUrl?: string
+  thumbnailUrl?: string
+  publicId?: string
+  format?: string
+  fileSize?: number
+  originalFileName?: string
+  mimeType?: string
+  error?: string
+  publishedAt: string
   createdAt: string
   updatedAt: string
-  Image: string
-  author: string
-  readTime: number
+  completedAt?: string
+  failedAt?: string
+  author?: string
+  readTime?: number
 }
 
 const POSTS_PER_PAGE = 5
 
+// Helper to extract embed URL from YouTube/Vimeo links
+const getEmbedUrl = (url: string) => {
+  if (!url) return null
+  
+  // YouTube
+  const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i
+  const youtubeMatch = url.match(youtubeRegex)
+  if (youtubeMatch && youtubeMatch[1]) {
+    return `https://www.youtube.com/embed/${youtubeMatch[1]}`
+  }
+
+  // Vimeo
+  const vimeoRegex = /(?:vimeo\.com\/|player\.vimeo\.com\/video\/)([0-9]+)/i
+  const vimeoMatch = url.match(vimeoRegex)
+  if (vimeoMatch && vimeoMatch[1]) {
+    return `https://player.vimeo.com/video/${vimeoMatch[1]}`
+  }
+
+  return null
+}
+
+// Helper function to determine if URL is a video
+const isVideoUrl = (url?: string): boolean => {
+  if (!url) return false
+  const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.m3u8']
+  const videoDomains = ['youtube.com', 'youtu.be', 'vimeo.com', 'wistia.com', 'dailymotion.com']
+  
+  if (videoExtensions.some(ext => url.toLowerCase().includes(ext))) return true
+  if (videoDomains.some(domain => url.toLowerCase().includes(domain))) return true
+  return false
+}
+
+// Helper function to determine if URL is an image
+const isImageUrl = (url?: string): boolean => {
+  if (!url) return false
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp']
+  if (imageExtensions.some(ext => url.toLowerCase().includes(ext))) return true
+  if (url.startsWith('data:image/')) return true
+  return false
+}
+
+const BlogMediaPreview = ({ 
+  blog, 
+  heightClass = "h-64", 
+  objectFit = "cover"
+}: { 
+  blog: Blog; 
+  heightClass?: string; 
+  objectFit?: "cover" | "contain";
+}) => {
+  const videoSource = blog.fileUrl || blog.Video || ""
+  const embedUrl = getEmbedUrl(videoSource)
+  const imageSource = blog.Image || blog.fileUrl
+  
+  const isVideo = isVideoUrl(videoSource) || !!embedUrl || blog.mediaType === 'video'
+  const isImage = isImageUrl(imageSource) || blog.mediaType === 'image'
+  
+  if (isVideo) {
+    if (embedUrl) {
+      return (
+        <div className={`relative ${heightClass} w-full bg-black`}>
+          <iframe src={embedUrl} className="w-full h-full pointer-events-none" title={blog.title} frameBorder="0" />
+          <div className="absolute inset-0 bg-transparent" /> {/* Overlay to prevent interaction in preview */}
+          <div className="absolute bottom-2 left-2 bg-black/70 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
+            <Video className="h-3 w-3" /> Video
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className={`relative ${heightClass} w-full group bg-black`}>
+        <video src={videoSource} className={`w-full h-full object-${objectFit}`} muted playsInline preload="metadata" />
+        <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+            <Play className="w-6 h-6 text-white" />
+          </div>
+        </div>
+        <div className="absolute bottom-2 left-2 bg-black/70 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
+          <Video className="h-3 w-3" /> Video
+        </div>
+      </div>
+    )
+  }
+  
+  if (isImage && imageSource) {
+    return (
+      <div className={`relative ${heightClass} w-full`}>
+        <Image src={imageSource} alt={blog.title} layout="fill" objectFit={objectFit} className="transition-transform duration-300 hover:scale-105" />
+      </div>
+    )
+  }
+  
+  return (
+    <div className={`relative ${heightClass} w-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center`}>
+      <div className="text-gray-400 text-center">
+        <FileText className="h-12 w-12 mx-auto mb-2" />
+        <p className="text-xs">No media</p>
+      </div>
+    </div>
+  )
+}
+
 export default function BlogLayout() {
   const router = useRouter()
-  const [posts, setPosts] = React.useState<Post[]>([])
+  const [posts, setPosts] = React.useState<Blog[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [searchQuery, setSearchQuery] = React.useState("")
@@ -47,13 +165,19 @@ export default function BlogLayout() {
   React.useEffect(() => {
     const fetchPosts = async () => {
       try {
-        const response = await fetch("/api/blog")
+        const response = await fetch("/api/blog?includeUploads=true&isActive=true&sort=publishedAt:desc&limit=100")
         if (!response.ok) {
           throw new Error("Failed to fetch posts")
         }
         const data = await response.json()
         if (data.success) {
-          setPosts(data.data)
+          // Filter to only show completed or non-upload blogs that are active
+          const filteredPosts = data.data.filter((post: Blog) => 
+            post.isActive &&
+            (!post.uploadStatus || 
+            post.uploadStatus === "completed")
+          )
+          setPosts(filteredPosts)
         } else {
           throw new Error("Failed to fetch posts")
         }
@@ -85,7 +209,7 @@ export default function BlogLayout() {
         return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
       } else {
         // Assuming popularity is based on readTime (you might want to use a different metric)
-        return b.readTime - a.readTime
+        return (b.views || 0) - (a.views || 0)
       }
     })
   }, [filteredPosts, sortBy])
@@ -111,7 +235,7 @@ export default function BlogLayout() {
   }, [posts])
 
   const allTags = React.useMemo(() => {
-    return Array.from(new Set(posts.flatMap((post) => post.tags)))
+    return Array.from(new Set(posts.flatMap((post) => post.tags || [])))
   }, [posts])
 
   const handleCategoryClick = (category: string) => {
@@ -202,16 +326,13 @@ export default function BlogLayout() {
   )
 }
 
-const BlogPostCard: React.FC<{ post: Post; onRedirect: (id: string) => void }> = ({ post, onRedirect }) => (
+const BlogPostCard: React.FC<{ post: Blog; onRedirect: (id: string) => void }> = ({ post, onRedirect }) => (
   <article className="group overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md">
-    <div className="aspect-video overflow-hidden">
-      <Image
-        src={post.Image || "/placeholder.svg"}
-        alt={post.title}
-        width={800}
-        height={400}
-        className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
-      />
+    <div 
+      className="aspect-video overflow-hidden cursor-pointer"
+      onClick={() => onRedirect(post._id)}
+    >
+      <BlogMediaPreview blog={post} heightClass="h-full" />
     </div>
     <div className="p-6 space-y-4">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -222,18 +343,18 @@ const BlogPostCard: React.FC<{ post: Post; onRedirect: (id: string) => void }> =
         </span>
         <span className="flex items-center gap-1">
           <Clock className="w-4 h-4" />
-          {post.readTime} min read
+          {post.readTime || 5} min read
         </span>
       </div>
       <h2 className="text-2xl font-bold tracking-tight group-hover:text-primary transition-colors">{post.title}</h2>
       <div className="flex items-center gap-2 text-sm">
         <User className="w-4 h-4" />
-        <span>{post.author}</span>
+        <span>{post.author || "Admin"}</span>
       </div>
       <div className="text-muted-foreground line-clamp-3" dangerouslySetInnerHTML={{ __html: post.content }} />
       <div className="flex items-center justify-between pt-4">
         <div className="flex flex-wrap gap-2">
-          {post.tags.map((tag) => (
+          {post.tags && post.tags.map((tag) => (
             <Badge key={tag} variant="outline" className="flex items-center gap-1">
               <Tag className="w-3 h-3" />
               {tag}
@@ -324,7 +445,7 @@ const CategoriesCard: React.FC<{
   </Card>
 )
 
-const RecentPostsCard: React.FC<{ recentPosts: Post[] }> = ({ recentPosts }) => (
+const RecentPostsCard: React.FC<{ recentPosts: Blog[] }> = ({ recentPosts }) => (
   <Card>
     <CardHeader>
       <CardTitle>Recent Posts</CardTitle>
@@ -333,13 +454,9 @@ const RecentPostsCard: React.FC<{ recentPosts: Post[] }> = ({ recentPosts }) => 
       <div className="space-y-4">
         {recentPosts.map((post) => (
           <div key={post._id} className="flex gap-4">
-            <Image
-              src={post.Image || "/placeholder.svg"}
-              alt={post.title}
-              width={80}
-              height={80}
-              className="rounded-lg object-cover w-20 h-20"
-            />
+            <div className="w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden">
+              <BlogMediaPreview blog={post} heightClass="h-full" />
+            </div>
             <div className="space-y-1">
               <div className="text-sm font-medium text-muted-foreground">{post.category}</div>
               <Link href={`/blog/${post._id}`} className="line-clamp-2 text-sm font-medium hover:text-primary">
@@ -442,4 +559,3 @@ const ErrorMessage: React.FC<{ message: string }> = ({ message }) => (
     </Card>
   </div>
 )
-

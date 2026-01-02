@@ -40,6 +40,7 @@ import {
   FileText,
   Image as ImageIcon,
   Upload,
+  Edit,
   Search,
   Trash2,
   Play,
@@ -80,6 +81,27 @@ interface Training {
   error?: string
 }
 
+// Helper to extract embed URL from YouTube/Vimeo links
+const getEmbedUrl = (url: string) => {
+  if (!url) return null
+  
+  // YouTube
+  const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i
+  const youtubeMatch = url.match(youtubeRegex)
+  if (youtubeMatch && youtubeMatch[1]) {
+    return `https://www.youtube.com/embed/${youtubeMatch[1]}`
+  }
+
+  // Vimeo
+  const vimeoRegex = /(?:vimeo\.com\/|player\.vimeo\.com\/video\/)([0-9]+)/i
+  const vimeoMatch = url.match(vimeoRegex)
+  if (vimeoMatch && vimeoMatch[1]) {
+    return `https://player.vimeo.com/video/${vimeoMatch[1]}`
+  }
+
+  return null
+}
+
 export default function TrainingPage() {
   const [trainings, setTrainings] = useState<Training[]>([])
   const [search, setSearch] = useState("")
@@ -91,6 +113,7 @@ export default function TrainingPage() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [selectedTraining, setSelectedTraining] = useState<Training | null>(null)
+  const [editingTraining, setEditingTraining] = useState<Training | null>(null)
   const [newTraining, setNewTraining] = useState({
     title: "", 
     description: "",
@@ -196,8 +219,14 @@ export default function TrainingPage() {
     return true
   }
 
-  const handleUpload = async () => {
+  const handleSubmit = async () => {
     if (!validateFileUpload()) {
+      return
+    }
+
+    // If editing, call handleUpdate instead
+    if (editingTraining) {
+      await handleUpdate()
       return
     }
 
@@ -279,6 +308,51 @@ export default function TrainingPage() {
       setIsUploading(false)
       setUploadProgress(0)
     }
+  }
+
+  // Update training
+  const handleUpdate = async () => {
+    if (!editingTraining) return
+
+    try {
+      const response = await fetch(`/api/training/${editingTraining._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTraining.title,
+          description: newTraining.description,
+          type: newTraining.type,
+          linkUrl: newTraining.linkUrl
+        }),
+      })
+
+      if (!response.ok) throw new Error("Failed to update training")
+      
+      toast.success("Training updated successfully")
+      setEditingTraining(null)
+      setIsCreating(false)
+      resetForm()
+      fetchTrainings()
+    } catch (error) {
+      toast.error("Failed to update training")
+    }
+  }
+
+  const resetForm = () => {
+    setNewTraining({ title: "", description: "", type: "video", linkUrl: "" })
+    setUploadedFile(null)
+    setEditingTraining(null)
+  }
+
+  const handleEditClick = (training: Training) => {
+    setEditingTraining(training)
+    setNewTraining({
+      title: training.title,
+      description: training.description,
+      type: training.type,
+      linkUrl: training.publicId ? "" : (training.fileUrl || "")
+    })
+    setIsCreating(true)
   }
 
   // Delete training
@@ -416,7 +490,10 @@ export default function TrainingPage() {
         </div>
       
 
-<Dialog open={isCreating} onOpenChange={setIsCreating}>
+<Dialog open={isCreating} onOpenChange={(open) => {
+  setIsCreating(open)
+  if (!open) resetForm()
+}}>
   <DialogTrigger asChild>
     <Button>
       <Upload className="w-4 h-4 mr-2" />
@@ -425,9 +502,9 @@ export default function TrainingPage() {
   </DialogTrigger>
   <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden">
     <DialogHeader className="px-1">
-      <DialogTitle>Create New Training</DialogTitle>
+      <DialogTitle>{editingTraining ? "Edit Training" : "Create New Training"}</DialogTitle>
       <DialogDescription>
-        Fill in the training details and upload your content to Cloudinary
+        {editingTraining ? "Update the training details below" : "Fill in the training details and upload your content to Cloudinary"}
       </DialogDescription>
     </DialogHeader>
     
@@ -571,7 +648,7 @@ export default function TrainingPage() {
     {/* Fixed position button at bottom */}
     <div className="pt-4 border-t sticky bottom-0 bg-background px-1">
       <Button
-        onClick={handleUpload}
+        onClick={handleSubmit}
         disabled={
           !newTraining.title.trim() || 
           !newTraining.description.trim() || 
@@ -704,6 +781,16 @@ export default function TrainingPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
+                            onClick={() => handleEditClick(training)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {training.uploadStatus === "completed" && training.fileUrl && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
                             onClick={() => window.open(training.fileUrl, '_blank')}
                           >
                             <ExternalLink className="h-4 w-4" />
@@ -747,8 +834,23 @@ export default function TrainingPage() {
                       className="relative aspect-video rounded-lg overflow-hidden bg-muted cursor-pointer group-hover:bg-muted/80 transition-colors"
                       onClick={() => setSelectedTraining(training)}
                     >
-                      {training.type === 'video' && training.thumbnailUrl ? (
-                        <img src={training.thumbnailUrl} alt={training.title} className="w-full h-full object-cover" />
+                      {training.type === 'video' ? (
+                        getEmbedUrl(training.fileUrl || "") ? (
+                          <iframe
+                            src={getEmbedUrl(training.fileUrl || "") || ""}
+                            className="w-full h-full object-cover pointer-events-none"
+                            title={training.title}
+                            frameBorder="0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        ) : training.thumbnailUrl ? (
+                          <img src={training.thumbnailUrl} alt={training.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                            {getIcon(training.type)}
+                          </div>
+                        )
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                           {getIcon(training.type)}
@@ -869,6 +971,13 @@ export default function TrainingPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            onClick={() => handleEditClick(training)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={() => setSelectedTraining(training)}
                             disabled={training.uploadStatus !== "completed"}
                           >
@@ -911,22 +1020,33 @@ export default function TrainingPage() {
               <TabsContent value="preview" className="space-y-4">
                 {selectedTraining.type === "video" && selectedTraining.fileUrl && (
                   <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-                    <ReactPlayer
-                      ref={playerRef}
-                      url={selectedTraining.fileUrl}
-                      width="100%"
-                      height="100%"
-                      playing={isPlaying}
-                      muted={isMuted}
-                      controls
-                      config={{
-                        file: {
-                          attributes: {
-                            controlsList: "nodownload",
+                    {getEmbedUrl(selectedTraining.fileUrl) ? (
+                      <iframe
+                        src={getEmbedUrl(selectedTraining.fileUrl) || ""}
+                        className="w-full h-full"
+                        title={selectedTraining.title}
+                        frameBorder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    ) : (
+                      <ReactPlayer
+                        ref={playerRef}
+                        url={selectedTraining.fileUrl}
+                        width="100%"
+                        height="100%"
+                        playing={isPlaying}
+                        muted={isMuted}
+                        controls
+                        config={{
+                          file: {
+                            attributes: {
+                              controlsList: "nodownload",
+                            },
                           },
-                        },
-                      }}
-                    />
+                        }}
+                      />
+                    )}
                   </div>
                 )}
                 

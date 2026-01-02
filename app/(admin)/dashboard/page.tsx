@@ -121,7 +121,7 @@ interface EmployeeRank {
 
 // Utility functions
 const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat("et-ET", { style: "currency", currency: "ETB" }).format(amount)
+  return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount) + " ETB"
 }
 
 const calculatePercentageChange = (current: number, previous: number) => {
@@ -132,8 +132,59 @@ const calculatePercentageChange = (current: number, previous: number) => {
 // Helper function to safely format role
 const formatRole = (role?: string) => {
   if (!role) return 'Unassigned'
-  return role.replace('_', ' ')
+  return role.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
 }
+
+// Function to calculate ranks based on completedOrders
+const calculateRanksByCompletedOrders = (employeeRanks: EmployeeRank[]) => {
+  if (!employeeRanks || employeeRanks.length === 0) return [];
+  
+  // Sort all employees by completedOrders in descending order
+  const sortedByCompletedOrders = [...employeeRanks].sort(
+    (a, b) => (b.completedOrders || 0) - (a.completedOrders || 0)
+  );
+  
+  // Calculate global ranks (handling ties)
+  const withGlobalRanks = sortedByCompletedOrders.map((emp, index) => {
+    // Handle ties - if same completedOrders as previous, same rank
+    let rank = index + 1;
+    if (index > 0 && emp.completedOrders === sortedByCompletedOrders[index - 1].completedOrders) {
+      rank = sortedByCompletedOrders[index - 1].rank || index;
+    }
+    
+    return {
+      ...emp,
+      rank: rank,
+      globalRank: rank
+    };
+  });
+  
+  // Calculate role-based ranks
+  const employeesByRole = withGlobalRanks.reduce((acc, emp) => {
+    const role = emp.role || "Unassigned";
+    if (!acc[role]) acc[role] = [];
+    acc[role].push(emp);
+    return acc;
+  }, {} as Record<string, typeof withGlobalRanks>);
+  
+  // Sort each role's employees by completedOrders and assign role rank
+  Object.entries(employeesByRole).forEach(([role, roleEmployees]) => {
+    const sortedRoleEmployees = roleEmployees.sort(
+      (a, b) => (b.completedOrders || 0) - (a.completedOrders || 0)
+    );
+    
+    sortedRoleEmployees.forEach((emp, index) => {
+      // Handle ties within role
+      let roleRank = index + 1;
+      if (index > 0 && emp.completedOrders === sortedRoleEmployees[index - 1].completedOrders) {
+        roleRank = sortedRoleEmployees[index - 1].roleRank || index;
+      }
+      emp.roleRank = roleRank;
+    });
+  });
+  
+  return withGlobalRanks;
+};
 
 // Components
 const StatCard = ({
@@ -232,6 +283,7 @@ function Dashboard() {
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), 
     to: new Date() 
   })
+  const [isRecalculating, setIsRecalculating] = useState(false)
   const { theme, setTheme } = useTheme()
 
   const { data: expenses, isLoading: isLoadingExpenses } = useQuery<Expense[]>({ 
@@ -274,12 +326,12 @@ function Dashboard() {
     queryFn: fetchStockPurchases,
   })
 
-  const { data: staff, isLoading: isLoadingStaff, refetch: refetchStaff } = useQuery<Staff[]>({
+  const { data: staff, isLoading: isLoadingStaff } = useQuery<Staff[]>({
     queryKey: ["staff"],
     queryFn: fetchStaff,
   })
 
-  const { data: employeeRanks, isLoading: isLoadingEmployeeRanks } = useQuery<EmployeeRank[]>({
+  const { data: employeeRanks, isLoading: isLoadingEmployeeRanks, refetch: refetchEmployeeRanks } = useQuery<EmployeeRank[]>({
     queryKey: ["employeeRanks"],
     queryFn: fetchEmployeeRanks,
   })
@@ -393,15 +445,30 @@ function Dashboard() {
     return stock.filter(item => item.currentStock <= item.minimumStock)
   }, [stock])
 
+  // Calculate ranks based on completedOrders
+  const rankedEmployees = useMemo(() => {
+    if (!employeeRanks) return [];
+    return calculateRanksByCompletedOrders(employeeRanks);
+  }, [employeeRanks]);
+
   const employeesByRole = useMemo(() => {
-    if (!employeeRanks) return {}
-    return employeeRanks.reduce((acc, emp) => {
-      const role = emp.role || "Unassigned"
-      if (!acc[role]) acc[role] = []
-      acc[role].push(emp)
-      return acc
-    }, {} as Record<string, EmployeeRank[]>)
-  }, [employeeRanks])
+    if (!rankedEmployees || rankedEmployees.length === 0) return {};
+    
+    // Group by role after calculating ranks
+    const grouped = rankedEmployees.reduce((acc, emp) => {
+      const role = emp.role || "Unassigned";
+      if (!acc[role]) acc[role] = [];
+      acc[role].push(emp);
+      return acc;
+    }, {} as Record<string, EmployeeRank[]>);
+    
+    // Sort each role's employees by roleRank
+    Object.keys(grouped).forEach(role => {
+      grouped[role].sort((a, b) => a.roleRank - b.roleRank);
+    });
+    
+    return grouped;
+  }, [rankedEmployees])
 
   const getStockStatus = (item: StockItem) => {
     const ratio = item.currentStock / item.minimumStock
@@ -409,6 +476,18 @@ function Dashboard() {
     if (ratio <= 1) return 'low'
     return 'good'
   }
+
+  const handleRecalculateRanks = async () => {
+    try {
+      setIsRecalculating(true);
+      await api.post("/employee-rank/recalculate");
+      await refetchEmployeeRanks();
+    } catch (error) {
+      console.error("Failed to recalculate ranks", error);
+    } finally {
+      setIsRecalculating(false);
+    }
+  };
 
   return (
     <div className="container mx-auto p-4 min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-950 dark:to-gray-900">
@@ -1112,147 +1191,183 @@ function Dashboard() {
                           <TrendingUp className="h-5 w-5 mr-2 text-emerald-500" />
                           Employee Performance Ranking
                         </div>
-                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800/30">
-                          Top Performers
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800/30">
+                            Ranked by Items Sold
+                          </Badge>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
+                            onClick={handleRecalculateRanks}
+                            disabled={isRecalculating}
+                          >
+                            <TrendingUp className={`h-4 w-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
+                            {isRecalculating ? 'Recalculating...' : 'Recalculate'}
+                          </Button>
+                        </div>
                       </CardTitle>
                       <CardDescription>
-                        Employee ranking based on performance, attendance, and customer ratings
+                        Employee ranking based on items sold (completed orders), performance, attendance, and customer ratings
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
-                      {employeeRanks && employeeRanks.length > 0 ? (
+                      {rankedEmployees && rankedEmployees.length > 0 ? (
                         <div className="space-y-8">
-                          {Object.entries(employeesByRole).map(([role, employees]) => (
-                            <div key={role} className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="capitalize text-sm font-semibold px-3 py-1 bg-gray-100 dark:bg-gray-800">
-                                    {formatRole(role)}
-                                  </Badge>
-                                  <span className="text-xs text-muted-foreground">
-                                    {employees.length} Staff
-                                  </span>
+                          {Object.entries(employeesByRole)
+                            .sort(([roleA], [roleB]) => roleA.localeCompare(roleB))
+                            .map(([role, employees]) => (
+                              <div key={role} className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="capitalize text-sm font-semibold px-3 py-1 bg-gray-100 dark:bg-gray-800">
+                                      {formatRole(role)} Department
+                                    </Badge>
+                                    <span className="text-xs text-muted-foreground">
+                                      {employees.length} Staff
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    Top {Math.min(5, employees.length)} Ranked by Items Sold
+                                  </div>
+                                </div>
+
+                                <div className="rounded-md border dark:border-gray-800 overflow-hidden">
+                                  <Table>
+                                    <TableHeader className="bg-gray-50 dark:bg-gray-900/50">
+                                      <TableRow>
+                                        <TableHead className="w-[70px] text-center">Role Rank</TableHead>
+                                        <TableHead>Name</TableHead>
+                                        <TableHead className="text-right">Items Sold</TableHead>
+                                        <TableHead className="text-right">Performance</TableHead>
+                                        <TableHead className="text-right">Attendance</TableHead>
+                                        <TableHead className="text-right">Rating</TableHead>
+                                        <TableHead className="text-right">Global Rank</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {employees.slice(0, 5).map((emp) => {
+                                        // Determine badge color based on rank
+                                        const getRankBadge = (rank: number) => {
+                                          if (rank === 1) return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-300";
+                                          if (rank === 2) return "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-300";
+                                          if (rank === 3) return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300";
+                                          if (rank <= 10) return "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300";
+                                          return "bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400";
+                                        };
+                                        
+                                        const getRankIcon = (rank: number) => {
+                                          if (rank === 1) return "🥇";
+                                          if (rank === 2) return "🥈";
+                                          if (rank === 3) return "🥉";
+                                          return `#${rank}`;
+                                        };
+                                        
+                                        // Format role properly
+                                        const formattedRole = formatRole(emp.role);
+                                        
+                                        return (
+                                          <TableRow 
+                                            key={emp._id} 
+                                            className="hover:bg-gray-50 dark:hover:bg-gray-900/30"
+                                          >
+                                            <TableCell className="text-center">
+                                              <div className={`flex items-center justify-center w-8 h-8 rounded-full border mx-auto ${getRankBadge(emp.roleRank)}`}>
+                                                <span className="font-bold text-sm">{getRankIcon(emp.roleRank)}</span>
+                                              </div>
+                                            </TableCell>
+                                            <TableCell className="font-medium">
+                                              <div className="flex items-center gap-2">
+                                                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-white text-sm font-bold">
+                                                  {emp.name?.charAt(0).toUpperCase() || '?'}
+                                                </div>
+                                                <div>
+                                                  <div className="font-medium">{emp.name || 'Unknown'}</div>
+                                                  <div className="text-xs text-gray-500 dark:text-gray-400">{formattedRole}</div>
+                                                </div>
+                                              </div>
+                                            </TableCell>
+                                            <TableCell className="text-right font-medium">
+                                              <div className="flex flex-col items-end">
+                                                <span className="text-lg">{(emp.completedOrders || 0).toLocaleString()}</span>
+                                                <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                                                  {emp.completedOrders === 0 ? 'No sales' : 
+                                                   emp.completedOrders < 50 ? 'Beginner' :
+                                                   emp.completedOrders < 200 ? 'Intermediate' : 'Expert'}
+                                                </span>
+                                              </div>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                              <div className="flex items-center justify-end">
+                                                <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
+                                                  <div 
+                                                    className={`h-2 rounded-full ${
+                                                      (emp.performanceScore || 0) >= 80 ? 'bg-emerald-500' :
+                                                      (emp.performanceScore || 0) >= 60 ? 'bg-amber-500' : 'bg-red-500'
+                                                    }`}
+                                                    style={{ width: `${Math.min(100, emp.performanceScore || 0)}%` }}
+                                                  />
+                                                </div>
+                                                <span className={`font-medium ${
+                                                  (emp.performanceScore || 0) >= 80 ? 'text-emerald-600 dark:text-emerald-400' :
+                                                  (emp.performanceScore || 0) >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
+                                                }`}>
+                                                  {(emp.performanceScore || 0)}%
+                                                </span>
+                                              </div>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                              <div className="flex items-center justify-end">
+                                                <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
+                                                  <div 
+                                                    className={`h-2 rounded-full ${
+                                                      (emp.attendance || 0) >= 95 ? 'bg-emerald-500' :
+                                                      (emp.attendance || 0) >= 90 ? 'bg-amber-500' : 'bg-red-500'
+                                                    }`}
+                                                    style={{ width: `${Math.min(100, emp.attendance || 0)}%` }}
+                                                  />
+                                                </div>
+                                                <span className="font-medium">{emp.attendance || 0}%</span>
+                                              </div>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                              <div className="flex items-center justify-end">
+                                                <div className="flex mr-2">
+                                                  {[...Array(5)].map((_, i) => (
+                                                    <Star 
+                                                      key={i} 
+                                                      className={`h-4 w-4 ${
+                                                        i < Math.floor(emp.customerRating || 0) 
+                                                          ? "text-yellow-500 fill-yellow-500" 
+                                                          : "text-gray-300 dark:text-gray-600"
+                                                      }`}
+                                                    />
+                                                  ))}
+                                                </div>
+                                                <span className="font-medium">{(emp.customerRating || 0).toFixed(1)}</span>
+                                              </div>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                              <Badge 
+                                                variant="outline" 
+                                                className={
+                                                  emp.rank === 1 ? "bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300" :
+                                                  emp.rank <= 3 ? "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300" :
+                                                  emp.rank <= 10 ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300" :
+                                                  "bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400"
+                                                }
+                                              >
+                                                #{emp.rank || 'N/A'}
+                                              </Badge>
+                                            </TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                    </TableBody>
+                                  </Table>
                                 </div>
                               </div>
-
-                              <div className="rounded-md border dark:border-gray-800 overflow-hidden">
-                                <Table>
-                                  <TableHeader className="bg-gray-50 dark:bg-gray-900/50">
-                                    <TableRow>
-                                      <TableHead className="w-[60px]">Rank</TableHead>
-                                      <TableHead>Name</TableHead>
-                                      <TableHead className="text-right">Performance</TableHead>
-                                      <TableHead className="text-right">Attendance</TableHead>
-                                      <TableHead className="text-right">Rating</TableHead>
-                                      <TableHead className="text-right">Points</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {employees.sort((a, b) => a.rank - b.rank).slice(0, 5).map((emp) => {
-                                      // Determine badge color based on rank
-                                      const getRankBadge = (rank: number) => {
-                                        if (rank === 1) return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-300";
-                                        if (rank === 2) return "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-300";
-                                        if (rank === 3) return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300";
-                                        if (rank <= 10) return "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300";
-                                        return "bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400";
-                                      };
-                                      
-                                      const getRankIcon = (rank: number) => {
-                                        if (rank === 1) return "🥇";
-                                        if (rank === 2) return "🥈";
-                                        if (rank === 3) return "🥉";
-                                        return `#${rank}`;
-                                      };
-                                      
-                                      return (
-                                        <TableRow 
-                                          key={emp._id} 
-                                          className="hover:bg-gray-50 dark:hover:bg-gray-900/30"
-                                        >
-                                          <TableCell>
-                                            <div className={`flex items-center justify-center w-8 h-8 rounded-full border ${getRankBadge(emp.rank)}`}>
-                                              <span className="font-bold text-sm">{getRankIcon(emp.rank)}</span>
-                                            </div>
-                                          </TableCell>
-                                          <TableCell className="font-medium">
-                                            <div className="flex items-center gap-2">
-                                              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-white text-sm font-bold">
-                                                {emp.name?.charAt(0).toUpperCase() || '?'}
-                                              </div>
-                                              <div>
-                                                <div className="font-medium">{emp.name || 'Unknown'}</div>
-                                                <div className="text-xs text-gray-500 dark:text-gray-400">{emp.department || "General"}</div>
-                                              </div>
-                                            </div>
-                                          </TableCell>
-                                          <TableCell className="text-right">
-                                            <div className="flex items-center justify-end">
-                                              <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
-                                                <div 
-                                                  className={`h-2 rounded-full ${
-                                                    (emp.performanceScore || 0) >= 80 ? 'bg-emerald-500' :
-                                                    (emp.performanceScore || 0) >= 60 ? 'bg-amber-500' : 'bg-red-500'
-                                                  }`}
-                                                  style={{ width: `${emp.performanceScore || 0}%` }}
-                                                />
-                                              </div>
-                                              <span className={`font-medium ${
-                                                (emp.performanceScore || 0) >= 80 ? 'text-emerald-600 dark:text-emerald-400' :
-                                                (emp.performanceScore || 0) >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
-                                              }`}>
-                                                {(emp.performanceScore || 0)}%
-                                              </span>
-                                            </div>
-                                          </TableCell>
-                                          <TableCell className="text-right">
-                                            <div className="flex items-center justify-end">
-                                              <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
-                                                <div 
-                                                  className={`h-2 rounded-full ${
-                                                    (emp.attendance || 0) >= 95 ? 'bg-emerald-500' :
-                                                    (emp.attendance || 0) >= 90 ? 'bg-amber-500' : 'bg-red-500'
-                                                  }`}
-                                                  style={{ width: `${emp.attendance || 0}%` }}
-                                                />
-                                              </div>
-                                              <span className="font-medium">{emp.attendance || 0}%</span>
-                                            </div>
-                                          </TableCell>
-                                          <TableCell className="text-right">
-                                            <div className="flex items-center justify-end">
-                                              <div className="flex mr-2">
-                                                {[...Array(5)].map((_, i) => (
-                                                  <Star 
-                                                    key={i} 
-                                                    className={`h-4 w-4 ${
-                                                      i < Math.floor(emp.customerRating || 0) 
-                                                        ? "text-yellow-500 fill-yellow-500" 
-                                                        : "text-gray-300 dark:text-gray-600"
-                                                    }`}
-                                                  />
-                                                ))}
-                                              </div>
-                                              <span className="font-medium">{(emp.customerRating || 0).toFixed(1)}</span>
-                                            </div>
-                                          </TableCell>
-                                          <TableCell className="text-right">
-                                            <Badge 
-                                              variant="outline" 
-                                              className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800/30"
-                                            >
-                                              {(emp.points || 0).toLocaleString()} pts
-                                            </Badge>
-                                          </TableCell>
-                                        </TableRow>
-                                      );
-                                    })}
-                                  </TableBody>
-                                </Table>
-                              </div>
-                            </div>
-                          ))}
+                            ))}
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -1261,18 +1376,16 @@ function Dashboard() {
                           </div>
                           <p className="text-gray-700 dark:text-gray-300 font-medium">No employee rankings yet</p>
                           <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mt-1 mb-4">
-                            Performance rankings will appear here once employees are evaluated
+                            Performance rankings will appear here once employees complete orders
                           </p>
                           <Button 
                             variant="outline" 
                             className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
-                            onClick={() => {
-                              // Trigger rank calculation
-                              api.post("/employee-rank/recalculate");
-                            }}
+                            onClick={handleRecalculateRanks}
+                            disabled={isRecalculating}
                           >
-                            <TrendingUp className="h-4 w-4 mr-2" />
-                            Calculate Ranks
+                            <TrendingUp className={`h-4 w-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
+                            {isRecalculating ? 'Calculating...' : 'Calculate Ranks'}
                           </Button>
                         </div>
                       )}
