@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Search, X, ChevronDown, ChevronUp, Clock, DollarSign, Tag, Utensils, 
   Grid, List, ShoppingCart, Plus, Minus, ChefHat, Sparkles, ArrowLeft, Receipt,
-  Users, MapPin, Phone, User, Mail, Home, CreditCard, Upload, Check
+  Users, MapPin, Phone, User, Mail, Home, CreditCard, Upload, Check, Info
 } from 'lucide-react'
 import { NavBar } from '@/components/NavBar'
 import { Button } from "@/components/ui/button"
@@ -27,7 +27,6 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface Category {
@@ -39,24 +38,28 @@ interface Category {
 }
 
 interface NutritionalInfo {
-  calories: number
-  protein: number
-  carbohydrates: number
-  fat: number
+  calories?: number
+  protein?: number
+  carbohydrates?: number
+  fat?: number
 }
 
 interface Item {
   _id: string
   name: string
-  description: string
+  description?: string
   categoryId: string
   price: number
-  imageUrl: string
-  preparationTime: number
-  nutritionalInfo: NutritionalInfo
-  isActive: boolean
-  isFeatured: boolean
+  imageUrl?: string
+  preparationTime?: number
+  nutritionalInfo?: NutritionalInfo
+  isActive?: boolean
+  isFeatured?: boolean
   tags?: string[]
+  requiredStock?: any[]
+  cloudinaryData?: any
+  createdAt?: string
+  updatedAt?: string
 }
 
 interface CartItem extends Item {
@@ -85,6 +88,14 @@ interface Waiter {
   name: string
   shift?: string
   avatar?: string
+}
+
+// Default nutritional info
+const DEFAULT_NUTRITIONAL_INFO: NutritionalInfo = {
+  calories: 0,
+  protein: 0,
+  carbohydrates: 0,
+  fat: 0
 }
 
 // Custom debounce hook
@@ -116,6 +127,163 @@ const getCategoryIcon = (type: string) => {
     default:
       return <Tag className="h-4 w-4" />
   }
+}
+
+// Item Detail Dialog Component
+const ItemDetailDialog = ({ 
+  item, 
+  categoryName,
+  isOpen,
+  onOpenChange 
+}: { 
+  item: Item
+  categoryName: string
+  isOpen: boolean
+  onOpenChange: (open: boolean) => void 
+}) => {
+  const [selectedImage, setSelectedImage] = useState(item.imageUrl || '/placeholder.svg')
+  const nutritionalInfo = item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
+  
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-3xl max-h-[90vh]">
+        <DialogHeader>
+          <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+            <Info className="h-5 w-5 text-primary" />
+            {item.name}
+          </DialogTitle>
+          <DialogDescription className="text-base">
+            Complete details of the menu item
+          </DialogDescription>
+        </DialogHeader>
+        
+        <ScrollArea className="max-h-[70vh] pr-4">
+          <div className="space-y-6">
+            {/* Image Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="relative h-64 lg:h-80 rounded-lg overflow-hidden">
+                <Image
+                  src={selectedImage}
+                  alt={item.name}
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement
+                    target.src = '/placeholder.svg'
+                  }}
+                />
+                {item.isFeatured && (
+                  <Badge className="absolute top-3 left-3 bg-yellow-400 text-white border-none">
+                    <Sparkles className="mr-1 h-3 w-3" /> Featured
+                  </Badge>
+                )}
+                {item.isActive === false && (
+                  <Badge className="absolute top-3 right-3 bg-red-500 text-white border-none">
+                    Out of Stock
+                  </Badge>
+                )}
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Description</h3>
+                  <p className="text-gray-600">{item.description || 'No description available'}</p>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <div className="flex items-center gap-2 text-gray-700 mb-1">
+                      <DollarSign className="h-4 w-4" />
+                      <span className="text-sm font-medium">Price</span>
+                    </div>
+                    <p className="text-2xl font-bold text-primary">{(item.price || 0).toFixed(2)} ETB</p>
+                  </div>
+                  
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <div className="flex items-center gap-2 text-gray-700 mb-1">
+                      <Clock className="h-4 w-4" />
+                      <span className="text-sm font-medium">Prep Time</span>
+                    </div>
+                    <p className="text-2xl font-bold text-blue-600">{item.preparationTime || 0} min</p>
+                  </div>
+                  
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <div className="flex items-center gap-2 text-gray-700 mb-1">
+                      <Tag className="h-4 w-4" />
+                      <span className="text-sm font-medium">Category</span>
+                    </div>
+                    <p className="text-lg font-semibold">{categoryName || 'Uncategorized'}</p>
+                  </div>
+                  
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <div className="flex items-center gap-2 text-gray-700 mb-1">
+                      <Utensils className="h-4 w-4" />
+                      <span className="text-sm font-medium">Status</span>
+                    </div>
+                    <Badge variant={item.isActive ? "default" : "secondary"} className="text-lg">
+                      {item.isActive ? 'Available' : 'Unavailable'}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <Separator />
+            
+            {/* Nutritional Information */}
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Nutritional Information</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center p-4 bg-green-50 rounded-lg">
+                  <p className="text-2xl font-bold text-green-700">{nutritionalInfo.calories || 0}</p>
+                  <p className="text-sm text-gray-600">Calories</p>
+                </div>
+                <div className="text-center p-4 bg-blue-50 rounded-lg">
+                  <p className="text-2xl font-bold text-blue-700">{nutritionalInfo.protein || 0}g</p>
+                  <p className="text-sm text-gray-600">Protein</p>
+                </div>
+                <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                  <p className="text-2xl font-bold text-yellow-700">{nutritionalInfo.carbohydrates || 0}g</p>
+                  <p className="text-sm text-gray-600">Carbs</p>
+                </div>
+                <div className="text-center p-4 bg-red-50 rounded-lg">
+                  <p className="text-2xl font-bold text-red-700">{nutritionalInfo.fat || 0}g</p>
+                  <p className="text-sm text-gray-600">Fat</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Required Stock (if available) */}
+            {item.requiredStock && item.requiredStock.length > 0 && (
+              <>
+                <Separator />
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Required Ingredients</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {item.requiredStock.map((stock, index) => (
+                      <div key={index} className="text-center p-4 bg-gray-50 rounded-lg">
+                        <p className="text-base font-semibold text-gray-800">{stock.name || 'Unknown'}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </ScrollArea>
+        
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+          >
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 // Payment Upload Dialog Component
@@ -408,6 +576,10 @@ const CartPanel = ({
                     fill
                     sizes="80px"
                     className="object-cover"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement
+                      target.src = '/placeholder.svg'
+                    }}
                   />
                 </div>
                 
@@ -748,6 +920,10 @@ export default function ItemMenu() {
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   
+  // Item detail state
+  const [selectedItem, setSelectedItem] = useState<Item | null>(null)
+  const [showItemDetail, setShowItemDetail] = useState(false)
+  
   // Cart state
   const [cart, setCart] = useState<CartItem[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
@@ -790,27 +966,40 @@ export default function ItemMenu() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        setLoading(true)
         const [categoriesRes, itemsRes, waitersRes] = await Promise.all([
           fetch('/api/item-category'),
           fetch('/api/items'),
           fetch('/api/waitress')
         ])
 
-        if (!categoriesRes.ok || !itemsRes.ok || !waitersRes.ok) {
+        if (!categoriesRes.ok || !itemsRes.ok) {
           throw new Error('Failed to fetch data')
         }
 
         const categoriesData = await categoriesRes.json()
         const itemsData = await itemsRes.json()
-        const waitersData = await waitersRes.json()
+        const waitersData = waitersRes.ok ? await waitersRes.json() : []
 
-        setCategories(categoriesData.data)
-        setItems(itemsData.items)
+        setCategories(categoriesData.data || [])
+        // Normalize items data to handle missing properties
+        const normalizedItems = (itemsData.items || itemsData.data || []).map((item: Item) => ({
+          ...item,
+          nutritionalInfo: item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO,
+          price: item.price || 0,
+          preparationTime: item.preparationTime || 0,
+          isActive: item.isActive !== undefined ? item.isActive : true,
+          isFeatured: item.isFeatured || false,
+          description: item.description || '',
+          imageUrl: item.imageUrl || '/placeholder.svg'
+        }))
+        setItems(normalizedItems)
+        setFilteredItems(normalizedItems)
         setWaiters(waitersData || [])
-        setFilteredItems(itemsData.items)
-        setLoading(false)
       } catch (err) {
         setError('An error occurred while fetching data')
+        console.error('Fetch error:', err)
+      } finally {
         setLoading(false)
       }
     }
@@ -828,13 +1017,15 @@ export default function ItemMenu() {
     if (debouncedSearchTerm) {
       result = result.filter(item =>
         item.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-        item.description.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+        (item.description && item.description.toLowerCase().includes(debouncedSearchTerm.toLowerCase()))
       )
     }
 
     result.sort((a, b) => {
-      if (a[sortField] < b[sortField]) return sortDirection === 'asc' ? -1 : 1
-      if (a[sortField] > b[sortField]) return sortDirection === 'asc' ? 1 : -1
+      const aValue = a[sortField] || 0
+      const bValue = b[sortField] || 0
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1
       return 0
     })
 
@@ -848,6 +1039,12 @@ export default function ItemMenu() {
       setSortField(field)
       setSortDirection('asc')
     }
+  }
+
+  // Item detail handler
+  const handleViewDetails = (item: Item) => {
+    setSelectedItem(item)
+    setShowItemDetail(true)
   }
 
   // Cart functionality
@@ -915,7 +1112,7 @@ export default function ItemMenu() {
 
   // Order calculations
   const subtotal = useMemo(() => 
-    cart.reduce((sum, item) => sum + item.price * item.quantity, 0), 
+    cart.reduce((sum, item) => sum + (item.price || 0) * item.quantity, 0), 
     [cart]
   )
   
@@ -1138,224 +1335,196 @@ export default function ItemMenu() {
     setShowPaymentUpload(true)
   }
 
-  const ItemCard = ({ item }: { item: Item }) => (
-    <Card className={`h-full transition-all duration-300 hover:shadow-lg group ${viewMode === 'list' ? 'flex' : ''}`}>
-      <CardHeader className={`p-0 relative ${viewMode === 'list' ? 'w-1/3' : ''}`}>
-        <Image
-          src={item.imageUrl || "/placeholder.svg"}
-          alt={item.name}
-          width={400}
-          height={300}
-          className={`w-full object-cover ${viewMode === 'grid' ? 'h-48 rounded-t-lg' : 'h-full rounded-l-lg'}`}
-        />
-        
-        <div className="absolute top-2 right-2 bg-black/75 text-white text-xs font-semibold px-2 py-1 rounded-md backdrop-blur-sm">
-          {item.price.toLocaleString()} ETB
-        </div>
-        
-        {item.isFeatured && (
-          <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-xs font-medium px-2 py-1 rounded-md backdrop-blur-sm flex items-center gap-1">
-            <Sparkles className="h-3 w-3" />
-            Featured
-          </div>
-        )}
-        
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-          <Button
-            variant="default"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation()
-              addToCart(item)
+  const ItemCard = ({ item }: { item: Item }) => {
+    const nutritionalInfo = item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
+    const categoryName = categories.find(c => c._id === item.categoryId)?.name || 'Uncategorized'
+    
+    return (
+      <Card className="h-full transition-all duration-300 hover:shadow-lg group">
+        <CardHeader className="p-0 relative">
+          <Image
+            src={item.imageUrl || "/placeholder.svg"}
+            alt={item.name}
+            width={400}
+            height={300}
+            className="w-full h-48 object-cover rounded-t-lg"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement
+              target.src = '/placeholder.svg'
             }}
-            className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm"
-          >
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            Add to cart
-          </Button>
-        </div>
-      </CardHeader>
-      
-      <div className={`flex flex-col ${viewMode === 'list' ? 'w-2/3' : ''}`}>
-        <CardContent className="p-4 flex-grow">
-          <CardTitle className="text-xl mb-2 group-hover:text-primary transition-colors">
-            {item.name}
-          </CardTitle>
-          <CardDescription className="text-sm text-gray-600 mb-4 line-clamp-2">
-            {item.description}
-          </CardDescription>
+          />
           
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="text-lg font-semibold">
-                {item.price.toLocaleString()} ETB
-              </Badge>
-              <Badge variant="outline" className="flex items-center gap-1">
-                <Clock className="w-4 h-4" />
-                {item.preparationTime} mins
-              </Badge>
+          <div className="absolute top-2 right-2 bg-black/75 text-white text-xs font-semibold px-2 py-1 rounded-md backdrop-blur-sm">
+            {(item.price || 0).toLocaleString()} ETB
+          </div>
+          
+          {item.isFeatured && (
+            <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-xs font-medium px-2 py-1 rounded-md backdrop-blur-sm flex items-center gap-1">
+              <Sparkles className="h-3 w-3" />
+              Featured
             </div>
-            
+          )}
+          
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
             <Button
-              variant="ghost"
-              size="icon"
+              variant="default"
+              size="sm"
               onClick={(e) => {
                 e.stopPropagation()
                 addToCart(item)
               }}
-              className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20 text-primary"
+              className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm"
             >
-              <Plus className="h-4 w-4" />
-              <span className="sr-only">Add to cart</span>
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              Add to cart
             </Button>
           </div>
-        </CardContent>
+        </CardHeader>
         
-        <CardFooter className="p-4 pt-0">
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="w-full">View Details</Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[700px]">
-              <DialogHeader>
-                <DialogTitle className="text-2xl font-bold">{item.name}</DialogTitle>
-                <DialogDescription>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Image
-                      src={item.imageUrl || "/placeholder.svg"}
-                      alt={item.name}
-                      width={600}
-                      height={400}
-                      className="w-full h-64 object-cover rounded-lg"
-                    />
-                    <div>
-                      <div className="text-gray-600 mb-4">{item.description}</div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="flex items-center gap-2">
-                          <DollarSign className="w-5 h-5 text-green-500" />
-                          <span className="font-semibold">{item.price.toLocaleString()} ETB</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Clock className="w-5 h-5 text-blue-500" />
-                          <span>{item.preparationTime} mins</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Tag className="w-5 h-5 text-purple-500" />
-                          <span>{categories.find(c => c._id === item.categoryId)?.name}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Utensils className="w-5 h-5 text-orange-500" />
-                          <span>Serves 1</span>
-                        </div>
-                      </div>
-                      
-                      <div className="mt-6">
-                        <Button 
-                          onClick={() => addToCart(item)}
-                          className="w-full bg-primary hover:bg-primary/90"
-                        >
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add to Cart
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <Tabs defaultValue="nutrition" className="w-full mt-6">
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="nutrition">Nutrition</TabsTrigger>
-                      <TabsTrigger value="reviews">Reviews</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="nutrition" className="mt-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="flex items-center justify-between">
-                          <span>Calories:</span>
-                          <span className="font-semibold">{item.nutritionalInfo.calories}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>Protein:</span>
-                          <span className="font-semibold">{item.nutritionalInfo.protein}g</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>Carbohydrates:</span>
-                          <span className="font-semibold">{item.nutritionalInfo.carbohydrates}g</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>Fat:</span>
-                          <span className="font-semibold">{item.nutritionalInfo.fat}g</span>
-                        </div>
-                      </div>
-                    </TabsContent>
-                    <TabsContent value="reviews" className="mt-4">
-                      <p>Customer reviews coming soon...</p>
-                    </TabsContent>
-                  </Tabs>
-                </DialogDescription>
-              </DialogHeader>
-            </DialogContent>
-          </Dialog>
-        </CardFooter>
-      </div>
-    </Card>
-  )
+        <div className="flex flex-col flex-grow">
+          <CardContent className="p-4 flex-grow">
+            <CardTitle className="text-xl mb-2 group-hover:text-primary transition-colors line-clamp-1">
+              {item.name}
+            </CardTitle>
+            <CardDescription className="text-sm text-gray-600 mb-4 line-clamp-2 min-h-[40px]">
+              {item.description || 'No description available'}
+            </CardDescription>
+            
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="text-lg font-semibold">
+                  {(item.price || 0).toLocaleString()} ETB
+                </Badge>
+                <Badge variant="outline" className="flex items-center gap-1">
+                  <Clock className="w-4 h-4" />
+                  {item.preparationTime || 0} mins
+                </Badge>
+              </div>
+              
+              <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    addToCart(item)
+                  }}
+                  className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20 text-primary"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span className="sr-only">Add to cart</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleViewDetails(item)
+                  }}
+                  className="h-8 w-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700"
+                >
+                  <Info className="h-4 w-4" />
+                  <span className="sr-only">View details</span>
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+          
+          <CardFooter className="p-4 pt-0">
+            <Button 
+              variant="outline" 
+              className="w-full"
+              onClick={() => handleViewDetails(item)}
+            >
+              <Info className="mr-2 h-4 w-4" />
+              View Full Details
+            </Button>
+          </CardFooter>
+        </div>
+      </Card>
+    )
+  }
 
-  const ListViewItem = ({ item }: { item: Item }) => (
-    <div className="flex border border-border/40 rounded-lg overflow-hidden hover:border-primary/30 transition-all bg-background hover:bg-background/95 hover:shadow-sm group">
-      <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden">
-        <Image
-          src={item.imageUrl || "/placeholder.svg"}
-          alt={item.name}
-          fill
-          sizes="96px"
-          className="object-cover transition-transform duration-500 group-hover:scale-110"
-        />
-        {item.isFeatured && (
-          <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-xs font-medium px-1.5 py-0.5 rounded flex items-center gap-1">
-            <Sparkles className="h-2.5 w-2.5" />
-            Featured
+  const ListViewItem = ({ item }: { item: Item }) => {
+    const nutritionalInfo = item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
+    
+    return (
+      <div className="flex border border-border/40 rounded-lg overflow-hidden hover:border-primary/30 transition-all bg-background hover:bg-background/95 hover:shadow-sm group">
+        <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden">
+          <Image
+            src={item.imageUrl || "/placeholder.svg"}
+            alt={item.name}
+            fill
+            sizes="96px"
+            className="object-cover transition-transform duration-500 group-hover:scale-110"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement
+              target.src = '/placeholder.svg'
+            }}
+          />
+          {item.isFeatured && (
+            <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-xs font-medium px-1.5 py-0.5 rounded flex items-center gap-1">
+              <Sparkles className="h-2.5 w-2.5" />
+              Featured
+            </div>
+          )}
+        </div>
+        
+        <div className="flex-1 p-4 flex flex-col">
+          <div className="flex items-start justify-between">
+            <div>
+              <h3 className="font-medium text-lg group-hover:text-primary transition-colors line-clamp-1">
+                {item.name}
+              </h3>
+              <p className="text-sm text-muted-foreground line-clamp-2 mt-1 min-h-[40px]">
+                {item.description || 'No description available'}
+              </p>
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="text-lg font-medium text-primary">
+                {(item.price || 0).toLocaleString()} ETB
+              </span>
+              <div className="flex gap-1 mt-2">
+                <Badge variant="outline" className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {item.preparationTime || 0}m
+                </Badge>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
-      
-      <div className="flex-1 p-4 flex flex-col">
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="font-medium text-lg group-hover:text-primary transition-colors">{item.name}</h3>
-            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{item.description}</p>
-          </div>
-          <div className="flex flex-col items-end">
-            <span className="text-lg font-medium text-primary">
-              {item.price.toLocaleString()} ETB
-            </span>
-            <div className="flex gap-1 mt-2">
-              <Badge variant="outline" className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                {item.preparationTime}m
+          
+          <div className="mt-auto pt-2 flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">
+                {categories.find(c => c._id === item.categoryId)?.name || 'Uncategorized'}
               </Badge>
+            </div>
+            
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => addToCart(item)}
+                className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20 text-primary"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="sr-only">Add to cart</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleViewDetails(item)}
+                className="h-8 w-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700"
+              >
+                <Info className="h-4 w-4" />
+                <span className="sr-only">View details</span>
+              </Button>
             </div>
           </div>
         </div>
-        
-        <div className="mt-auto pt-2 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary">
-              {categories.find(c => c._id === item.categoryId)?.name}
-            </Badge>
-          </div>
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => addToCart(item)}
-            className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20 text-primary"
-          >
-            <Plus className="h-4 w-4" />
-            <span className="sr-only">Add to cart</span>
-          </Button>
-        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -1553,6 +1722,16 @@ export default function ItemMenu() {
           )}
         </ScrollArea>
       </main>
+
+      {/* Item Detail Dialog */}
+      {selectedItem && (
+        <ItemDetailDialog 
+          item={selectedItem}
+          categoryName={categories.find(c => c._id === selectedItem.categoryId)?.name || 'Uncategorized'}
+          isOpen={showItemDetail}
+          onOpenChange={setShowItemDetail}
+        />
+      )}
 
       {/* Payment Upload Dialog */}
       <PaymentUploadDialog 

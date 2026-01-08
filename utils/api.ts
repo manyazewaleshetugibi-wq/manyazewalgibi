@@ -18,7 +18,8 @@ async function fetchWithRetry(url: string, options?: RequestInit, retries = MAX_
   try {
     const response = await fetch(url, options)
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
     }
     return await response.json()
   } catch (error) {
@@ -27,25 +28,37 @@ async function fetchWithRetry(url: string, options?: RequestInit, retries = MAX_
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
       return fetchWithRetry(url, options, retries - 1)
     }
+    console.error(`Failed to fetch ${url}:`, error)
+    toast.error(`Failed to fetch data: ${error instanceof Error ? error.message : 'Unknown error'}`)
     throw error
   }
 }
 
 export const api = {
   fetchItemCategories: () => fetchWithRetry(`${API_BASE_URL}/item-category`),
+  
   fetchStocks: () => fetchWithRetry(`${API_BASE_URL}/stock`),
+  
   fetchMenuItems: () => fetchWithRetry(`${API_BASE_URL}/items`),
-  createMenuItem: (item: MenuItem) =>
+  
+  // Updated to use FormData for image uploads
+  createMenuItem: (formData: FormData) =>
     fetchWithRetry(`${API_BASE_URL}/items`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(item),
+      body: formData,
+      // Note: Do NOT set Content-Type header for FormData - browser sets it automatically
     }),
-  updateMenuItem: (id: string, item: MenuItem) =>
-    fetchWithRetry(`${API_BASE_URL}/items/${id}`, {
+  
+  // Updated to use FormData for image uploads
+  updateMenuItem: (id: string, formData: FormData) =>
+    fetchWithRetry(`${API_BASE_URL}/items?id=${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(item),
+      body: formData,
+      // Note: Do NOT set Content-Type header for FormData - browser sets it automatically
     }),
-  deleteMenuItem: (id: string) => fetchWithRetry(`${API_BASE_URL}/items/${id}`, { method: "DELETE" }),
+  
+  deleteMenuItem: (id: string) => 
+    fetchWithRetry(`${API_BASE_URL}/items?id=${id}`, { 
+      method: "DELETE" 
+    }),
 }
