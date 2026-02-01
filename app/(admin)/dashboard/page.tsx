@@ -1,22 +1,24 @@
 "use client"
 
 import type React from "react"
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query"
 import axios from "axios"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip } from "recharts"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip, PieChart, Pie, Cell } from "recharts"
 import { motion, AnimatePresence } from "framer-motion"
 import { useTheme } from "next-themes"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowDownIcon, ArrowUpIcon, DollarSign, ShoppingCart, Package, TrendingUp, Calendar, Users, Clock, ArrowUp, ArrowDown, Star, Trash2 } from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, DollarSign, ShoppingCart, Package, TrendingUp, Calendar, Users, Clock, ArrowUp, ArrowDown, Star, Trash2, Filter, User, Utensils, ShoppingBag, Coffee, BookOpen, Shield, BarChart3, X, Search, Filter as FilterIcon } from "lucide-react"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { DateRangePicker } from "./date-range-picker"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { StaffRegistrationForm } from "@/components/staff-registration-form"
 
 // API client setup
@@ -62,6 +64,8 @@ interface StockItem {
   name: string
   currentStock: number
   minimumStock: number
+  category?: string
+  unit?: string
 }
 
 interface FeedbackItem {
@@ -139,14 +143,11 @@ const formatRole = (role?: string) => {
 const calculateRanksByCompletedOrders = (employeeRanks: EmployeeRank[]) => {
   if (!employeeRanks || employeeRanks.length === 0) return [];
   
-  // Sort all employees by completedOrders in descending order
   const sortedByCompletedOrders = [...employeeRanks].sort(
     (a, b) => (b.completedOrders || 0) - (a.completedOrders || 0)
   );
   
-  // Calculate global ranks (handling ties)
   const withGlobalRanks = sortedByCompletedOrders.map((emp, index) => {
-    // Handle ties - if same completedOrders as previous, same rank
     let rank = index + 1;
     if (index > 0 && emp.completedOrders === sortedByCompletedOrders[index - 1].completedOrders) {
       rank = sortedByCompletedOrders[index - 1].rank || index;
@@ -159,7 +160,6 @@ const calculateRanksByCompletedOrders = (employeeRanks: EmployeeRank[]) => {
     };
   });
   
-  // Calculate role-based ranks
   const employeesByRole = withGlobalRanks.reduce((acc, emp) => {
     const role = emp.role || "Unassigned";
     if (!acc[role]) acc[role] = [];
@@ -167,14 +167,12 @@ const calculateRanksByCompletedOrders = (employeeRanks: EmployeeRank[]) => {
     return acc;
   }, {} as Record<string, typeof withGlobalRanks>);
   
-  // Sort each role's employees by completedOrders and assign role rank
   Object.entries(employeesByRole).forEach(([role, roleEmployees]) => {
     const sortedRoleEmployees = roleEmployees.sort(
       (a, b) => (b.completedOrders || 0) - (a.completedOrders || 0)
     );
     
     sortedRoleEmployees.forEach((emp, index) => {
-      // Handle ties within role
       let roleRank = index + 1;
       if (index > 0 && emp.completedOrders === sortedRoleEmployees[index - 1].completedOrders) {
         roleRank = sortedRoleEmployees[index - 1].roleRank || index;
@@ -277,6 +275,34 @@ const LoadingSpinner = () => (
   </div>
 )
 
+// Role Icons Mapping - Use available icons from lucide-react
+const roleIcons = {
+  admin: Shield,
+  kitchen: Utensils, // Changed from Chef to Utensils
+  stock_manager: Package,
+  fb: Users,
+  marketing: BarChart3,
+  finance: DollarSign,
+  pos: ShoppingCart,
+  waitress: User,
+  default: User
+}
+
+// Role Colors Mapping
+const roleColors = {
+  admin: "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800/30",
+  kitchen: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800/30",
+  stock_manager: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800/30",
+  fb: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800/30",
+  marketing: "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800/30",
+  finance: "bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-900/20 dark:text-cyan-300 dark:border-cyan-800/30",
+  pos: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800/30",
+  waitress: "bg-pink-100 text-pink-700 border-pink-200 dark:bg-pink-900/20 dark:text-pink-300 dark:border-pink-800/30"
+}
+
+// Stock Status Types
+type StockStatus = 'critical' | 'low' | 'good';
+
 // Main Dashboard Component
 function Dashboard() {
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({ 
@@ -284,6 +310,11 @@ function Dashboard() {
     to: new Date() 
   })
   const [isRecalculating, setIsRecalculating] = useState(false)
+  const [stockFilter, setStockFilter] = useState<StockStatus | 'all'>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedRole, setSelectedRole] = useState<string>('all')
+  const [roleView, setRoleView] = useState<'cards' | 'table'>('cards')
+  const [expandedRole, setExpandedRole] = useState<string | null>(null)
   const { theme, setTheme } = useTheme()
   const queryClient = useQueryClient()
 
@@ -349,6 +380,111 @@ function Dashboard() {
     isLoadingStaff ||
     isLoadingEmployeeRanks
 
+  // Stock status calculation
+  const getStockStatus = (item: StockItem): StockStatus => {
+    const ratio = item.currentStock / item.minimumStock;
+    if (ratio <= 0.5) return 'critical';
+    if (ratio <= 1) return 'low';
+    return 'good';
+  }
+
+  // Stock Filtering and Sorting
+  const sortedAndFilteredStock = useMemo(() => {
+    if (!stock) return [];
+    
+    let filtered = [...stock];
+    
+    // Apply stock status filter
+    if (stockFilter !== 'all') {
+      filtered = filtered.filter(item => getStockStatus(item) === stockFilter);
+    }
+    
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(item => 
+        item.name.toLowerCase().includes(query) ||
+        (item.category && item.category.toLowerCase().includes(query))
+      );
+    }
+    
+    // Sort by stock level (lowest first)
+    return filtered.sort((a, b) => {
+      const ratioA = a.currentStock / a.minimumStock;
+      const ratioB = b.currentStock / b.minimumStock;
+      return ratioA - ratioB;
+    });
+  }, [stock, stockFilter, searchQuery])
+
+  const stockStatusCounts = useMemo(() => {
+    if (!stock) return { critical: 0, low: 0, good: 0, total: 0 };
+    
+    return stock.reduce((acc, item) => {
+      const status = getStockStatus(item);
+      acc[status]++;
+      acc.total++;
+      return acc;
+    }, { critical: 0, low: 0, good: 0, total: 0 });
+  }, [stock])
+
+  // Filtered stock data for chart
+  const stockChartData = useMemo(() => {
+    if (!sortedAndFilteredStock || sortedAndFilteredStock.length === 0) return [];
+    
+    return sortedAndFilteredStock.map((item) => ({
+      name: item.name.length > 20 ? item.name.substring(0, 20) + '...' : item.name,
+      current: item.currentStock,
+      minimum: item.minimumStock,
+      percentage: (item.currentStock / item.minimumStock) * 100,
+      status: getStockStatus(item),
+      item // Keep reference to original item
+    }))
+  }, [sortedAndFilteredStock])
+
+  // Stock status pie chart data
+  const stockStatusPieData = useMemo(() => {
+    return [
+      { name: 'Critical', value: stockStatusCounts.critical, color: '#ef4444' },
+      { name: 'Low', value: stockStatusCounts.low, color: '#f59e0b' },
+      { name: 'Good', value: stockStatusCounts.good, color: '#10b981' }
+    ].filter(item => item.value > 0);
+  }, [stockStatusCounts])
+
+  // Staff by role grouping
+  const staffByRole = useMemo(() => {
+    if (!staff) return {};
+    
+    return staff.reduce((acc, staffMember) => {
+      const role = staffMember.role || 'unassigned';
+      if (!acc[role]) {
+        acc[role] = [];
+      }
+      acc[role].push(staffMember);
+      return acc;
+    }, {} as Record<string, Staff[]>);
+  }, [staff])
+
+  // Role statistics
+  const roleStatistics = useMemo(() => {
+    if (!staffByRole) return [];
+    
+    return Object.entries(staffByRole).map(([role, members]) => ({
+      role,
+      count: members.length,
+      activeCount: members.filter(m => m.status === 'active').length,
+      Icon: roleIcons[role as keyof typeof roleIcons] || roleIcons.default,
+      color: roleColors[role as keyof typeof roleColors] || 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700'
+    })).sort((a, b) => b.count - a.count);
+  }, [staffByRole])
+
+  // Filtered staff based on selected role
+  const filteredStaff = useMemo(() => {
+    if (!staff) return [];
+    
+    if (selectedRole === 'all') return staff;
+    return staff.filter(member => member.role === selectedRole);
+  }, [staff, selectedRole])
+
   const handleDateRangeSelect = useCallback((range: { from?: Date; to?: Date }) => {
     if (range.from && range.to) {
       if (
@@ -371,7 +507,6 @@ function Dashboard() {
     if (confirm("Are you sure you want to delete this staff member?")) {
       try {
         await api.delete(`/staff/${id}`);
-        // Refresh staff data
         queryClient.invalidateQueries({ queryKey: ["staff"] });
       } catch (error: any) {
         console.error("Failed to delete staff", error);
@@ -413,15 +548,6 @@ function Dashboard() {
       .reduce((sum: number, purchase) => sum + purchase.quantity * purchase.unitPrice, 0)
   }, [stockPurchases])
 
-  const stockData = useMemo(() => {
-    if (!stock) return []
-    return stock.map((item) => ({
-      name: item.name,
-      current: item.currentStock,
-      minimum: item.minimumStock,
-    }))
-  }, [stock])
-
   const feedbackData = useMemo(() => {
     if (!feedback) return {}
     return feedback.reduce((acc: Record<string, number>, item) => {
@@ -457,19 +583,18 @@ function Dashboard() {
 
   const criticalStock = useMemo(() => {
     if (!stock) return []
-    return stock.filter(item => item.currentStock <= item.minimumStock)
+    return stock.filter(item => getStockStatus(item) === 'critical')
   }, [stock])
 
   // Calculate ranks based on completedOrders
   const rankedEmployees = useMemo(() => {
     if (!employeeRanks) return [];
     return calculateRanksByCompletedOrders(employeeRanks);
-  }, [employeeRanks]);
+  }, [employeeRanks])
 
   const employeesByRole = useMemo(() => {
     if (!rankedEmployees || rankedEmployees.length === 0) return {};
     
-    // Group by role after calculating ranks
     const grouped = rankedEmployees.reduce((acc, emp) => {
       const role = emp.role || "Unassigned";
       if (!acc[role]) acc[role] = [];
@@ -477,20 +602,12 @@ function Dashboard() {
       return acc;
     }, {} as Record<string, EmployeeRank[]>);
     
-    // Sort each role's employees by roleRank
     Object.keys(grouped).forEach(role => {
       grouped[role].sort((a, b) => a.roleRank - b.roleRank);
     });
     
     return grouped;
   }, [rankedEmployees])
-
-  const getStockStatus = (item: StockItem) => {
-    const ratio = item.currentStock / item.minimumStock
-    if (ratio <= 0.5) return 'critical'
-    if (ratio <= 1) return 'low'
-    return 'good'
-  }
 
   const handleRecalculateRanks = async () => {
     try {
@@ -501,6 +618,14 @@ function Dashboard() {
       console.error("Failed to recalculate ranks", error);
     } finally {
       setIsRecalculating(false);
+    }
+  };
+
+  const toggleRoleExpansion = (role: string) => {
+    if (expandedRole === role) {
+      setExpandedRole(null);
+    } else {
+      setExpandedRole(role);
     }
   };
 
@@ -553,6 +678,7 @@ function Dashboard() {
                 </TabsTrigger>
               </TabsList>
               
+              {/* Overview Tab - Same as before */}
               <TabsContent value="overview" className="space-y-6">
                 <motion.div 
                   className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
@@ -825,6 +951,7 @@ function Dashboard() {
                 </motion.div>
               </TabsContent>
 
+              {/* Sales Tab - Same as before */}
               <TabsContent value="sales" className="space-y-6">
                 <Card className="border dark:border-gray-800">
                   <CardHeader>
@@ -925,90 +1052,385 @@ function Dashboard() {
                 </Card>
               </TabsContent>
 
+              {/* Inventory Tab - Updated */}
               <TabsContent value="inventory" className="space-y-6">
-                <Card className="border dark:border-gray-800">
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Package className="h-5 w-5 mr-2 text-blue-500" />
-                      Inventory Status
-                    </CardTitle>
-                    <CardDescription>Current stock levels compared to minimum requirements</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {stockData.length > 0 ? (
-                      <ChartContainer
-                        config={{
-                          current: {
-                            label: "Current Stock",
-                            color: "hsl(var(--chart-1))",
-                          },
-                          minimum: {
-                            label: "Minimum Stock",
-                            color: "hsl(var(--chart-2))",
-                          },
-                        }}
-                        className="h-[400px]"
-                      >
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={stockData}>
-                            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                            <XAxis dataKey="name" />
-                            <YAxis />
-                            <RechartsTooltip
-                              content={({ active, payload }) => {
-                                if (active && payload && payload.length) {
-                                  return (
-                                    <div className="bg-white dark:bg-gray-800 p-3 border border-gray-200 dark:border-gray-700 shadow-lg rounded-lg">
-                                      <p className="font-medium">{payload[0].payload.name}</p>
-                                      <div className="mt-2 space-y-1">
-                                        <p className="text-sm flex items-center">
-                                          <span className="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
-                                          Current: <span className="font-medium ml-1">{payload[0].value}</span>
-                                        </p>
-                                        <p className="text-sm flex items-center">
-                                          <span className="w-3 h-3 rounded-full bg-amber-500 mr-2"></span>
-                                          Minimum: <span className="font-medium ml-1">{payload[1].value}</span>
-                                        </p>
-                                      </div>
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              }}
-                            />
-                            <Legend wrapperStyle={{ paddingTop: 20 }} />
-                            <Bar 
-                              dataKey="current" 
-                              fill="var(--color-current)" 
-                              name="Current Stock" 
-                              radius={[4, 4, 0, 0]}
-                              animationDuration={1500}
-                            />
-                            <Bar 
-                              dataKey="minimum" 
-                              fill="var(--color-minimum)" 
-                              name="Minimum Stock" 
-                              radius={[4, 4, 0, 0]}
-                              animationDuration={1500}
-                            />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </ChartContainer>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center py-8 text-center">
-                        <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-full mb-4">
-                          <Package className="h-8 w-8 text-gray-400" />
+                <motion.div
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ duration: 0.4, delay: 0.1 }}
+                >
+                  <Card className="border dark:border-gray-800">
+                    <CardHeader>
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <CardTitle className="flex items-center">
+                            <Package className="h-5 w-5 mr-2 text-blue-500" />
+                            Inventory Management
+                          </CardTitle>
+                          <CardDescription>Monitor and manage your stock levels</CardDescription>
                         </div>
-                        <p className="text-gray-700 dark:text-gray-300 font-medium">No inventory data</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mt-1">
-                          There are no inventory items available to display
-                        </p>
+                        
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                            <Input
+                              placeholder="Search inventory..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              className="pl-9 w-full sm:w-64"
+                            />
+                          </div>
+                          
+                          <div className="flex gap-2">
+                            <Select value={stockFilter} onValueChange={(value: StockStatus | 'all') => setStockFilter(value)}>
+                              <SelectTrigger className="w-[140px]">
+                                <FilterIcon className="h-4 w-4 mr-2" />
+                                <SelectValue placeholder="Filter by status" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Items</SelectItem>
+                                <SelectItem value="critical">Critical</SelectItem>
+                                <SelectItem value="low">Low Stock</SelectItem>
+                                <SelectItem value="good">Good Stock</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            
+                            {searchQuery || stockFilter !== 'all' ? (
+                              <Button
+                                variant="outline"
+                                onClick={() => {
+                                  setSearchQuery('');
+                                  setStockFilter('all');
+                                }}
+                                className="gap-2"
+                              >
+                                <X className="h-4 w-4" />
+                                Clear
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                        {/* Stock Status Overview Cards */}
+                        <motion.div 
+                          className="space-y-4"
+                          initial={{ scale: 0.9, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ delay: 0.2 }}
+                        >
+                          <Card className="border border-red-200 dark:border-red-800/30 bg-gradient-to-br from-red-50 to-red-50/50 dark:from-red-900/10 dark:to-red-900/5">
+                            <CardContent className="pt-6">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-medium text-red-700 dark:text-red-300">Critical Stock</p>
+                                  <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stockStatusCounts.critical}</p>
+                                  <p className="text-xs text-red-500 dark:text-red-400 mt-1">Needs immediate attention</p>
+                                </div>
+                                <div className="h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                                  <Package className="h-6 w-6 text-red-600 dark:text-red-400" />
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                          
+                          <Card className="border border-amber-200 dark:border-amber-800/30 bg-gradient-to-br from-amber-50 to-amber-50/50 dark:from-amber-900/10 dark:to-amber-900/5">
+                            <CardContent className="pt-6">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">Low Stock</p>
+                                  <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{stockStatusCounts.low}</p>
+                                  <p className="text-xs text-amber-500 dark:text-amber-400 mt-1">Reordering soon</p>
+                                </div>
+                                <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                                  <Package className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                          
+                          <Card className="border border-green-200 dark:border-green-800/30 bg-gradient-to-br from-green-50 to-green-50/50 dark:from-green-900/10 dark:to-green-900/5">
+                            <CardContent className="pt-6">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-medium text-green-700 dark:text-green-300">Good Stock</p>
+                                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stockStatusCounts.good}</p>
+                                  <p className="text-xs text-green-500 dark:text-green-400 mt-1">Well stocked</p>
+                                </div>
+                                <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                                  <Package className="h-6 w-6 text-green-600 dark:text-green-400" />
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </motion.div>
+                        
+                        {/* Stock Status Pie Chart */}
+                        <motion.div 
+                          className="lg:col-span-2"
+                          initial={{ scale: 0.9, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ delay: 0.3 }}
+                        >
+                          <Card className="h-full border dark:border-gray-800">
+                            <CardHeader>
+                              <CardTitle className="text-lg">Stock Status Distribution</CardTitle>
+                            </CardHeader>
+                            <CardContent className="flex items-center justify-center h-64">
+                              {stockStatusPieData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <PieChart>
+                                    <Pie
+                                      data={stockStatusPieData}
+                                      cx="50%"
+                                      cy="50%"
+                                      labelLine={false}
+                                      label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                                      outerRadius={80}
+                                      fill="#8884d8"
+                                      dataKey="value"
+                                    >
+                                      {stockStatusPieData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                      ))}
+                                    </Pie>
+                                    <RechartsTooltip
+                                      formatter={(value) => [`${value} items`, 'Count']}
+                                    />
+                                    <Legend />
+                                  </PieChart>
+                                </ResponsiveContainer>
+                              ) : (
+                                <div className="flex flex-col items-center justify-center text-center py-8">
+                                  <Package className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
+                                  <p className="text-gray-500 dark:text-gray-400">No stock data available</p>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        </motion.div>
+                      </div>
+                      
+                      {/* Stock Items Table */}
+                      <motion.div
+                        initial={{ y: 20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        transition={{ delay: 0.4 }}
+                      >
+                        <Card className="border dark:border-gray-800">
+                          <CardHeader>
+                            <CardTitle>Inventory Items ({sortedAndFilteredStock.length})</CardTitle>
+                            <CardDescription>Sorted by stock level (lowest first)</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            {sortedAndFilteredStock.length > 0 ? (
+                              <div className="rounded-md border dark:border-gray-800 overflow-hidden">
+                                <Table>
+                                  <TableHeader className="bg-gray-50 dark:bg-gray-900/50">
+                                    <TableRow>
+                                      <TableHead>Item Name</TableHead>
+                                      <TableHead>Category</TableHead>
+                                      <TableHead>Current Stock</TableHead>
+                                      <TableHead>Minimum Required</TableHead>
+                                      <TableHead>Stock Level</TableHead>
+                                      <TableHead>Status</TableHead>
+                                      <TableHead>Percentage</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {sortedAndFilteredStock.map((item) => {
+                                      const status = getStockStatus(item);
+                                      const percentage = Math.round((item.currentStock / item.minimumStock) * 100);
+                                      
+                                      const statusConfig = {
+                                        critical: {
+                                          badge: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-300',
+                                          text: 'text-red-600 dark:text-red-400',
+                                          bg: 'bg-red-500'
+                                        },
+                                        low: {
+                                          badge: 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300',
+                                          text: 'text-amber-600 dark:text-amber-400',
+                                          bg: 'bg-amber-500'
+                                        },
+                                        good: {
+                                          badge: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-300',
+                                          text: 'text-green-600 dark:text-green-400',
+                                          bg: 'bg-green-500'
+                                        }
+                                      };
+                                      
+                                      return (
+                                        <TableRow key={item._id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30">
+                                          <TableCell className="font-medium">
+                                            <div className="flex items-center gap-2">
+                                              <Package className="h-4 w-4 text-gray-400" />
+                                              {item.name}
+                                            </div>
+                                          </TableCell>
+                                          <TableCell>
+                                            <Badge variant="outline" className="bg-gray-50 dark:bg-gray-800">
+                                              {item.category || 'Uncategorized'}
+                                            </Badge>
+                                          </TableCell>
+                                          <TableCell className={`font-medium ${statusConfig[status].text}`}>
+                                            {item.currentStock} {item.unit || ''}
+                                          </TableCell>
+                                          <TableCell className="text-gray-600 dark:text-gray-400">
+                                            {item.minimumStock} {item.unit || ''}
+                                          </TableCell>
+                                          <TableCell>
+                                            <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                              <div 
+                                                className={`h-2 rounded-full ${statusConfig[status].bg}`}
+                                                style={{ width: `${Math.min(100, percentage)}%` }}
+                                              />
+                                            </div>
+                                          </TableCell>
+                                          <TableCell>
+                                            <Badge variant="outline" className={statusConfig[status].badge}>
+                                              {status === 'critical' ? 'Critical' : status === 'low' ? 'Low' : 'Good'}
+                                            </Badge>
+                                          </TableCell>
+                                          <TableCell>
+                                            <span className={statusConfig[status].text}>
+                                              {percentage}%
+                                            </span>
+                                          </TableCell>
+                                        </TableRow>
+                                      );
+                                    })}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-center justify-center py-8 text-center">
+                                <Package className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
+                                <p className="text-gray-700 dark:text-gray-300 font-medium">No inventory items found</p>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mt-1">
+                                  {searchQuery || stockFilter !== 'all' 
+                                    ? 'Try adjusting your search or filter criteria'
+                                    : 'No inventory items available to display'}
+                                </p>
+                                {(searchQuery || stockFilter !== 'all') && (
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                      setSearchQuery('');
+                                      setStockFilter('all');
+                                    }}
+                                    className="mt-4"
+                                  >
+                                    Clear Filters
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                      
+                      {/* Filtered Stock Chart */}
+                      {sortedAndFilteredStock.length > 0 && (
+                        <motion.div
+                          initial={{ y: 20, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          transition={{ delay: 0.5 }}
+                        >
+                          <Card className="border dark:border-gray-800 mt-6">
+                            <CardHeader>
+                              <CardTitle>Filtered Stock Levels Visualization</CardTitle>
+                              <CardDescription>
+                                {stockFilter === 'all' ? 'All inventory items' : `${stockFilter.charAt(0).toUpperCase() + stockFilter.slice(1)} stock items only`}
+                              </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                              <ChartContainer
+                                config={{
+                                  current: {
+                                    label: "Current Stock",
+                                    color: "hsl(var(--chart-1))",
+                                  },
+                                  minimum: {
+                                    label: "Minimum Stock",
+                                    color: "hsl(var(--chart-2))",
+                                  },
+                                }}
+                                className="h-[400px]"
+                              >
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <BarChart data={stockChartData.slice(0, 10)}>
+                                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                                    <XAxis 
+                                      dataKey="name" 
+                                      angle={-45}
+                                      textAnchor="end"
+                                      height={60}
+                                      tick={{ fontSize: 12 }}
+                                    />
+                                    <YAxis />
+                                    <RechartsTooltip
+                                      content={({ active, payload }) => {
+                                        if (active && payload && payload.length) {
+                                          const data = payload[0].payload;
+                                          return (
+                                            <div className="bg-white dark:bg-gray-800 p-3 border border-gray-200 dark:border-gray-700 shadow-lg rounded-lg">
+                                              <p className="font-medium">{data.item.name}</p>
+                                              <div className="mt-2 space-y-1">
+                                                <p className="text-sm flex items-center">
+                                                  <span className="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
+                                                  Current: <span className="font-medium ml-1">{data.current} {data.item.unit || ''}</span>
+                                                </p>
+                                                <p className="text-sm flex items-center">
+                                                  <span className="w-3 h-3 rounded-full bg-amber-500 mr-2"></span>
+                                                  Minimum: <span className="font-medium ml-1">{data.item.minimumStock} {data.item.unit || ''}</span>
+                                                </p>
+                                                <p className="text-sm flex items-center">
+                                                  <span className="w-3 h-3 rounded-full bg-gray-500 mr-2"></span>
+                                                  Status: <span className={`font-medium ml-1 ${
+                                                    data.status === 'critical' ? 'text-red-600' :
+                                                    data.status === 'low' ? 'text-amber-600' : 'text-green-600'
+                                                  }`}>
+                                                    {data.status.charAt(0).toUpperCase() + data.status.slice(1)}
+                                                  </span>
+                                                </p>
+                                              </div>
+                                            </div>
+                                          );
+                                        }
+                                        return null;
+                                      }}
+                                    />
+                                    <Legend wrapperStyle={{ paddingTop: 20 }} />
+                                    <Bar 
+                                      dataKey="current" 
+                                      fill="var(--color-current)" 
+                                      name="Current Stock" 
+                                      radius={[4, 4, 0, 0]}
+                                      animationDuration={1500}
+                                    />
+                                    <Bar 
+                                      dataKey="minimum" 
+                                      fill="var(--color-minimum)" 
+                                      name="Minimum Stock" 
+                                      radius={[4, 4, 0, 0]}
+                                      animationDuration={1500}
+                                    />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              </ChartContainer>
+                            </CardContent>
+                          </Card>
+                        </motion.div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </motion.div>
               </TabsContent>
 
+              {/* Staff Tab - Updated */}
               <TabsContent value="staff" className="space-y-6">
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
@@ -1038,100 +1460,420 @@ function Dashboard() {
                 >
                   <Card className="border dark:border-gray-800">
                     <CardHeader>
-                      <CardTitle className="flex items-center">
-                        <Users className="h-5 w-5 mr-2 text-violet-500" />
-                        All Staff Members
-                      </CardTitle>
-                      <CardDescription>
-                        Complete list of all registered staff with their roles and status
-                      </CardDescription>
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <CardTitle className="flex items-center">
+                            <Users className="h-5 w-5 mr-2 text-violet-500" />
+                            Staff Overview
+                          </CardTitle>
+                          <CardDescription>
+                            View staff by role or department
+                          </CardDescription>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            <Select value={selectedRole} onValueChange={setSelectedRole}>
+                              <SelectTrigger className="w-[180px]">
+                                <SelectValue placeholder="Filter by role" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Roles</SelectItem>
+                                {roleStatistics.map((stat) => (
+                                  <SelectItem key={stat.role} value={stat.role}>
+                                    <div className="flex items-center gap-2">
+                                      <stat.Icon className="h-3 w-3" />
+                                      {formatRole(stat.role)} ({stat.count})
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            
+                            <div className="flex border rounded-md overflow-hidden">
+                              <Button
+                                variant={roleView === 'cards' ? 'default' : 'ghost'}
+                                size="sm"
+                                className="rounded-none px-3"
+                                onClick={() => setRoleView('cards')}
+                              >
+                                <Package className="h-4 w-4 mr-2" />
+                                Cards
+                              </Button>
+                              <Button
+                                variant={roleView === 'table' ? 'default' : 'ghost'}
+                                size="sm"
+                                className="rounded-none px-3"
+                                onClick={() => setRoleView('table')}
+                              >
+                                <div className="h-4 w-4 mr-2">T</div>
+                                Table
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </CardHeader>
                     <CardContent>
-                      {staff && staff.length > 0 ? (
-                        <div className="rounded-md border dark:border-gray-800 overflow-hidden">
-                          <Table>
-                            <TableHeader className="bg-gray-50 dark:bg-gray-900/50">
-                              <TableRow>
-                                <TableHead>Name</TableHead>
-                                <TableHead>Email</TableHead>
-                                <TableHead>Role</TableHead>
-                                <TableHead>Employee ID</TableHead>
-                                <TableHead>Phone</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Joined</TableHead>
-                                <TableHead className="w-[100px]">Actions</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {staff.map((staffMember) => (
-                                <TableRow key={staffMember._id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30">
-                                  <TableCell className="font-medium">
-                                    <div className="flex items-center gap-2">
-                                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                                        <Users className="h-4 w-4 text-primary" />
+                      {/* Role Cards View */}
+                      {roleView === 'cards' && (
+                        <div className="space-y-6">
+                          {/* Role Cards */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {roleStatistics.map((stat) => {
+                              const Icon = stat.Icon;
+                              const isExpanded = expandedRole === stat.role;
+                              
+                              return (
+                                <motion.div
+                                  key={stat.role}
+                                  layout
+                                  className={`cursor-pointer ${isExpanded ? 'col-span-full' : ''}`}
+                                  onClick={() => toggleRoleExpansion(stat.role)}
+                                >
+                                  <Card className={`border dark:border-gray-800 hover:shadow-md transition-all ${isExpanded ? 'bg-gray-50 dark:bg-gray-900/50' : ''}`}>
+                                    <CardContent className="p-6">
+                                      <div className="flex items-start justify-between">
+                                        <div>
+                                          <div className="flex items-center gap-2 mb-2">
+                                            <div className={`p-2 rounded-lg ${stat.color.split(' ')[0]} ${stat.color.split(' ')[1]}`}>
+                                              <Icon className="h-4 w-4" />
+                                            </div>
+                                            <div>
+                                              <h3 className="font-semibold">{formatRole(stat.role)}</h3>
+                                              <p className="text-xs text-gray-500 dark:text-gray-400">Department</p>
+                                            </div>
+                                          </div>
+                                          
+                                          <div className="flex items-center gap-4 mt-4">
+                                            <div>
+                                              <p className="text-2xl font-bold">{stat.count}</p>
+                                              <p className="text-xs text-gray-500 dark:text-gray-400">Total Staff</p>
+                                            </div>
+                                            <div>
+                                              <p className="text-xl font-semibold text-green-600 dark:text-green-400">
+                                                {stat.activeCount}
+                                              </p>
+                                              <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        
+                                        <Badge variant="outline" className={stat.color}>
+                                          {Math.round((stat.activeCount / stat.count) * 100)}% Active
+                                        </Badge>
                                       </div>
-                                      {staffMember.name}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="text-sm">{staffMember.email}</TableCell>
-                                  <TableCell>
-                                    <Badge 
-                                      variant="outline" 
-                                      className={`
-                                        ${staffMember.role === 'admin' ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800/30' : ''}
-                                        ${staffMember.role === 'kitchen' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800/30' : ''}
-                                        ${staffMember.role === 'stock_manager' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800/30' : ''}
-                                        ${staffMember.role === 'fb' ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800/30' : ''}
-                                        ${staffMember.role === 'marketing' ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800/30' : ''}
-                                        ${staffMember.role === 'finance' ? 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-900/20 dark:text-cyan-300 dark:border-cyan-800/30' : ''}
-                                        ${staffMember.role === 'pos' ? 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800/30' : ''}
-                                        ${staffMember.role === 'waitress' ? 'bg-pink-50 text-pink-700 border-pink-200 dark:bg-pink-900/20 dark:text-pink-300 dark:border-pink-800/30' : ''}
-                                        capitalize
-                                      `}
-                                    >
-                                      {formatRole(staffMember.role)}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell>
-                                    <code className="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-sm">
-                                      {staffMember.employeeId}
-                                    </code>
-                                  </TableCell>
-                                  <TableCell>{staffMember.phone}</TableCell>
-                                  <TableCell>
-                                    <Badge 
-                                      variant="outline" 
-                                      className={
-                                        staffMember.status === 'active' 
-                                          ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800/30" 
-                                          : "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700"
-                                      }
-                                    >
-                                      {staffMember.status === 'active' ? 'Active' : 'Inactive'}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell className="text-gray-500 dark:text-gray-400">
-                                    {new Date(staffMember.createdAt).toLocaleDateString()}
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="flex items-center gap-2">
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-8 w-8 p-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
-                                        onClick={() => handleDeleteStaff(staffMember._id)}
-                                        title="Delete staff member"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
+                                      
+                                      {/* Expanded View */}
+                                      {isExpanded && staffByRole[stat.role] && (
+                                        <motion.div
+                                          initial={{ opacity: 0, height: 0 }}
+                                          animate={{ opacity: 1, height: 'auto' }}
+                                          exit={{ opacity: 0, height: 0 }}
+                                          className="mt-6 pt-6 border-t"
+                                        >
+                                          <h4 className="font-medium mb-4">Staff Members in {formatRole(stat.role)}</h4>
+                                          <div className="rounded-md border dark:border-gray-800 overflow-hidden">
+                                            <Table>
+                                              <TableHeader className="bg-gray-50 dark:bg-gray-900/50">
+                                                <TableRow>
+                                                  <TableHead>Name</TableHead>
+                                                  <TableHead>Email</TableHead>
+                                                  <TableHead>Employee ID</TableHead>
+                                                  <TableHead>Phone</TableHead>
+                                                  <TableHead>Status</TableHead>
+                                                  <TableHead>Joined</TableHead>
+                                                  <TableHead className="w-[100px]">Actions</TableHead>
+                                                </TableRow>
+                                              </TableHeader>
+                                              <TableBody>
+                                                {staffByRole[stat.role].map((staffMember) => (
+                                                  <TableRow key={staffMember._id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30">
+                                                    <TableCell className="font-medium">
+                                                      <div className="flex items-center gap-2">
+                                                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                                          <Users className="h-4 w-4 text-primary" />
+                                                        </div>
+                                                        {staffMember.name}
+                                                      </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm">{staffMember.email}</TableCell>
+                                                    <TableCell>
+                                                      <code className="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-sm">
+                                                        {staffMember.employeeId}
+                                                      </code>
+                                                    </TableCell>
+                                                    <TableCell>{staffMember.phone}</TableCell>
+                                                    <TableCell>
+                                                      <Badge 
+                                                        variant="outline" 
+                                                        className={
+                                                          staffMember.status === 'active' 
+                                                            ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800/30" 
+                                                            : "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700"
+                                                        }
+                                                      >
+                                                        {staffMember.status === 'active' ? 'Active' : 'Inactive'}
+                                                      </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-500 dark:text-gray-400">
+                                                      {new Date(staffMember.createdAt).toLocaleDateString()}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                      <div className="flex items-center gap-2">
+                                                        <Button
+                                                          variant="outline"
+                                                          size="sm"
+                                                          className="h-8 w-8 p-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                                                          onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteStaff(staffMember._id);
+                                                          }}
+                                                          title="Delete staff member"
+                                                        >
+                                                          <Trash2 className="h-4 w-4" />
+                                                        </Button>
+                                                      </div>
+                                                    </TableCell>
+                                                  </TableRow>
+                                                ))}
+                                              </TableBody>
+                                            </Table>
+                                          </div>
+                                        </motion.div>
+                                      )}
+                                    </CardContent>
+                                  </Card>
+                                </motion.div>
+                              );
+                            })}
+                          </div>
+                          
+                          {/* Total Staff Summary */}
+                          {staff && (
+                            <Card className="border dark:border-gray-800">
+                              <CardContent className="p-6">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <h3 className="text-lg font-semibold">Total Staff Summary</h3>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                                      {staff.length} staff members across {roleStatistics.length} departments
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-2xl font-bold">{staff.filter(s => s.status === 'active').length}</p>
+                                    <p className="text-sm text-green-600 dark:text-green-400">Active Staff</p>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )}
                         </div>
-                      ) : (
+                      )}
+                      
+                      {/* Table View */}
+                      {roleView === 'table' && (
+                        <div className="space-y-4">
+                          {selectedRole === 'all' ? (
+                            <>
+                              <div className="rounded-md border dark:border-gray-800 overflow-hidden">
+                                <Table>
+                                  <TableHeader className="bg-gray-50 dark:bg-gray-900/50">
+                                    <TableRow>
+                                      <TableHead>Name</TableHead>
+                                      <TableHead>Email</TableHead>
+                                      <TableHead>Role</TableHead>
+                                      <TableHead>Employee ID</TableHead>
+                                      <TableHead>Phone</TableHead>
+                                      <TableHead>Status</TableHead>
+                                      <TableHead>Joined</TableHead>
+                                      <TableHead className="w-[100px]">Actions</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {filteredStaff.map((staffMember) => {
+                                      const Icon = roleIcons[staffMember.role as keyof typeof roleIcons] || roleIcons.default;
+                                      const roleColor = roleColors[staffMember.role as keyof typeof roleColors] || "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700";
+                                      
+                                      return (
+                                        <TableRow key={staffMember._id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30">
+                                          <TableCell className="font-medium">
+                                            <div className="flex items-center gap-2">
+                                              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                                <Users className="h-4 w-4 text-primary" />
+                                              </div>
+                                              {staffMember.name}
+                                            </div>
+                                          </TableCell>
+                                          <TableCell className="text-sm">{staffMember.email}</TableCell>
+                                          <TableCell>
+                                            <div className="flex items-center gap-2">
+                                              <div className={`p-1 rounded ${roleColor.split(' ')[0]} ${roleColor.split(' ')[1]}`}>
+                                                <Icon className="h-3 w-3" />
+                                              </div>
+                                              <Badge 
+                                                variant="outline" 
+                                                className={roleColor}
+                                              >
+                                                {formatRole(staffMember.role)}
+                                              </Badge>
+                                            </div>
+                                          </TableCell>
+                                          <TableCell>
+                                            <code className="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-sm">
+                                              {staffMember.employeeId}
+                                            </code>
+                                          </TableCell>
+                                          <TableCell>{staffMember.phone}</TableCell>
+                                          <TableCell>
+                                            <Badge 
+                                              variant="outline" 
+                                              className={
+                                                staffMember.status === 'active' 
+                                                  ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800/30" 
+                                                  : "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700"
+                                              }
+                                            >
+                                              {staffMember.status === 'active' ? 'Active' : 'Inactive'}
+                                            </Badge>
+                                          </TableCell>
+                                          <TableCell className="text-gray-500 dark:text-gray-400">
+                                            {new Date(staffMember.createdAt).toLocaleDateString()}
+                                          </TableCell>
+                                          <TableCell>
+                                            <div className="flex items-center gap-2">
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 w-8 p-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                                                onClick={() => handleDeleteStaff(staffMember._id)}
+                                                title="Delete staff member"
+                                              >
+                                                <Trash2 className="h-4 w-4" />
+                                              </Button>
+                                            </div>
+                                          </TableCell>
+                                        </TableRow>
+                                      );
+                                    })}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                              
+                              {/* Role Summary */}
+                              <Card className="border dark:border-gray-800">
+                                <CardContent className="p-4">
+                                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                    {roleStatistics.map((stat) => (
+                                      <div key={stat.role} className="text-center p-3 rounded-lg border dark:border-gray-800">
+                                        <div className="flex flex-col items-center">
+                                          <div className={`p-2 rounded-full ${stat.color.split(' ')[0]} ${stat.color.split(' ')[1]} mb-2`}>
+                                            <stat.Icon className="h-4 w-4" />
+                                          </div>
+                                          <p className="text-sm font-medium">{formatRole(stat.role)}</p>
+                                          <p className="text-2xl font-bold">{stat.count}</p>
+                                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            {stat.activeCount} active
+                                          </p>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            </>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between p-4 bg-gradient-to-r from-primary/5 to-primary/10 dark:from-primary/10 dark:to-primary/5 rounded-lg">
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-3 rounded-lg ${roleColors[selectedRole as keyof typeof roleColors]?.split(' ')[0]} ${roleColors[selectedRole as keyof typeof roleColors]?.split(' ')[1]}`}>
+                                    {(() => {
+                                      const Icon = roleIcons[selectedRole as keyof typeof roleIcons] || roleIcons.default;
+                                      return <Icon className="h-6 w-6" />;
+                                    })()}
+                                  </div>
+                                  <div>
+                                    <h3 className="text-lg font-semibold">{formatRole(selectedRole)} Department</h3>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                                      {staffByRole[selectedRole]?.length || 0} staff members
+                                    </p>
+                                  </div>
+                                </div>
+                                <Badge variant="outline" className="text-lg px-3 py-1">
+                                  {staffByRole[selectedRole]?.filter(s => s.status === 'active').length || 0}/{staffByRole[selectedRole]?.length || 0} Active
+                                </Badge>
+                              </div>
+                              
+                              <div className="rounded-md border dark:border-gray-800 overflow-hidden">
+                                <Table>
+                                  <TableHeader className="bg-gray-50 dark:bg-gray-900/50">
+                                    <TableRow>
+                                      <TableHead>Name</TableHead>
+                                      <TableHead>Email</TableHead>
+                                      <TableHead>Employee ID</TableHead>
+                                      <TableHead>Phone</TableHead>
+                                      <TableHead>Status</TableHead>
+                                      <TableHead>Joined</TableHead>
+                                      <TableHead className="w-[100px]">Actions</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {(staffByRole[selectedRole] || []).map((staffMember) => (
+                                      <TableRow key={staffMember._id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30">
+                                        <TableCell className="font-medium">
+                                          <div className="flex items-center gap-2">
+                                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                              <Users className="h-4 w-4 text-primary" />
+                                            </div>
+                                            {staffMember.name}
+                                          </div>
+                                          </TableCell>
+                                        <TableCell className="text-sm">{staffMember.email}</TableCell>
+                                        <TableCell>
+                                          <code className="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-sm">
+                                            {staffMember.employeeId}
+                                          </code>
+                                        </TableCell>
+                                        <TableCell>{staffMember.phone}</TableCell>
+                                        <TableCell>
+                                          <Badge 
+                                            variant="outline" 
+                                            className={
+                                              staffMember.status === 'active' 
+                                                ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800/30" 
+                                                : "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700"
+                                            }
+                                          >
+                                            {staffMember.status === 'active' ? 'Active' : 'Inactive'}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-gray-500 dark:text-gray-400">
+                                          {new Date(staffMember.createdAt).toLocaleDateString()}
+                                        </TableCell>
+                                        <TableCell>
+                                          <div className="flex items-center gap-2">
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="h-8 w-8 p-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                                              onClick={() => handleDeleteStaff(staffMember._id)}
+                                              title="Delete staff member"
+                                            >
+                                              <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {(!staff || staff.length === 0) && (
                         <div className="flex flex-col items-center justify-center py-8 text-center">
                           <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-full mb-4">
                             <Users className="h-8 w-8 text-gray-400" />
@@ -1147,6 +1889,7 @@ function Dashboard() {
                   </Card>
                 </motion.div>
 
+                {/* Keep existing Staff Schedule section */}
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
@@ -1207,7 +1950,7 @@ function Dashboard() {
                   </Card>
                 </motion.div>
 
-                {/* Employee Performance Ranking Table */}
+                {/* Keep existing Employee Performance Ranking section */}
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
