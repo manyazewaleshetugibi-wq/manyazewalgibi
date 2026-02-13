@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowDownIcon, ArrowUpIcon, DollarSign, ShoppingCart, Package, TrendingUp, Calendar, Users, Clock, ArrowUp, ArrowDown, Star, Trash2, Filter, User, Utensils, ShoppingBag, Coffee, BookOpen, Shield, BarChart3, X, Search, Filter as FilterIcon } from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, DollarSign, ShoppingCart, Package, TrendingUp, Calendar, Users, Clock, ArrowUp, ArrowDown, Star, Trash2, Filter, User, Utensils, ShoppingBag, Coffee, BookOpen, Shield, BarChart3, X, Search, Filter as FilterIcon, ToggleLeft, ToggleRight } from "lucide-react"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { DateRangePicker } from "./date-range-picker"
 import { Progress } from "@/components/ui/progress"
@@ -20,6 +20,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { StaffRegistrationForm } from "@/components/staff-registration-form"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 
 // API client setup
 const api = axios.create({
@@ -278,7 +280,7 @@ const LoadingSpinner = () => (
 // Role Icons Mapping - Use available icons from lucide-react
 const roleIcons = {
   admin: Shield,
-  kitchen: Utensils, // Changed from Chef to Utensils
+  kitchen: Utensils,
   stock_manager: Package,
   fb: Users,
   marketing: BarChart3,
@@ -315,6 +317,7 @@ function Dashboard() {
   const [selectedRole, setSelectedRole] = useState<string>('all')
   const [roleView, setRoleView] = useState<'cards' | 'table'>('cards')
   const [expandedRole, setExpandedRole] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<string>('all')
   const { theme, setTheme } = useTheme()
   const queryClient = useQueryClient()
 
@@ -472,18 +475,39 @@ function Dashboard() {
       role,
       count: members.length,
       activeCount: members.filter(m => m.status === 'active').length,
+      inactiveCount: members.filter(m => m.status === 'inactive').length,
       Icon: roleIcons[role as keyof typeof roleIcons] || roleIcons.default,
       color: roleColors[role as keyof typeof roleColors] || 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700'
     })).sort((a, b) => b.count - a.count);
   }, [staffByRole])
 
-  // Filtered staff based on selected role
+  // Filtered staff based on selected role and status
   const filteredStaff = useMemo(() => {
     if (!staff) return [];
     
-    if (selectedRole === 'all') return staff;
-    return staff.filter(member => member.role === selectedRole);
-  }, [staff, selectedRole])
+    let filtered = [...staff];
+    
+    if (selectedRole !== 'all') {
+      filtered = filtered.filter(member => member.role === selectedRole);
+    }
+    
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(member => member.status === statusFilter);
+    }
+    
+    return filtered;
+  }, [staff, selectedRole, statusFilter])
+
+  // Staff status distribution
+  const staffStatusStats = useMemo(() => {
+    if (!staff) return { active: 0, inactive: 0, total: 0 };
+    
+    return {
+      active: staff.filter(s => s.status === 'active').length,
+      inactive: staff.filter(s => s.status === 'inactive').length,
+      total: staff.length
+    };
+  }, [staff])
 
   const handleDateRangeSelect = useCallback((range: { from?: Date; to?: Date }) => {
     if (range.from && range.to) {
@@ -511,6 +535,68 @@ function Dashboard() {
       } catch (error: any) {
         console.error("Failed to delete staff", error);
         alert(error.response?.data?.message || "Failed to delete staff member");
+      }
+    }
+  };
+
+  // Handle toggle staff status - Using existing PUT endpoint
+  const handleToggleStatus = async (staffMember: Staff) => {
+    const newStatus = staffMember.status === 'active' ? 'inactive' : 'active';
+    const previousStatus = staffMember.status;
+    
+    // Optimistically update the UI
+    queryClient.setQueryData<Staff[]>(["staff"], (old = []) => {
+      return old.map(s => 
+        s._id === staffMember._id 
+          ? { ...s, status: newStatus }
+          : s
+      );
+    });
+    
+    try {
+      // Use PUT endpoint which already handles full user updates including status
+      const response = await api.put(`/staff/${staffMember._id}`, {
+        name: staffMember.name,
+        email: staffMember.email,
+        role: staffMember.role,
+        phone: staffMember.phone,
+        employeeId: staffMember.employeeId,
+        status: newStatus,
+        permissions: staffMember.permissions || []
+      });
+      
+      if (!response.data.success) {
+        // Revert on failure
+        queryClient.setQueryData<Staff[]>(["staff"], (old = []) => {
+          return old.map(s => 
+            s._id === staffMember._id 
+              ? { ...s, status: previousStatus }
+              : s
+          );
+        });
+        alert("Failed to update status");
+      }
+    } catch (error: any) {
+      // Revert on error
+      queryClient.setQueryData<Staff[]>(["staff"], (old = []) => {
+        return old.map(s => 
+          s._id === staffMember._id 
+            ? { ...s, status: previousStatus }
+            : s
+        );
+      });
+      
+      console.error("Failed to update staff status:", error);
+      
+      // Specific error handling based on status code
+      if (error.response?.status === 404) {
+        alert("Staff member not found. They may have been deleted.");
+      } else if (error.response?.status === 400) {
+        alert(error.response?.data?.message || "Invalid data provided");
+      } else if (error.response?.status === 401 || error.response?.status === 403) {
+        alert("You don't have permission to update staff status");
+      } else {
+        alert(error.response?.data?.message || "Failed to update staff status. Please try again.");
       }
     }
   };
@@ -678,7 +764,7 @@ function Dashboard() {
                 </TabsTrigger>
               </TabsList>
               
-              {/* Overview Tab - Same as before */}
+              {/* Overview Tab */}
               <TabsContent value="overview" className="space-y-6">
                 <motion.div 
                   className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
@@ -951,7 +1037,7 @@ function Dashboard() {
                 </motion.div>
               </TabsContent>
 
-              {/* Sales Tab - Same as before */}
+              {/* Sales Tab */}
               <TabsContent value="sales" className="space-y-6">
                 <Card className="border dark:border-gray-800">
                   <CardHeader>
@@ -1052,7 +1138,7 @@ function Dashboard() {
                 </Card>
               </TabsContent>
 
-              {/* Inventory Tab - Updated */}
+              {/* Inventory Tab */}
               <TabsContent value="inventory" className="space-y-6">
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
@@ -1430,7 +1516,7 @@ function Dashboard() {
                 </motion.div>
               </TabsContent>
 
-              {/* Staff Tab - Updated */}
+              {/* Staff Tab - Updated with Active/Inactive Toggle */}
               <TabsContent value="staff" className="space-y-6">
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
@@ -1467,14 +1553,15 @@ function Dashboard() {
                             Staff Overview
                           </CardTitle>
                           <CardDescription>
-                            View staff by role or department
+                            View and manage staff by role, department, and status
                           </CardDescription>
                         </div>
                         
                         <div className="flex items-center gap-3">
                           <div className="flex items-center gap-2">
+                            {/* Role Filter */}
                             <Select value={selectedRole} onValueChange={setSelectedRole}>
-                              <SelectTrigger className="w-[180px]">
+                              <SelectTrigger className="w-[160px]">
                                 <SelectValue placeholder="Filter by role" />
                               </SelectTrigger>
                               <SelectContent>
@@ -1489,7 +1576,30 @@ function Dashboard() {
                                 ))}
                               </SelectContent>
                             </Select>
+
+                            {/* Status Filter */}
+                            <Select value={statusFilter} onValueChange={setStatusFilter}>
+                              <SelectTrigger className="w-[140px]">
+                                <SelectValue placeholder="Filter by status" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Status</SelectItem>
+                                <SelectItem value="active">
+                                  <div className="flex items-center gap-2">
+                                    <span className="h-2 w-2 rounded-full bg-green-500"></span>
+                                    Active
+                                  </div>
+                                </SelectItem>
+                                <SelectItem value="inactive">
+                                  <div className="flex items-center gap-2">
+                                    <span className="h-2 w-2 rounded-full bg-gray-400"></span>
+                                    Inactive
+                                  </div>
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
                             
+                            {/* View Toggle */}
                             <div className="flex border rounded-md overflow-hidden">
                               <Button
                                 variant={roleView === 'cards' ? 'default' : 'ghost'}
@@ -1515,6 +1625,62 @@ function Dashboard() {
                       </div>
                     </CardHeader>
                     <CardContent>
+                      {/* Staff Status Summary Cards */}
+                      {staff && staff.length > 0 && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                          <Card className="border border-green-200 dark:border-green-800/30 bg-gradient-to-br from-green-50 to-green-50/50 dark:from-green-900/10 dark:to-green-900/5">
+                            <CardContent className="pt-6">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-medium text-green-700 dark:text-green-300">Active Staff</p>
+                                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">{staffStatusStats.active}</p>
+                                  <p className="text-xs text-green-500 dark:text-green-400 mt-1">
+                                    {Math.round((staffStatusStats.active / staffStatusStats.total) * 100)}% of total
+                                  </p>
+                                </div>
+                                <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                                  <Users className="h-6 w-6 text-green-600 dark:text-green-400" />
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                          
+                          <Card className="border border-gray-200 dark:border-gray-800/30 bg-gradient-to-br from-gray-50 to-gray-50/50 dark:from-gray-900/10 dark:to-gray-900/5">
+                            <CardContent className="pt-6">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Inactive Staff</p>
+                                  <p className="text-2xl font-bold text-gray-600 dark:text-gray-400">{staffStatusStats.inactive}</p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    {Math.round((staffStatusStats.inactive / staffStatusStats.total) * 100)}% of total
+                                  </p>
+                                </div>
+                                <div className="h-12 w-12 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                                  <Users className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                          
+                          <Card className="border border-blue-200 dark:border-blue-800/30 bg-gradient-to-br from-blue-50 to-blue-50/50 dark:from-blue-900/10 dark:to-blue-900/5">
+                            <CardContent className="pt-6">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Total Staff</p>
+                                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{staffStatusStats.total}</p>
+                                  <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">
+                                    Across {roleStatistics.length} departments
+                                  </p>
+                                </div>
+                                <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                                  <Users className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      )}
+                      
                       {/* Role Cards View */}
                       {roleView === 'cards' && (
                         <div className="space-y-6">
@@ -1556,12 +1722,25 @@ function Dashboard() {
                                               </p>
                                               <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
                                             </div>
+                                            <div>
+                                              <p className="text-xl font-semibold text-gray-600 dark:text-gray-400">
+                                                {stat.inactiveCount}
+                                              </p>
+                                              <p className="text-xs text-gray-500 dark:text-gray-400">Inactive</p>
+                                            </div>
                                           </div>
                                         </div>
                                         
-                                        <Badge variant="outline" className={stat.color}>
-                                          {Math.round((stat.activeCount / stat.count) * 100)}% Active
-                                        </Badge>
+                                        <div className="flex flex-col items-end gap-2">
+                                          <Badge variant="outline" className={stat.color}>
+                                            {Math.round((stat.activeCount / stat.count) * 100)}% Active
+                                          </Badge>
+                                          {stat.inactiveCount > 0 && (
+                                            <Badge variant="outline" className="bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300">
+                                              {stat.inactiveCount} Inactive
+                                            </Badge>
+                                          )}
+                                        </div>
                                       </div>
                                       
                                       {/* Expanded View */}
@@ -1583,7 +1762,7 @@ function Dashboard() {
                                                   <TableHead>Phone</TableHead>
                                                   <TableHead>Status</TableHead>
                                                   <TableHead>Joined</TableHead>
-                                                  <TableHead className="w-[100px]">Actions</TableHead>
+                                                  <TableHead className="w-[160px]">Actions</TableHead>
                                                 </TableRow>
                                               </TableHeader>
                                               <TableBody>
@@ -1621,6 +1800,16 @@ function Dashboard() {
                                                     </TableCell>
                                                     <TableCell>
                                                       <div className="flex items-center gap-2">
+                                                        <div className="flex items-center gap-2 border rounded-md px-2 py-1">
+                                                          <span className={`text-xs font-medium ${staffMember.status === 'active' ? 'text-green-600' : 'text-gray-500'}`}>
+                                                            {staffMember.status === 'active' ? 'Active' : 'Inactive'}
+                                                          </span>
+                                                          <Switch
+                                                            checked={staffMember.status === 'active'}
+                                                            onCheckedChange={() => handleToggleStatus(staffMember)}
+                                                            className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300"
+                                                          />
+                                                        </div>
                                                         <Button
                                                           variant="outline"
                                                           size="sm"
@@ -1660,9 +1849,19 @@ function Dashboard() {
                                       {staff.length} staff members across {roleStatistics.length} departments
                                     </p>
                                   </div>
-                                  <div className="text-right">
-                                    <p className="text-2xl font-bold">{staff.filter(s => s.status === 'active').length}</p>
-                                    <p className="text-sm text-green-600 dark:text-green-400">Active Staff</p>
+                                  <div className="flex items-center gap-6">
+                                    <div className="text-right">
+                                      <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                                        {staff.filter(s => s.status === 'active').length}
+                                      </p>
+                                      <p className="text-sm text-green-600 dark:text-green-400">Active Staff</p>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-2xl font-bold text-gray-600 dark:text-gray-400">
+                                        {staff.filter(s => s.status === 'inactive').length}
+                                      </p>
+                                      <p className="text-sm text-gray-600 dark:text-gray-400">Inactive Staff</p>
+                                    </div>
                                   </div>
                                 </div>
                               </CardContent>
@@ -1674,151 +1873,63 @@ function Dashboard() {
                       {/* Table View */}
                       {roleView === 'table' && (
                         <div className="space-y-4">
-                          {selectedRole === 'all' ? (
-                            <>
-                              <div className="rounded-md border dark:border-gray-800 overflow-hidden">
-                                <Table>
-                                  <TableHeader className="bg-gray-50 dark:bg-gray-900/50">
-                                    <TableRow>
-                                      <TableHead>Name</TableHead>
-                                      <TableHead>Email</TableHead>
-                                      <TableHead>Role</TableHead>
-                                      <TableHead>Employee ID</TableHead>
-                                      <TableHead>Phone</TableHead>
-                                      <TableHead>Status</TableHead>
-                                      <TableHead>Joined</TableHead>
-                                      <TableHead className="w-[100px]">Actions</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {filteredStaff.map((staffMember) => {
-                                      const Icon = roleIcons[staffMember.role as keyof typeof roleIcons] || roleIcons.default;
-                                      const roleColor = roleColors[staffMember.role as keyof typeof roleColors] || "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700";
-                                      
-                                      return (
-                                        <TableRow key={staffMember._id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30">
-                                          <TableCell className="font-medium">
-                                            <div className="flex items-center gap-2">
-                                              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                                                <Users className="h-4 w-4 text-primary" />
-                                              </div>
-                                              {staffMember.name}
-                                            </div>
-                                          </TableCell>
-                                          <TableCell className="text-sm">{staffMember.email}</TableCell>
-                                          <TableCell>
-                                            <div className="flex items-center gap-2">
-                                              <div className={`p-1 rounded ${roleColor.split(' ')[0]} ${roleColor.split(' ')[1]}`}>
-                                                <Icon className="h-3 w-3" />
-                                              </div>
-                                              <Badge 
-                                                variant="outline" 
-                                                className={roleColor}
-                                              >
-                                                {formatRole(staffMember.role)}
-                                              </Badge>
-                                            </div>
-                                          </TableCell>
-                                          <TableCell>
-                                            <code className="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-sm">
-                                              {staffMember.employeeId}
-                                            </code>
-                                          </TableCell>
-                                          <TableCell>{staffMember.phone}</TableCell>
-                                          <TableCell>
-                                            <Badge 
-                                              variant="outline" 
-                                              className={
-                                                staffMember.status === 'active' 
-                                                  ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800/30" 
-                                                  : "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700"
-                                              }
-                                            >
-                                              {staffMember.status === 'active' ? 'Active' : 'Inactive'}
-                                            </Badge>
-                                          </TableCell>
-                                          <TableCell className="text-gray-500 dark:text-gray-400">
-                                            {new Date(staffMember.createdAt).toLocaleDateString()}
-                                          </TableCell>
-                                          <TableCell>
-                                            <div className="flex items-center gap-2">
-                                              <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-8 w-8 p-0 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
-                                                onClick={() => handleDeleteStaff(staffMember._id)}
-                                                title="Delete staff member"
-                                              >
-                                                <Trash2 className="h-4 w-4" />
-                                              </Button>
-                                            </div>
-                                          </TableCell>
-                                        </TableRow>
-                                      );
-                                    })}
-                                  </TableBody>
-                                </Table>
-                              </div>
-                              
-                              {/* Role Summary */}
-                              <Card className="border dark:border-gray-800">
-                                <CardContent className="p-4">
-                                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                                    {roleStatistics.map((stat) => (
-                                      <div key={stat.role} className="text-center p-3 rounded-lg border dark:border-gray-800">
-                                        <div className="flex flex-col items-center">
-                                          <div className={`p-2 rounded-full ${stat.color.split(' ')[0]} ${stat.color.split(' ')[1]} mb-2`}>
-                                            <stat.Icon className="h-4 w-4" />
-                                          </div>
-                                          <p className="text-sm font-medium">{formatRole(stat.role)}</p>
-                                          <p className="text-2xl font-bold">{stat.count}</p>
-                                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            {stat.activeCount} active
-                                          </p>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            </>
-                          ) : (
-                            <div className="space-y-4">
-                              <div className="flex items-center justify-between p-4 bg-gradient-to-r from-primary/5 to-primary/10 dark:from-primary/10 dark:to-primary/5 rounded-lg">
-                                <div className="flex items-center gap-3">
-                                  <div className={`p-3 rounded-lg ${roleColors[selectedRole as keyof typeof roleColors]?.split(' ')[0]} ${roleColors[selectedRole as keyof typeof roleColors]?.split(' ')[1]}`}>
-                                    {(() => {
-                                      const Icon = roleIcons[selectedRole as keyof typeof roleIcons] || roleIcons.default;
-                                      return <Icon className="h-6 w-6" />;
-                                    })()}
-                                  </div>
-                                  <div>
-                                    <h3 className="text-lg font-semibold">{formatRole(selectedRole)} Department</h3>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                                      {staffByRole[selectedRole]?.length || 0} staff members
-                                    </p>
-                                  </div>
-                                </div>
-                                <Badge variant="outline" className="text-lg px-3 py-1">
-                                  {staffByRole[selectedRole]?.filter(s => s.status === 'active').length || 0}/{staffByRole[selectedRole]?.length || 0} Active
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300">
+                                Total: {filteredStaff.length} staff
+                              </Badge>
+                              {selectedRole !== 'all' && (
+                                <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300">
+                                  Role: {formatRole(selectedRole)}
                                 </Badge>
-                              </div>
-                              
-                              <div className="rounded-md border dark:border-gray-800 overflow-hidden">
-                                <Table>
-                                  <TableHeader className="bg-gray-50 dark:bg-gray-900/50">
-                                    <TableRow>
-                                      <TableHead>Name</TableHead>
-                                      <TableHead>Email</TableHead>
-                                      <TableHead>Employee ID</TableHead>
-                                      <TableHead>Phone</TableHead>
-                                      <TableHead>Status</TableHead>
-                                      <TableHead>Joined</TableHead>
-                                      <TableHead className="w-[100px]">Actions</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {(staffByRole[selectedRole] || []).map((staffMember) => (
+                              )}
+                              {statusFilter !== 'all' && (
+                                <Badge variant="outline" className={`${
+                                  statusFilter === 'active' 
+                                    ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300'
+                                    : 'bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300'
+                                }`}>
+                                  Status: {statusFilter === 'active' ? 'Active' : 'Inactive'}
+                                </Badge>
+                              )}
+                            </div>
+                            {(selectedRole !== 'all' || statusFilter !== 'all') && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedRole('all');
+                                  setStatusFilter('all');
+                                }}
+                                className="h-8 px-2 text-xs"
+                              >
+                                <X className="h-3 w-3 mr-1" />
+                                Clear Filters
+                              </Button>
+                            )}
+                          </div>
+
+                          <div className="rounded-md border dark:border-gray-800 overflow-hidden">
+                            <Table>
+                              <TableHeader className="bg-gray-50 dark:bg-gray-900/50">
+                                <TableRow>
+                                  <TableHead>Name</TableHead>
+                                  <TableHead>Email</TableHead>
+                                  <TableHead>Role</TableHead>
+                                  <TableHead>Employee ID</TableHead>
+                                  <TableHead>Phone</TableHead>
+                                  <TableHead>Status</TableHead>
+                                  <TableHead>Joined</TableHead>
+                                  <TableHead className="w-[160px]">Actions</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {filteredStaff.length > 0 ? (
+                                  filteredStaff.map((staffMember) => {
+                                    const Icon = roleIcons[staffMember.role as keyof typeof roleIcons] || roleIcons.default;
+                                    const roleColor = roleColors[staffMember.role as keyof typeof roleColors] || "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700";
+                                    
+                                    return (
                                       <TableRow key={staffMember._id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30">
                                         <TableCell className="font-medium">
                                           <div className="flex items-center gap-2">
@@ -1827,8 +1938,21 @@ function Dashboard() {
                                             </div>
                                             {staffMember.name}
                                           </div>
-                                          </TableCell>
+                                        </TableCell>
                                         <TableCell className="text-sm">{staffMember.email}</TableCell>
+                                        <TableCell>
+                                          <div className="flex items-center gap-2">
+                                            <div className={`p-1 rounded ${roleColor.split(' ')[0]} ${roleColor.split(' ')[1]}`}>
+                                              <Icon className="h-3 w-3" />
+                                            </div>
+                                            <Badge 
+                                              variant="outline" 
+                                              className={roleColor}
+                                            >
+                                              {formatRole(staffMember.role)}
+                                            </Badge>
+                                          </div>
+                                        </TableCell>
                                         <TableCell>
                                           <code className="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-sm">
                                             {staffMember.employeeId}
@@ -1852,6 +1976,16 @@ function Dashboard() {
                                         </TableCell>
                                         <TableCell>
                                           <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-2 border rounded-md px-2 py-1">
+                                              <span className={`text-xs font-medium ${staffMember.status === 'active' ? 'text-green-600' : 'text-gray-500'}`}>
+                                                {staffMember.status === 'active' ? 'Active' : 'Inactive'}
+                                              </span>
+                                              <Switch
+                                                checked={staffMember.status === 'active'}
+                                                onCheckedChange={() => handleToggleStatus(staffMember)}
+                                                className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300"
+                                              />
+                                            </div>
                                             <Button
                                               variant="outline"
                                               size="sm"
@@ -1864,11 +1998,50 @@ function Dashboard() {
                                           </div>
                                         </TableCell>
                                       </TableRow>
-                                    ))}
-                                  </TableBody>
-                                </Table>
-                              </div>
-                            </div>
+                                    );
+                                  })
+                                ) : (
+                                  <TableRow>
+                                    <TableCell colSpan={8} className="text-center py-8">
+                                      <div className="flex flex-col items-center justify-center">
+                                        <Users className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
+                                        <p className="text-gray-700 dark:text-gray-300 font-medium">No staff members found</p>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mt-1">
+                                          {selectedRole !== 'all' || statusFilter !== 'all'
+                                            ? 'Try adjusting your filter criteria'
+                                            : 'No staff members available to display'}
+                                        </p>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </TableBody>
+                            </Table>
+                          </div>
+                          
+                          {/* Role Summary */}
+                          {staff && staff.length > 0 && (
+                            <Card className="border dark:border-gray-800">
+                              <CardContent className="p-4">
+                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                  {roleStatistics.map((stat) => (
+                                    <div key={stat.role} className="text-center p-3 rounded-lg border dark:border-gray-800">
+                                      <div className="flex flex-col items-center">
+                                        <div className={`p-2 rounded-full ${stat.color.split(' ')[0]} ${stat.color.split(' ')[1]} mb-2`}>
+                                          <stat.Icon className="h-4 w-4" />
+                                        </div>
+                                        <p className="text-sm font-medium">{formatRole(stat.role)}</p>
+                                        <p className="text-2xl font-bold">{stat.count}</p>
+                                        <div className="flex gap-2 mt-1 text-xs">
+                                          <span className="text-green-600 dark:text-green-400">{stat.activeCount} active</span>
+                                          <span className="text-gray-500 dark:text-gray-400">{stat.inactiveCount} inactive</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </CardContent>
+                            </Card>
                           )}
                         </div>
                       )}
@@ -1889,7 +2062,7 @@ function Dashboard() {
                   </Card>
                 </motion.div>
 
-                {/* Keep existing Staff Schedule section */}
+                {/* Staff Schedule section */}
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
@@ -1898,7 +2071,7 @@ function Dashboard() {
                   <Card className="border dark:border-gray-800">
                     <CardHeader>
                       <CardTitle className="flex items-center">
-                        <Users className="h-5 w-5 mr-2 text-violet-500" />
+                        <Clock className="h-5 w-5 mr-2 text-violet-500" />
                         Staff Schedule
                       </CardTitle>
                       <CardDescription>Current team member shifts</CardDescription>
@@ -1938,11 +2111,11 @@ function Dashboard() {
                       ) : (
                         <div className="flex flex-col items-center justify-center py-8 text-center">
                           <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-full mb-4">
-                            <Users className="h-8 w-8 text-gray-400" />
+                            <Clock className="h-8 w-8 text-gray-400" />
                           </div>
-                          <p className="text-gray-700 dark:text-gray-300 font-medium">No staff data</p>
+                          <p className="text-gray-700 dark:text-gray-300 font-medium">No staff schedule data</p>
                           <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mt-1">
-                            There are no staff members available to display
+                            There are no staff schedules available to display
                           </p>
                         </div>
                       )}
@@ -1950,7 +2123,7 @@ function Dashboard() {
                   </Card>
                 </motion.div>
 
-                {/* Keep existing Employee Performance Ranking section */}
+                {/* Employee Performance Ranking section */}
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
@@ -2019,7 +2192,6 @@ function Dashboard() {
                                     </TableHeader>
                                     <TableBody>
                                       {employees.slice(0, 5).map((emp) => {
-                                        // Determine badge color based on rank
                                         const getRankBadge = (rank: number) => {
                                           if (rank === 1) return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-300";
                                           if (rank === 2) return "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-300";
@@ -2035,7 +2207,6 @@ function Dashboard() {
                                           return `#${rank}`;
                                         };
                                         
-                                        // Format role properly
                                         const formattedRole = formatRole(emp.role);
                                         
                                         return (

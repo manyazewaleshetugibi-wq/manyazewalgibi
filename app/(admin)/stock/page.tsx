@@ -38,6 +38,7 @@ import {
   ShoppingCart,
   DollarSign,
   Eye,
+  Loader2,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -132,6 +133,8 @@ export default function StockManagementPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [isDeleteWarningOpen, setIsDeleteWarningOpen] = useState(false)
   const [purchaseToDelete, setPurchaseToDelete] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   // Forms
   const stockForm = useForm<z.infer<typeof stockSchema>>({
@@ -364,6 +367,12 @@ export default function StockManagementPage() {
 
   // Handlers
   const handleAddStock = async (values: z.infer<typeof stockSchema>) => {
+    if (stocks.some((stock) => stock.name.toLowerCase() === values.name.toLowerCase())) {
+      toast.error("Stock name already registered")
+      return
+    }
+
+    setIsSubmitting(true)
     try {
       const response = await fetch("/api/stock", {
         method: "POST",
@@ -382,6 +391,8 @@ export default function StockManagementPage() {
     } catch (error) {
       console.error("Error adding stock:", error)
       toast.error("Error adding stock")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -399,6 +410,13 @@ export default function StockManagementPage() {
 
   const handleUpdateStock = async (values: z.infer<typeof stockSchema>) => {
     if (!selectedStock) return
+
+    if (stocks.some((stock) => stock.name.toLowerCase() === values.name.toLowerCase() && stock._id !== selectedStock._id)) {
+      toast.error("Stock name already registered")
+      return
+    }
+
+    setIsSubmitting(true)
     try {
       const response = await fetch(`/api/stock/${selectedStock._id}`, {
         method: "PUT",
@@ -418,10 +436,13 @@ export default function StockManagementPage() {
     } catch (error) {
       console.error("Error updating stock:", error)
       toast.error("Error updating stock")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   const handleDeleteStock = async (id: string) => {
+    setDeletingId(id)
     try {
       const response = await fetch(`/api/stock/${id}`, {
         method: "DELETE",
@@ -436,6 +457,8 @@ export default function StockManagementPage() {
     } catch (error) {
       console.error("Error deleting stock:", error)
       toast.error("Error deleting stock")
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -451,6 +474,7 @@ export default function StockManagementPage() {
   }
 
   const handleSubmitPurchase = async (values: z.infer<typeof purchaseSchema>) => {
+    setIsSubmitting(true)
     try {
       const response = await fetch("/api/stock-purchase", {
         method: "POST",
@@ -469,6 +493,8 @@ export default function StockManagementPage() {
     } catch (error) {
       console.error("Error adding purchase:", error)
       toast.error("Error adding purchase")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -484,6 +510,7 @@ export default function StockManagementPage() {
 
   const confirmDeletePurchase = async () => {
     if (!purchaseToDelete) return
+    setIsSubmitting(true)
     try {
       const response = await fetch(`/api/stock-purchase/${purchaseToDelete}`, {
         method: "DELETE",
@@ -500,6 +527,8 @@ export default function StockManagementPage() {
     } catch (error) {
       console.error("Error deleting purchase:", error)
       toast.error("Error deleting purchase")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -691,7 +720,10 @@ export default function StockManagementPage() {
                           </FormItem>
                         )}
                       />
-                      <Button type="submit">{selectedStock ? "Update Stock" : "Add Stock"}</Button>
+                      <Button type="submit" disabled={isSubmitting}>
+                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {selectedStock ? "Update Stock" : "Add Stock"}
+                      </Button>
                     </form>
                   </Form>
                 </DialogContent>
@@ -783,8 +815,8 @@ export default function StockManagementPage() {
                       <Plus className="mr-2 h-4 w-4" />
                       Purchase
                     </Button>
-                    <Button variant="destructive" size="sm" onClick={() => handleDeleteStock(row.original._id)}>
-                      <Trash className="mr-2 h-4 w-4" />
+                    <Button variant="destructive" size="sm" onClick={() => handleDeleteStock(row.original._id)} disabled={deletingId === row.original._id}>
+                      {deletingId === row.original._id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash className="mr-2 h-4 w-4" />}
                       Delete
                     </Button>
                   </CardFooter>
@@ -945,7 +977,10 @@ export default function StockManagementPage() {
                   </FormItem>
                 )}
               />
-              <Button type="submit">Add Purchase</Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Add Purchase
+              </Button>
             </form>
           </Form>
         </DialogContent>
@@ -1079,7 +1114,8 @@ export default function StockManagementPage() {
             <Button variant="outline" onClick={() => setIsDeleteWarningOpen(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={confirmDeletePurchase}>
+            <Button variant="destructive" onClick={confirmDeletePurchase} disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Delete
             </Button>
           </div>
