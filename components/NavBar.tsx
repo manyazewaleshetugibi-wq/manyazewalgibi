@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -27,6 +27,7 @@ import {
   Megaphone,
   DollarSign,
   Package,
+  AlertCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,8 +37,14 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
+import axios from "axios"
 
-type Role = "admin" | "pos" | "kitchen" | "fb" | "f&b" | "marketing" | "finance" | "stock_manager" | "customer"
+// API client setup
+const api = axios.create({
+  baseURL: "/api",
+})
+
+type Role = "admin" | "pos" | "kitchen" | "fb" | "f&b" | "marketing" | "finance" | "stock_manager" | "customer" | "user"
 
 interface NavLinkProps {
   href: string
@@ -55,10 +62,53 @@ const navLinks = [
 
 export function NavBar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
-  const { data: session, status } = useSession()
+  const { data: session, status, update } = useSession()
   const isUserRole = session?.user?.role === "user"
+
+  // Check user status periodically and on session changes
+  useEffect(() => {
+    const checkUserStatus = async () => {
+      if (session?.user?.id && session?.user?.email) {
+        try {
+          setIsCheckingStatus(true)
+          // Fetch the latest user data from the staff endpoint
+          const response = await api.get(`/staff/${session.user.id}`)
+          
+          if (response.data.success) {
+            const userData = response.data.data
+            
+            // If user status is not active, sign them out
+            if (userData.status !== 'active') {
+              console.log('User account is inactive. Logging out...')
+              await handleLogout(true) // Force logout without redirect
+              router.push('/login?error=account_inactive')
+            }
+          }
+        } catch (error) {
+          console.error('Failed to check user status:', error)
+        } finally {
+          setIsCheckingStatus(false)
+        }
+      }
+    }
+
+    // Check status immediately when session is available
+    if (session?.user) {
+      checkUserStatus()
+    }
+
+    // Set up periodic status check every 30 seconds
+    const intervalId = setInterval(() => {
+      if (session?.user) {
+        checkUserStatus()
+      }
+    }, 30000) // 30 seconds
+
+    return () => clearInterval(intervalId)
+  }, [session?.user?.id, session?.user?.email])
 
   const NavLink = ({ href, icon: Icon, children }: NavLinkProps) => {
     const isActive = pathname === href || (href === "/" && pathname === "/home")
@@ -82,10 +132,32 @@ export function NavBar() {
     )
   }
 
-  const handleLogout = async () => {
-    // Clear any stored data
-    localStorage.removeItem("rememberedEmail")
-    await signOut({ callbackUrl: "/login" })
+  const handleLogout = async (isSilent: boolean = false) => {
+    try {
+      // Clear any stored data
+      localStorage.removeItem("rememberedEmail")
+      localStorage.removeItem("next-auth.session-token")
+      localStorage.removeItem("next-auth.callback-url")
+      localStorage.removeItem("next-auth.csrf-token")
+      
+      // Clear session storage
+      sessionStorage.clear()
+      
+      // Sign out from NextAuth
+      await signOut({ 
+        redirect: !isSilent,
+        callbackUrl: isSilent ? undefined : "/login"
+      })
+      
+      // If silent logout, manually redirect
+      if (isSilent) {
+        router.push('/login?error=account_inactive')
+      }
+    } catch (error) {
+      console.error('Logout error:', error)
+      // Force redirect on error
+      window.location.href = '/login?error=logout_failed'
+    }
   }
 
   const getDashboardLink = (role: string): { path: string, label: string, icon: React.ComponentType<{ className?: string }> } => {
@@ -160,7 +232,7 @@ export function NavBar() {
   }
 
   const renderUserMenu = () => {
-    if (status === "loading") {
+    if (status === "loading" || isCheckingStatus) {
       return (
         <div className="flex items-center gap-3">
           <div className="h-9 w-20 bg-gray-200 rounded-md animate-pulse"></div>
@@ -258,7 +330,7 @@ export function NavBar() {
               <DropdownMenuSeparator />
               {/* Logout */}
               <DropdownMenuItem 
-                onClick={handleLogout}
+                onClick={() => handleLogout(false)}
                 className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer"
               >
                 <LogOut className="w-4 h-4 mr-2" />
@@ -318,24 +390,6 @@ export function NavBar() {
       </div>
     )
   }
-
-  // AlertCircle icon component
-  const AlertCircle = ({ className }: { className?: string }) => (
-    <svg 
-      xmlns="http://www.w3.org/2000/svg" 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
-      className={className}
-    >
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" x2="12" y1="8" y2="12" />
-      <line x1="12" x2="12.01" y2="16" />
-    </svg>
-  )
 
   return (
     <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/60 shadow-sm">
@@ -481,7 +535,7 @@ export function NavBar() {
                       className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
                       onClick={() => {
                         const userRole = session.user.role as string
-                        const { path, icon: DashboardIcon, label } = getDashboardLink(userRole)
+                        const { path } = getDashboardLink(userRole)
                         
                         if (session.user.requiresPasswordChange) {
                           router.push("/change-password")
@@ -517,7 +571,7 @@ export function NavBar() {
                       size="lg"
                       className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
                       onClick={() => {
-                        handleLogout()
+                        handleLogout(false)
                         setIsMenuOpen(false)
                       }}
                     >
