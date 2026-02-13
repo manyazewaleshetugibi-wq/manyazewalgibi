@@ -664,8 +664,9 @@ export default function StockManagementPage() {
                             <FormControl>
                               <Input
                                 type="number"
+                                step="0.01"
                                 {...field}
-                                onChange={(e) => field.onChange(Number.parseInt(e.target.value))}
+                                onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
                               />
                             </FormControl>
                             <FormMessage />
@@ -681,8 +682,9 @@ export default function StockManagementPage() {
                             <FormControl>
                               <Input
                                 type="number"
+                                step="0.01"
                                 {...field}
-                                onChange={(e) => field.onChange(Number.parseInt(e.target.value))}
+                                onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
                               />
                             </FormControl>
                             <FormMessage />
@@ -1086,4 +1088,3 @@ export default function StockManagementPage() {
     </div>
   )
 }
-

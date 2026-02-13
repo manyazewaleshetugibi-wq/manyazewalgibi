@@ -5,9 +5,9 @@ import { ObjectId } from "mongodb";
 import { createResponse } from "@/lib/utils";
 
 // ✅ GET Stock by ID
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!ObjectId.isValid(id)) {
       return createResponse(400, false, "Invalid stock ID format");
@@ -29,9 +29,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 // ✅ PUT (Update Stock by ID)
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await params;
     if (!ObjectId.isValid(id)) {
       return createResponse(400, false, "Invalid stock ID format");
     }
@@ -69,9 +69,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 // ✅ DELETE (Remove Stock by ID)
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!ObjectId.isValid(id)) {
       return createResponse(400, false, "Invalid stock ID format");
