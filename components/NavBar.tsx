@@ -46,6 +46,16 @@ const api = axios.create({
 
 type Role = "admin" | "pos" | "kitchen" | "fb" | "f&b" | "marketing" | "finance" | "stock_manager" | "customer" | "user"
 
+// Extend the session user type
+interface ExtendedUser {
+  id: string
+  role: Role
+  name?: string | null
+  email?: string | null
+  image?: string | null
+  requiresPasswordChange?: boolean
+}
+
 interface NavLinkProps {
   href: string
   icon: React.ComponentType<{ className?: string }>
@@ -65,17 +75,25 @@ export function NavBar() {
   const [isCheckingStatus, setIsCheckingStatus] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
-  const { data: session, status, update } = useSession()
-  const isUserRole = session?.user?.role === "user"
+  const { data: session, status } = useSession()
+  
+  // Cast session user to ExtendedUser type
+  const user = session?.user as ExtendedUser | undefined
+  const isUserRole = user?.role === "user"
 
-  // Check user status periodically and on session changes
+  // Check user status periodically and on session changes (skip for "user" role)
   useEffect(() => {
     const checkUserStatus = async () => {
-      if (session?.user?.id && session?.user?.email) {
+      // Skip status check if user role is "user"
+      if (user?.role === "user") {
+        return
+      }
+
+      if (user?.id && user?.email) {
         try {
           setIsCheckingStatus(true)
           // Fetch the latest user data from the staff endpoint
-          const response = await api.get(`/staff/${session.user.id}`)
+          const response = await api.get(`/staff/${user.id}`)
           
           if (response.data.success) {
             const userData = response.data.data
@@ -95,20 +113,20 @@ export function NavBar() {
       }
     }
 
-    // Check status immediately when session is available
-    if (session?.user) {
+    // Check status immediately when session is available (skip for "user" role)
+    if (user && user?.role !== "user") {
       checkUserStatus()
     }
 
-    // Set up periodic status check every 30 seconds
+    // Set up periodic status check every 30 seconds (skip for "user" role)
     const intervalId = setInterval(() => {
-      if (session?.user) {
+      if (user && user?.role !== "user") {
         checkUserStatus()
       }
     }, 30000) // 30 seconds
 
     return () => clearInterval(intervalId)
-  }, [session?.user?.id, session?.user?.email])
+  }, [user?.id, user?.email, user?.role])
 
   const NavLink = ({ href, icon: Icon, children }: NavLinkProps) => {
     const isActive = pathname === href || (href === "/" && pathname === "/home")
@@ -160,8 +178,8 @@ export function NavBar() {
     }
   }
 
-  const getDashboardLink = (role: string): { path: string, label: string, icon: React.ComponentType<{ className?: string }> } => {
-    const roleRoutes: Record<string, { path: string, label: string, icon: React.ComponentType<{ className?: string }> }> = {
+  const getDashboardLink = (role: Role): { path: string, label: string, icon: React.ComponentType<{ className?: string }> } => {
+    const roleRoutes: Record<Role, { path: string, label: string, icon: React.ComponentType<{ className?: string }> }> = {
       admin: { 
         path: "/dashboard", 
         label: "Admin Dashboard", 
@@ -214,7 +232,7 @@ export function NavBar() {
       }
     }
     
-    return roleRoutes[role.toLowerCase()] || { 
+    return roleRoutes[role] || { 
       path: "/", 
       label: "Dashboard", 
       icon: LayoutDashboard 
@@ -241,11 +259,11 @@ export function NavBar() {
       )
     }
 
-    if (session?.user) {
-      const userRole = session.user.role as string
+    if (user) {
+      const userRole = user.role
       const { path: dashboardPath, label: dashboardLabel, icon: DashboardIcon } = getDashboardLink(userRole)
       const isCustomer = userRole.toLowerCase() === "customer"
-      const displayName = session.user.name || session.user.email?.split('@')[0] || "User"
+      const displayName = user.name || user.email?.split('@')[0] || "User"
 
       return (
         <div className="flex items-center gap-3">
@@ -276,7 +294,7 @@ export function NavBar() {
               {/* User info section */}
               <div className="px-2 py-1.5">
                 <p className="text-sm font-medium text-gray-900 truncate">
-                  {session.user.name || session.user.email}
+                  {user.name || user.email}
                 </p>
                 <p className="text-xs text-gray-500 capitalize">
                   {userRole.toLowerCase().replace(/_/g, ' ')}
@@ -315,7 +333,7 @@ export function NavBar() {
               )}
 
               {/* Change password if required */}
-              {session.user.requiresPasswordChange && (
+              {user.requiresPasswordChange && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
@@ -484,7 +502,7 @@ export function NavBar() {
               
               {/* Mobile auth buttons */}
               <div className="pt-4 mt-4 border-t border-gray-100 space-y-3">
-                {!session?.user ? (
+                {!user ? (
                   <>
                     {/* Mobile Login Button */}
                     <Button 
@@ -520,10 +538,10 @@ export function NavBar() {
                       <User className="w-5 h-5 text-[#1a1942]" />
                       <div>
                         <p className="font-medium text-gray-700">
-                          {session.user.name || session.user.email}
+                          {user.name || user.email}
                         </p>
                         <p className="text-xs text-gray-500 capitalize">
-                          {session.user.role?.toLowerCase().replace(/_/g, ' ') || 'user'}
+                          {user.role.toLowerCase().replace(/_/g, ' ') || 'user'}
                         </p>
                       </div>
                     </div>
@@ -534,10 +552,9 @@ export function NavBar() {
                       size="lg"
                       className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
                       onClick={() => {
-                        const userRole = session.user.role as string
-                        const { path } = getDashboardLink(userRole)
+                        const { path } = getDashboardLink(user.role)
                         
-                        if (session.user.requiresPasswordChange) {
+                        if (user.requiresPasswordChange) {
                           router.push("/change-password")
                         } else {
                           router.push(path)
@@ -546,11 +563,11 @@ export function NavBar() {
                       }}
                     >
                       <LayoutDashboard className="w-4 h-4 mr-2" />
-                      {getDashboardLink(session.user.role as string).label}
+                      {getDashboardLink(user.role).label}
                     </Button>
 
                     {/* Change password if required */}
-                    {session.user.requiresPasswordChange && (
+                    {user.requiresPasswordChange && (
                       <Button 
                         variant="outline" 
                         size="lg"
