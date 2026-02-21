@@ -4,9 +4,7 @@ import { validateItemData } from "@/models/Item";
 import { uploadImage } from "@/utils/uploadImages";
 import { ObjectId } from "mongodb";
 
-/**
- * Get, Update, or Delete an Item by ID.
- */
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -43,22 +41,41 @@ export async function GET(
 }
 
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await params;
     if (!ObjectId.isValid(id)) {
       return NextResponse.json({ success: false, message: "Invalid Item ID" }, { status: 400 });
     }
 
-    const body = await req.json();
+    const formData = await req.formData();
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
 
     // Handle image upload if `imageBase64` is provided
-    let imageUrl = body.imageUrl;
-    if (body.imageBase64) {
-      imageUrl = await uploadImage(body.imageBase64);
+    let imageUrl = formData.get("imageUrl") as string | undefined;
+    const imageFile = formData.get("image") as File | null;
+
+    if (imageFile) {
+      const arrayBuffer = await imageFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const base64Image = `data:${imageFile.type};base64,${buffer.toString('base64')}`;
+      imageUrl = await uploadImage(base64Image);
+    } else if (formData.get("removeImage") === "true") {
+      imageUrl = "";
     }
+
+    const body = {
+      name: formData.get("name"),
+      description: formData.get("description"),
+      categoryId: formData.get("categoryId"),
+      price: Number(formData.get("price")),
+      preparationTime: Number(formData.get("preparationTime")),
+      isActive: formData.get("isActive") === "true",
+      isFeatured: formData.get("isFeatured") === "true",
+      nutritionalInfo: JSON.parse(formData.get("nutritionalInfo") as string || "{}"),
+      requiredStock: JSON.parse(formData.get("requiredStock") as string || "[]"),
+    };
 
     // Validate item data
     const validatedData = validateItemData({
@@ -103,9 +120,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await params;
     if (!ObjectId.isValid(id)) {
       return NextResponse.json({ success: false, message: "Invalid Item ID" }, { status: 400 });
     }

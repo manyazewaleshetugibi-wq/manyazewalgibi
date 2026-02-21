@@ -51,14 +51,14 @@ export const api = {
   
   // Updated to use FormData for image uploads
   updateMenuItem: (id: string, formData: FormData) =>
-    fetchWithRetry(`${API_BASE_URL}/items?id=${id}`, {
+    fetchWithRetry(`${API_BASE_URL}/items/${id}`, {
       method: "PUT",
       body: formData,
       // Note: Do NOT set Content-Type header for FormData - browser sets it automatically
     }),
   
   deleteMenuItem: (id: string) => 
-    fetchWithRetry(`${API_BASE_URL}/items?id=${id}`, { 
+    fetchWithRetry(`${API_BASE_URL}/items/${id}`, { 
       method: "DELETE" 
     }),
 }

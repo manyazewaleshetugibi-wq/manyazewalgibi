@@ -325,7 +325,7 @@ export default function RestaurantMenuManagement() {
         }, 300)
         
         // Update existing item
-        response = await api.updateMenuItem(selectedItem._id, formData)
+        response = await api.updateMenuItem(selectedItem!._id!, formData)
         
         clearInterval(progressInterval)
         setUploadProgress(100)
@@ -739,9 +739,9 @@ export default function RestaurantMenuManagement() {
             {Array.from({ length: Math.ceil(filteredItems.length / itemsPerPage) }).map((_, index) => (
               <PaginationItem key={index}>
                 <PaginationLink 
-                  onClick={() => paginate(index + 1)} 
+                  onClick={() => !isLoading && paginate(index + 1)} 
                   isActive={currentPage === index + 1}
-                  disabled={isLoading}
+                  className={isLoading ? "pointer-events-none opacity-50" : "cursor-pointer"}
                 >
                   {index + 1}
                 </PaginationLink>
