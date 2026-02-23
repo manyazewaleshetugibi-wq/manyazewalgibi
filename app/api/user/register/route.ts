@@ -138,7 +138,6 @@ const generateWelcomeEmail = (firstName: string, lastName: string) => {
                 <ul style="margin: 20px 0; padding-left: 20px;">
                     <li>✨ <strong>Quick reservations</strong> - Book your table in seconds</li>
                     <li>🎁 <strong>Special offers</strong> - Get exclusive deals and promotions</li>
-                    <li>⭐ <strong>Loyalty rewards</strong> - Earn points with every visit</li>
                     <li>📱 <strong>Order history</strong> - Track your favorite dishes</li>
                     <li>🎂 <strong>Birthday specials</strong> - Celebrate with us and get free treats</li>
                 </ul>
@@ -157,7 +156,7 @@ const generateWelcomeEmail = (firstName: string, lastName: string) => {
                 
                 <h3>📍 Visit Us</h3>
                 <p>We're located at:<br>
-                [Your Restaurant Address]<br>
+                bole behined selam city moll<br]<br>
                 [City, State, ZIP]</p>
                 
                 <p><strong>Hours of Operation:</strong><br>
@@ -199,22 +198,20 @@ Thank you for registering with ${APP_NAME}! We're delighted to have you as part 
 Your account has been successfully created. You can now:
 - Make quick reservations
 - Get special offers and promotions
-- Earn loyalty rewards with every visit
 - Track your order history
 - Receive birthday specials
 
-🎁 YOUR WELCOME GIFT: Enjoy 15% off on your next visit! Just mention this offer when you dine with us.
+🎁 YOUR WELCOME GIFT: Enjoy 5% off on your next visit! Just mention this offer when you dine with us.
 
 Visit us at:
-[Your Restaurant Address]
-[City, State, ZIP]
+behined selam city moll
 
 Hours:
 Monday - Friday: 11:00 AM - 10:00 PM
 Saturday - Sunday: 10:00 AM - 11:00 PM
 
 Contact:
-📞 Phone: [Your Phone Number]
+📞 Phone: 0904003377
 📧 Email: ${GMAIL_EMAIL}
 
 Connect with us on social media:

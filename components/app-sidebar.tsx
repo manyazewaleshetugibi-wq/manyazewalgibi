@@ -93,6 +93,7 @@ const roleBasedNavigation = {
         items: [
           { title: "Sales", url: "/sales" },
           { title: "Expenses", url: "/expe" },
+          {title: "profit", url: "/profit"}
         ],
       },
     ],
@@ -173,6 +174,7 @@ const roleBasedNavigation = {
         items: [
           { title: "Sales", url: "/sales" },
           { title: "Expenses", url: "/expe" },
+          {title: "profit", url: "/profit"}
         ],
       },
     ],

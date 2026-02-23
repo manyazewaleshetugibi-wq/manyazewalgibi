@@ -3,12 +3,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import { toast } from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Search, X, ChevronDown, ChevronUp, Clock, DollarSign, Tag, Utensils, 
   Grid, List, ShoppingCart, Plus, Minus, ChefHat, Sparkles, ArrowLeft, Receipt,
-  Users, MapPin, Phone, User, Mail, Home, CreditCard, Upload, Check, Info
+  Users, MapPin, Phone, User, Mail, Home, CreditCard, Upload, Check, Info,
+  Wallet, LogIn
 } from 'lucide-react'
 import { NavBar } from '@/components/NavBar'
 import { Button } from "@/components/ui/button"
@@ -16,9 +18,8 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Separator } from "@/components/ui/separator"
@@ -28,6 +29,42 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import axios from 'axios'
+
+// API client setup with interceptors
+const api = axios.create({
+  baseURL: '/api',
+  timeout: 10000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+})
+
+// Add response interceptor for better error handling
+api.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.code === 'ECONNABORTED') {
+      console.error('Request timeout:', error);
+      return Promise.reject(new Error('Request timeout - please try again'));
+    }
+    
+    if (error.response?.status === 404) {
+      console.log('API endpoint not found:', error.config?.url);
+      return Promise.reject(new Error(`Endpoint ${error.config?.url} not found`));
+    }
+    
+    if (error.response?.data) {
+      const contentType = error.response.headers['content-type'];
+      if (contentType && contentType.includes('text/html')) {
+        console.error('Received HTML instead of JSON');
+        return Promise.reject(new Error('Server error - please try again'));
+      }
+    }
+    
+    return Promise.reject(error);
+  }
+);
 
 interface Category {
   _id: string
@@ -90,6 +127,32 @@ interface Waiter {
   avatar?: string
 }
 
+interface UserData {
+  _id: string
+  firstName: string
+  lastName: string
+  email: string
+  phoneNumber: string
+  address: string
+  city: string
+  role?: string
+  name?: string
+  profile?: {
+    phoneNumber?: string
+    address?: string
+    city?: string
+  }
+}
+
+// Extend the session user type
+interface ExtendedUser {
+  id: string
+  role: string
+  name?: string | null
+  email?: string | null
+  image?: string | null
+}
+
 // Default nutritional info
 const DEFAULT_NUTRITIONAL_INFO: NutritionalInfo = {
   calories: 0,
@@ -129,20 +192,95 @@ const getCategoryIcon = (type: string) => {
   }
 }
 
+// Login Prompt Dialog Component
+const LoginPromptDialog = ({ 
+  open, 
+  onOpenChange,
+  onLogin,
+  message = 'Please login to continue'
+}: { 
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onLogin: () => void
+  message?: string
+}) => {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-2xl">
+            <LogIn className="h-6 w-6 text-primary" />
+            Login Required
+          </DialogTitle>
+          <DialogDescription className="text-base pt-2">
+            {message}
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="py-4">
+          <Alert>
+            <AlertDescription className="text-sm">
+              You need to be logged in to:
+              <ul className="list-disc ml-4 mt-2 space-y-1">
+                <li>Add items to your cart</li>
+                <li>Place orders</li>
+                <li>Track your order history</li>
+                <li>Save your delivery information</li>
+              </ul>
+            </AlertDescription>
+          </Alert>
+        </div>
+        
+        <DialogFooter className="gap-2">
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={onLogin}
+            className="bg-primary hover:bg-primary/90"
+          >
+            <LogIn className="mr-2 h-4 w-4" />
+            Login Now
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // Item Detail Dialog Component
 const ItemDetailDialog = ({ 
   item, 
   categoryName,
   isOpen,
-  onOpenChange 
+  onOpenChange,
+  onAddToCart,
+  isUserLoggedIn,
+  onLoginRequired
 }: { 
   item: Item
   categoryName: string
   isOpen: boolean
-  onOpenChange: (open: boolean) => void 
+  onOpenChange: (open: boolean) => void
+  onAddToCart: (item: Item) => void
+  isUserLoggedIn: boolean
+  onLoginRequired: (message: string) => void
 }) => {
   const [selectedImage, setSelectedImage] = useState(item.imageUrl || '/placeholder.svg')
   const nutritionalInfo = item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
+  
+  const handleAddToCartClick = () => {
+    if (!isUserLoggedIn) {
+      onLoginRequired('Please login to add items to your cart')
+      return
+    }
+    onAddToCart(item)
+    onOpenChange(false)
+    toast.success(`Added ${item.name} to cart`)
+  }
   
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -172,6 +310,7 @@ const ItemDetailDialog = ({
                     const target = e.target as HTMLImageElement
                     target.src = '/placeholder.svg'
                   }}
+                  unoptimized={selectedImage.includes('cloudinary.com')}
                 />
                 {item.isFeatured && (
                   <Badge className="absolute top-3 left-3 bg-yellow-400 text-white border-none">
@@ -273,12 +412,19 @@ const ItemDetailDialog = ({
           </div>
         </ScrollArea>
         
-        <DialogFooter>
+        <DialogFooter className="gap-2">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
           >
             Close
+          </Button>
+          <Button
+            onClick={handleAddToCartClick}
+            className="bg-primary hover:bg-primary/90"
+          >
+            <ShoppingCart className="mr-2 h-4 w-4" />
+            Add to Cart
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -302,7 +448,8 @@ const PaymentUploadDialog = ({
   deliveryFee,
   total,
   onFinalizeOrder,
-  isPlacingOrder
+  isPlacingOrder,
+  paymentMethod
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -319,163 +466,212 @@ const PaymentUploadDialog = ({
   total: number
   onFinalizeOrder: () => void
   isPlacingOrder: boolean
+  paymentMethod: string
 }) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
-          <CreditCard className="h-5 w-5" />
-          Payment Verification
+          {paymentMethod === 'cash' ? (
+            <Wallet className="h-5 w-5" />
+          ) : (
+            <CreditCard className="h-5 w-5" />
+          )}
+          {paymentMethod === 'cash' ? 'Cash Payment' : 'Payment Verification'}
         </DialogTitle>
         <DialogDescription>
-          Please upload a screenshot of your payment confirmation
+          {paymentMethod === 'cash' 
+            ? 'Order confirmation for cash payment'
+            : 'Please upload a screenshot of your payment confirmation'}
         </DialogDescription>
       </DialogHeader>
       
       <div className="flex-1 overflow-y-auto -mr-4 pr-4">
-      <div className="space-y-4 py-1">
-        <Alert>
-          <AlertDescription className="text-sm">
-            Payment Details:
-            <div className="mt-2 space-y-1">
-              <div className="flex justify-between">
-                <span>Bank Name:</span>
-                <span className="font-semibold">Commercial Bank of Ethiopia</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Account Number:</span>
-                <span className="font-semibold">1000000000000</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Account Name:</span>
-                <span className="font-semibold">Manyazewal Eshetu Gibi</span>
+        <div className="space-y-4 py-1">
+          {paymentMethod === 'online' && (
+            <Alert>
+              <AlertDescription className="text-sm">
+                Payment Details:
+                <div className="mt-2 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Bank Name:</span>
+                    <span className="font-semibold">Commercial Bank of Ethiopia</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Account Number:</span>
+                    <span className="font-semibold">1000000000000</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Account Name:</span>
+                    <span className="font-semibold">Manyazewal Eshetu Gibi</span>
+                  </div>
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+          
+          {paymentMethod === 'online' && (
+            <div className="space-y-3">
+              <Label>Upload Payment Screenshot</Label>
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary transition-colors">
+                {paymentScreenshot.previewUrl ? (
+                  <div className="space-y-3">
+                    <div className="relative w-48 h-48 mx-auto">
+                      <Image
+                        src={paymentScreenshot.previewUrl}
+                        alt="Payment screenshot"
+                        fill
+                        className="object-contain rounded-md"
+                        unoptimized
+                      />
+                    </div>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={onRemoveScreenshot}
+                      className="mt-2"
+                    >
+                      <X className="mr-2 h-4 w-4" />
+                      Remove Image
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                    <div className="text-sm text-gray-600 mb-3">
+                      Drag & drop your payment screenshot here, or click to browse
+                    </div>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={onFileUpload}
+                      className="hidden"
+                      id="payment-screenshot"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => document.getElementById('payment-screenshot')?.click()}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Choose File
+                    </Button>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Supported: JPG, PNG, GIF (Max 5MB)
+                    </p>
+                  </>
+                )}
               </div>
             </div>
-          </AlertDescription>
-        </Alert>
-        
-        <div className="space-y-3">
-          <Label>Upload Payment Screenshot</Label>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary transition-colors">
-            {paymentScreenshot.previewUrl ? (
-              <div className="space-y-3">
-                <div className="relative w-48 h-48 mx-auto">
-                  <Image
-                    src={paymentScreenshot.previewUrl}
-                    alt="Payment screenshot"
-                    fill
-                    className="object-contain rounded-md"
-                  />
+          )}
+          
+          {paymentMethod === 'online' && (
+            <div className="space-y-2">
+              <Label htmlFor="transaction-id">Transaction ID (Optional)</Label>
+              <Input
+                id="transaction-id"
+                placeholder="Enter transaction ID if available"
+                value={transactionId}
+                onChange={(e) => onTransactionIdChange(e.target.value)}
+              />
+            </div>
+          )}
+          
+          {paymentMethod === 'cash' && orderType === 'delivery' && (
+            <Alert>
+              <AlertDescription className="text-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <Wallet className="h-4 w-4" />
+                  <span className="font-medium">Cash on Delivery</span>
                 </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={onRemoveScreenshot}
-                  className="mt-2"
-                >
-                  <X className="mr-2 h-4 w-4" />
-                  Remove Image
-                </Button>
-              </div>
-            ) : (
-              <>
-                <Upload className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                <div className="text-sm text-gray-600 mb-3">
-                  Drag & drop your payment screenshot here, or click to browse
-                </div>
-                <Input
-                  type="file"
-                  accept="image/*"
-                  onChange={onFileUpload}
-                  className="hidden"
-                  id="payment-screenshot"
-                />
-                <Button
-                  variant="outline"
-                  onClick={() => document.getElementById('payment-screenshot')?.click()}
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  Choose File
-                </Button>
-                <p className="text-xs text-gray-500 mt-2">
-                  Supported: JPG, PNG, GIF (Max 5MB)
+                <p>You'll pay {total.toLocaleString()} ETB in cash when your order is delivered.</p>
+                <p className="mt-2 text-xs text-gray-600">
+                  Please have the exact amount ready for faster transaction.
                 </p>
-              </>
-            )}
-          </div>
-        </div>
-        
-        <div className="space-y-2">
-          <Label htmlFor="transaction-id">Transaction ID (Optional)</Label>
-          <Input
-            id="transaction-id"
-            placeholder="Enter transaction ID if available"
-            value={transactionId}
-            onChange={(e) => onTransactionIdChange(e.target.value)}
-          />
-        </div>
-        
-        <div className="pt-4 space-y-2">
-          <div className="bg-gray-50 p-3 rounded-lg">
-            <div className="text-sm font-medium mb-1">Order Summary</div>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span>Subtotal:</span>
-                <span>{subtotal.toLocaleString()} ETB</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Tax (15%):</span>
-                <span>{tax.toLocaleString()} ETB</span>
-              </div>
-              {discount > 0 && (
-                <div className="flex justify-between text-green-600">
-                  <span>Discount (10%):</span>
-                  <span>-{discount.toLocaleString()} ETB</span>
+              </AlertDescription>
+            </Alert>
+          )}
+          
+          {paymentMethod === 'cash' && orderType === 'table' && (
+            <Alert>
+              <AlertDescription className="text-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <Wallet className="h-4 w-4" />
+                  <span className="font-medium">Cash Payment at Table</span>
                 </div>
-              )}
-              {orderType === 'delivery' && (
+                <p>You'll pay {total.toLocaleString()} ETB in cash when you receive your order.</p>
+                <p className="mt-2 text-xs text-gray-600">
+                  Your waitress will bring the bill to your table.
+                </p>
+              </AlertDescription>
+            </Alert>
+          )}
+          
+          <div className="pt-4 space-y-2">
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <div className="text-sm font-medium mb-1">Order Summary</div>
+              <div className="space-y-1 text-sm">
                 <div className="flex justify-between">
-                  <span>Delivery Fee:</span>
-                  <span>{deliveryFee.toLocaleString()} ETB</span>
+                  <span>Subtotal:</span>
+                  <span>{subtotal.toLocaleString()} ETB</span>
                 </div>
-              )}
-              <Separator className="my-1" />
-              <div className="flex justify-between font-bold">
-                <span>Total:</span>
-                <span>{total.toLocaleString()} ETB</span>
+                <div className="flex justify-between">
+                  <span>Tax (15%):</span>
+                  <span>{tax.toLocaleString()} ETB</span>
+                </div>
+                {discount > 0 && (
+                  <div className="flex justify-between text-green-600">
+                    <span>Discount (10%):</span>
+                    <span>-{discount.toLocaleString()} ETB</span>
+                  </div>
+                )}
+                {orderType === 'delivery' && (
+                  <div className="flex justify-between">
+                    <span>Delivery Fee:</span>
+                    <span>{deliveryFee.toLocaleString()} ETB</span>
+                  </div>
+                )}
+                <Separator className="my-1" />
+                <div className="flex justify-between font-bold">
+                  <span>Total:</span>
+                  <span>{total.toLocaleString()} ETB</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      </div>
-        
-        <DialogFooter className="gap-2 mt-2">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isPlacingOrder}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={onFinalizeOrder}
-            disabled={!paymentScreenshot.uploaded || isPlacingOrder}
-            className="min-w-[120px]"
-          >
-            {isPlacingOrder ? (
-              <>
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
-                Processing...
-              </>
-            ) : (
-              <>
-                <Check className="mr-2 h-4 w-4" />
-                Confirm Payment
-              </>
-            )}
-          </Button>
-        </DialogFooter>
+      
+      <DialogFooter className="gap-2 mt-2">
+        <Button
+          variant="outline"
+          onClick={() => onOpenChange(false)}
+          disabled={isPlacingOrder}
+        >
+          Cancel
+        </Button>
+        <Button
+          onClick={onFinalizeOrder}
+          disabled={(paymentMethod === 'online' && !paymentScreenshot.uploaded) || isPlacingOrder}
+          className="min-w-[120px]"
+        >
+          {isPlacingOrder ? (
+            <>
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
+              Processing...
+            </>
+          ) : paymentMethod === 'cash' ? (
+            <>
+              <Check className="mr-2 h-4 w-4" />
+              Confirm Cash Order
+            </>
+          ) : (
+            <>
+              <Check className="mr-2 h-4 w-4" />
+              Confirm Payment
+            </>
+          )}
+        </Button>
+      </DialogFooter>
     </DialogContent>
   </Dialog>
 )
@@ -510,7 +706,11 @@ const CartPanel = ({
   total,
   orderNumber,
   onPlaceOrder,
-  isPlacingOrder
+  isPlacingOrder,
+  isUserLoggedIn,
+  userData,
+  userDataError,
+  onLoginRequired
 }: {
   cart: CartItem[]
   onClose: () => void
@@ -541,373 +741,510 @@ const CartPanel = ({
   orderNumber: string
   onPlaceOrder: () => void
   isPlacingOrder: boolean
-}) => (
-  <div className="flex flex-col h-full">
-    <div className="flex items-center justify-between p-4 border-b">
-      <h3 className="font-semibold flex items-center gap-2 text-lg">
-        <ShoppingCart className="h-5 w-5" />
-        Your Order
-        <Badge variant="outline">
-          {cart.length} {cart.length === 1 ? 'item' : 'items'}
-        </Badge>
-      </h3>
-      <Button 
-        variant="ghost" 
-        size="icon" 
-        onClick={onClose}
-        className="h-8 w-8 rounded-full"
-      >
-        <X className="h-4 w-4" />
-        <span className="sr-only">Close</span>
-      </Button>
-    </div>
-
-    {cart.length > 0 ? (
-      <>
-        <ScrollArea className="flex-1">
-          <div className="p-4 space-y-6">
-            <div className="space-y-3">
-            {cart.map((item) => (
-              <div key={item._id} className="flex border rounded-lg overflow-hidden bg-background/50">
-                <div className="relative h-20 w-20 flex-shrink-0">
-                  <Image
-                    src={item.imageUrl || "/placeholder.svg"}
-                    alt={item.name}
-                    fill
-                    sizes="80px"
-                    className="object-cover"
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement
-                      target.src = '/placeholder.svg'
-                    }}
-                  />
-                </div>
-                
-                <div className="flex-1 p-3 flex flex-col">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="font-medium">{item.name}</h4>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {item.price.toLocaleString()} ETB
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onRemoveItem(item._id)}
-                      className="h-6 w-6 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <X className="h-3 w-3" />
-                      <span className="sr-only">Remove</span>
-                    </Button>
-                  </div>
-                  
-                  <div className="mt-auto pt-2 flex justify-between items-center">
-                    <div className="flex items-center border rounded-md">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onUpdateQuantity(item._id, item.quantity - 1)}
-                        className="h-7 w-7 rounded-none rounded-l-md p-0"
-                      >
-                        <Minus className="h-3 w-3" />
-                        <span className="sr-only">Decrease</span>
-                      </Button>
-                      <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onUpdateQuantity(item._id, item.quantity + 1)}
-                        className="h-7 w-7 rounded-none rounded-r-md p-0"
-                      >
-                        <Plus className="h-3 w-3" />
-                        <span className="sr-only">Increase</span>
-                      </Button>
-                    </div>
-                    
-                    <span className="text-sm font-medium">
-                      {(item.price * item.quantity).toLocaleString()} ETB
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-            </div>
-
-            <Separator />
-
-            <div className="space-y-3">
-              <div className="space-y-3">
-              <Label className="text-base font-medium">Order Type</Label>
-              <RadioGroup
-                value={orderType}
-                onValueChange={(value: 'table' | 'delivery') => onOrderTypeChange(value)}
-                className="flex gap-4"
-              >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="table" id="table" />
-                  <Label htmlFor="table" className="cursor-pointer">
-                    <div className="flex items-center gap-2">
-                      <Home className="h-4 w-4" />
-                      Dine In (Table)
-                    </div>
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="delivery" id="delivery" />
-                  <Label htmlFor="delivery" className="cursor-pointer">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4" />
-                      Delivery
-                    </div>
-                  </Label>
-                </div>
-              </RadioGroup>
-            </div>
-
-            {orderType === 'table' && (
-              <>
-              <div className="space-y-2">
-                <Label htmlFor="table-number">Table Number *</Label>
-                <Select value={tableNumber} onValueChange={onTableNumberChange}>
-                  <SelectTrigger id="table-number">
-                    <SelectValue placeholder="Select Table" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 20 }, (_, i) => (
-                      <SelectItem key={i} value={`T${i + 1}`}>Table {i + 1}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="waiter">Waitress/Server *</Label>
-                <Select value={selectedWaiter} onValueChange={onWaiterChange}>
-                  <SelectTrigger id="waiter">
-                    <SelectValue placeholder="Select Waitress" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {waiters.map((waiter) => (
-                      <SelectItem key={waiter._id} value={waiter._id}>{waiter.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              </>
-            )}
-
-            {orderType === 'delivery' && (
-              <div className="space-y-3 border rounded-lg p-3">
-                <h4 className="font-medium flex items-center gap-2">
-                  <MapPin className="h-4 w-4" />
-                  Delivery Information
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="full-name">Full Name *</Label>
-                    <Input
-                      id="full-name"
-                      placeholder="John Doe"
-                      value={deliveryInfo.fullName}
-                      onChange={(e) => onDeliveryInfoChange('fullName', e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Phone Number *</Label>
-                    <Input
-                      id="phone"
-                      placeholder="0912345678"
-                      value={deliveryInfo.phoneNumber}
-                      onChange={(e) => onDeliveryInfoChange('phoneNumber', e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="email">Email *</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="john@example.com"
-                      value={deliveryInfo.email}
-                      onChange={(e) => onDeliveryInfoChange('email', e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="address">Address *</Label>
-                    <Input
-                      id="address"
-                      placeholder="Street, House Number"
-                      value={deliveryInfo.address}
-                      onChange={(e) => onDeliveryInfoChange('address', e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="city">City *</Label>
-                    <Input
-                      id="city"
-                      placeholder="Addis Ababa"
-                      value={deliveryInfo.city}
-                      onChange={(e) => onDeliveryInfoChange('city', e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="landmark">Landmark (Optional)</Label>
-                    <Input
-                      id="landmark"
-                      placeholder="Nearby landmark"
-                      value={deliveryInfo.landmark || ''}
-                      onChange={(e) => onDeliveryInfoChange('landmark', e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="delivery-instructions">Delivery Instructions (Optional)</Label>
-                    <Textarea
-                      id="delivery-instructions"
-                      placeholder="Gate code, floor number, etc."
-                      value={deliveryInfo.deliveryInstructions || ''}
-                      onChange={(e) => onDeliveryInfoChange('deliveryInstructions', e.target.value)}
-                      rows={2}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="guests">
-                <Users className="inline mr-2 h-4 w-4" />
-                Number of Guests
-              </Label>
-              <Select 
-                value={numberOfGuests.toString()} 
-                onValueChange={(v) => onGuestsChange(parseInt(v))}
-              >
-                <SelectTrigger id="guests">
-                  <SelectValue placeholder="Select number of guests" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 10 }, (_, i) => (
-                    <SelectItem key={i} value={(i + 1).toString()}>
-                      {i + 1} {i === 0 ? 'guest' : 'guests'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="special-requirements">Special Requirements</Label>
-              <Textarea
-                id="special-requirements"
-                placeholder="Any special requirements or notes..."
-                value={specialRequirements}
-                onChange={(e) => onSpecialRequirementsChange(e.target.value)}
-                rows={2}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <Label className="text-base font-medium">Payment Method</Label>
-              <RadioGroup
-                value={paymentMethod}
-                onValueChange={onPaymentMethodChange}
-                className="flex flex-col gap-2"
-              >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="online" id="online" />
-                  <Label htmlFor="online" className="cursor-pointer">
-                    Online Payment (Bank Transfer)
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="card" id="card" />
-                  <Label htmlFor="card" className="cursor-pointer">
-                    Credit/Debit Card
-                  </Label>
-                </div>
-              </RadioGroup>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Label htmlFor="apply-discount" className="cursor-pointer">
-                  Apply 10% Discount
-                </Label>
-                <Switch
-                  id="apply-discount"
-                  checked={applyDiscount}
-                  onCheckedChange={onApplyDiscountChange}
-                />
-              </div>
-            </div>
-          </div>
-          </div>
-        </ScrollArea>
-
-        <div className="border-t p-4 space-y-4 bg-background shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-10">
-          <div className="space-y-2 bg-gray-50 p-3 rounded-lg">
-            <div className="space-y-1">
-              <div className="flex justify-between">
-                <span className="text-sm">Subtotal:</span>
-                <span className="font-medium">{subtotal.toLocaleString()} ETB</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm">Tax (15%):</span>
-                <span className="font-medium">{tax.toLocaleString()} ETB</span>
-              </div>
-              {discount > 0 && (
-                <div className="flex justify-between text-green-600">
-                  <span className="text-sm">Discount (10%):</span>
-                  <span className="font-medium">-{discount.toLocaleString()} ETB</span>
-                </div>
-              )}
-              {orderType === 'delivery' && (
-                <div className="flex justify-between">
-                  <span className="text-sm">Delivery Fee:</span>
-                  <span className="font-medium">{deliveryFee.toLocaleString()} ETB</span>
-                </div>
-              )}
-              <Separator className="my-1" />
-              <div className="flex justify-between font-bold">
-                <span>Total:</span>
-                <span className="text-lg">{total.toLocaleString()} ETB</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-2">
-            <p className="text-sm text-muted-foreground mb-2">
-              Order #: <span className="font-mono font-medium">{orderNumber}</span>
-            </p>
-            <Button 
-              onClick={onPlaceOrder} 
-              className="w-full"
-              disabled={cart.length === 0 || !orderType || isPlacingOrder}
-            >
-              <Receipt className="mr-2 h-4 w-4" />
-              {isPlacingOrder ? 'Processing...' : 'Proceed to Payment'}
-            </Button>
-          </div>
-        </div>
-      </>
-    ) : (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-        <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
-          <ShoppingCart className="h-8 w-8 text-muted-foreground" />
-        </div>
-        <h3 className="text-xl font-medium mb-2">Your cart is empty</h3>
-        <p className="text-muted-foreground max-w-md mb-6">
-          Add some delicious items from the menu to get started with your order.
-        </p>
-        <Button variant="outline" onClick={onClose}>
-          Browse Menu
+  isUserLoggedIn: boolean
+  userData: UserData | null
+  userDataError: string | null
+  onLoginRequired: (message: string) => void
+}) => {
+  const handlePlaceOrder = () => {
+    if (!isUserLoggedIn) {
+      onLoginRequired('Please login to place an order')
+      return
+    }
+    onPlaceOrder()
+  }
+  
+  // Auto-fill delivery info when user data changes and order type is delivery
+  useEffect(() => {
+    if (isUserLoggedIn && userData && orderType === 'delivery') {
+      // Get current values from userData
+      const phoneNumber = userData.phoneNumber || userData.profile?.phoneNumber || '';
+      const address = userData.address || userData.profile?.address || '';
+      const city = userData.city || userData.profile?.city || '';
+      const fullName = userData.firstName && userData.lastName 
+        ? `${userData.firstName} ${userData.lastName}`.trim()
+        : userData.name || '';
+      
+      // Only update if values are different from current deliveryInfo
+      const updates: Partial<DeliveryInfo> = {};
+      
+      if (fullName && fullName !== deliveryInfo.fullName) {
+        updates.fullName = fullName;
+      }
+      if (userData.email && userData.email !== deliveryInfo.email) {
+        updates.email = userData.email;
+      }
+      if (phoneNumber && phoneNumber !== deliveryInfo.phoneNumber) {
+        updates.phoneNumber = phoneNumber;
+      }
+      if (address && address !== deliveryInfo.address) {
+        updates.address = address;
+      }
+      if (city && city !== deliveryInfo.city) {
+        updates.city = city;
+      }
+      
+      // Apply updates only if there are changes
+      if (Object.keys(updates).length > 0) {
+        Object.entries(updates).forEach(([key, value]) => {
+          onDeliveryInfoChange(key as keyof DeliveryInfo, value);
+        });
+      }
+    }
+  }, [
+    isUserLoggedIn, 
+    userData,
+    orderType,
+    // Add specific deliveryInfo fields to compare values
+    deliveryInfo.fullName,
+    deliveryInfo.email,
+    deliveryInfo.phoneNumber,
+    deliveryInfo.address,
+    deliveryInfo.city,
+    onDeliveryInfoChange
+  ]);
+  
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between p-4 border-b">
+        <h3 className="font-semibold flex items-center gap-2 text-lg">
+          <ShoppingCart className="h-5 w-5" />
+          Your Order
+          <Badge variant="outline">
+            {cart.length} {cart.length === 1 ? 'item' : 'items'}
+          </Badge>
+        </h3>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={onClose}
+          className="h-8 w-8 rounded-full"
+        >
+          <X className="h-4 w-4" />
+          <span className="sr-only">Close</span>
         </Button>
       </div>
-    )}
-  </div>
-)
+
+      {cart.length > 0 ? (
+        <>
+          <ScrollArea className="flex-1">
+            <div className="p-4 space-y-6">
+              <div className="space-y-3">
+                {cart.map((item) => (
+                  <div key={item._id} className="flex border rounded-lg overflow-hidden bg-background/50">
+                    <div className="relative h-20 w-20 flex-shrink-0">
+                      <Image
+                        src={item.imageUrl || "/placeholder.svg"}
+                        alt={item.name}
+                        fill
+                        sizes="80px"
+                        className="object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement
+                          target.src = '/placeholder.svg'
+                        }}
+                        unoptimized={item.imageUrl?.includes('cloudinary.com')}
+                      />
+                    </div>
+                    
+                    <div className="flex-1 p-3 flex flex-col">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h4 className="font-medium">{item.name}</h4>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {item.price.toLocaleString()} ETB
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onRemoveItem(item._id)}
+                          className="h-6 w-6 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <X className="h-3 w-3" />
+                          <span className="sr-only">Remove</span>
+                        </Button>
+                      </div>
+                      
+                      <div className="mt-auto pt-2 flex justify-between items-center">
+                        <div className="flex items-center border rounded-md">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => onUpdateQuantity(item._id, item.quantity - 1)}
+                            className="h-7 w-7 rounded-none rounded-l-md p-0"
+                          >
+                            <Minus className="h-3 w-3" />
+                            <span className="sr-only">Decrease</span>
+                          </Button>
+                          <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => onUpdateQuantity(item._id, item.quantity + 1)}
+                            className="h-7 w-7 rounded-none rounded-r-md p-0"
+                          >
+                            <Plus className="h-3 w-3" />
+                            <span className="sr-only">Increase</span>
+                          </Button>
+                        </div>
+                        
+                        <span className="text-sm font-medium">
+                          {(item.price * item.quantity).toLocaleString()} ETB
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                {userDataError && (
+                  <Alert variant="destructive">
+                    <AlertDescription className="text-sm">
+                      {userDataError}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {isUserLoggedIn && userData && (
+                  <Alert>
+                    <AlertDescription className="text-sm">
+                      <div className="flex items-center gap-2 mb-1">
+                        <User className="h-4 w-4" />
+                        <span className="font-medium">Logged in as:</span>
+                      </div>
+                      <div className="mt-1">
+                        <p>{userData.firstName || userData.name || ''} {userData.lastName || ''}</p>
+                        <p className="text-xs text-gray-600">{userData.email}</p>
+                        {userData.phoneNumber && (
+                          <p className="text-xs text-gray-600">📞 {userData.phoneNumber}</p>
+                        )}
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-3">
+                  <Label className="text-base font-medium">Order Type</Label>
+                  <RadioGroup
+                    value={orderType}
+                    onValueChange={(value: 'table' | 'delivery') => {
+                      if (!isUserLoggedIn) {
+                        onLoginRequired('Please login to select order type')
+                        return
+                      }
+                      onOrderTypeChange(value)
+                    }}
+                    className="flex gap-4"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="table" id="table" />
+                      <Label htmlFor="table" className="cursor-pointer">
+                        <div className="flex items-center gap-2">
+                          <Home className="h-4 w-4" />
+                          Dine In (Table)
+                        </div>
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="delivery" id="delivery" />
+                      <Label htmlFor="delivery" className="cursor-pointer">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4" />
+                          Delivery
+                        </div>
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                {orderType === 'table' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="table-number">Table Number *</Label>
+                      <Select value={tableNumber} onValueChange={onTableNumberChange}>
+                        <SelectTrigger id="table-number">
+                          <SelectValue placeholder="Select Table" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 20 }, (_, i) => (
+                            <SelectItem key={i} value={`T${i + 1}`}>Table {i + 1}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="waiter">Waitress/Server *</Label>
+                      <Select value={selectedWaiter} onValueChange={onWaiterChange}>
+                        <SelectTrigger id="waiter">
+                          <SelectValue placeholder="Select Waitress" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {waiters.map((waiter) => (
+                            <SelectItem key={waiter._id} value={waiter._id}>{waiter.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )}
+
+                {orderType === 'delivery' && (
+                  <div className="space-y-3 border rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-medium flex items-center gap-2">
+                        <MapPin className="h-4 w-4" />
+                        Delivery Information
+                      </h4>
+                      {isUserLoggedIn && userData && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const phoneNumber = userData.phoneNumber || userData.profile?.phoneNumber || '';
+                            const address = userData.address || userData.profile?.address || '';
+                            const city = userData.city || userData.profile?.city || '';
+                            const fullName = userData.firstName && userData.lastName 
+                              ? `${userData.firstName} ${userData.lastName}`.trim()
+                              : userData.name || '';
+                            
+                            const updates: Partial<DeliveryInfo> = {};
+                            if (fullName) updates.fullName = fullName;
+                            if (userData.email) updates.email = userData.email;
+                            if (phoneNumber) updates.phoneNumber = phoneNumber;
+                            if (address) updates.address = address;
+                            if (city) updates.city = city;
+                            
+                            Object.entries(updates).forEach(([key, value]) => {
+                              onDeliveryInfoChange(key as keyof DeliveryInfo, value);
+                            });
+                            
+                            toast.success('Profile information applied');
+                          }}
+                          disabled={!userData}
+                        >
+                          <User className="mr-2 h-3 w-3" />
+                          Use My Info
+                        </Button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="full-name">Full Name *</Label>
+                        <Input
+                          id="full-name"
+                          placeholder="John Doe"
+                          value={deliveryInfo.fullName}
+                          onChange={(e) => onDeliveryInfoChange('fullName', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="phone">Phone Number *</Label>
+                        <Input
+                          id="phone"
+                          placeholder="0912345678"
+                          value={deliveryInfo.phoneNumber}
+                          onChange={(e) => onDeliveryInfoChange('phoneNumber', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="email">Email *</Label>
+                        <Input
+                          id="email"
+                          type="email"
+                          placeholder="john@example.com"
+                          value={deliveryInfo.email}
+                          onChange={(e) => onDeliveryInfoChange('email', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="address">Address *</Label>
+                        <Input
+                          id="address"
+                          placeholder="Street, House Number"
+                          value={deliveryInfo.address}
+                          onChange={(e) => onDeliveryInfoChange('address', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="city">City *</Label>
+                        <Input
+                          id="city"
+                          placeholder="Addis Ababa"
+                          value={deliveryInfo.city}
+                          onChange={(e) => onDeliveryInfoChange('city', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="landmark">Landmark (Optional)</Label>
+                        <Input
+                          id="landmark"
+                          placeholder="Nearby landmark"
+                          value={deliveryInfo.landmark || ''}
+                          onChange={(e) => onDeliveryInfoChange('landmark', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="delivery-instructions">Delivery Instructions (Optional)</Label>
+                        <Textarea
+                          id="delivery-instructions"
+                          placeholder="Gate code, floor number, etc."
+                          value={deliveryInfo.deliveryInstructions || ''}
+                          onChange={(e) => onDeliveryInfoChange('deliveryInstructions', e.target.value)}
+                          rows={2}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="guests">
+                    <Users className="inline mr-2 h-4 w-4" />
+                    Number of Guests
+                  </Label>
+                  <Select 
+                    value={numberOfGuests.toString()} 
+                    onValueChange={(v) => onGuestsChange(parseInt(v))}
+                  >
+                    <SelectTrigger id="guests">
+                      <SelectValue placeholder="Select number of guests" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 10 }, (_, i) => (
+                        <SelectItem key={i} value={(i + 1).toString()}>
+                          {i + 1} {i === 0 ? 'guest' : 'guests'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="special-requirements">Special Requirements</Label>
+                  <Textarea
+                    id="special-requirements"
+                    placeholder="Any special requirements or notes..."
+                    value={specialRequirements}
+                    onChange={(e) => onSpecialRequirementsChange(e.target.value)}
+                    rows={2}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-base font-medium">Payment Method</Label>
+                  <RadioGroup
+                    value={paymentMethod}
+                    onValueChange={onPaymentMethodChange}
+                    className="flex flex-col gap-2"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="online" id="online" />
+                      <Label htmlFor="online" className="cursor-pointer">
+                        Online Payment (Bank Transfer)
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="card" id="card" />
+                      <Label htmlFor="card" className="cursor-pointer">
+                        Credit/Debit Card
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="cash" id="cash" />
+                      <Label htmlFor="cash" className="cursor-pointer">
+                        <div className="flex items-center gap-2">
+                          <Wallet className="h-4 w-4" />
+                          Cash on Delivery
+                        </div>
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                
+              </div>
+            </div>
+          </ScrollArea>
+
+          <div className="border-t p-4 space-y-4 bg-background shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-10">
+            <div className="space-y-2 bg-gray-50 p-3 rounded-lg">
+              <div className="space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-sm">Subtotal:</span>
+                  <span className="font-medium">{subtotal.toLocaleString()} ETB</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm">Tax (15%):</span>
+                  <span className="font-medium">{tax.toLocaleString()} ETB</span>
+                </div>
+                {discount > 0 && (
+                  <div className="flex justify-between text-green-600">
+                    <span className="text-sm">Discount (10%):</span>
+                    <span className="font-medium">-{discount.toLocaleString()} ETB</span>
+                  </div>
+                )}
+                {orderType === 'delivery' && (
+                  <div className="flex justify-between">
+                    <span className="text-sm">Delivery Fee:</span>
+                    <span className="font-medium">{deliveryFee.toLocaleString()} ETB</span>
+                  </div>
+                )}
+                <Separator className="my-1" />
+                <div className="flex justify-between font-bold">
+                  <span>Total:</span>
+                  <span className="text-lg">{total.toLocaleString()} ETB</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <p className="text-sm text-muted-foreground mb-2">
+                Order #: <span className="font-mono font-medium">{orderNumber}</span>
+              </p>
+              <Button 
+                onClick={handlePlaceOrder} 
+                className="w-full"
+                disabled={cart.length === 0 || !orderType || isPlacingOrder}
+              >
+                <Receipt className="mr-2 h-4 w-4" />
+                {isPlacingOrder ? 'Processing...' : 'Proceed to Payment'}
+              </Button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+          <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+            <ShoppingCart className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h3 className="text-xl font-medium mb-2">Your cart is empty</h3>
+          <p className="text-muted-foreground max-w-md mb-6">
+            {!isUserLoggedIn 
+              ? 'Please login to add items to your cart and place orders.'
+              : 'Add some delicious items from the menu to get started with your order.'
+            }
+          </p>
+          <Button variant="outline" onClick={onClose}>
+            Browse Menu
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function ItemMenu() {
   const router = useRouter()
+  const { data: session, status: sessionStatus } = useSession()
+  
+  // Cast session user to ExtendedUser type
+  const user = session?.user as ExtendedUser | undefined
+  const isUserLoggedIn = !!user
+  
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [filteredItems, setFilteredItems] = useState<Item[]>([])
@@ -919,6 +1256,15 @@ export default function ItemMenu() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  
+  // User data state
+  const [userData, setUserData] = useState<UserData | null>(null)
+  const [userDataError, setUserDataError] = useState<string | null>(null)
+  const [isLoadingUser, setIsLoadingUser] = useState(false)
+  
+  // Login prompt state
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false)
+  const [loginPromptMessage, setLoginPromptMessage] = useState('Please login to continue')
   
   // Item detail state
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
@@ -960,30 +1306,31 @@ export default function ItemMenu() {
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
   const [showPaymentUpload, setShowPaymentUpload] = useState(false)
 
-  // Use debounce for search
-  const debouncedSearchTerm = useDebounce(searchTerm, 300)
-
+  // Fetch initial data
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const [categoriesRes, itemsRes, waitersRes] = await Promise.all([
-          fetch('/api/item-category'),
-          fetch('/api/items'),
-          fetch('/api/waitress')
+        
+        const [categoriesRes, itemsRes] = await Promise.all([
+          api.get('/item-category'),
+          api.get('/items')
         ])
 
-        if (!categoriesRes.ok || !itemsRes.ok) {
-          throw new Error('Failed to fetch data')
+        setCategories(categoriesRes.data?.data || [])
+        
+        // Try to fetch waiters but don't fail if it doesn't exist
+        try {
+          const waitersRes = await api.get('/waitress')
+          setWaiters(waitersRes.data || [])
+        } catch (err) {
+          console.log('Waiters endpoint not available')
+          setWaiters([])
         }
-
-        const categoriesData = await categoriesRes.json()
-        const itemsData = await itemsRes.json()
-        const waitersData = waitersRes.ok ? await waitersRes.json() : []
-
-        setCategories(categoriesData.data || [])
-        // Normalize items data to handle missing properties
-        const normalizedItems = (itemsData.items || itemsData.data || []).map((item: Item) => ({
+        
+        // Normalize items data
+        const itemsData = itemsRes.data?.items || itemsRes.data?.data || []
+        const normalizedItems = itemsData.map((item: Item) => ({
           ...item,
           nutritionalInfo: item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO,
           price: item.price || 0,
@@ -993,12 +1340,13 @@ export default function ItemMenu() {
           description: item.description || '',
           imageUrl: item.imageUrl || '/placeholder.svg'
         }))
+        
         setItems(normalizedItems)
         setFilteredItems(normalizedItems)
-        setWaiters(waitersData || [])
       } catch (err) {
-        setError('An error occurred while fetching data')
         console.error('Fetch error:', err)
+        setError('Failed to load menu items. Please try again.')
+        toast.error('Failed to load menu items')
       } finally {
         setLoading(false)
       }
@@ -1007,6 +1355,144 @@ export default function ItemMenu() {
     fetchData()
   }, [])
 
+  // Fetch complete user data from database when session is available
+  useEffect(() => {
+    let isMounted = true;
+    let hasFetched = false; // Add flag to prevent multiple fetches
+    
+    const fetchUserData = async () => {
+      if (user?.id && !hasFetched) {
+        try {
+          setIsLoadingUser(true);
+          setUserDataError(null);
+          hasFetched = true; // Set flag immediately
+          
+          let userData = null;
+          let userProfile = null;
+          
+          // Try multiple endpoints to get complete user data
+          const endpoints = [
+            `/users/${user.id}`,
+            `/staff/${user.id}`,
+            '/auth/current-user',
+            `/customers/${user.id}`,
+            `/profiles/${user.id}`
+          ];
+          
+          for (const endpoint of endpoints) {
+            try {
+              const response = await api.get(endpoint);
+              if (response.data) {
+                let data = null;
+                if (response.data.success && response.data.data) {
+                  data = response.data.data;
+                } else if (response.data.data) {
+                  data = response.data.data;
+                } else if (response.data.user) {
+                  data = response.data.user;
+                } else if (response.data.profile) {
+                  userProfile = response.data.profile;
+                } else {
+                  data = response.data;
+                }
+                
+                if (data) {
+                  if (userData) {
+                    userData = { ...userData, ...data };
+                  } else {
+                    userData = data;
+                  }
+                }
+              }
+            } catch (err) {
+              console.log(`Endpoint ${endpoint} not available`);
+            }
+          }
+          
+          // Try to fetch user profile separately if not found in user data
+          if (!userData?.phoneNumber || !userData?.address || !userData?.city) {
+            try {
+              const profileRes = await api.get(`/users/${user.id}/profile`);
+              if (profileRes.data) {
+                userProfile = profileRes.data.data || profileRes.data;
+              }
+            } catch (err) {
+              console.log('Profile endpoint not available');
+            }
+          }
+          
+          if (isMounted) {
+            if (userData || userProfile) {
+              // Merge user data and profile
+              const mergedUserData: UserData = {
+                _id: user.id,
+                firstName: userData?.firstName || userProfile?.firstName || user.name?.split(' ')[0] || '',
+                lastName: userData?.lastName || userProfile?.lastName || user.name?.split(' ').slice(1).join(' ') || '',
+                name: userData?.name || user.name || '',
+                email: userData?.email || user.email || '',
+                phoneNumber: userData?.phoneNumber || userProfile?.phoneNumber || '',
+                address: userData?.address || userProfile?.address || '',
+                city: userData?.city || userProfile?.city || '',
+                role: userData?.role || user.role || 'user',
+                profile: userProfile
+              };
+              
+              setUserData(mergedUserData);
+            } else {
+              // Create basic user info from session
+              const basicUserData: UserData = {
+                _id: user.id,
+                firstName: user.name?.split(' ')[0] || '',
+                lastName: user.name?.split(' ').slice(1).join(' ') || '',
+                name: user.name || '',
+                email: user.email || '',
+                phoneNumber: '',
+                address: '',
+                city: '',
+                role: user.role || 'user'
+              };
+              setUserData(basicUserData);
+              setUserDataError('Please complete your profile for faster checkout');
+            }
+          }
+        } catch (err) {
+          console.error('Error fetching user data:', err);
+          if (isMounted && user) {
+            // Create basic user info as fallback
+            const basicUserData: UserData = {
+              _id: user.id,
+              firstName: user.name?.split(' ')[0] || '',
+              lastName: user.name?.split(' ').slice(1).join(' ') || '',
+              name: user.name || '',
+              email: user.email || '',
+              phoneNumber: '',
+              address: '',
+              city: '',
+              role: user.role || 'user'
+            };
+            setUserData(basicUserData);
+            setUserDataError('Using basic profile information');
+          }
+        } finally {
+          if (isMounted) {
+            setIsLoadingUser(false);
+          }
+        }
+      } else {
+        if (isMounted) {
+          setUserData(null);
+        }
+      }
+    }
+
+    fetchUserData();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id, user?.name, user?.email, user?.role]); // Keep dependencies minimal
+
+  // Filter and sort items
   useEffect(() => {
     let result = items
 
@@ -1014,10 +1500,11 @@ export default function ItemMenu() {
       result = result.filter(item => item.categoryId === selectedCategory)
     }
 
-    if (debouncedSearchTerm) {
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
       result = result.filter(item =>
-        item.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-        (item.description && item.description.toLowerCase().includes(debouncedSearchTerm.toLowerCase()))
+        item.name.toLowerCase().includes(term) ||
+        (item.description && item.description.toLowerCase().includes(term))
       )
     }
 
@@ -1030,7 +1517,7 @@ export default function ItemMenu() {
     })
 
     setFilteredItems(result)
-  }, [items, selectedCategory, debouncedSearchTerm, sortField, sortDirection])
+  }, [items, selectedCategory, searchTerm, sortField, sortDirection])
 
   const handleSort = (field: 'name' | 'price' | 'preparationTime') => {
     if (field === sortField) {
@@ -1041,26 +1528,26 @@ export default function ItemMenu() {
     }
   }
 
-  // Item detail handler
-  const handleViewDetails = (item: Item) => {
-    setSelectedItem(item)
-    setShowItemDetail(true)
+  const handleLoginRequired = (message: string) => {
+    setLoginPromptMessage(message)
+    setShowLoginPrompt(true)
   }
 
-  // Cart functionality
+  const handleLogin = () => {
+    setShowLoginPrompt(false)
+    router.push('/login?callbackUrl=/menu')
+  }
+
   const addToCart = useCallback((item: Item) => {
-    // Check for insufficient stock (simulated)
-    const insufficientStock = Math.random() < 0.1
-    
-    if (insufficientStock) {
-      toast.error(`Sorry, ${item.name} is out of stock!`, {
+    if (!isUserLoggedIn) {
+      handleLoginRequired('Please login to add items to your cart')
+      return
+    }
+
+    // Check if item is active
+    if (item.isActive === false) {
+      toast.error(`Sorry, ${item.name} is currently unavailable`, {
         icon: '❌',
-        style: {
-          borderRadius: '10px',
-          background: '#333',
-          color: '#fff',
-          border: '1px solid rgba(220, 38, 38, 0.2)',
-        },
         duration: 3000,
       })
       return
@@ -1078,26 +1565,13 @@ export default function ItemMenu() {
     
     toast.success(`Added ${item.name} to cart`, {
       icon: '🛒',
-      style: {
-        borderRadius: '10px',
-        background: '#333',
-        color: '#fff',
-        border: '1px solid rgba(34, 197, 94, 0.2)',
-      },
       duration: 2000,
     })
-  }, [])
+  }, [isUserLoggedIn])
 
   const removeFromCart = useCallback((itemId: string) => {
     setCart(prev => prev.filter(item => item._id !== itemId))
-    toast.success('Item removed from cart', {
-      icon: '🗑️',
-      style: {
-        borderRadius: '10px',
-        background: '#333',
-        color: '#fff',
-      },
-    })
+    toast.success('Item removed from cart')
   }, [])
 
   const updateQuantity = useCallback((itemId: string, newQuantity: number) => {
@@ -1110,7 +1584,6 @@ export default function ItemMenu() {
     ))
   }, [removeFromCart])
 
-  // Order calculations
   const subtotal = useMemo(() => 
     cart.reduce((sum, item) => sum + (item.price || 0) * item.quantity, 0), 
     [cart]
@@ -1121,7 +1594,6 @@ export default function ItemMenu() {
   const deliveryFee = useMemo(() => orderType === 'delivery' ? 50 : 0, [orderType])
   const total = useMemo(() => subtotal + tax - discount + deliveryFee, [subtotal, tax, discount, deliveryFee])
 
-  // Handle delivery info change
   const handleDeliveryInfoChange = (field: keyof DeliveryInfo, value: string) => {
     setDeliveryInfo(prev => ({
       ...prev,
@@ -1129,17 +1601,14 @@ export default function ItemMenu() {
     }))
   }
 
-  // Handle payment screenshot upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      // Check file type
       if (!file.type.startsWith('image/')) {
         toast.error('Please upload an image file')
         return
       }
       
-      // Check file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         toast.error('File size must be less than 5MB')
         return
@@ -1166,7 +1635,6 @@ export default function ItemMenu() {
     })
   }
 
-  // Validate delivery info
   const validateDeliveryInfo = () => {
     const requiredFields: (keyof DeliveryInfo)[] = ['fullName', 'phoneNumber', 'email', 'address', 'city']
     for (const field of requiredFields) {
@@ -1176,14 +1644,12 @@ export default function ItemMenu() {
       }
     }
     
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(deliveryInfo.email)) {
       toast.error('Please enter a valid email address')
       return false
     }
     
-    // Validate phone number
     const phoneRegex = /^[0-9]{10}$/
     if (!phoneRegex.test(deliveryInfo.phoneNumber.replace(/\D/g, ''))) {
       toast.error('Please enter a valid 10-digit phone number')
@@ -1194,7 +1660,12 @@ export default function ItemMenu() {
   }
 
   const handleFinalizeOrder = async () => {
-    if (!paymentScreenshot.uploaded) {
+    if (!isUserLoggedIn) {
+      handleLoginRequired('Please login to place an order')
+      return
+    }
+
+    if (paymentMethod === 'online' && !paymentScreenshot.uploaded) {
       toast.error('Please upload payment screenshot')
       return
     }
@@ -1203,10 +1674,6 @@ export default function ItemMenu() {
     const orderToast = toast.loading('Placing your order...')
 
     try {
-      // Prepare form data for file upload
-      const formData = new FormData()
-      
-      // Add order data
       const orderData = {
         orderNumber,
         orderType,
@@ -1218,6 +1685,7 @@ export default function ItemMenu() {
           itemId: item._id,
           quantity: item.quantity,
           specialInstructions: item.specialInstructions || '',
+          price: item.price
         })),
         paymentMethod,
         transactionId: transactionId || undefined,
@@ -1227,26 +1695,17 @@ export default function ItemMenu() {
         deliveryFee,
         total,
         specialRequirements,
-        status: 'PENDING',
+        status: paymentMethod === 'cash' ? 'PENDING_CASH' : 'PENDING',
         delivery: orderType === 'delivery',
         inTable: orderType === 'table',
-      }
-      
-      formData.append('orderData', JSON.stringify(orderData))
-      
-      // Add payment screenshot if exists
-      if (paymentScreenshot.file) {
-        formData.append('paymentScreenshot', paymentScreenshot.file)
+        userId: user?.id,
+        userEmail: user?.email,
+        userName: user?.name
       }
 
-      // Use the appropriate API endpoint based on order type
-      const apiEndpoint = '/api/delivery'
-      const response = await fetch(apiEndpoint, {
-        method: 'POST',
-        body: formData,
-      })
+      const response = await api.post('/orders', orderData)
 
-      if (response.ok) {
+      if (response.data) {
         toast.success('Order placed successfully!', { id: orderToast })
         
         // Reset order state
@@ -1255,15 +1714,6 @@ export default function ItemMenu() {
         setOrderType('')
         setTableNumber('')
         setSelectedWaiter('')
-        setDeliveryInfo({
-          fullName: '',
-          phoneNumber: '',
-          email: '',
-          address: '',
-          city: '',
-          landmark: '',
-          deliveryInstructions: ''
-        })
         setPaymentScreenshot({
           file: null,
           previewUrl: '',
@@ -1275,6 +1725,22 @@ export default function ItemMenu() {
         setSpecialRequirements('')
         setShowPaymentUpload(false)
         
+        // Keep delivery info for next order
+        if (userData) {
+          setDeliveryInfo(prev => ({
+            ...prev,
+            fullName: userData.firstName && userData.lastName 
+              ? `${userData.firstName} ${userData.lastName}`.trim()
+              : userData.name || '',
+            email: userData.email || '',
+            phoneNumber: userData.phoneNumber || prev.phoneNumber,
+            address: userData.address || prev.address,
+            city: userData.city || prev.city,
+            landmark: '',
+            deliveryInstructions: ''
+          }));
+        }
+        
         // Simulate order progress
         let progress = 0
         const interval = setInterval(() => {
@@ -1282,33 +1748,40 @@ export default function ItemMenu() {
           setOrderProgress(progress)
           if (progress >= 100) {
             clearInterval(interval)
-            toast.success(orderType === 'delivery' ? 'Your order is on the way!' : 'Your order is being prepared!')
+            toast.success(
+              paymentMethod === 'cash' 
+                ? 'Order confirmed! Please have cash ready.' 
+                : orderType === 'delivery' 
+                  ? 'Your order is on the way!' 
+                  : 'Your order is being prepared!'
+            )
             setTimeout(() => {
               setOrderProgress(0)
             }, 2000)
           }
         }, 500)
-      } else {
-        const errorData = await response.json()
-        throw new Error(errorData.message || 'Failed to place order')
       }
     } catch (error) {
       console.error('Error placing order:', error)
-      toast.error(error instanceof Error ? error.message : 'Failed to place order', { id: orderToast })
+      toast.error('Failed to place order. Please try again.', { id: orderToast })
     } finally {
       setIsPlacingOrder(false)
     }
   }
 
-  // Handle place order
   const handlePlaceOrder = async () => {
+    if (!isUserLoggedIn) {
+      handleLoginRequired('Please login to place an order')
+      return
+    }
+
     if (cart.length === 0) {
       toast.error('Please add items to your cart')
       return
     }
 
     if (!orderType) {
-      toast.error('Please select order type (Table or Delivery)')
+      toast.error('Please select order type')
       return
     }
 
@@ -1335,24 +1808,31 @@ export default function ItemMenu() {
     setShowPaymentUpload(true)
   }
 
+  const handleViewDetails = (item: Item) => {
+    setSelectedItem(item)
+    setShowItemDetail(true)
+  }
+
   const ItemCard = ({ item }: { item: Item }) => {
-    const nutritionalInfo = item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
     const categoryName = categories.find(c => c._id === item.categoryId)?.name || 'Uncategorized'
     
     return (
       <Card className="h-full transition-all duration-300 hover:shadow-lg group">
         <CardHeader className="p-0 relative">
-          <Image
-            src={item.imageUrl || "/placeholder.svg"}
-            alt={item.name}
-            width={400}
-            height={300}
-            className="w-full h-48 object-cover rounded-t-lg"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement
-              target.src = '/placeholder.svg'
-            }}
-          />
+          <div className="relative w-full h-48">
+            <Image
+              src={item.imageUrl || "/placeholder.svg"}
+              alt={item.name}
+              fill
+              className="object-cover rounded-t-lg"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement
+                target.src = '/placeholder.svg'
+              }}
+              unoptimized={item.imageUrl?.includes('cloudinary.com')}
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            />
+          </div>
           
           <div className="absolute top-2 right-2 bg-black/75 text-white text-xs font-semibold px-2 py-1 rounded-md backdrop-blur-sm">
             {(item.price || 0).toLocaleString()} ETB
@@ -1374,80 +1854,76 @@ export default function ItemMenu() {
                 addToCart(item)
               }}
               className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm"
+              disabled={item.isActive === false}
             >
               <Plus className="mr-1 h-3.5 w-3.5" />
-              Add to cart
+              {item.isActive === false ? 'Unavailable' : 'Add to cart'}
             </Button>
           </div>
         </CardHeader>
         
-        <div className="flex flex-col flex-grow">
-          <CardContent className="p-4 flex-grow">
-            <CardTitle className="text-xl mb-2 group-hover:text-primary transition-colors line-clamp-1">
-              {item.name}
-            </CardTitle>
-            <CardDescription className="text-sm text-gray-600 mb-4 line-clamp-2 min-h-[40px]">
-              {item.description || 'No description available'}
-            </CardDescription>
-            
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="text-lg font-semibold">
-                  {(item.price || 0).toLocaleString()} ETB
-                </Badge>
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                  {item.preparationTime || 0} mins
-                </Badge>
-              </div>
-              
-              <div className="flex gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    addToCart(item)
-                  }}
-                  className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20 text-primary"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span className="sr-only">Add to cart</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleViewDetails(item)
-                  }}
-                  className="h-8 w-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700"
-                >
-                  <Info className="h-4 w-4" />
-                  <span className="sr-only">View details</span>
-                </Button>
-              </div>
-            </div>
-          </CardContent>
+        <CardContent className="p-4">
+          <CardTitle className="text-xl mb-2 group-hover:text-primary transition-colors line-clamp-1">
+            {item.name}
+          </CardTitle>
+          <CardDescription className="text-sm text-gray-600 mb-4 line-clamp-2 min-h-[40px]">
+            {item.description || 'No description available'}
+          </CardDescription>
           
-          <CardFooter className="p-4 pt-0">
-            <Button 
-              variant="outline" 
-              className="w-full"
-              onClick={() => handleViewDetails(item)}
-            >
-              <Info className="mr-2 h-4 w-4" />
-              View Full Details
-            </Button>
-          </CardFooter>
-        </div>
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-lg font-semibold">
+                {(item.price || 0).toLocaleString()} ETB
+              </Badge>
+              <Badge variant="outline" className="flex items-center gap-1">
+                <Clock className="w-4 h-4" />
+                {item.preparationTime || 0} mins
+              </Badge>
+            </div>
+            
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  addToCart(item)
+                }}
+                className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20 text-primary"
+                disabled={item.isActive === false}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleViewDetails(item)
+                }}
+                className="h-8 w-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700"
+              >
+                <Info className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+        
+        <CardFooter className="p-4 pt-0">
+          <Button 
+            variant="outline" 
+            className="w-full"
+            onClick={() => handleViewDetails(item)}
+          >
+            <Info className="mr-2 h-4 w-4" />
+            View Full Details
+          </Button>
+        </CardFooter>
       </Card>
     )
   }
 
   const ListViewItem = ({ item }: { item: Item }) => {
-    const nutritionalInfo = item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
-    
     return (
       <div className="flex border border-border/40 rounded-lg overflow-hidden hover:border-primary/30 transition-all bg-background hover:bg-background/95 hover:shadow-sm group">
         <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden">
@@ -1461,6 +1937,7 @@ export default function ItemMenu() {
               const target = e.target as HTMLImageElement
               target.src = '/placeholder.svg'
             }}
+            unoptimized={item.imageUrl?.includes('cloudinary.com')}
           />
           {item.isFeatured && (
             <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-xs font-medium px-1.5 py-0.5 rounded flex items-center gap-1">
@@ -1506,9 +1983,9 @@ export default function ItemMenu() {
                 size="sm"
                 onClick={() => addToCart(item)}
                 className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20 text-primary"
+                disabled={item.isActive === false}
               >
                 <Plus className="h-4 w-4" />
-                <span className="sr-only">Add to cart</span>
               </Button>
               <Button
                 variant="ghost"
@@ -1517,7 +1994,6 @@ export default function ItemMenu() {
                 className="h-8 w-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700"
               >
                 <Info className="h-4 w-4" />
-                <span className="sr-only">View details</span>
               </Button>
             </div>
           </div>
@@ -1544,52 +2020,75 @@ export default function ItemMenu() {
             <h1 className="text-4xl font-bold">Item Menu</h1>
           </div>
           
-          <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
-            <SheetTrigger asChild>
-              <Button variant="default" className="relative">
-                <ShoppingCart className="mr-2 h-4 w-4" />
-                Cart
-                {cart.length > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-primary text-primary-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                    {cart.length}
+          <div className="flex items-center gap-4">
+            {isUserLoggedIn && userData && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-full">
+                  <User className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium">
+                    {userData.firstName || userData.name || 'User'} {userData.lastName || ''}
                   </span>
+                </div>
+                {userData.phoneNumber && (
+                  <div className="hidden md:flex items-center gap-1 text-xs text-gray-600">
+                    <Phone className="h-3 w-3" />
+                    {userData.phoneNumber}
+                  </div>
                 )}
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="w-full sm:max-w-lg">
-              <CartPanel 
-                cart={cart}
-                onClose={() => setIsCartOpen(false)}
-                onRemoveItem={removeFromCart}
-                onUpdateQuantity={updateQuantity}
-                orderType={orderType}
-                onOrderTypeChange={setOrderType}
-                tableNumber={tableNumber}
-                onTableNumberChange={setTableNumber}
-                waiters={waiters}
-                selectedWaiter={selectedWaiter}
-                onWaiterChange={setSelectedWaiter}
-                deliveryInfo={deliveryInfo}
-                onDeliveryInfoChange={handleDeliveryInfoChange}
-                numberOfGuests={numberOfGuests}
-                onGuestsChange={setNumberOfGuests}
-                specialRequirements={specialRequirements}
-                onSpecialRequirementsChange={setSpecialRequirements}
-                paymentMethod={paymentMethod}
-                onPaymentMethodChange={setPaymentMethod}
-                applyDiscount={applyDiscount}
-                onApplyDiscountChange={setApplyDiscount}
-                subtotal={subtotal}
-                tax={tax}
-                discount={discount}
-                deliveryFee={deliveryFee}
-                total={total}
-                orderNumber={orderNumber}
-                onPlaceOrder={handlePlaceOrder}
-                isPlacingOrder={isPlacingOrder}
-              />
-            </SheetContent>
-          </Sheet>
+              </div>
+            )}
+            
+            <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
+              <SheetTrigger asChild>
+                <Button variant="default" className="relative">
+                  <ShoppingCart className="mr-2 h-4 w-4" />
+                  Cart
+                  {cart.length > 0 && (
+                    <span className="absolute -top-2 -right-2 bg-primary text-primary-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                      {cart.length}
+                    </span>
+                  )}
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-full sm:max-w-lg">
+                <CartPanel 
+                  cart={cart}
+                  onClose={() => setIsCartOpen(false)}
+                  onRemoveItem={removeFromCart}
+                  onUpdateQuantity={updateQuantity}
+                  orderType={orderType}
+                  onOrderTypeChange={setOrderType}
+                  tableNumber={tableNumber}
+                  onTableNumberChange={setTableNumber}
+                  waiters={waiters}
+                  selectedWaiter={selectedWaiter}
+                  onWaiterChange={setSelectedWaiter}
+                  deliveryInfo={deliveryInfo}
+                  onDeliveryInfoChange={handleDeliveryInfoChange}
+                  numberOfGuests={numberOfGuests}
+                  onGuestsChange={setNumberOfGuests}
+                  specialRequirements={specialRequirements}
+                  onSpecialRequirementsChange={setSpecialRequirements}
+                  paymentMethod={paymentMethod}
+                  onPaymentMethodChange={setPaymentMethod}
+                  applyDiscount={applyDiscount}
+                  onApplyDiscountChange={setApplyDiscount}
+                  subtotal={subtotal}
+                  tax={tax}
+                  discount={discount}
+                  deliveryFee={deliveryFee}
+                  total={total}
+                  orderNumber={orderNumber}
+                  onPlaceOrder={handlePlaceOrder}
+                  isPlacingOrder={isPlacingOrder}
+                  isUserLoggedIn={isUserLoggedIn}
+                  userData={userData}
+                  userDataError={userDataError}
+                  onLoginRequired={handleLoginRequired}
+                />
+              </SheetContent>
+            </Sheet>
+          </div>
         </div>
         
         <div className="sticky top-0 z-10 bg-gray-100 py-4 mb-8 space-y-4">
@@ -1673,28 +2172,26 @@ export default function ItemMenu() {
         </div>
 
         <ScrollArea className="h-[calc(100vh-300px)]">
-          {loading ? (
+          {loading || sessionStatus === 'loading' || isLoadingUser ? (
             <div className={`grid gap-8 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
               {[...Array(8)].map((_, index) => (
-                <Card key={index} className={`h-full ${viewMode === 'list' ? 'flex' : ''}`}>
-                  <CardHeader className={`p-0 ${viewMode === 'list' ? 'w-1/3' : ''}`}>
-                    <Skeleton className={`w-full ${viewMode === 'grid' ? 'h-48 rounded-t-lg' : 'h-full rounded-l-lg'}`} />
-                  </CardHeader>
-                  <div className={`flex flex-col ${viewMode === 'list' ? 'w-2/3' : ''}`}>
-                    <CardContent className="p-4">
-                      <Skeleton className="h-6 w-3/4 mb-2" />
-                      <Skeleton className="h-4 w-full mb-4" />
-                      <Skeleton className="h-4 w-full" />
-                    </CardContent>
-                    <CardFooter className="p-4 pt-0">
-                      <Skeleton className="h-10 w-full" />
-                    </CardFooter>
-                  </div>
+                <Card key={index} className="h-full">
+                  <Skeleton className="h-48 w-full rounded-t-lg" />
+                  <CardContent className="p-4">
+                    <Skeleton className="h-6 w-3/4 mb-2" />
+                    <Skeleton className="h-4 w-full mb-4" />
+                    <Skeleton className="h-10 w-full" />
+                  </CardContent>
                 </Card>
               ))}
             </div>
           ) : error ? (
-            <div className="text-center text-red-500">{error}</div>
+            <div className="text-center text-red-500 p-8">
+              <p className="text-lg">{error}</p>
+              <Button onClick={() => window.location.reload()} className="mt-4">
+                Try Again
+              </Button>
+            </div>
           ) : (
             <motion.div
               layout
@@ -1723,17 +2220,25 @@ export default function ItemMenu() {
         </ScrollArea>
       </main>
 
-      {/* Item Detail Dialog */}
+      <LoginPromptDialog 
+        open={showLoginPrompt}
+        onOpenChange={setShowLoginPrompt}
+        onLogin={handleLogin}
+        message={loginPromptMessage}
+      />
+
       {selectedItem && (
         <ItemDetailDialog 
           item={selectedItem}
           categoryName={categories.find(c => c._id === selectedItem.categoryId)?.name || 'Uncategorized'}
           isOpen={showItemDetail}
           onOpenChange={setShowItemDetail}
+          onAddToCart={addToCart}
+          isUserLoggedIn={isUserLoggedIn}
+          onLoginRequired={handleLoginRequired}
         />
       )}
 
-      {/* Payment Upload Dialog */}
       <PaymentUploadDialog 
         open={showPaymentUpload}
         onOpenChange={setShowPaymentUpload}
@@ -1750,9 +2255,9 @@ export default function ItemMenu() {
         total={total}
         onFinalizeOrder={handleFinalizeOrder}
         isPlacingOrder={isPlacingOrder}
+        paymentMethod={paymentMethod}
       />
 
-      {/* Order Progress */}
       {orderProgress > 0 && orderProgress < 100 && (
         <motion.div
           className="fixed bottom-5 right-5 bg-background/95 backdrop-blur-sm p-4 rounded-xl shadow-lg border border-primary/20 z-50 w-64"

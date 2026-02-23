@@ -4,24 +4,24 @@ import { validateItemCategoryData } from "@/models/Item";
 import { uploadImage } from "@/utils/uploadImages";
 import { ObjectId } from "mongodb";
 
-
 const createResponse = (status: number, success: boolean, message: string, data: any = null) => {
     return NextResponse.json({ success, message, data }, { status });
-  };
+};
 
-  
-// ✅ Update an existing Item Category
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+// ✅ Fixed: Await params before accessing id
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> } // Changed type to Promise
+) {
   try {
-    const { id } = params;
+    const { id } = await params; // AWAIT the params Promise
     if (!ObjectId.isValid(id)) return createResponse(400, false, "Invalid category ID");
 
     const body = await req.json();
 
-    // ✅ Process image upload if `imageBase64` is provided
     if (body.imageBase64) {
       body.imageUrl = await uploadImage(body.imageBase64);
-      delete body.imageBase64; // Remove base64 data after upload
+      delete body.imageBase64;
     }
 
     const parsed = validateItemCategoryData({
@@ -37,7 +37,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     );
 
     if (result.matchedCount === 0) return createResponse(404, false, "Category not found");
-
     return createResponse(200, true, "Category updated successfully");
   } catch (error) {
     console.error("PUT /item-category/[id] Error:", error);
@@ -45,10 +44,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+// ✅ Fixed: Await params
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> } // Changed type
+) {
   try {
-    const { id } = params;
+    const { id } = await params; // AWAIT here
     if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
     const client = await clientPromise;
@@ -56,7 +58,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const category = await db.collection("itemCategories").findOne({ _id: new ObjectId(id) });
 
     if (!category) return NextResponse.json({ error: "Category not found" }, { status: 404 });
-
     return NextResponse.json({ success: true, category }, { status: 200 });
   } catch (error) {
     console.error("GET /item-category/[id] Error:", error);
@@ -64,12 +65,13 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-
-
-// ✅ DELETE Category
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+// ✅ Fixed: Await params
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> } // Changed type
+) {
   try {
-    const { id } = params;
+    const { id } = await params; // AWAIT here
     if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
     const client = await clientPromise;
@@ -77,7 +79,6 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     const result = await db.collection("itemCategories").deleteOne({ _id: new ObjectId(id) });
 
     if (result.deletedCount === 0) return NextResponse.json({ error: "Category not found" }, { status: 404 });
-
     return NextResponse.json({ success: true, message: "Category deleted successfully" }, { status: 200 });
   } catch (error) {
     console.error("DELETE /item-category/[id] Error:", error);

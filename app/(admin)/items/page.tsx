@@ -82,6 +82,7 @@ const ItemSchema = z.object({
   description: z.string().min(1, "Description is required"),
   categoryId: z.string().min(1, "Category is required"),
   price: z.number().min(0, "Price must be positive"),
+  imageUrl: z.string().nullable().optional(),
   image: z.any().optional(),
   requiredStock: z.array(
     z.object({
@@ -266,10 +267,7 @@ export default function RestaurantMenuManagement() {
   const removeImage = () => {
     setSelectedImage(null)
     setImagePreview(null)
-    if (selectedItem?.imageUrl) {
-      // For existing items, we'll mark the image for removal
-      setValue("imageUrl", "")
-    }
+    setValue("imageUrl", null)
   }
 
   const handleCreateOrUpdate = async (data: MenuItem & { image?: File }) => {
@@ -299,11 +297,13 @@ export default function RestaurantMenuManagement() {
       const validRequiredStock = (data.requiredStock || DEFAULT_REQUIRED_STOCK).filter(stock => stock.stockId && stock.quantity > 0)
       formData.append("requiredStock", JSON.stringify(validRequiredStock))
       
-      // Add image if selected
+      // Handle image logic
       if (selectedImage) {
-        formData.append("image", selectedImage)
-      } else if (selectedItem && !imagePreview && !selectedItem.imageUrl) {
-        // If editing and image was removed
+        formData.append('image', selectedImage);
+      } else if (data.imageUrl) { // if it's a string (URL), keep it
+        formData.append('imageUrl', data.imageUrl);
+      } else if (selectedItem && selectedItem.imageUrl) {
+        // This means an existing image was removed (data.imageUrl is null/undefined/empty)
         formData.append("removeImage", "true")
       }
       

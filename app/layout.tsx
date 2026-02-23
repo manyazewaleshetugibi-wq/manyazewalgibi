@@ -19,8 +19,7 @@ export const metadata: Metadata = {
   title: "Manyazewal Eshetu Gibi | Ethiopian & International Cuisine",
   description: "Experience a unique fusion of Ethiopian cultural dishes and international favorites at our culinary oasis in the heart of Bole. Enjoy organic ingredients and attentive service in our welcoming atmosphere.",
   icons: {
-      icon: '/favicon.ico', // Example: spaghetti emoji
- 
+      icon: '/favicon.ico', 
   },
 };
 
