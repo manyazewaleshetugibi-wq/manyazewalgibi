@@ -144,7 +144,7 @@ const generateWelcomeEmail = (firstName: string, lastName: string) => {
                 
                 <div class="special-offer">
                     <h3>🎁 Your Welcome Gift</h3>
-                    <p>As a token of our appreciation, enjoy <strong>15% off</strong> on your next visit! Just show this email or mention your welcome offer when you visit us.</p>
+                    <p>As a token of our appreciation, enjoy <strong>5% off</strong> on your next visit! Just show this email or mention your welcome offer when you visit us.</p>
                     <p style="font-size: 12px; color: #999;">*Valid for 30 days. Not combinable with other offers.</p>
                 </div>
                 
