@@ -1127,26 +1127,6 @@ function CartPanel({
             </div>
             
             <div className="space-y-3 pt-1">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Label htmlFor="apply-discount" className="text-xs">Apply 10% Discount</Label>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Tag className="h-3.5 w-3.5 text-muted-foreground" />
-                      </TooltipTrigger>
-                      <TooltipContent className="text-xs">
-                        <p>Apply a 10% discount to this order</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                <Switch
-                  id="apply-discount"
-                  checked={applyDiscount}
-                  onCheckedChange={setApplyDiscount}
-                />
-              </div>
               
               <div className="flex items-center gap-2">
                 <Label htmlFor="guests" className="text-xs whitespace-nowrap">Guests:</Label>
