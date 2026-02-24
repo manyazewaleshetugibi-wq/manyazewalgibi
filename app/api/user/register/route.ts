@@ -149,7 +149,7 @@ const generateWelcomeEmail = (firstName: string, lastName: string) => {
                 </div>
                 
                 <div style="text-align: center;">
-                    <a href="#" class="cta-button">Browse Our Menu</a>
+                    <a href="https://www.manyazewaleshetugibi.com/menu" class="cta-button">Browse Our Menu</a>
                 </div>
                 
                 <hr>

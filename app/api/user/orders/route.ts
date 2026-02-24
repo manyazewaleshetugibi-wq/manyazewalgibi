@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/auth';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 const uri = process.env.MONGODB_URI;
 
@@ -36,7 +36,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    console.log('Fetching orders for user:', session.user.id);
+    const userId = session.user.id;
+    console.log('Fetching orders for user:', userId);
 
     await client.connect();
     const db = client.db();
@@ -45,26 +46,32 @@ export async function GET(req: NextRequest) {
     const collections = await db.listCollections().toArray();
     console.log('Available collections:', collections.map(c => c.name));
     
-    // Try different collection name variations
+    // Use customerId to match the current user ID (as per your database structure)
     const ordersCollection = db.collection('orders');
-    const orderCount = await ordersCollection.countDocuments({ userId: session.user.id });
-    console.log(`Found ${orderCount} orders for user ${session.user.id}`);
     
-    // Fetch orders for the current user
+    // Try to find orders with customerId matching the current user
+    const orderCount = await ordersCollection.countDocuments({ customerId: userId });
+    console.log(`Found ${orderCount} orders for user ${userId} using customerId`);
+    
+    // Fetch orders for the current user using customerId
     const orders = await ordersCollection
-      .find({ userId: session.user.id })
+      .find({ customerId: userId })
       .sort({ createdAt: -1 })
       .toArray();
 
     console.log(`Retrieved ${orders.length} orders`);
 
-    // If no orders found, return empty array
+    // If no orders found, return empty array with helpful message
     if (orders.length === 0) {
       return NextResponse.json({
         success: true,
         orders: [],
         count: 0,
-        message: 'No orders found'
+        message: 'No orders found',
+        debug: process.env.NODE_ENV === 'development' ? {
+          userId: userId,
+          queryField: 'customerId'
+        } : undefined
       });
     }
 
@@ -80,20 +87,43 @@ export async function GET(req: NextRequest) {
           // Fetch menu items for each order item
           const itemsWithDetails = await Promise.all(
             orderItems.map(async (item) => {
-              const menuItem = await db.collection('menuItems')
-                .findOne({ _id: item.menuItemId });
-              
-              return {
-                name: menuItem?.name || 'Unknown Item',
-                quantity: item.quantity,
-                price: item.price,
-                total: item.quantity * item.price,
-                image: menuItem?.image
-              };
+              try {
+                const menuItem = await db.collection('menuItems')
+                  .findOne({ _id: new ObjectId(item.menuItemId) });
+                
+                return {
+                  id: item._id?.toString(),
+                  name: menuItem?.name || item.name || 'Unknown Item',
+                  quantity: item.quantity || 1,
+                  price: item.price || 0,
+                  total: (item.quantity || 1) * (item.price || 0),
+                  image: menuItem?.image || item.image
+                };
+              } catch (itemError) {
+                console.error('Error fetching menu item:', itemError);
+                return {
+                  id: item._id?.toString(),
+                  name: item.name || 'Unknown Item',
+                  quantity: item.quantity || 1,
+                  price: item.price || 0,
+                  total: (item.quantity || 1) * (item.price || 0),
+                  image: null
+                };
+              }
             })
           );
 
           const calculatedSubtotal = itemsWithDetails.reduce((sum, item) => sum + (item.total || 0), 0);
+
+          // Determine order status
+          let orderStatus = 'pending';
+          if (order.status) {
+            orderStatus = order.status.toLowerCase();
+          } else if (order.completedAt) {
+            orderStatus = 'completed';
+          } else if (order.cancelledAt) {
+            orderStatus = 'cancelled';
+          }
 
           return {
             id: order._id.toString(),
@@ -104,16 +134,21 @@ export async function GET(req: NextRequest) {
               day: 'numeric',
             }),
             datetime: order.createdAt || order.date || new Date().toISOString(),
-            total: order.totalAmount || order.total || 0,
-            subtotal: order.subtotal ?? calculatedSubtotal,
+            total: order.totalAmount || order.finalAmount || order.total || 0,
+            subtotal: order.subtotal ?? order.totalAmount ?? calculatedSubtotal,
             tax: order.tax || 0,
             deliveryFee: order.deliveryFee || 0,
             discount: order.discount || 0,
-            notes: order.notes || null,
-            status: (order.status || 'pending').toLowerCase() as 'completed' | 'pending' | 'cancelled' | 'preparing' | 'delivered',
+            notes: order.specialRequirements || order.notes || null,
+            status: orderStatus as 'completed' | 'pending' | 'cancelled' | 'preparing' | 'delivered',
             paymentMethod: order.paymentMethod || 'Not specified',
-            deliveryAddress: order.deliveryAddress || 'Not specified',
-            items: itemsWithDetails
+            deliveryAddress: order.deliveryAddress || order.deliveryInfo?.address || 'Not specified',
+            items: itemsWithDetails,
+            // Include additional fields that might be useful
+            customerId: order.customerId,
+            createdAt: order.createdAt,
+            completedAt: order.completedAt,
+            updatedAt: order.updatedAt
           };
         } catch (itemError) {
           console.error('Error fetching items for order:', order._id, itemError);
@@ -126,7 +161,7 @@ export async function GET(req: NextRequest) {
               day: 'numeric',
             }),
             datetime: order.createdAt || order.date || new Date().toISOString(),
-            total: order.totalAmount || order.total || 0,
+            total: order.totalAmount || order.finalAmount || order.total || 0,
             subtotal: 0,
             tax: 0,
             deliveryFee: 0,
@@ -134,7 +169,7 @@ export async function GET(req: NextRequest) {
             notes: null,
             status: (order.status || 'pending').toLowerCase() as 'completed' | 'pending' | 'cancelled' | 'preparing' | 'delivered',
             paymentMethod: order.paymentMethod || 'Not specified',
-            deliveryAddress: order.deliveryAddress || 'Not specified',
+            deliveryAddress: order.deliveryAddress || order.deliveryInfo?.address || 'Not specified',
             items: []
           };
         }
@@ -145,6 +180,11 @@ export async function GET(req: NextRequest) {
       success: true,
       orders: ordersWithItems,
       count: ordersWithItems.length,
+      debug: process.env.NODE_ENV === 'development' ? {
+        userId: userId,
+        ordersFound: orders.length,
+        queryField: 'customerId'
+      } : undefined
     });
     
   } catch (error) {

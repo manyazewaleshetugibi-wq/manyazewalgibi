@@ -96,10 +96,20 @@ const roleBasedNavigation = {
           {title: "profit", url: "/profit"}
         ],
       },
+      {
+        title: "BirthDate",
+        url: "/birthdate",
+        icon: Cake,
+        items: [
+          { title: "BirthDate", url: "/BirthDate" },
+          { title: "prizes", url: "/prizes" },
+        ],
+      }
+
+
     ],
     projects: [
       { name: "Dashboard", url: "/dashboard", icon: Tag },
-      { name: "BirthDate", url: "/BirthDate", icon: Cake },
       { name: "POS", url: "/pos", icon: SquareTerminal },
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Expenses", url: "/expenses", icon: DollarSign },
