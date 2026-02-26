@@ -125,21 +125,20 @@ interface Waiter {
   avatar?: string
 }
 
-// Updated UserData interface to match your exact database structure
 interface UserData {
   _id: string
-  id?: string // For frontend convenience
+  id?: string
   firstName: string
   lastName: string
   email: string
   phone: string
-  password?: string // Not displayed
+  password?: string
   birthDate: string
   gender: string
   address: string
   location?: {
     type: string
-    coordinates: [number, number] // [longitude, latitude]
+    coordinates: [number, number]
   }
   role: string
   registrationSource: string
@@ -149,7 +148,6 @@ interface UserData {
   __v?: number
   lastLogin: string
   loginAttempts: number
-  // Additional optional fields
   image?: string
   employeeId?: string
   permissions?: string[]
@@ -161,7 +159,6 @@ interface UserData {
   shift?: string
 }
 
-// Extend the session user type
 interface ExtendedUser {
   id: string
   role: string
@@ -170,7 +167,6 @@ interface ExtendedUser {
   image?: string | null
 }
 
-// Default nutritional info
 const DEFAULT_NUTRITIONAL_INFO: NutritionalInfo = {
   calories: 0,
   protein: 0,
@@ -178,7 +174,6 @@ const DEFAULT_NUTRITIONAL_INFO: NutritionalInfo = {
   fat: 0
 }
 
-// Custom debounce hook
 const useDebounce = <T,>(value: T, delay: number): T => {
   const [debouncedValue, setDebouncedValue] = useState<T>(value)
 
@@ -195,13 +190,11 @@ const useDebounce = <T,>(value: T, delay: number): T => {
   return debouncedValue
 }
 
-// Helper function to extract city from address
 const extractCityFromAddress = (address: string): string => {
   if (!address) return 'Addis Ababa';
   
   const addressParts = address.split(',');
   
-  // Look for common Ethiopian cities
   const cityKeywords = [
     'addis ababa', 'bole', 'kazanchis', 'megenagna', 'piassa',
     'merkato', 'sarbet', 'cazanchis', 'old airport', 'new airport',
@@ -209,7 +202,6 @@ const extractCityFromAddress = (address: string): string => {
     'mexico', 'saris', 'kera', 'akaki', 'kality', 'kaliti'
   ];
   
-  // Check each part for city keywords
   for (const part of addressParts) {
     const trimmedPart = part.trim().toLowerCase();
     if (cityKeywords.some(keyword => trimmedPart.includes(keyword))) {
@@ -217,7 +209,6 @@ const extractCityFromAddress = (address: string): string => {
     }
   }
   
-  // If address has multiple parts, use the second last part as city
   if (addressParts.length > 1) {
     return addressParts[addressParts.length - 2]?.trim() || 'Addis Ababa';
   }
@@ -225,7 +216,6 @@ const extractCityFromAddress = (address: string): string => {
   return 'Addis Ababa';
 }
 
-// Get category icon
 const getCategoryIcon = (type: string) => {
   switch (type.toLowerCase()) {
     case 'food':
@@ -239,7 +229,6 @@ const getCategoryIcon = (type: string) => {
   }
 }
 
-// Login Prompt Dialog Component
 const LoginPromptDialog = ({ 
   open, 
   onOpenChange,
@@ -298,7 +287,6 @@ const LoginPromptDialog = ({
   )
 }
 
-// Item Detail Dialog Component
 const ItemDetailDialog = ({ 
   item, 
   categoryName,
@@ -316,7 +304,6 @@ const ItemDetailDialog = ({
   isUserLoggedIn: boolean
   onLoginRequired: (message: string) => void
 }) => {
-  // Get the correct image path
   const getImagePath = (imageUrl?: string) => {
     if (!imageUrl) return '/placeholder.svg';
     if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
@@ -354,7 +341,6 @@ const ItemDetailDialog = ({
         
         <ScrollArea className="max-h-[70vh] pr-4">
           <div className="space-y-6">
-            {/* Image Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="relative h-64 lg:h-80 rounded-lg overflow-hidden">
                 <Image
@@ -427,7 +413,6 @@ const ItemDetailDialog = ({
             
             <Separator />
             
-            {/* Nutritional Information */}
             <div>
               <h3 className="text-lg font-semibold mb-4">Nutritional Information</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -450,7 +435,6 @@ const ItemDetailDialog = ({
               </div>
             </div>
             
-            {/* Required Stock (if available) */}
             {item.requiredStock && item.requiredStock.length > 0 && (
               <>
                 <Separator />
@@ -489,7 +473,6 @@ const ItemDetailDialog = ({
   )
 }
 
-// Payment Upload Dialog Component
 const PaymentUploadDialog = ({
   open,
   onOpenChange,
@@ -676,7 +659,6 @@ const PaymentUploadDialog = ({
   </Dialog>
 )
 
-// CartPanel Component
 const CartPanel = ({
   cart,
   onClose,
@@ -689,8 +671,6 @@ const CartPanel = ({
   waiters,
   selectedWaiter,
   onWaiterChange,
-  deliveryInfo,
-  onDeliveryInfoChange,
   numberOfGuests,
   onGuestsChange,
   specialRequirements,
@@ -703,7 +683,8 @@ const CartPanel = ({
   onPlaceOrder,
   isPlacingOrder,
   isUserLoggedIn,
-  onLoginRequired
+  onLoginRequired,
+  userData
 }: {
   cart: CartItem[]
   onClose: () => void
@@ -716,8 +697,6 @@ const CartPanel = ({
   waiters: Waiter[]
   selectedWaiter: string
   onWaiterChange: (id: string) => void
-  deliveryInfo: DeliveryInfo
-  onDeliveryInfoChange: (field: keyof DeliveryInfo, value: string) => void
   numberOfGuests: number
   onGuestsChange: (num: number) => void
   specialRequirements: string
@@ -731,6 +710,7 @@ const CartPanel = ({
   isPlacingOrder: boolean
   isUserLoggedIn: boolean
   onLoginRequired: (message: string) => void
+  userData: UserData | null
 }) => {
   const handlePlaceOrder = () => {
     if (!isUserLoggedIn) {
@@ -739,6 +719,8 @@ const CartPanel = ({
     }
     onPlaceOrder()
   }
+
+  const userFullName = userData ? `${userData.firstName} ${userData.lastName}`.trim() : '';
   
   return (
     <div className="flex flex-col h-full">
@@ -910,106 +892,47 @@ const CartPanel = ({
                         </SelectContent>
                       </Select>
                     </div>
+                    
+                    {/* Number of Guests - Only for Table Orders */}
+                    <div className="space-y-2">
+                      <Label htmlFor="guests">
+                        <Users className="inline mr-2 h-4 w-4" />
+                        Number of Guests *
+                      </Label>
+                      <Select 
+                        value={numberOfGuests.toString()} 
+                        onValueChange={(v) => onGuestsChange(parseInt(v))}
+                      >
+                        <SelectTrigger id="guests">
+                          <SelectValue placeholder="Select number of guests" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 10 }, (_, i) => (
+                            <SelectItem key={i} value={(i + 1).toString()}>
+                              {i + 1} {i === 0 ? 'guest' : 'guests'}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </>
                 )}
 
                 {orderType === 'delivery' && (
-                  <div className="space-y-3 border rounded-lg p-3">
-                    <h4 className="font-medium flex items-center gap-2">
+                  <div className="space-y-3 border rounded-lg p-3 bg-green-50">
+                    <h4 className="font-medium flex items-center gap-2 text-green-700">
                       <MapPin className="h-4 w-4" />
-                      Delivery Information
+                      Delivery Information (Auto-filled from your profile)
                     </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <Label htmlFor="full-name">Full Name *</Label>
-                        <Input
-                          id="full-name"
-                          placeholder="John Doe"
-                          value={deliveryInfo.fullName}
-                          onChange={(e) => onDeliveryInfoChange('fullName', e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="phone">Phone Number *</Label>
-                        <Input
-                          id="phone"
-                          placeholder="0912345678"
-                          value={deliveryInfo.phone}
-                          onChange={(e) => onDeliveryInfoChange('phone', e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label htmlFor="email">Email *</Label>
-                        <Input
-                          id="email"
-                          type="email"
-                          placeholder="john@example.com"
-                          value={deliveryInfo.email}
-                          onChange={(e) => onDeliveryInfoChange('email', e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label htmlFor="address">Address *</Label>
-                        <Input
-                          id="address"
-                          placeholder="Street, House Number"
-                          value={deliveryInfo.address}
-                          onChange={(e) => onDeliveryInfoChange('address', e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="city">City *</Label>
-                        <Input
-                          id="city"
-                          placeholder="Addis Ababa"
-                          value={deliveryInfo.city}
-                          onChange={(e) => onDeliveryInfoChange('city', e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="landmark">Landmark (Optional)</Label>
-                        <Input
-                          id="landmark"
-                          placeholder="Nearby landmark"
-                          value={deliveryInfo.landmark || ''}
-                          onChange={(e) => onDeliveryInfoChange('landmark', e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label htmlFor="delivery-instructions">Delivery Instructions (Optional)</Label>
-                        <Textarea
-                          id="delivery-instructions"
-                          placeholder="Gate code, floor number, etc."
-                          value={deliveryInfo.deliveryInstructions || ''}
-                          onChange={(e) => onDeliveryInfoChange('deliveryInstructions', e.target.value)}
-                          rows={2}
-                        />
-                      </div>
+                    <div className="space-y-2 text-sm">
+                      <p><span className="font-medium">Name:</span> {userFullName || 'Not provided'}</p>
+                      <p><span className="font-medium">Phone:</span> {userData?.phone || 'Not provided'}</p>
+                      <p><span className="font-medium">Email:</span> {userData?.email || 'Not provided'}</p>
+                      <p><span className="font-medium">Address:</span> {userData?.address || 'Not provided'}</p>
+                      <p><span className="font-medium">City:</span> {userData?.address ? extractCityFromAddress(userData.address) : 'Addis Ababa'}</p>
                     </div>
                   </div>
                 )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="guests">
-                    <Users className="inline mr-2 h-4 w-4" />
-                    Number of Guests
-                  </Label>
-                  <Select 
-                    value={numberOfGuests.toString()} 
-                    onValueChange={(v) => onGuestsChange(parseInt(v))}
-                  >
-                    <SelectTrigger id="guests">
-                      <SelectValue placeholder="Select number of guests" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from({ length: 10 }, (_, i) => (
-                        <SelectItem key={i} value={(i + 1).toString()}>
-                          {i + 1} {i === 0 ? 'guest' : 'guests'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="special-requirements">Special Requirements</Label>
@@ -1123,16 +1046,6 @@ export default function ItemMenu() {
   const [orderType, setOrderType] = useState<'table' | 'delivery' | ''>('')
   const [tableNumber, setTableNumber] = useState('')
   const [selectedWaiter, setSelectedWaiter] = useState('')
-  
-  const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo>({
-    fullName: '',
-    phone: '',
-    email: '',
-    address: '',
-    city: '',
-    landmark: '',
-    deliveryInstructions: ''
-  })
   
   const [paymentScreenshot, setPaymentScreenshot] = useState<PaymentScreenshot>({
     file: null,
@@ -1253,30 +1166,6 @@ export default function ItemMenu() {
             };
             
             setUserData(mappedUserData);
-            
-            const extractedCity = extractCityFromAddress(mappedUserData.address || '');
-            
-            setDeliveryInfo(prev => {
-              const updatedInfo = { ...prev };
-              
-              if (!prev.fullName && mappedUserData.firstName && mappedUserData.lastName) {
-                updatedInfo.fullName = `${mappedUserData.firstName} ${mappedUserData.lastName}`.trim();
-              }
-              if (!prev.email && mappedUserData.email) {
-                updatedInfo.email = mappedUserData.email;
-              }
-              if (!prev.phone && mappedUserData.phone) {
-                updatedInfo.phone = mappedUserData.phone;
-              }
-              if (!prev.address && mappedUserData.address) {
-                updatedInfo.address = mappedUserData.address;
-              }
-              if (!prev.city && extractedCity) {
-                updatedInfo.city = extractedCity;
-              }
-              
-              return updatedInfo;
-            });
           }
         } catch (err: any) {
           console.error('Error fetching user data:', err);
@@ -1424,13 +1313,6 @@ export default function ItemMenu() {
   const deliveryFee = useMemo(() => orderType === 'delivery' ? 50 : 0, [orderType])
   const finalAmount = useMemo(() => subtotal + tax + deliveryFee, [subtotal, tax, deliveryFee])
 
-  const handleDeliveryInfoChange = (field: keyof DeliveryInfo, value: string) => {
-    setDeliveryInfo(prev => ({
-      ...prev,
-      [field]: value
-    }))
-  }
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -1463,30 +1345,6 @@ export default function ItemMenu() {
       previewUrl: '',
       uploaded: false
     })
-  }
-
-  const validateDeliveryInfo = () => {
-    const requiredFields: (keyof DeliveryInfo)[] = ['fullName', 'phone', 'email', 'address', 'city']
-    for (const field of requiredFields) {
-      if (!deliveryInfo[field]?.trim()) {
-        toast.error(`Please fill in ${field.replace(/([A-Z])/g, ' $1').toLowerCase()}`)
-        return false
-      }
-    }
-    
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(deliveryInfo.email)) {
-      toast.error('Please enter a valid email address')
-      return false
-    }
-    
-    const phoneRegex = /^[0-9]{10}$/
-    if (!phoneRegex.test(deliveryInfo.phone.replace(/\D/g, ''))) {
-      toast.error('Please enter a valid 10-digit phone number')
-      return false
-    }
-    
-    return true
   }
 
   const uploadToCloudinary = async (file: File): Promise<string> => {
@@ -1530,44 +1388,36 @@ export default function ItemMenu() {
       const userLocation = userData?.location || null;
       
       if (orderType === 'delivery') {
-        // For delivery orders - use /api/delivery with FormData
+        if (!userData) {
+          toast.error('User data not found. Please try again.', { id: orderToast });
+          setIsPlacingOrder(false);
+          return;
+        }
+
+        const extractedCity = extractCityFromAddress(userData.address || '');
+        
         const orderData = {
-          // Required fields for DeliveryOrderSchema
           orderNumber: orderNumber,
           paymentMethod: 'ONLINE',
-          
-          // Order Details
-          numberOfGuests: numberOfGuests,
+          numberOfGuests: 1, // Default to 1 for delivery
           items: cart.map(item => ({
             itemId: item._id,
             quantity: item.quantity,
             notes: item.specialInstructions || ''
           })),
-          
-          // Financial Information
           discount: 0,
-          
-          // Status
           specialRequirements: specialRequirements,
-          
-          // Delivery specific fields
           deliveryInfo: {
-            fullName: deliveryInfo.fullName,
-            phoneNumber: deliveryInfo.phone,
-            email: deliveryInfo.email,
-            address: deliveryInfo.address,
-            city: deliveryInfo.city,
-            landmark: deliveryInfo.landmark || '',
-            deliveryInstructions: deliveryInfo.deliveryInstructions || '',
+            fullName: `${userData.firstName} ${userData.lastName}`.trim(),
+            phoneNumber: userData.phone,
+            email: userData.email,
+            address: userData.address || '',
+            city: extractedCity,
+            landmark: '',
+            deliveryInstructions: specialRequirements,
           },
-          
-          // Location for tracking
           location: userLocation,
-          
-          // Transaction ID
           transactionId: transactionId || undefined,
-          
-          // Metadata
           customerId: user?.id || 'walk-in',
         };
 
@@ -1592,41 +1442,25 @@ export default function ItemMenu() {
         toast.success('Delivery order placed successfully!', { id: orderToast });
         
       } else {
-        // For table orders - use /api/orders with JSON
         const screenshotUrl = await uploadToCloudinary(paymentScreenshot.file);
         
         const orderData = {
-          // Required fields
           orderNumber: orderNumber,
           paymentMethod: 'ONLINE',
-          
-          // Order Details
           numberOfGuests: numberOfGuests,
           items: cart.map(item => ({
             itemId: item._id,
             quantity: item.quantity,
             notes: item.specialInstructions || ''
           })),
-          
-          // Table specific fields
           tableNumber: tableNumber,
           waiterId: selectedWaiter,
           inTable: true,
           delivery: false,
-          
-          // Financial Information
           discount: 0,
-          
-          // Payment
           paymentScreenshotUrl: screenshotUrl,
-          
-          // Transaction ID
           transactionId: transactionId || undefined,
-          
-          // Status
           specialRequirements: specialRequirements,
-          
-          // Metadata
           customerId: user?.id || 'walk-in',
         };
         
@@ -1663,16 +1497,6 @@ export default function ItemMenu() {
       setTransactionId('');
       setSpecialRequirements('');
       setShowPaymentUpload(false);
-      
-      setDeliveryInfo({
-        fullName: '',
-        phone: '',
-        email: '',
-        address: '',
-        city: '',
-        landmark: '',
-        deliveryInstructions: ''
-      });
       
       let progress = 0;
       const interval = setInterval(() => {
@@ -1726,8 +1550,17 @@ export default function ItemMenu() {
       }
     }
 
-    if (orderType === 'delivery' && !validateDeliveryInfo()) {
-      return
+    if (orderType === 'delivery') {
+      if (!userData) {
+        toast.error('User data not loaded. Please try again.');
+        return;
+      }
+      
+      if (!userData.phone || !userData.address) {
+        toast.error('Please complete your profile information (phone and address) before placing a delivery order');
+        router.push('/profile');
+        return;
+      }
     }
 
     setShowPaymentUpload(true)
@@ -1941,147 +1774,153 @@ export default function ItemMenu() {
       <NavBar />
       
       <main className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => router.back()}
-              className="rounded-full"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
-            <h1 className="text-4xl font-bold">Item Menu</h1>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
-              <SheetTrigger asChild>
-                <Button variant="default" className="relative">
-                  <ShoppingCart className="mr-2 h-4 w-4" />
-                  Cart
-                  {cart.length > 0 && (
-                    <span className="absolute -top-2 -right-2 bg-primary text-primary-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                      {cart.length}
-                    </span>
-                  )}
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-full sm:max-w-lg">
-                <CartPanel 
-                  cart={cart}
-                  onClose={() => setIsCartOpen(false)}
-                  onRemoveItem={removeFromCart}
-                  onUpdateQuantity={updateQuantity}
-                  orderType={orderType}
-                  onOrderTypeChange={setOrderType}
-                  tableNumber={tableNumber}
-                  onTableNumberChange={setTableNumber}
-                  waiters={waiters}
-                  selectedWaiter={selectedWaiter}
-                  onWaiterChange={setSelectedWaiter}
-                  deliveryInfo={deliveryInfo}
-                  onDeliveryInfoChange={handleDeliveryInfoChange}
-                  numberOfGuests={numberOfGuests}
-                  onGuestsChange={setNumberOfGuests}
-                  specialRequirements={specialRequirements}
-                  onSpecialRequirementsChange={setSpecialRequirements}
-                  subtotal={subtotal}
-                  tax={tax}
-                  deliveryFee={deliveryFee}
-                  total={finalAmount}
-                  orderNumber={orderNumber}
-                  onPlaceOrder={handlePlaceOrder}
-                  isPlacingOrder={isPlacingOrder}
-                  isUserLoggedIn={isUserLoggedIn}
-                  onLoginRequired={handleLoginRequired}
-                />
-              </SheetContent>
-            </Sheet>
-          </div>
-        </div>
-        
-        <div className="sticky top-0 z-10 bg-gray-100 py-4 mb-8 space-y-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="relative flex-grow">
-              <Search className="absolute left-3 top-3 text-gray-400" size={20} />
-              <Input
-                type="text"
-                placeholder="Search items..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select onValueChange={(value) => setSelectedCategory(value === 'all' ? null : value)}>
-              <SelectTrigger className="w-full md:w-[200px]">
-                <SelectValue placeholder="All Categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map((category) => (
-                  <SelectItem key={category._id} value={category._id}>
-                    <div className="flex items-center gap-2">
-                      {getCategoryIcon(category.type)}
-                      {category.name}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex gap-2">
+        {/* Sticky Header with Cart Button */}
+        <div className="sticky top-0 z-20 bg-gray-100 pt-4 pb-6 -mt-4">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
               <Button
                 variant="outline"
-                size="sm"
-                onClick={() => handleSort('name')}
-                className="flex items-center gap-1"
+                size="icon"
+                onClick={() => router.back()}
+                className="rounded-full"
               >
-                Name
-                {sortField === 'name' && (sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
+                <ArrowLeft className="w-4 h-4" />
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleSort('price')}
-                className="flex items-center gap-1"
-              >
-                Price
-                {sortField === 'price' && (sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleSort('preparationTime')}
-                className="flex items-center gap-1"
-              >
-                Prep Time
-                {sortField === 'preparationTime' && (sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
-              </Button>
+              <h1 className="text-4xl font-bold">Item Menu</h1>
             </div>
             
-            <div className="ml-auto flex gap-2">
-              <Button
-                variant={viewMode === 'grid' ? 'default' : 'outline'}
-                size="icon"
-                onClick={() => setViewMode('grid')}
-              >
-                <Grid size={20} />
-              </Button>
-              <Button
-                variant={viewMode === 'list' ? 'default' : 'outline'}
-                size="icon"
-                onClick={() => setViewMode('list')}
-              >
-                <List size={20} />
-              </Button>
+            <div className="flex items-center gap-4">
+              <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="default" className="relative shadow-lg hover:shadow-xl transition-shadow">
+                    <ShoppingCart className="mr-2 h-4 w-4" />
+                    Cart
+                    {cart.length > 0 && (
+                      <span className="absolute -top-2 -right-2 bg-primary text-primary-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
+                        {cart.length}
+                      </span>
+                    )}
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="right" className="w-full sm:max-w-lg">
+                  <CartPanel 
+                    cart={cart}
+                    onClose={() => setIsCartOpen(false)}
+                    onRemoveItem={removeFromCart}
+                    onUpdateQuantity={updateQuantity}
+                    orderType={orderType}
+                    onOrderTypeChange={setOrderType}
+                    tableNumber={tableNumber}
+                    onTableNumberChange={setTableNumber}
+                    waiters={waiters}
+                    selectedWaiter={selectedWaiter}
+                    onWaiterChange={setSelectedWaiter}
+                    numberOfGuests={numberOfGuests}
+                    onGuestsChange={setNumberOfGuests}
+                    specialRequirements={specialRequirements}
+                    onSpecialRequirementsChange={setSpecialRequirements}
+                    subtotal={subtotal}
+                    tax={tax}
+                    deliveryFee={deliveryFee}
+                    total={finalAmount}
+                    orderNumber={orderNumber}
+                    onPlaceOrder={handlePlaceOrder}
+                    isPlacingOrder={isPlacingOrder}
+                    isUserLoggedIn={isUserLoggedIn}
+                    onLoginRequired={handleLoginRequired}
+                    userData={userData}
+                  />
+                </SheetContent>
+              </Sheet>
+            </div>
+          </div>
+          
+          {/* Search and Filter Bar */}
+          <div className="space-y-4">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="relative flex-grow">
+                <Search className="absolute left-3 top-3 text-gray-400" size={20} />
+                <Input
+                  type="text"
+                  placeholder="Search items..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 bg-white/80 backdrop-blur-sm"
+                />
+              </div>
+              <Select onValueChange={(value) => setSelectedCategory(value === 'all' ? null : value)}>
+                <SelectTrigger className="w-full md:w-[200px] bg-white/80 backdrop-blur-sm">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={category._id} value={category._id}>
+                      <div className="flex items-center gap-2">
+                        {getCategoryIcon(category.type)}
+                        {category.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSort('name')}
+                  className="flex items-center gap-1 bg-white/80 backdrop-blur-sm"
+                >
+                  Name
+                  {sortField === 'name' && (sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSort('price')}
+                  className="flex items-center gap-1 bg-white/80 backdrop-blur-sm"
+                >
+                  Price
+                  {sortField === 'price' && (sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSort('preparationTime')}
+                  className="flex items-center gap-1 bg-white/80 backdrop-blur-sm"
+                >
+                  Prep Time
+                  {sortField === 'preparationTime' && (sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
+                </Button>
+              </div>
+              
+              <div className="ml-auto flex gap-2">
+                <Button
+                  variant={viewMode === 'grid' ? 'default' : 'outline'}
+                  size="icon"
+                  onClick={() => setViewMode('grid')}
+                  className="bg-white/80 backdrop-blur-sm"
+                >
+                  <Grid size={20} />
+                </Button>
+                <Button
+                  variant={viewMode === 'list' ? 'default' : 'outline'}
+                  size="icon"
+                  onClick={() => setViewMode('list')}
+                  className="bg-white/80 backdrop-blur-sm"
+                >
+                  <List size={20} />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
 
-        <ScrollArea className="h-[calc(100vh-300px)]">
+        {/* Menu Items with Smooth Scrolling */}
+        <div className="scroll-smooth">
           {loading || sessionStatus === 'loading' || isLoadingUser ? (
             <div className={`grid gap-8 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
               {[...Array(8)].map((_, index) => (
@@ -2112,9 +1951,9 @@ export default function ItemMenu() {
                   <motion.div
                     key={item._id}
                     layout
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
                     transition={{ duration: 0.3 }}
                   >
                     {viewMode === 'grid' ? (
@@ -2127,7 +1966,7 @@ export default function ItemMenu() {
               </AnimatePresence>
             </motion.div>
           )}
-        </ScrollArea>
+        </div>
       </main>
 
       <LoginPromptDialog 
