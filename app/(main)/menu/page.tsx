@@ -10,7 +10,7 @@ import {
   Search, X, ChevronDown, ChevronUp, Clock, DollarSign, Tag, Utensils, 
   Grid, List, ShoppingCart, Plus, Minus, ChefHat, Sparkles, ArrowLeft, Receipt,
   Users, MapPin, Phone, User, Mail, Home, CreditCard, Upload, Check, Info,
-  Wallet, LogIn
+  Wallet, LogIn, Map, Calendar, Fingerprint, Globe, Shield, Clock as ClockIcon
 } from 'lucide-react'
 import { NavBar } from '@/components/NavBar'
 import { Button } from "@/components/ui/button"
@@ -24,7 +24,6 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
-import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -49,11 +48,6 @@ api.interceptors.response.use(
       return Promise.reject(new Error('Request timeout - please try again'));
     }
     
-    if (error.response?.status === 404) {
-      console.log('API endpoint not found:', error.config?.url);
-      return Promise.reject(new Error(`Endpoint ${error.config?.url} not found`));
-    }
-    
     if (error.response?.data) {
       const contentType = error.response.headers['content-type'];
       if (contentType && contentType.includes('text/html')) {
@@ -65,6 +59,10 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Cloudinary configuration
+const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
+const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
 
 interface Category {
   _id: string
@@ -106,7 +104,7 @@ interface CartItem extends Item {
 
 interface DeliveryInfo {
   fullName: string
-  phoneNumber: string
+  phone: string
   email: string
   address: string
   city: string
@@ -127,21 +125,40 @@ interface Waiter {
   avatar?: string
 }
 
+// Updated UserData interface to match your exact database structure
 interface UserData {
   _id: string
+  id?: string // For frontend convenience
   firstName: string
   lastName: string
   email: string
-  phoneNumber: string
+  phone: string
+  password?: string // Not displayed
+  birthDate: string
+  gender: string
   address: string
-  city: string
-  role?: string
-  name?: string
-  profile?: {
-    phoneNumber?: string
-    address?: string
-    city?: string
+  location?: {
+    type: string
+    coordinates: [number, number] // [longitude, latitude]
   }
+  role: string
+  registrationSource: string
+  locationConsent: boolean
+  createdAt: string
+  updatedAt: string
+  __v?: number
+  lastLogin: string
+  loginAttempts: number
+  // Additional optional fields
+  image?: string
+  employeeId?: string
+  permissions?: string[]
+  status?: string
+  requiresPasswordChange?: boolean
+  googleId?: string
+  emailVerified?: boolean
+  specialization?: string
+  shift?: string
 }
 
 // Extend the session user type
@@ -176,6 +193,36 @@ const useDebounce = <T,>(value: T, delay: number): T => {
   }, [value, delay])
 
   return debouncedValue
+}
+
+// Helper function to extract city from address
+const extractCityFromAddress = (address: string): string => {
+  if (!address) return 'Addis Ababa';
+  
+  const addressParts = address.split(',');
+  
+  // Look for common Ethiopian cities
+  const cityKeywords = [
+    'addis ababa', 'bole', 'kazanchis', 'megenagna', 'piassa',
+    'merkato', 'sarbet', 'cazanchis', 'old airport', 'new airport',
+    'ayertena', 'summit', 'gerji', 'atlas', 'gotera', 'lafto',
+    'mexico', 'saris', 'kera', 'akaki', 'kality', 'kaliti'
+  ];
+  
+  // Check each part for city keywords
+  for (const part of addressParts) {
+    const trimmedPart = part.trim().toLowerCase();
+    if (cityKeywords.some(keyword => trimmedPart.includes(keyword))) {
+      return part.trim();
+    }
+  }
+  
+  // If address has multiple parts, use the second last part as city
+  if (addressParts.length > 1) {
+    return addressParts[addressParts.length - 2]?.trim() || 'Addis Ababa';
+  }
+  
+  return 'Addis Ababa';
 }
 
 // Get category icon
@@ -269,7 +316,17 @@ const ItemDetailDialog = ({
   isUserLoggedIn: boolean
   onLoginRequired: (message: string) => void
 }) => {
-  const [selectedImage, setSelectedImage] = useState(item.imageUrl || '/placeholder.svg')
+  // Get the correct image path
+  const getImagePath = (imageUrl?: string) => {
+    if (!imageUrl) return '/placeholder.svg';
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
+    if (imageUrl.includes('cloudinary.com')) return imageUrl;
+    if (imageUrl.startsWith('/uploads/')) return imageUrl;
+    if (!imageUrl.startsWith('/') && !imageUrl.includes('://')) return `/uploads/${imageUrl}`;
+    return imageUrl;
+  };
+  
+  const [selectedImage, setSelectedImage] = useState(getImagePath(item.imageUrl))
   const nutritionalInfo = item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
   
   const handleAddToCartClick = () => {
@@ -443,13 +500,11 @@ const PaymentUploadDialog = ({
   onTransactionIdChange,
   subtotal,
   tax,
-  discount,
   orderType,
   deliveryFee,
   total,
   onFinalizeOrder,
-  isPlacingOrder,
-  paymentMethod
+  isPlacingOrder
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -460,151 +515,107 @@ const PaymentUploadDialog = ({
   onTransactionIdChange: (value: string) => void
   subtotal: number
   tax: number
-  discount: number
   orderType: string
   deliveryFee: number
   total: number
   onFinalizeOrder: () => void
   isPlacingOrder: boolean
-  paymentMethod: string
 }) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
-          {paymentMethod === 'cash' ? (
-            <Wallet className="h-5 w-5" />
-          ) : (
-            <CreditCard className="h-5 w-5" />
-          )}
-          {paymentMethod === 'cash' ? 'Cash Payment' : 'Payment Verification'}
+          <CreditCard className="h-5 w-5" />
+          Payment Verification
         </DialogTitle>
         <DialogDescription>
-          {paymentMethod === 'cash' 
-            ? 'Order confirmation for cash payment'
-            : 'Please upload a screenshot of your payment confirmation'}
+          Please upload a screenshot of your payment confirmation
         </DialogDescription>
       </DialogHeader>
       
       <div className="flex-1 overflow-y-auto -mr-4 pr-4">
         <div className="space-y-4 py-1">
-          {paymentMethod === 'online' && (
-            <Alert>
-              <AlertDescription className="text-sm">
-                Payment Details:
-                <div className="mt-2 space-y-1">
-                  <div className="flex justify-between">
-                    <span>Bank Name:</span>
-                    <span className="font-semibold">Commercial Bank of Ethiopia</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Account Number:</span>
-                    <span className="font-semibold">1000000000000</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Account Name:</span>
-                    <span className="font-semibold">Manyazewal Eshetu Gibi</span>
-                  </div>
+          <Alert>
+            <AlertDescription className="text-sm">
+              Payment Details:
+              <div className="mt-2 space-y-1">
+                <div className="flex justify-between">
+                  <span>Bank Name:</span>
+                  <span className="font-semibold">Commercial Bank of Ethiopia</span>
                 </div>
-              </AlertDescription>
-            </Alert>
-          )}
-          
-          {paymentMethod === 'online' && (
-            <div className="space-y-3">
-              <Label>Upload Payment Screenshot</Label>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary transition-colors">
-                {paymentScreenshot.previewUrl ? (
-                  <div className="space-y-3">
-                    <div className="relative w-48 h-48 mx-auto">
-                      <Image
-                        src={paymentScreenshot.previewUrl}
-                        alt="Payment screenshot"
-                        fill
-                        className="object-contain rounded-md"
-                        unoptimized
-                      />
-                    </div>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={onRemoveScreenshot}
-                      className="mt-2"
-                    >
-                      <X className="mr-2 h-4 w-4" />
-                      Remove Image
-                    </Button>
-                  </div>
-                ) : (
-                  <>
-                    <Upload className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                    <div className="text-sm text-gray-600 mb-3">
-                      Drag & drop your payment screenshot here, or click to browse
-                    </div>
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      onChange={onFileUpload}
-                      className="hidden"
-                      id="payment-screenshot"
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={() => document.getElementById('payment-screenshot')?.click()}
-                    >
-                      <Upload className="mr-2 h-4 w-4" />
-                      Choose File
-                    </Button>
-                    <p className="text-xs text-gray-500 mt-2">
-                      Supported: JPG, PNG, GIF (Max 5MB)
-                    </p>
-                  </>
-                )}
+                <div className="flex justify-between">
+                  <span>Account Number:</span>
+                  <span className="font-semibold">1000000000000</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Account Name:</span>
+                  <span className="font-semibold">Manyazewal Eshetu Gibi</span>
+                </div>
               </div>
-            </div>
-          )}
+            </AlertDescription>
+          </Alert>
           
-          {paymentMethod === 'online' && (
-            <div className="space-y-2">
-              <Label htmlFor="transaction-id">Transaction ID (Optional)</Label>
-              <Input
-                id="transaction-id"
-                placeholder="Enter transaction ID if available"
-                value={transactionId}
-                onChange={(e) => onTransactionIdChange(e.target.value)}
-              />
-            </div>
-          )}
-          
-          {paymentMethod === 'cash' && orderType === 'delivery' && (
-            <Alert>
-              <AlertDescription className="text-sm">
-                <div className="flex items-center gap-2 mb-2">
-                  <Wallet className="h-4 w-4" />
-                  <span className="font-medium">Cash on Delivery</span>
+          <div className="space-y-3">
+            <Label>Upload Payment Screenshot</Label>
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary transition-colors">
+              {paymentScreenshot.previewUrl ? (
+                <div className="space-y-3">
+                  <div className="relative w-48 h-48 mx-auto">
+                    <Image
+                      src={paymentScreenshot.previewUrl}
+                      alt="Payment screenshot"
+                      fill
+                      className="object-contain rounded-md"
+                      unoptimized
+                    />
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={onRemoveScreenshot}
+                    className="mt-2"
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Remove Image
+                  </Button>
                 </div>
-                <p>You'll pay {total.toLocaleString()} ETB in cash when your order is delivered.</p>
-                <p className="mt-2 text-xs text-gray-600">
-                  Please have the exact amount ready for faster transaction.
-                </p>
-              </AlertDescription>
-            </Alert>
-          )}
+              ) : (
+                <>
+                  <Upload className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                  <div className="text-sm text-gray-600 mb-3">
+                    Drag & drop your payment screenshot here, or click to browse
+                  </div>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={onFileUpload}
+                    className="hidden"
+                    id="payment-screenshot"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => document.getElementById('payment-screenshot')?.click()}
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    Choose File
+                  </Button>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Supported: JPG, PNG, GIF (Max 5MB)
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
           
-          {paymentMethod === 'cash' && orderType === 'table' && (
-            <Alert>
-              <AlertDescription className="text-sm">
-                <div className="flex items-center gap-2 mb-2">
-                  <Wallet className="h-4 w-4" />
-                  <span className="font-medium">Cash Payment at Table</span>
-                </div>
-                <p>You'll pay {total.toLocaleString()} ETB in cash when you receive your order.</p>
-                <p className="mt-2 text-xs text-gray-600">
-                  Your waitress will bring the bill to your table.
-                </p>
-              </AlertDescription>
-            </Alert>
-          )}
+          <div className="space-y-2">
+            <Label htmlFor="transaction-id">Transaction ID (Optional)</Label>
+            <Input
+              id="transaction-id"
+              placeholder="Enter transaction ID if available"
+              value={transactionId}
+              onChange={(e) => onTransactionIdChange(e.target.value)}
+            />
+          </div>
           
           <div className="pt-4 space-y-2">
             <div className="bg-gray-50 p-3 rounded-lg">
@@ -618,12 +629,6 @@ const PaymentUploadDialog = ({
                   <span>Tax (15%):</span>
                   <span>{tax.toLocaleString()} ETB</span>
                 </div>
-                {discount > 0 && (
-                  <div className="flex justify-between text-green-600">
-                    <span>Discount (10%):</span>
-                    <span>-{discount.toLocaleString()} ETB</span>
-                  </div>
-                )}
                 {orderType === 'delivery' && (
                   <div className="flex justify-between">
                     <span>Delivery Fee:</span>
@@ -651,18 +656,13 @@ const PaymentUploadDialog = ({
         </Button>
         <Button
           onClick={onFinalizeOrder}
-          disabled={(paymentMethod === 'online' && !paymentScreenshot.uploaded) || isPlacingOrder}
+          disabled={!paymentScreenshot.uploaded || isPlacingOrder}
           className="min-w-[120px]"
         >
           {isPlacingOrder ? (
             <>
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
               Processing...
-            </>
-          ) : paymentMethod === 'cash' ? (
-            <>
-              <Check className="mr-2 h-4 w-4" />
-              Confirm Cash Order
             </>
           ) : (
             <>
@@ -695,21 +695,14 @@ const CartPanel = ({
   onGuestsChange,
   specialRequirements,
   onSpecialRequirementsChange,
-  paymentMethod,
-  onPaymentMethodChange,
-  applyDiscount,
-  onApplyDiscountChange,
   subtotal,
   tax,
-  discount,
   deliveryFee,
   total,
   orderNumber,
   onPlaceOrder,
   isPlacingOrder,
   isUserLoggedIn,
-  userData,
-  userDataError,
   onLoginRequired
 }: {
   cart: CartItem[]
@@ -729,21 +722,14 @@ const CartPanel = ({
   onGuestsChange: (num: number) => void
   specialRequirements: string
   onSpecialRequirementsChange: (req: string) => void
-  paymentMethod: string
-  onPaymentMethodChange: (method: string) => void
-  applyDiscount: boolean
-  onApplyDiscountChange: (apply: boolean) => void
   subtotal: number
   tax: number
-  discount: number
   deliveryFee: number
   total: number
   orderNumber: string
   onPlaceOrder: () => void
   isPlacingOrder: boolean
   isUserLoggedIn: boolean
-  userData: UserData | null
-  userDataError: string | null
   onLoginRequired: (message: string) => void
 }) => {
   const handlePlaceOrder = () => {
@@ -753,56 +739,6 @@ const CartPanel = ({
     }
     onPlaceOrder()
   }
-  
-  // Auto-fill delivery info when user data changes and order type is delivery
-  useEffect(() => {
-    if (isUserLoggedIn && userData && orderType === 'delivery') {
-      // Get current values from userData
-      const phoneNumber = userData.phoneNumber || userData.profile?.phoneNumber || '';
-      const address = userData.address || userData.profile?.address || '';
-      const city = userData.city || userData.profile?.city || '';
-      const fullName = userData.firstName && userData.lastName 
-        ? `${userData.firstName} ${userData.lastName}`.trim()
-        : userData.name || '';
-      
-      // Only update if values are different from current deliveryInfo
-      const updates: Partial<DeliveryInfo> = {};
-      
-      if (fullName && fullName !== deliveryInfo.fullName) {
-        updates.fullName = fullName;
-      }
-      if (userData.email && userData.email !== deliveryInfo.email) {
-        updates.email = userData.email;
-      }
-      if (phoneNumber && phoneNumber !== deliveryInfo.phoneNumber) {
-        updates.phoneNumber = phoneNumber;
-      }
-      if (address && address !== deliveryInfo.address) {
-        updates.address = address;
-      }
-      if (city && city !== deliveryInfo.city) {
-        updates.city = city;
-      }
-      
-      // Apply updates only if there are changes
-      if (Object.keys(updates).length > 0) {
-        Object.entries(updates).forEach(([key, value]) => {
-          onDeliveryInfoChange(key as keyof DeliveryInfo, value);
-        });
-      }
-    }
-  }, [
-    isUserLoggedIn, 
-    userData,
-    orderType,
-    // Add specific deliveryInfo fields to compare values
-    deliveryInfo.fullName,
-    deliveryInfo.email,
-    deliveryInfo.phoneNumber,
-    deliveryInfo.address,
-    deliveryInfo.city,
-    onDeliveryInfoChange
-  ]);
   
   return (
     <div className="flex flex-col h-full">
@@ -830,103 +766,88 @@ const CartPanel = ({
           <ScrollArea className="flex-1">
             <div className="p-4 space-y-6">
               <div className="space-y-3">
-                {cart.map((item) => (
-                  <div key={item._id} className="flex border rounded-lg overflow-hidden bg-background/50">
-                    <div className="relative h-20 w-20 flex-shrink-0">
-                      <Image
-                        src={item.imageUrl || "/placeholder.svg"}
-                        alt={item.name}
-                        fill
-                        sizes="80px"
-                        className="object-cover"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement
-                          target.src = '/placeholder.svg'
-                        }}
-                        unoptimized={item.imageUrl?.includes('cloudinary.com')}
-                      />
-                    </div>
-                    
-                    <div className="flex-1 p-3 flex flex-col">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h4 className="font-medium">{item.name}</h4>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {item.price.toLocaleString()} ETB
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => onRemoveItem(item._id)}
-                          className="h-6 w-6 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
-                        >
-                          <X className="h-3 w-3" />
-                          <span className="sr-only">Remove</span>
-                        </Button>
+                {cart.map((item) => {
+                  const getImagePath = (imageUrl?: string) => {
+                    if (!imageUrl) return '/placeholder.svg';
+                    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
+                    if (imageUrl.includes('cloudinary.com')) return imageUrl;
+                    if (imageUrl.startsWith('/uploads/')) return imageUrl;
+                    if (!imageUrl.startsWith('/') && !imageUrl.includes('://')) return `/uploads/${imageUrl}`;
+                    return imageUrl;
+                  };
+                  
+                  return (
+                    <div key={item._id} className="flex border rounded-lg overflow-hidden bg-background/50">
+                      <div className="relative h-20 w-20 flex-shrink-0">
+                        <Image
+                          src={getImagePath(item.imageUrl)}
+                          alt={item.name}
+                          fill
+                          sizes="80px"
+                          className="object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement
+                            target.src = '/placeholder.svg'
+                          }}
+                          unoptimized={item.imageUrl?.includes('cloudinary.com')}
+                        />
                       </div>
                       
-                      <div className="mt-auto pt-2 flex justify-between items-center">
-                        <div className="flex items-center border rounded-md">
+                      <div className="flex-1 p-3 flex flex-col">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-medium">{item.name}</h4>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {item.price.toLocaleString()} ETB
+                            </p>
+                          </div>
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => onUpdateQuantity(item._id, item.quantity - 1)}
-                            className="h-7 w-7 rounded-none rounded-l-md p-0"
+                            onClick={() => onRemoveItem(item._id)}
+                            className="h-6 w-6 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
                           >
-                            <Minus className="h-3 w-3" />
-                            <span className="sr-only">Decrease</span>
-                          </Button>
-                          <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => onUpdateQuantity(item._id, item.quantity + 1)}
-                            className="h-7 w-7 rounded-none rounded-r-md p-0"
-                          >
-                            <Plus className="h-3 w-3" />
-                            <span className="sr-only">Increase</span>
+                            <X className="h-3 w-3" />
+                            <span className="sr-only">Remove</span>
                           </Button>
                         </div>
                         
-                        <span className="text-sm font-medium">
-                          {(item.price * item.quantity).toLocaleString()} ETB
-                        </span>
+                        <div className="mt-auto pt-2 flex justify-between items-center">
+                          <div className="flex items-center border rounded-md">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => onUpdateQuantity(item._id, item.quantity - 1)}
+                              className="h-7 w-7 rounded-none rounded-l-md p-0"
+                            >
+                              <Minus className="h-3 w-3" />
+                              <span className="sr-only">Decrease</span>
+                            </Button>
+                            <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => onUpdateQuantity(item._id, item.quantity + 1)}
+                              className="h-7 w-7 rounded-none rounded-r-md p-0"
+                            >
+                              <Plus className="h-3 w-3" />
+                              <span className="sr-only">Increase</span>
+                            </Button>
+                          </div>
+                          
+                          <span className="text-sm font-medium">
+                            {(item.price * item.quantity).toLocaleString()} ETB
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <Separator />
 
               <div className="space-y-3">
-                {userDataError && (
-                  <Alert variant="destructive">
-                    <AlertDescription className="text-sm">
-                      {userDataError}
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {isUserLoggedIn && userData && (
-                  <Alert>
-                    <AlertDescription className="text-sm">
-                      <div className="flex items-center gap-2 mb-1">
-                        <User className="h-4 w-4" />
-                        <span className="font-medium">Logged in as:</span>
-                      </div>
-                      <div className="mt-1">
-                        <p>{userData.firstName || userData.name || ''} {userData.lastName || ''}</p>
-                        <p className="text-xs text-gray-600">{userData.email}</p>
-                        {userData.phoneNumber && (
-                          <p className="text-xs text-gray-600">📞 {userData.phoneNumber}</p>
-                        )}
-                      </div>
-                    </AlertDescription>
-                  </Alert>
-                )}
-
                 <div className="space-y-3">
                   <Label className="text-base font-medium">Order Type</Label>
                   <RadioGroup
@@ -994,43 +915,10 @@ const CartPanel = ({
 
                 {orderType === 'delivery' && (
                   <div className="space-y-3 border rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-medium flex items-center gap-2">
-                        <MapPin className="h-4 w-4" />
-                        Delivery Information
-                      </h4>
-                      {isUserLoggedIn && userData && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const phoneNumber = userData.phoneNumber || userData.profile?.phoneNumber || '';
-                            const address = userData.address || userData.profile?.address || '';
-                            const city = userData.city || userData.profile?.city || '';
-                            const fullName = userData.firstName && userData.lastName 
-                              ? `${userData.firstName} ${userData.lastName}`.trim()
-                              : userData.name || '';
-                            
-                            const updates: Partial<DeliveryInfo> = {};
-                            if (fullName) updates.fullName = fullName;
-                            if (userData.email) updates.email = userData.email;
-                            if (phoneNumber) updates.phoneNumber = phoneNumber;
-                            if (address) updates.address = address;
-                            if (city) updates.city = city;
-                            
-                            Object.entries(updates).forEach(([key, value]) => {
-                              onDeliveryInfoChange(key as keyof DeliveryInfo, value);
-                            });
-                            
-                            toast.success('Profile information applied');
-                          }}
-                          disabled={!userData}
-                        >
-                          <User className="mr-2 h-3 w-3" />
-                          Use My Info
-                        </Button>
-                      )}
-                    </div>
+                    <h4 className="font-medium flex items-center gap-2">
+                      <MapPin className="h-4 w-4" />
+                      Delivery Information
+                    </h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="space-y-2">
                         <Label htmlFor="full-name">Full Name *</Label>
@@ -1046,8 +934,8 @@ const CartPanel = ({
                         <Input
                           id="phone"
                           placeholder="0912345678"
-                          value={deliveryInfo.phoneNumber}
-                          onChange={(e) => onDeliveryInfoChange('phoneNumber', e.target.value)}
+                          value={deliveryInfo.phone}
+                          onChange={(e) => onDeliveryInfoChange('phone', e.target.value)}
                         />
                       </div>
                       <div className="space-y-2 md:col-span-2">
@@ -1133,39 +1021,6 @@ const CartPanel = ({
                     rows={2}
                   />
                 </div>
-
-                <div className="space-y-3">
-                  <Label className="text-base font-medium">Payment Method</Label>
-                  <RadioGroup
-                    value={paymentMethod}
-                    onValueChange={onPaymentMethodChange}
-                    className="flex flex-col gap-2"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="online" id="online" />
-                      <Label htmlFor="online" className="cursor-pointer">
-                        Online Payment (Bank Transfer)
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="card" id="card" />
-                      <Label htmlFor="card" className="cursor-pointer">
-                        Credit/Debit Card
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="cash" id="cash" />
-                      <Label htmlFor="cash" className="cursor-pointer">
-                        <div className="flex items-center gap-2">
-                          <Wallet className="h-4 w-4" />
-                          Cash on Delivery
-                        </div>
-                      </Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-
-                
               </div>
             </div>
           </ScrollArea>
@@ -1181,12 +1036,6 @@ const CartPanel = ({
                   <span className="text-sm">Tax (15%):</span>
                   <span className="font-medium">{tax.toLocaleString()} ETB</span>
                 </div>
-                {discount > 0 && (
-                  <div className="flex justify-between text-green-600">
-                    <span className="text-sm">Discount (10%):</span>
-                    <span className="font-medium">-{discount.toLocaleString()} ETB</span>
-                  </div>
-                )}
                 {orderType === 'delivery' && (
                   <div className="flex justify-between">
                     <span className="text-sm">Delivery Fee:</span>
@@ -1241,7 +1090,6 @@ export default function ItemMenu() {
   const router = useRouter()
   const { data: session, status: sessionStatus } = useSession()
   
-  // Cast session user to ExtendedUser type
   const user = session?.user as ExtendedUser | undefined
   const isUserLoggedIn = !!user
   
@@ -1257,34 +1105,28 @@ export default function ItemMenu() {
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   
-  // User data state
   const [userData, setUserData] = useState<UserData | null>(null)
   const [userDataError, setUserDataError] = useState<string | null>(null)
   const [isLoadingUser, setIsLoadingUser] = useState(false)
   
-  // Login prompt state
   const [showLoginPrompt, setShowLoginPrompt] = useState(false)
   const [loginPromptMessage, setLoginPromptMessage] = useState('Please login to continue')
   
-  // Item detail state
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
   const [showItemDetail, setShowItemDetail] = useState(false)
   
-  // Cart state
   const [cart, setCart] = useState<CartItem[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [orderProgress, setOrderProgress] = useState(0)
   const [orderNumber, setOrderNumber] = useState(`ORD-${Date.now().toString().slice(-6)}`)
   
-  // Order type state
   const [orderType, setOrderType] = useState<'table' | 'delivery' | ''>('')
   const [tableNumber, setTableNumber] = useState('')
   const [selectedWaiter, setSelectedWaiter] = useState('')
   
-  // Delivery info state
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo>({
     fullName: '',
-    phoneNumber: '',
+    phone: '',
     email: '',
     address: '',
     city: '',
@@ -1292,21 +1134,17 @@ export default function ItemMenu() {
     deliveryInstructions: ''
   })
   
-  // Payment state
   const [paymentScreenshot, setPaymentScreenshot] = useState<PaymentScreenshot>({
     file: null,
     previewUrl: '',
     uploaded: false
   })
-  const [paymentMethod, setPaymentMethod] = useState<string>('')
   const [transactionId, setTransactionId] = useState('')
-  const [applyDiscount, setApplyDiscount] = useState(false)
   const [specialRequirements, setSpecialRequirements] = useState('')
   const [numberOfGuests, setNumberOfGuests] = useState(1)
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
   const [showPaymentUpload, setShowPaymentUpload] = useState(false)
 
-  // Fetch initial data
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -1319,7 +1157,6 @@ export default function ItemMenu() {
 
         setCategories(categoriesRes.data?.data || [])
         
-        // Try to fetch waiters but don't fail if it doesn't exist
         try {
           const waitersRes = await api.get('/waitress')
           setWaiters(waitersRes.data || [])
@@ -1328,7 +1165,6 @@ export default function ItemMenu() {
           setWaiters([])
         }
         
-        // Normalize items data
         const itemsData = itemsRes.data?.items || itemsRes.data?.data || []
         const normalizedItems = itemsData.map((item: Item) => ({
           ...item,
@@ -1355,123 +1191,120 @@ export default function ItemMenu() {
     fetchData()
   }, [])
 
-  // Fetch complete user data from database when session is available
   useEffect(() => {
     let isMounted = true;
-    let hasFetched = false; // Add flag to prevent multiple fetches
     
     const fetchUserData = async () => {
-      if (user?.id && !hasFetched) {
+      if (user?.id) {
         try {
           setIsLoadingUser(true);
           setUserDataError(null);
-          hasFetched = true; // Set flag immediately
           
-          let userData = null;
-          let userProfile = null;
+          let response;
+          let userDataFromApi;
           
-          // Try multiple endpoints to get complete user data
-          const endpoints = [
-            `/users/${user.id}`,
-            `/staff/${user.id}`,
-            '/auth/current-user',
-            `/customers/${user.id}`,
-            `/profiles/${user.id}`
-          ];
-          
-          for (const endpoint of endpoints) {
+          try {
+            response = await api.get('/users/current');
+            if (response.data?.success && response.data?.data) {
+              userDataFromApi = response.data.data;
+            } else if (response.data) {
+              userDataFromApi = response.data.data || response.data;
+            }
+          } catch (err) {
             try {
-              const response = await api.get(endpoint);
+              response = await api.get(`/users/${user.id}`);
               if (response.data) {
-                let data = null;
-                if (response.data.success && response.data.data) {
-                  data = response.data.data;
-                } else if (response.data.data) {
-                  data = response.data.data;
-                } else if (response.data.user) {
-                  data = response.data.user;
-                } else if (response.data.profile) {
-                  userProfile = response.data.profile;
-                } else {
-                  data = response.data;
-                }
-                
-                if (data) {
-                  if (userData) {
-                    userData = { ...userData, ...data };
-                  } else {
-                    userData = data;
-                  }
-                }
+                userDataFromApi = response.data.data || response.data.user || response.data;
               }
-            } catch (err) {
-              console.log(`Endpoint ${endpoint} not available`);
+            } catch (idErr) {
+              throw idErr;
             }
           }
           
-          // Try to fetch user profile separately if not found in user data
-          if (!userData?.phoneNumber || !userData?.address || !userData?.city) {
-            try {
-              const profileRes = await api.get(`/users/${user.id}/profile`);
-              if (profileRes.data) {
-                userProfile = profileRes.data.data || profileRes.data;
+          if (isMounted && userDataFromApi) {
+            const mappedUserData: UserData = {
+              _id: userDataFromApi._id || userDataFromApi.id || user.id,
+              id: userDataFromApi._id || userDataFromApi.id || user.id,
+              firstName: userDataFromApi.firstName || '',
+              lastName: userDataFromApi.lastName || '',
+              email: userDataFromApi.email || user.email || '',
+              phone: userDataFromApi.phone || '',
+              birthDate: userDataFromApi.birthDate || '',
+              gender: userDataFromApi.gender || '',
+              address: userDataFromApi.address || '',
+              location: userDataFromApi.location || null,
+              role: userDataFromApi.role || user.role || 'user',
+              registrationSource: userDataFromApi.registrationSource || 'website',
+              locationConsent: userDataFromApi.locationConsent || false,
+              createdAt: userDataFromApi.createdAt || '',
+              updatedAt: userDataFromApi.updatedAt || '',
+              lastLogin: userDataFromApi.lastLogin || '',
+              loginAttempts: userDataFromApi.loginAttempts || 0,
+              __v: userDataFromApi.__v,
+              image: userDataFromApi.image,
+              employeeId: userDataFromApi.employeeId,
+              permissions: userDataFromApi.permissions,
+              status: userDataFromApi.status,
+              requiresPasswordChange: userDataFromApi.requiresPasswordChange,
+              googleId: userDataFromApi.googleId,
+              emailVerified: userDataFromApi.emailVerified,
+              specialization: userDataFromApi.specialization,
+              shift: userDataFromApi.shift
+            };
+            
+            setUserData(mappedUserData);
+            
+            const extractedCity = extractCityFromAddress(mappedUserData.address || '');
+            
+            setDeliveryInfo(prev => {
+              const updatedInfo = { ...prev };
+              
+              if (!prev.fullName && mappedUserData.firstName && mappedUserData.lastName) {
+                updatedInfo.fullName = `${mappedUserData.firstName} ${mappedUserData.lastName}`.trim();
               }
-            } catch (err) {
-              console.log('Profile endpoint not available');
-            }
+              if (!prev.email && mappedUserData.email) {
+                updatedInfo.email = mappedUserData.email;
+              }
+              if (!prev.phone && mappedUserData.phone) {
+                updatedInfo.phone = mappedUserData.phone;
+              }
+              if (!prev.address && mappedUserData.address) {
+                updatedInfo.address = mappedUserData.address;
+              }
+              if (!prev.city && extractedCity) {
+                updatedInfo.city = extractedCity;
+              }
+              
+              return updatedInfo;
+            });
           }
+        } catch (err: any) {
+          console.error('Error fetching user data:', err);
           
           if (isMounted) {
-            if (userData || userProfile) {
-              // Merge user data and profile
-              const mergedUserData: UserData = {
-                _id: user.id,
-                firstName: userData?.firstName || userProfile?.firstName || user.name?.split(' ')[0] || '',
-                lastName: userData?.lastName || userProfile?.lastName || user.name?.split(' ').slice(1).join(' ') || '',
-                name: userData?.name || user.name || '',
-                email: userData?.email || user.email || '',
-                phoneNumber: userData?.phoneNumber || userProfile?.phoneNumber || '',
-                address: userData?.address || userProfile?.address || '',
-                city: userData?.city || userProfile?.city || '',
-                role: userData?.role || user.role || 'user',
-                profile: userProfile
-              };
-              
-              setUserData(mergedUserData);
-            } else {
-              // Create basic user info from session
-              const basicUserData: UserData = {
-                _id: user.id,
-                firstName: user.name?.split(' ')[0] || '',
-                lastName: user.name?.split(' ').slice(1).join(' ') || '',
-                name: user.name || '',
-                email: user.email || '',
-                phoneNumber: '',
-                address: '',
-                city: '',
-                role: user.role || 'user'
-              };
-              setUserData(basicUserData);
-              setUserDataError('Please complete your profile for faster checkout');
-            }
-          }
-        } catch (err) {
-          console.error('Error fetching user data:', err);
-          if (isMounted && user) {
-            // Create basic user info as fallback
-            const basicUserData: UserData = {
+            setUserDataError('Could not load user profile data');
+            
+            const minimalUserData: UserData = {
               _id: user.id,
+              id: user.id,
               firstName: user.name?.split(' ')[0] || '',
               lastName: user.name?.split(' ').slice(1).join(' ') || '',
-              name: user.name || '',
               email: user.email || '',
-              phoneNumber: '',
+              phone: '',
+              birthDate: '',
+              gender: '',
               address: '',
-              city: '',
-              role: user.role || 'user'
+              location: null,
+              role: user.role || 'user',
+              registrationSource: 'website',
+              locationConsent: false,
+              createdAt: '',
+              updatedAt: '',
+              lastLogin: '',
+              loginAttempts: 0
             };
-            setUserData(basicUserData);
-            setUserDataError('Using basic profile information');
+            
+            setUserData(minimalUserData);
           }
         } finally {
           if (isMounted) {
@@ -1483,16 +1316,15 @@ export default function ItemMenu() {
           setUserData(null);
         }
       }
-    }
+    };
 
     fetchUserData();
     
     return () => {
       isMounted = false;
     };
-  }, [user?.id, user?.name, user?.email, user?.role]); // Keep dependencies minimal
+  }, [user?.id, user?.name, user?.email, user?.role]);
 
-  // Filter and sort items
   useEffect(() => {
     let result = items
 
@@ -1544,7 +1376,6 @@ export default function ItemMenu() {
       return
     }
 
-    // Check if item is active
     if (item.isActive === false) {
       toast.error(`Sorry, ${item.name} is currently unavailable`, {
         icon: '❌',
@@ -1590,9 +1421,8 @@ export default function ItemMenu() {
   )
   
   const tax = useMemo(() => subtotal * 0.15, [subtotal])
-  const discount = useMemo(() => applyDiscount ? subtotal * 0.1 : 0, [applyDiscount, subtotal])
   const deliveryFee = useMemo(() => orderType === 'delivery' ? 50 : 0, [orderType])
-  const total = useMemo(() => subtotal + tax - discount + deliveryFee, [subtotal, tax, discount, deliveryFee])
+  const finalAmount = useMemo(() => subtotal + tax + deliveryFee, [subtotal, tax, deliveryFee])
 
   const handleDeliveryInfoChange = (field: keyof DeliveryInfo, value: string) => {
     setDeliveryInfo(prev => ({
@@ -1636,7 +1466,7 @@ export default function ItemMenu() {
   }
 
   const validateDeliveryInfo = () => {
-    const requiredFields: (keyof DeliveryInfo)[] = ['fullName', 'phoneNumber', 'email', 'address', 'city']
+    const requiredFields: (keyof DeliveryInfo)[] = ['fullName', 'phone', 'email', 'address', 'city']
     for (const field of requiredFields) {
       if (!deliveryInfo[field]?.trim()) {
         toast.error(`Please fill in ${field.replace(/([A-Z])/g, ' $1').toLowerCase()}`)
@@ -1651,7 +1481,7 @@ export default function ItemMenu() {
     }
     
     const phoneRegex = /^[0-9]{10}$/
-    if (!phoneRegex.test(deliveryInfo.phoneNumber.replace(/\D/g, ''))) {
+    if (!phoneRegex.test(deliveryInfo.phone.replace(/\D/g, ''))) {
       toast.error('Please enter a valid 10-digit phone number')
       return false
     }
@@ -1659,13 +1489,36 @@ export default function ItemMenu() {
     return true
   }
 
+  const uploadToCloudinary = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    
+    const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Cloudinary upload failed:', error);
+      throw new Error('Failed to upload payment screenshot');
+    }
+    
+    const data = await response.json();
+    return data.secure_url;
+  };
+
   const handleFinalizeOrder = async () => {
     if (!isUserLoggedIn) {
       handleLoginRequired('Please login to place an order')
       return
     }
 
-    if (paymentMethod === 'online' && !paymentScreenshot.uploaded) {
+    if (!paymentScreenshot.uploaded || !paymentScreenshot.file) {
       toast.error('Please upload payment screenshot')
       return
     }
@@ -1674,98 +1527,175 @@ export default function ItemMenu() {
     const orderToast = toast.loading('Placing your order...')
 
     try {
-      const orderData = {
-        orderNumber,
-        orderType,
-        tableNumber: orderType === 'table' ? tableNumber : undefined,
-        waiterId: orderType === 'table' ? selectedWaiter : undefined,
-        deliveryInfo: orderType === 'delivery' ? deliveryInfo : undefined,
-        numberOfGuests,
-        items: cart.map(item => ({
-          itemId: item._id,
-          quantity: item.quantity,
-          specialInstructions: item.specialInstructions || '',
-          price: item.price
-        })),
-        paymentMethod,
-        transactionId: transactionId || undefined,
-        subtotal,
-        tax,
-        discount,
-        deliveryFee,
-        total,
-        specialRequirements,
-        status: paymentMethod === 'cash' ? 'PENDING_CASH' : 'PENDING',
-        delivery: orderType === 'delivery',
-        inTable: orderType === 'table',
-        userId: user?.id,
-        userEmail: user?.email,
-        userName: user?.name
-      }
+      const userLocation = userData?.location || null;
+      
+      if (orderType === 'delivery') {
+        // For delivery orders - use /api/delivery with FormData
+        const orderData = {
+          // Required fields for DeliveryOrderSchema
+          orderNumber: orderNumber,
+          paymentMethod: 'ONLINE',
+          
+          // Order Details
+          numberOfGuests: numberOfGuests,
+          items: cart.map(item => ({
+            itemId: item._id,
+            quantity: item.quantity,
+            notes: item.specialInstructions || ''
+          })),
+          
+          // Financial Information
+          discount: 0,
+          
+          // Status
+          specialRequirements: specialRequirements,
+          
+          // Delivery specific fields
+          deliveryInfo: {
+            fullName: deliveryInfo.fullName,
+            phoneNumber: deliveryInfo.phone,
+            email: deliveryInfo.email,
+            address: deliveryInfo.address,
+            city: deliveryInfo.city,
+            landmark: deliveryInfo.landmark || '',
+            deliveryInstructions: deliveryInfo.deliveryInstructions || '',
+          },
+          
+          // Location for tracking
+          location: userLocation,
+          
+          // Transaction ID
+          transactionId: transactionId || undefined,
+          
+          // Metadata
+          customerId: user?.id || 'walk-in',
+        };
 
-      const response = await api.post('/orders', orderData)
+        console.log('Submitting delivery order:', orderData);
 
-      if (response.data) {
-        toast.success('Order placed successfully!', { id: orderToast })
+        const formData = new FormData();
+        formData.append('orderData', JSON.stringify(orderData));
+        formData.append('paymentScreenshot', paymentScreenshot.file);
         
-        // Reset order state
-        setCart([])
-        setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`)
-        setOrderType('')
-        setTableNumber('')
-        setSelectedWaiter('')
-        setPaymentScreenshot({
-          file: null,
-          previewUrl: '',
-          uploaded: false
-        })
-        setPaymentMethod('')
-        setTransactionId('')
-        setApplyDiscount(false)
-        setSpecialRequirements('')
-        setShowPaymentUpload(false)
-        
-        // Keep delivery info for next order
-        if (userData) {
-          setDeliveryInfo(prev => ({
-            ...prev,
-            fullName: userData.firstName && userData.lastName 
-              ? `${userData.firstName} ${userData.lastName}`.trim()
-              : userData.name || '',
-            email: userData.email || '',
-            phoneNumber: userData.phoneNumber || prev.phoneNumber,
-            address: userData.address || prev.address,
-            city: userData.city || prev.city,
-            landmark: '',
-            deliveryInstructions: ''
-          }));
+        const response = await fetch('/api/delivery', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to place delivery order');
         }
+
+        console.log('Delivery order placed successfully:', result);
+        toast.success('Delivery order placed successfully!', { id: orderToast });
         
-        // Simulate order progress
-        let progress = 0
-        const interval = setInterval(() => {
-          progress += 10
-          setOrderProgress(progress)
-          if (progress >= 100) {
-            clearInterval(interval)
-            toast.success(
-              paymentMethod === 'cash' 
-                ? 'Order confirmed! Please have cash ready.' 
-                : orderType === 'delivery' 
-                  ? 'Your order is on the way!' 
-                  : 'Your order is being prepared!'
-            )
-            setTimeout(() => {
-              setOrderProgress(0)
-            }, 2000)
-          }
-        }, 500)
+      } else {
+        // For table orders - use /api/orders with JSON
+        const screenshotUrl = await uploadToCloudinary(paymentScreenshot.file);
+        
+        const orderData = {
+          // Required fields
+          orderNumber: orderNumber,
+          paymentMethod: 'ONLINE',
+          
+          // Order Details
+          numberOfGuests: numberOfGuests,
+          items: cart.map(item => ({
+            itemId: item._id,
+            quantity: item.quantity,
+            notes: item.specialInstructions || ''
+          })),
+          
+          // Table specific fields
+          tableNumber: tableNumber,
+          waiterId: selectedWaiter,
+          inTable: true,
+          delivery: false,
+          
+          // Financial Information
+          discount: 0,
+          
+          // Payment
+          paymentScreenshotUrl: screenshotUrl,
+          
+          // Transaction ID
+          transactionId: transactionId || undefined,
+          
+          // Status
+          specialRequirements: specialRequirements,
+          
+          // Metadata
+          customerId: user?.id || 'walk-in',
+        };
+        
+        console.log('Submitting table order:', orderData);
+        
+        const response = await fetch('/api/order', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(orderData),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || result.details || 'Failed to place table order');
+        }
+
+        console.log('Table order placed successfully:', result);
+        toast.success('Table order placed successfully!', { id: orderToast });
       }
-    } catch (error) {
-      console.error('Error placing order:', error)
-      toast.error('Failed to place order. Please try again.', { id: orderToast })
+
+      setCart([]);
+      setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`);
+      setOrderType('');
+      setTableNumber('');
+      setSelectedWaiter('');
+      setPaymentScreenshot({
+        file: null,
+        previewUrl: '',
+        uploaded: false
+      });
+      setTransactionId('');
+      setSpecialRequirements('');
+      setShowPaymentUpload(false);
+      
+      setDeliveryInfo({
+        fullName: '',
+        phone: '',
+        email: '',
+        address: '',
+        city: '',
+        landmark: '',
+        deliveryInstructions: ''
+      });
+      
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += 10;
+        setOrderProgress(progress);
+        if (progress >= 100) {
+          clearInterval(interval);
+          toast.success(
+            orderType === 'delivery' 
+              ? 'Your order is on the way!' 
+              : 'Your order is being prepared!'
+          );
+          setTimeout(() => {
+            setOrderProgress(0);
+          }, 2000);
+        }
+      }, 500);
+      
+    } catch (error: any) {
+      console.error('Error placing order:', error);
+      toast.error(error.message || 'Failed to place order. Please try again.', { id: orderToast });
     } finally {
-      setIsPlacingOrder(false)
+      setIsPlacingOrder(false);
     }
   }
 
@@ -1800,11 +1730,6 @@ export default function ItemMenu() {
       return
     }
 
-    if (!paymentMethod) {
-      toast.error('Please select a payment method')
-      return
-    }
-
     setShowPaymentUpload(true)
   }
 
@@ -1812,6 +1737,15 @@ export default function ItemMenu() {
     setSelectedItem(item)
     setShowItemDetail(true)
   }
+
+  const getImagePath = (imageUrl?: string) => {
+    if (!imageUrl) return '/placeholder.svg';
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
+    if (imageUrl.includes('cloudinary.com')) return imageUrl;
+    if (imageUrl.startsWith('/uploads/')) return imageUrl;
+    if (!imageUrl.startsWith('/') && !imageUrl.includes('://')) return `/uploads/${imageUrl}`;
+    return imageUrl;
+  };
 
   const ItemCard = ({ item }: { item: Item }) => {
     const categoryName = categories.find(c => c._id === item.categoryId)?.name || 'Uncategorized'
@@ -1821,7 +1755,7 @@ export default function ItemMenu() {
         <CardHeader className="p-0 relative">
           <div className="relative w-full h-48">
             <Image
-              src={item.imageUrl || "/placeholder.svg"}
+              src={getImagePath(item.imageUrl)}
               alt={item.name}
               fill
               className="object-cover rounded-t-lg"
@@ -1928,7 +1862,7 @@ export default function ItemMenu() {
       <div className="flex border border-border/40 rounded-lg overflow-hidden hover:border-primary/30 transition-all bg-background hover:bg-background/95 hover:shadow-sm group">
         <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden">
           <Image
-            src={item.imageUrl || "/placeholder.svg"}
+            src={getImagePath(item.imageUrl)}
             alt={item.name}
             fill
             sizes="96px"
@@ -2021,23 +1955,6 @@ export default function ItemMenu() {
           </div>
           
           <div className="flex items-center gap-4">
-            {isUserLoggedIn && userData && (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-full">
-                  <User className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-medium">
-                    {userData.firstName || userData.name || 'User'} {userData.lastName || ''}
-                  </span>
-                </div>
-                {userData.phoneNumber && (
-                  <div className="hidden md:flex items-center gap-1 text-xs text-gray-600">
-                    <Phone className="h-3 w-3" />
-                    {userData.phoneNumber}
-                  </div>
-                )}
-              </div>
-            )}
-            
             <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
               <SheetTrigger asChild>
                 <Button variant="default" className="relative">
@@ -2069,21 +1986,14 @@ export default function ItemMenu() {
                   onGuestsChange={setNumberOfGuests}
                   specialRequirements={specialRequirements}
                   onSpecialRequirementsChange={setSpecialRequirements}
-                  paymentMethod={paymentMethod}
-                  onPaymentMethodChange={setPaymentMethod}
-                  applyDiscount={applyDiscount}
-                  onApplyDiscountChange={setApplyDiscount}
                   subtotal={subtotal}
                   tax={tax}
-                  discount={discount}
                   deliveryFee={deliveryFee}
-                  total={total}
+                  total={finalAmount}
                   orderNumber={orderNumber}
                   onPlaceOrder={handlePlaceOrder}
                   isPlacingOrder={isPlacingOrder}
                   isUserLoggedIn={isUserLoggedIn}
-                  userData={userData}
-                  userDataError={userDataError}
                   onLoginRequired={handleLoginRequired}
                 />
               </SheetContent>
@@ -2249,13 +2159,11 @@ export default function ItemMenu() {
         onTransactionIdChange={setTransactionId}
         subtotal={subtotal}
         tax={tax}
-        discount={discount}
         orderType={orderType}
         deliveryFee={deliveryFee}
-        total={total}
+        total={finalAmount}
         onFinalizeOrder={handleFinalizeOrder}
         isPlacingOrder={isPlacingOrder}
-        paymentMethod={paymentMethod}
       />
 
       {orderProgress > 0 && orderProgress < 100 && (
