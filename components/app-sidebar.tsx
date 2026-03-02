@@ -57,6 +57,7 @@ const roleBasedNavigation = {
         items: [
           { title: "Stock", url: "/stock" },
           { title: "Categories", url: "/stock/category" },
+          { title: "usedStock", url: "/usedStock" },
         ],
       },
       {
@@ -175,6 +176,7 @@ const roleBasedNavigation = {
         items: [
           { title: "Stock", url: "/stock" },
           { title: "Categories", url: "/stock/category" },
+          { title: "usedStock", url: "/usedStock" },
         ],
       },
       {
