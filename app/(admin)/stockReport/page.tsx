@@ -25,6 +25,11 @@ import {
   Boxes,
   AlertTriangle,
   History,
+  ChevronRight,
+  List,
+  Grid,
+  Copy,
+  Hash,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -48,7 +53,45 @@ import {
 import { cn } from "@/lib/utils"
 import axios from "axios"
 
-// Types
+// Types based on the provided order data
+type OrderItem = {
+  itemId: string
+  itemName: string
+  quantity: number
+  unitPrice: number
+  itemPrice: number
+  subtotal: number
+  notes: string
+}
+
+type Order = {
+  _id: string
+  orderNumber: string
+  tableNumber: string
+  waiterId: string
+  customerId: string
+  numberOfGuests: number
+  items: OrderItem[]
+  totalAmount: number
+  tax: number
+  discount: number
+  finalAmount: number
+  paymentMethod: string
+  status: string
+  specialRequirements: string
+  isActive: boolean
+  stockProcessed: boolean
+  inTable: boolean
+  delivery: boolean
+  deliveryInfo: any | null
+  paymentScreenshotUrl: string | null
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+  stockProcessedAt: string | null
+  stockProcessingNote: string | null
+}
+
 type Stock = {
   _id: string
   name: string
@@ -96,6 +139,56 @@ type UsedStock = {
   updatedAt: string
 }
 
+// Aggregated Stock Usage - Each stock appears once
+type AggregatedStockUsage = {
+  stockId: string
+  stockName: string
+  stockCategory: string
+  stockUnit: string
+  totalQuantityUsed: number
+  totalCost: number
+  totalOrders: number
+  totalUsageEvents: number
+  averageQuantityPerOrder: number
+  firstUsed: string
+  lastUsed: string
+  // Items that use this stock (for details only)
+  itemsUsing: Array<{
+    itemId: string
+    itemName: string
+    totalQuantityUsed: number
+    usageCount: number
+    percentage: number
+    orders: Array<{
+      orderId: string
+      orderNumber: string
+      quantityUsed: number
+      usedAt: string
+    }>
+  }>
+  // Orders that used this stock
+  orders: Array<{
+    orderId: string
+    orderNumber: string
+    quantityUsed: number
+    usedAt: string
+    items: UsedStockItem[]
+  }>
+  // Duplication stats - how many times items appear in orders
+  duplicationStats: {
+    totalDuplications: number
+    averageDuplicationsPerOrder: number
+    mostDuplicatedItem: {
+      itemName: string
+      count: number
+    } | null
+    itemsByDuplicationCount: Array<{
+      itemName: string
+      duplicationCount: number
+    }>
+  }
+}
+
 type StockUpload = {
   _id: string
   stockId: string
@@ -130,26 +223,26 @@ type StockSummary = {
   usageCount: number
   averageUploadSize: number
   averageUsageSize: number
-  mostUsedItems: Array<{
-    stockId: string
-    stockName: string
-    totalUsed: number
-    unit: string
-    percentage: number
-  }>
-  topUploadedItems: Array<{
-    stockId: string
-    stockName: string
-    totalUploaded: number
-    unit: string
-    percentage: number
-  }>
+  // Aggregated stock usage - each stock appears once
+  aggregatedStockUsage: AggregatedStockUsage[]
   dailyStats: Array<{
     date: string
     uploads: number
     usage: number
     netChange: number
   }>
+  // Global duplication stats
+  duplicationStats: {
+    totalOrders: number
+    totalItems: number
+    totalDuplications: number
+    averageItemsPerOrder: number
+    mostOrderedItems: Array<{
+      itemName: string
+      orderCount: number
+      totalQuantity: number
+    }>
+  }
 }
 
 type DateRange = {
@@ -172,6 +265,15 @@ const safeNumber = (value: any): number => {
     return isNaN(parsed) ? 0 : parsed;
   }
   return 0;
+};
+
+// Helper function to safely get array from API response
+const safeArray = <T,>(data: any): T[] => {
+  if (Array.isArray(data)) return data;
+  if (data?.data && Array.isArray(data.data)) return data.data;
+  if (data?.items && Array.isArray(data.items)) return data.items;
+  if (data?.orders && Array.isArray(data.orders)) return data.orders;
+  return [];
 };
 
 // Helper function to format quantity with unit
@@ -401,11 +503,262 @@ function StockChart({ data, type = "line" }: { data: StockSummary['dailyStats'],
   )
 }
 
+// Stock Usage Detail Dialog Component - Shows all items that use a specific stock
+const StockUsageDetailDialog = ({
+  stock,
+  open,
+  onOpenChange,
+}: {
+  stock: AggregatedStockUsage | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) => {
+  const [viewMode, setViewMode] = useState<'items' | 'orders' | 'duplications'>('items')
+  
+  if (!stock) return null
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[900px] max-h-[90vh]">
+        <DialogHeader>
+          <DialogTitle className="text-2xl flex items-center gap-2">
+            <Package className="h-6 w-6 text-primary" />
+            {stock.stockName} - Usage Details
+          </DialogTitle>
+          <DialogDescription>
+            This stock is used in {stock.itemsUsing.length} different menu items
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex items-center justify-between mb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-4">
+              <Badge variant="outline" className="text-sm">
+                Category: {stock.stockCategory}
+              </Badge>
+              <Badge variant="outline" className="text-sm">
+                Unit: {stock.stockUnit}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-4 mt-2">
+              <div className="text-sm">
+                <span className="text-muted-foreground">Total Used:</span>{' '}
+                <span className="font-bold">{formatQuantity(stock.totalQuantityUsed, stock.stockUnit)}</span>
+              </div>
+              <div className="text-sm">
+                <span className="text-muted-foreground">Total Value:</span>{' '}
+                <span className="font-bold">{formatCurrency(stock.totalCost)}</span>
+              </div>
+              <div className="text-sm">
+                <span className="text-muted-foreground">Orders:</span>{' '}
+                <span className="font-bold">{stock.totalOrders}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant={viewMode === 'items' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('items')}
+              className="gap-2"
+            >
+              <List className="h-4 w-4" />
+              Menu Items
+            </Button>
+            <Button
+              variant={viewMode === 'orders' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('orders')}
+              className="gap-2"
+            >
+              <Grid className="h-4 w-4" />
+              Orders
+            </Button>
+            <Button
+              variant={viewMode === 'duplications' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('duplications')}
+              className="gap-2"
+            >
+              <Copy className="h-4 w-4" />
+              Duplications
+            </Button>
+          </div>
+        </div>
+
+        <ScrollArea className="max-h-[60vh] pr-4">
+          {viewMode === 'items' && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground mb-2">
+                All menu items that use {stock.stockName}:
+              </p>
+              {stock.itemsUsing.map((item, index) => (
+                <Card key={index} className="overflow-hidden">
+                  <CardHeader className="py-3 bg-secondary/20">
+                    <CardTitle className="text-base flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{item.itemName}</span>
+                        <Badge variant="outline" className="text-xs">
+                          Used {item.usageCount} {item.usageCount === 1 ? 'time' : 'times'}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <Badge variant="secondary" className="text-sm">
+                          {formatQuantity(item.totalQuantityUsed, stock.stockUnit)}
+                        </Badge>
+                        <Badge variant="outline" className="text-sm">
+                          {item.percentage.toFixed(1)}% of total
+                        </Badge>
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="py-3">
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-2 block">Recent Orders with this item:</Label>
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        {item.orders.slice(0, 5).map((order, idx) => (
+                          <div key={idx} className="flex items-center justify-between bg-secondary/10 p-2 rounded-md text-sm">
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono font-medium">{order.orderNumber}</span>
+                              <span className="text-muted-foreground">•</span>
+                              <span>{formatDate(order.usedAt, 'short')}</span>
+                            </div>
+                            <Badge variant="outline">
+                              {formatQuantity(order.quantityUsed, stock.stockUnit)}
+                            </Badge>
+                          </div>
+                        ))}
+                        {item.orders.length > 5 && (
+                          <p className="text-xs text-muted-foreground text-center mt-1">
+                            +{item.orders.length - 5} more orders
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {viewMode === 'orders' && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground mb-2">
+                All orders that used {stock.stockName}:
+              </p>
+              {stock.orders.map((order, index) => (
+                <Card key={index}>
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-base flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono font-bold">{order.orderNumber}</span>
+                        <Badge variant="outline">{formatDate(order.usedAt, 'short')}</Badge>
+                      </div>
+                      <Badge variant="secondary">
+                        Total: {formatQuantity(order.quantityUsed, stock.stockUnit)}
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="py-2">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Items in this order using {stock.stockName}:</Label>
+                      <div className="grid gap-2">
+                        {order.items.map((item, idx) => (
+                          <div key={idx} className="flex items-center justify-between bg-secondary/10 p-2 rounded-md">
+                            <span className="font-medium">{item.itemName}</span>
+                            <Badge variant="outline">
+                              {formatQuantity(item.quantityUsed, stock.stockUnit)}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {viewMode === 'duplications' && (
+            <div className="space-y-4">
+              <Card className="bg-primary/5">
+                <CardContent className="pt-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                    <div>
+                      <p className="text-2xl font-bold text-primary">{stock.duplicationStats.totalDuplications}</p>
+                      <p className="text-xs text-muted-foreground">Total Duplications</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-primary">{stock.duplicationStats.averageDuplicationsPerOrder.toFixed(2)}</p>
+                      <p className="text-xs text-muted-foreground">Avg per Order</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-primary">{stock.totalOrders}</p>
+                      <p className="text-xs text-muted-foreground">Total Orders</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-primary">{stock.itemsUsing.length}</p>
+                      <p className="text-xs text-muted-foreground">Unique Menu Items</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {stock.duplicationStats.mostDuplicatedItem && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Hash className="h-5 w-5 text-primary" />
+                      Most Duplicated Item
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-lg">{stock.duplicationStats.mostDuplicatedItem.itemName}</span>
+                      <Badge variant="default" className="text-base px-3 py-1">
+                        {stock.duplicationStats.mostDuplicatedItem.count} duplications
+                      </Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Items by Duplication Count</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {stock.duplicationStats.itemsByDuplicationCount.map((item, index) => (
+                      <div key={index}>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="font-medium">{item.itemName}</span>
+                          <span className="text-primary font-bold">{item.duplicationCount} duplications</span>
+                        </div>
+                        <Progress 
+                          value={(item.duplicationCount / stock.duplicationStats.totalDuplications) * 100} 
+                          className="h-2"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export default function StockReportPage() {
   const router = useRouter()
   
   // State
   const [stocks, setStocks] = useState<Stock[]>([])
+  const [orders, setOrders] = useState<Order[]>([])
   const [usedStock, setUsedStock] = useState<UsedStock[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -420,7 +773,7 @@ export default function StockReportPage() {
   const [showDatePicker, setShowDatePicker] = useState(false)
   
   // Sorting
-  const [sortBy, setSortBy] = useState<string>('usedAt')
+  const [sortBy, setSortBy] = useState<string>('totalQuantityUsed')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   
   // Pagination
@@ -430,8 +783,9 @@ export default function StockReportPage() {
   // Chart type
   const [chartType, setChartType] = useState<"line" | "bar">("line")
   
-  // Selected item for details
-  const [selectedTransaction, setSelectedTransaction] = useState<UsedStock | null>(null)
+  // Selected stock for detailed view
+  const [selectedStockDetail, setSelectedStockDetail] = useState<AggregatedStockUsage | null>(null)
+  const [showStockDetail, setShowStockDetail] = useState(false)
   
   // Summary data
   const [summary, setSummary] = useState<StockSummary>({
@@ -449,31 +803,16 @@ export default function StockReportPage() {
     usageCount: 0,
     averageUploadSize: 0,
     averageUsageSize: 0,
-    mostUsedItems: [],
-    topUploadedItems: [],
+    aggregatedStockUsage: [],
     dailyStats: [],
+    duplicationStats: {
+      totalOrders: 0,
+      totalItems: 0,
+      totalDuplications: 0,
+      averageItemsPerOrder: 0,
+      mostOrderedItems: [],
+    },
   })
-
-  // Process used stock data to ensure quantities are numbers
-  const processedUsedStock = useMemo(() => {
-    return usedStock.map(item => ({
-      ...item,
-      // Ensure all numeric fields are properly converted
-      totalQuantityUsed: safeNumber(item.totalQuantityUsed),
-      unitCost: safeNumber(item.unitCost),
-      totalCost: safeNumber(item.totalCost),
-      // Process items array
-      items: item.items?.map(subItem => ({
-        ...subItem,
-        quantityUsed: safeNumber(subItem.quantityUsed),
-        itemId: subItem.itemId?.toString() || '',
-      })) || [],
-      // Add display fields
-      displayQuantity: formatQuantity(item.totalQuantityUsed, item.stockUnit || 'kg'),
-      displayDate: formatDate(item.usedAt, 'long'),
-      displayTime: formatDate(item.usedAt, 'time'),
-    }));
-  }, [usedStock]);
 
   // Fetch data
   const fetchData = async () => {
@@ -483,8 +822,13 @@ export default function StockReportPage() {
       
       // Fetch stocks
       const stocksRes = await api.get('/stock')
-      const stocksData = stocksRes.data?.data || []
+      const stocksData = safeArray<Stock>(stocksRes.data)
       setStocks(stocksData)
+      
+      // Fetch orders for duplication stats
+      const ordersRes = await api.get('/order')
+      const ordersData = safeArray<Order>(ordersRes.data)
+      setOrders(ordersData)
       
       // Build URL for used stock with filters
       let usedStockUrl = '/used-stock'
@@ -499,14 +843,15 @@ export default function StockReportPage() {
       if (selectedStock !== 'all') {
         params.append('stockId', selectedStock)
       }
-      params.append('limit', '1000') // Get more records for analysis
+      params.append('limit', '1000')
       
       if (params.toString()) {
         usedStockUrl += `?${params.toString()}`
       }
       
       const usedStockRes = await api.get(usedStockUrl)
-      setUsedStock(usedStockRes.data?.data || [])
+      const usedStockData = safeArray<UsedStock>(usedStockRes.data)
+      setUsedStock(usedStockData)
       
     } catch (err: any) {
       console.error('Error fetching data:', err)
@@ -520,41 +865,161 @@ export default function StockReportPage() {
     fetchData()
   }, [dateRange, selectedStock])
 
+  // Process used stock data to aggregate by stock (each stock appears once)
+  const aggregatedStockUsage = useMemo(() => {
+    const stockMap = new Map<string, AggregatedStockUsage>()
+    
+    usedStock.forEach(record => {
+      const stockId = record.stockId
+      const quantity = safeNumber(record.totalQuantityUsed)
+      const cost = safeNumber(record.totalCost)
+      
+      if (!stockMap.has(stockId)) {
+        // First time seeing this stock - create entry
+        stockMap.set(stockId, {
+          stockId: record.stockId,
+          stockName: record.stockName,
+          stockCategory: record.stockCategory,
+          stockUnit: record.stockUnit || 'kg',
+          totalQuantityUsed: quantity,
+          totalCost: cost,
+          totalOrders: 1,
+          totalUsageEvents: 1,
+          averageQuantityPerOrder: quantity,
+          firstUsed: record.usedAt,
+          lastUsed: record.usedAt,
+          itemsUsing: [],
+          orders: [{
+            orderId: record.orderId,
+            orderNumber: record.orderNumber,
+            quantityUsed: quantity,
+            usedAt: record.usedAt,
+            items: record.items,
+          }],
+          duplicationStats: {
+            totalDuplications: 0,
+            averageDuplicationsPerOrder: 0,
+            mostDuplicatedItem: null,
+            itemsByDuplicationCount: [],
+          },
+        })
+      } else {
+        // Stock already exists - update totals
+        const existing = stockMap.get(stockId)!
+        existing.totalQuantityUsed += quantity
+        existing.totalCost += cost
+        existing.totalOrders++
+        existing.totalUsageEvents++
+        existing.averageQuantityPerOrder = existing.totalQuantityUsed / existing.totalOrders
+        
+        // Update first/last used dates
+        if (new Date(record.usedAt) < new Date(existing.firstUsed)) {
+          existing.firstUsed = record.usedAt
+        }
+        if (new Date(record.usedAt) > new Date(existing.lastUsed)) {
+          existing.lastUsed = record.usedAt
+        }
+        
+        // Add order
+        existing.orders.push({
+          orderId: record.orderId,
+          orderNumber: record.orderNumber,
+          quantityUsed: quantity,
+          usedAt: record.usedAt,
+          items: record.items,
+        })
+      }
+      
+      // Now process items for this stock (for the details view)
+      const stockEntry = stockMap.get(stockId)!
+      
+      record.items.forEach(item => {
+        const itemQuantity = safeNumber(item.quantityUsed)
+        const existingItemIndex = stockEntry.itemsUsing.findIndex(i => i.itemId === item.itemId)
+        
+        if (existingItemIndex >= 0) {
+          // Item already exists for this stock - update
+          const existingItem = stockEntry.itemsUsing[existingItemIndex]
+          existingItem.totalQuantityUsed += itemQuantity
+          existingItem.usageCount++
+          existingItem.percentage = (existingItem.totalQuantityUsed / stockEntry.totalQuantityUsed) * 100
+          existingItem.orders.push({
+            orderId: record.orderId,
+            orderNumber: record.orderNumber,
+            quantityUsed: itemQuantity,
+            usedAt: record.usedAt,
+          })
+          stockEntry.itemsUsing[existingItemIndex] = existingItem
+        } else {
+          // New item for this stock
+          stockEntry.itemsUsing.push({
+            itemId: item.itemId,
+            itemName: item.itemName,
+            totalQuantityUsed: itemQuantity,
+            usageCount: 1,
+            percentage: (itemQuantity / stockEntry.totalQuantityUsed) * 100,
+            orders: [{
+              orderId: record.orderId,
+              orderNumber: record.orderNumber,
+              quantityUsed: itemQuantity,
+              usedAt: record.usedAt,
+            }],
+          })
+        }
+      })
+      
+      stockMap.set(stockId, stockEntry)
+    })
+    
+    // Calculate duplication stats for each stock
+    stockMap.forEach(stock => {
+      // Count how many times each menu item appears in orders
+      const itemDuplicationCount: Record<string, { count: number; itemName: string }> = {}
+      
+      stock.orders.forEach(order => {
+        // For each order, count each item that uses this stock
+        order.items.forEach(item => {
+          const key = item.itemId
+          if (!itemDuplicationCount[key]) {
+            itemDuplicationCount[key] = { count: 0, itemName: item.itemName }
+          }
+          itemDuplicationCount[key].count++
+        })
+      })
+      
+      const itemsByDuplication = Object.values(itemDuplicationCount).sort((a, b) => b.count - a.count)
+      
+      // Calculate total duplications (sum of all counts)
+      const totalDuplications = itemsByDuplication.reduce((sum, item) => sum + item.count, 0)
+      
+      stock.duplicationStats = {
+        totalDuplications,
+        averageDuplicationsPerOrder: stock.orders.length > 0 ? totalDuplications / stock.orders.length : 0,
+        mostDuplicatedItem: itemsByDuplication.length > 0 ? itemsByDuplication[0] : null,
+        itemsByDuplicationCount: itemsByDuplication,
+      }
+      
+      // Sort items within each stock by quantity used
+      stock.itemsUsing.sort((a, b) => b.totalQuantityUsed - a.totalQuantityUsed)
+      stock.orders.sort((a, b) => new Date(b.usedAt).getTime() - new Date(a.usedAt).getTime())
+    })
+    
+    // Convert map to array and sort by total quantity used
+    return Array.from(stockMap.values())
+      .sort((a, b) => b.totalQuantityUsed - a.totalQuantityUsed)
+  }, [usedStock])
+
   // Calculate summary
   useEffect(() => {
     if (!stocks.length) return
     
-    // Use processed used stock for calculations
-    const usage = processedUsedStock
-    
-    // Calculate totals
-    const totalUsage = usage.reduce((sum, u) => sum + u.totalQuantityUsed, 0)
-    const usageValue = usage.reduce((sum, u) => sum + u.totalCost, 0)
-    
-    // Most used items
-    const usageByStock: Record<string, any> = {}
-    usage.forEach(u => {
-      if (!usageByStock[u.stockId]) {
-        usageByStock[u.stockId] = {
-          stockId: u.stockId,
-          stockName: u.stockName,
-          totalUsed: 0,
-          unit: u.stockUnit || 'kg',
-        }
-      }
-      usageByStock[u.stockId].totalUsed += u.totalQuantityUsed
-    })
-    
-    const mostUsedItems = Object.values(usageByStock)
-      .sort((a: any, b: any) => b.totalUsed - a.totalUsed)
-      .slice(0, 5)
-      .map((item: any) => ({
-        ...item,
-        percentage: totalUsage > 0 ? (item.totalUsed / totalUsage) * 100 : 0,
-      }))
+    // Calculate totals from aggregated stock usage
+    const totalUsage = aggregatedStockUsage.reduce((sum, stock) => sum + stock.totalQuantityUsed, 0)
+    const usageValue = aggregatedStockUsage.reduce((sum, stock) => sum + stock.totalCost, 0)
+    const totalUsageEvents = aggregatedStockUsage.reduce((sum, stock) => sum + stock.totalUsageEvents, 0)
     
     // Daily stats
-    const dailyStatsMap = new Map()
+    const dailyStatsMap = new Map<string, { date: string; uploads: number; usage: number; netChange: number }>()
     if (dateRange.from && dateRange.to) {
       const daysBetween = Math.ceil((dateRange.to.getTime() - dateRange.from.getTime()) / (1000 * 60 * 60 * 24))
       
@@ -566,10 +1031,10 @@ export default function StockReportPage() {
       }
     }
     
-    usage.forEach(u => {
+    usedStock.forEach(u => {
       const dateStr = format(new Date(u.usedAt), 'yyyy-MM-dd')
-      if (dailyStatsMap.has(dateStr)) {
-        const stat = dailyStatsMap.get(dateStr)
+      const stat = dailyStatsMap.get(dateStr)
+      if (stat) {
         stat.usage += u.totalQuantityUsed
         stat.netChange = stat.uploads - stat.usage
         dailyStatsMap.set(dateStr, stat)
@@ -583,27 +1048,67 @@ export default function StockReportPage() {
     const lowStockItems = stocks.filter(s => s.currentStock <= s.minimumStock && s.currentStock > 0).length
     const outOfStockItems = stocks.filter(s => s.currentStock <= 0).length
     
+    // Calculate global duplication stats from orders
+    const filteredOrders = Array.isArray(orders) 
+      ? orders.filter(order => {
+          const orderDate = new Date(order.createdAt)
+          return dateRange.from && dateRange.to 
+            ? orderDate >= dateRange.from && orderDate <= dateRange.to
+            : true
+        })
+      : []
+    
+    const totalItemsInOrders = filteredOrders.reduce((sum, order) => sum + (order.items?.length || 0), 0)
+    const totalDuplications = filteredOrders.reduce((sum, order) => {
+      return sum + (order.items?.length || 0)
+    }, 0)
+    
+    // Most ordered items
+    const itemOrderCount: Record<string, { count: number; totalQuantity: number; itemName: string }> = {}
+    filteredOrders.forEach(order => {
+      if (order.items && Array.isArray(order.items)) {
+        order.items.forEach(item => {
+          const key = item.itemId
+          if (!itemOrderCount[key]) {
+            itemOrderCount[key] = { count: 0, totalQuantity: 0, itemName: item.itemName }
+          }
+          itemOrderCount[key].count++
+          itemOrderCount[key].totalQuantity += item.quantity || 0
+        })
+      }
+    })
+    
+    const mostOrderedItems = Object.values(itemOrderCount)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+    
     setSummary({
       totalItems: stocks.length,
       totalValue,
       lowStockItems,
       outOfStockItems,
-      totalUploads: 0, // We don't have uploads data yet
+      totalUploads: 0,
       totalUsage,
       uploadValue: 0,
       usageValue,
-      netChange: 0 - totalUsage, // Negative since we only track usage
+      netChange: 0 - totalUsage,
       netChangeValue: 0 - usageValue,
       uploadCount: 0,
-      usageCount: usage.length,
+      usageCount: totalUsageEvents,
       averageUploadSize: 0,
-      averageUsageSize: usage.length ? totalUsage / usage.length : 0,
-      mostUsedItems,
-      topUploadedItems: [],
+      averageUsageSize: totalUsageEvents ? totalUsage / totalUsageEvents : 0,
+      aggregatedStockUsage,
       dailyStats,
+      duplicationStats: {
+        totalOrders: filteredOrders.length,
+        totalItems: totalItemsInOrders,
+        totalDuplications,
+        averageItemsPerOrder: filteredOrders.length > 0 ? totalItemsInOrders / filteredOrders.length : 0,
+        mostOrderedItems,
+      },
     })
     
-  }, [stocks, processedUsedStock, dateRange])
+  }, [stocks, usedStock, orders, aggregatedStockUsage, dateRange])
 
   // Handle filter change
   const handleFilterChange = (type: 'today' | 'week' | 'month' | 'year' | 'custom', customStart?: Date, customEnd?: Date) => {
@@ -635,55 +1140,57 @@ export default function StockReportPage() {
   // Handle export
   const handleExport = () => {
     try {
-      const exportData = processedUsedStock.map(u => ({
-        'Date': u.displayDate,
-        'Time': u.displayTime,
-        'Order Number': u.orderNumber,
-        'Stock Item': u.stockName,
-        'Category': u.stockCategory,
-        'Quantity': u.totalQuantityUsed.toFixed(3),
-        'Unit': u.stockUnit || 'kg',
-        'Unit Cost': u.unitCost ? formatCurrency(u.unitCost) : '-',
-        'Total Cost': u.totalCost ? formatCurrency(u.totalCost) : '-',
-        'Items Used': u.items.map(i => `${i.itemName} (${i.quantityUsed})`).join(', '),
-        'Notes': u.notes || '-',
+      const exportData = aggregatedStockUsage.map(stock => ({
+        'Stock Item': stock.stockName,
+        'Category': stock.stockCategory,
+        'Total Quantity Used': stock.totalQuantityUsed.toFixed(3),
+        'Unit': stock.stockUnit,
+        'Total Cost': formatCurrency(stock.totalCost),
+        'Number of Orders': stock.totalOrders,
+        'Number of Usage Events': stock.totalUsageEvents,
+        'Average per Order': stock.averageQuantityPerOrder.toFixed(3),
+        'First Used': formatDate(stock.firstUsed, 'long'),
+        'Last Used': formatDate(stock.lastUsed, 'long'),
+        'Total Duplications': stock.duplicationStats.totalDuplications,
+        'Most Duplicated Item': stock.duplicationStats.mostDuplicatedItem?.itemName || 'N/A',
       }))
       
-      const wb = XLSX.utils.bookNew()
+      const wb = XLSX.utils.book_new()
       const ws = XLSX.utils.json_to_sheet(exportData)
-      XLSX.utils.book_append_sheet(wb, ws, 'Stock Usage')
+      XLSX.utils.book_append_sheet(wb, ws, 'Stock Usage Summary')
       
-      XLSX.writeFile(wb, `stock-usage-${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
+      XLSX.writeFile(wb, `stock-summary-${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
     } catch (err) {
       console.error('Export error:', err)
     }
   }
 
-  // Filter and sort used stock for table view
-  const getFilteredUsedStock = () => {
-    let filtered = [...processedUsedStock]
+  // Handle view stock details
+  const handleViewStockDetails = (stockId: string) => {
+    const stock = aggregatedStockUsage.find(s => s.stockId === stockId)
+    if (stock) {
+      setSelectedStockDetail(stock)
+      setShowStockDetail(true)
+    }
+  }
+
+  // Filter and sort aggregated stock usage
+  const getFilteredAggregatedStock = () => {
+    let filtered = [...aggregatedStockUsage]
     
     // Search filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
-      filtered = filtered.filter(u =>
-        u.stockName.toLowerCase().includes(term) ||
-        u.orderNumber.toLowerCase().includes(term) ||
-        u.notes.toLowerCase().includes(term) ||
-        u.items.some(i => i.itemName.toLowerCase().includes(term))
+      filtered = filtered.filter(stock =>
+        stock.stockName.toLowerCase().includes(term) ||
+        stock.stockCategory.toLowerCase().includes(term)
       )
     }
     
     // Sort
     filtered.sort((a, b) => {
-      let aValue: any = a[sortBy as keyof UsedStock]
-      let bValue: any = b[sortBy as keyof UsedStock]
-      
-      // Handle dates
-      if (sortBy === 'usedAt') {
-        aValue = new Date(aValue).getTime()
-        bValue = new Date(bValue).getTime()
-      }
+      let aValue: any = a[sortBy as keyof AggregatedStockUsage]
+      let bValue: any = b[sortBy as keyof AggregatedStockUsage]
       
       if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1
       if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1
@@ -693,9 +1200,9 @@ export default function StockReportPage() {
     return filtered
   }
 
-  const filteredUsedStock = getFilteredUsedStock()
-  const totalPages = Math.ceil(filteredUsedStock.length / itemsPerPage)
-  const paginatedUsedStock = filteredUsedStock.slice(
+  const filteredAggregatedStock = getFilteredAggregatedStock()
+  const totalPages = Math.ceil(filteredAggregatedStock.length / itemsPerPage)
+  const paginatedAggregatedStock = filteredAggregatedStock.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   )
@@ -727,7 +1234,7 @@ export default function StockReportPage() {
             <div>
               <h2 className="text-3xl font-bold tracking-tight">Stock Report</h2>
               <p className="text-sm text-muted-foreground">
-                Track stock usage and movements
+                Track stock usage with duplication statistics
               </p>
             </div>
           </div>
@@ -754,7 +1261,7 @@ export default function StockReportPage() {
             
             <Button size="sm" onClick={handleExport}>
               <Download className="h-4 w-4 mr-2" />
-              Export
+              Export Summary
             </Button>
           </div>
         </div>
@@ -772,10 +1279,9 @@ export default function StockReportPage() {
         )}
 
         <Tabs defaultValue="overview" className="space-y-4" onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="usage">Usage History</TabsTrigger>
-            <TabsTrigger value="analysis">Analysis</TabsTrigger>
+            <TabsTrigger value="stockList">Stock List</TabsTrigger>
           </TabsList>
 
           {/* Filters Section */}
@@ -890,7 +1396,7 @@ export default function StockReportPage() {
                   <div className="relative">
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search by item, order, notes..."
+                      placeholder="Search by stock name..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="pl-8"
@@ -913,7 +1419,7 @@ export default function StockReportPage() {
               {dateRange.from && dateRange.to && (
                 <div className="mt-4 text-sm text-muted-foreground">
                   Showing data from {format(dateRange.from, 'PPP')} to {format(dateRange.to, 'PPP')}
-                  {' • '}{processedUsedStock.length} usage records found
+                  {' • '}{aggregatedStockUsage.length} unique stocks with usage
                 </div>
               )}
             </CardContent>
@@ -939,18 +1445,71 @@ export default function StockReportPage() {
               <SummaryCard
                 title="Total Usage (Period)"
                 value={formatNumber(summary.totalUsage)}
-                subValue={`${summary.usageCount} transactions`}
+                subValue={`${summary.usageCount} events`}
                 icon={TrendingDown}
                 color="orange"
               />
               <SummaryCard
-                title="Net Change"
-                value={formatNumber(summary.netChange)}
-                subValue={formatCurrency(summary.netChangeValue)}
-                icon={summary.netChange >= 0 ? TrendingUp : TrendingDown}
-                color={summary.netChange >= 0 ? "green" : "red"}
+                title="Unique Stocks Used"
+                value={aggregatedStockUsage.length}
+                subValue={`out of ${summary.totalItems} total`}
+                icon={Package}
+                color="purple"
               />
             </div>
+
+            {/* Duplication Stats Cards */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <SummaryCard
+                title="Total Orders"
+                value={summary.duplicationStats.totalOrders}
+                icon={History}
+                color="blue"
+              />
+              <SummaryCard
+                title="Total Items Ordered"
+                value={summary.duplicationStats.totalItems}
+                icon={List}
+                color="green"
+              />
+              <SummaryCard
+                title="Total Duplications"
+                value={summary.duplicationStats.totalDuplications}
+                subValue={`${summary.duplicationStats.averageItemsPerOrder.toFixed(2)} per order`}
+                icon={Copy}
+                color="orange"
+              />
+              <SummaryCard
+                title="Avg Items/Order"
+                value={summary.duplicationStats.averageItemsPerOrder.toFixed(2)}
+                icon={Hash}
+                color="purple"
+              />
+            </div>
+
+            {/* Most Ordered Items */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Most Ordered Menu Items</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {summary.duplicationStats.mostOrderedItems.map((item, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{item.itemName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Total quantity: {item.totalQuantity}
+                        </p>
+                      </div>
+                      <Badge variant="secondary">
+                        {item.count} orders
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Charts */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
@@ -981,88 +1540,63 @@ export default function StockReportPage() {
 
               <Card className="col-span-3">
                 <CardHeader>
-                  <CardTitle>Most Used Items</CardTitle>
+                  <CardTitle>Top 5 Most Used Stocks</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ScrollArea className="h-[300px]">
                     <div className="space-y-4">
-                      {summary.mostUsedItems.map((item, index) => (
-                        <div key={index} className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium">{item.stockName}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Used: {formatNumber(item.totalUsed)} {item.unit}
-                            </p>
+                      {aggregatedStockUsage.slice(0, 5).map((stock, index) => (
+                        <div key={stock.stockId} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium">{stock.stockName}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {stock.duplicationStats.totalDuplications} duplications
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <Badge variant="secondary">
+                                {((stock.totalQuantityUsed / summary.totalUsage) * 100).toFixed(1)}%
+                              </Badge>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {formatNumber(stock.totalQuantityUsed)} {stock.stockUnit}
+                              </p>
+                            </div>
                           </div>
-                          <Badge variant="secondary">{item.percentage.toFixed(1)}%</Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full text-xs justify-start"
+                            onClick={() => handleViewStockDetails(stock.stockId)}
+                          >
+                            <Eye className="h-3 w-3 mr-2" />
+                            View Details
+                          </Button>
+                          {index < Math.min(4, aggregatedStockUsage.length - 1) && <Separator className="my-2" />}
                         </div>
                       ))}
-                      {summary.mostUsedItems.length === 0 && (
-                        <p className="text-sm text-muted-foreground text-center py-4">
-                          No usage data for this period
-                        </p>
-                      )}
                     </div>
                   </ScrollArea>
                 </CardContent>
               </Card>
             </div>
-
-            {/* Recent Usage */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Stock Usage</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[300px]">
-                  <div className="space-y-4">
-                    {processedUsedStock.slice(0, 10).map((usage) => (
-                      <div key={usage._id} className="flex items-center justify-between border-b pb-2">
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{usage.stockName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {usage.displayDate} • Order #{usage.orderNumber}
-                          </p>
-                          {usage.items.length > 0 && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Used in: {usage.items.map(i => i.itemName).join(', ')}
-                            </p>
-                          )}
-                        </div>
-                        <div className="text-right ml-4">
-                          <Badge variant="secondary" className="font-mono">
-                            {usage.displayQuantity}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
-                    
-                    {processedUsedStock.length === 0 && (
-                      <div className="text-center py-8 text-muted-foreground">
-                        No usage records found for this period
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
           </TabsContent>
 
-          {/* Usage History Tab */}
-          <TabsContent value="usage" className="space-y-4">
+          {/* Stock List Tab - Each stock appears once */}
+          <TabsContent value="stockList" className="space-y-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Stock Usage History</CardTitle>
+                <CardTitle>Stock Usage Summary</CardTitle>
                 <div className="flex items-center gap-2">
                   <Select onValueChange={(value) => handleSort(value)}>
                     <SelectTrigger className="w-[180px]">
                       <SelectValue placeholder="Sort by" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="usedAt">Date</SelectItem>
-                      <SelectItem value="totalQuantityUsed">Quantity</SelectItem>
+                      <SelectItem value="totalQuantityUsed">Quantity Used</SelectItem>
                       <SelectItem value="stockName">Stock Name</SelectItem>
-                      <SelectItem value="orderNumber">Order Number</SelectItem>
+                      <SelectItem value="totalOrders">Order Count</SelectItem>
+                      <SelectItem value="totalCost">Total Cost</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1072,56 +1606,47 @@ export default function StockReportPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="cursor-pointer hover:bg-gray-100" onClick={() => handleSort('usedAt')}>
-                          Date {sortBy === 'usedAt' && (sortOrder === 'asc' ? '↑' : '↓')}
-                        </TableHead>
-                        <TableHead className="cursor-pointer hover:bg-gray-100" onClick={() => handleSort('orderNumber')}>
-                          Order {sortBy === 'orderNumber' && (sortOrder === 'asc' ? '↑' : '↓')}
-                        </TableHead>
                         <TableHead className="cursor-pointer hover:bg-gray-100" onClick={() => handleSort('stockName')}>
                           Stock Item {sortBy === 'stockName' && (sortOrder === 'asc' ? '↑' : '↓')}
                         </TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead className="cursor-pointer hover:bg-gray-100" onClick={() => handleSort('totalQuantityUsed')}>
-                          Quantity {sortBy === 'totalQuantityUsed' && (sortOrder === 'asc' ? '↑' : '↓')}
+                          Total Used {sortBy === 'totalQuantityUsed' && (sortOrder === 'asc' ? '↑' : '↓')}
                         </TableHead>
-                        <TableHead>Items Used</TableHead>
+                        <TableHead className="cursor-pointer hover:bg-gray-100" onClick={() => handleSort('totalOrders')}>
+                          Orders {sortBy === 'totalOrders' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead>Duplications</TableHead>
+                        <TableHead>Last Used</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {paginatedUsedStock.map((usage) => (
-                        <TableRow key={usage._id}>
-                          <TableCell>{usage.displayDate}</TableCell>
-                          <TableCell className="font-mono">{usage.orderNumber}</TableCell>
-                          <TableCell className="font-medium">{usage.stockName}</TableCell>
-                          <TableCell>{usage.stockCategory}</TableCell>
+                      {paginatedAggregatedStock.map((stock) => (
+                        <TableRow key={stock.stockId}>
+                          <TableCell className="font-medium">{stock.stockName}</TableCell>
+                          <TableCell>{stock.stockCategory}</TableCell>
                           <TableCell>
                             <Badge variant="secondary" className="font-mono">
-                              {usage.displayQuantity}
+                              {formatNumber(stock.totalQuantityUsed)} {stock.stockUnit}
                             </Badge>
                           </TableCell>
+                          <TableCell>{stock.totalOrders}</TableCell>
                           <TableCell>
-                            <div className="flex flex-wrap gap-1">
-                              {usage.items.slice(0, 2).map((item, idx) => (
-                                <Badge key={idx} variant="outline" className="text-xs">
-                                  {item.itemName} ({safeNumber(item.quantityUsed).toFixed(3)})
-                                </Badge>
-                              ))}
-                              {usage.items.length > 2 && (
-                                <Badge variant="outline" className="text-xs">
-                                  +{usage.items.length - 2} more
-                                </Badge>
-                              )}
-                            </div>
+                            <Badge variant="outline" className="flex items-center gap-1">
+                              <Copy className="h-3 w-3" />
+                              {stock.duplicationStats.totalDuplications}
+                            </Badge>
                           </TableCell>
+                          <TableCell>{formatDate(stock.lastUsed, 'short')}</TableCell>
                           <TableCell>
                             <Button 
                               variant="ghost" 
                               size="sm" 
-                              onClick={() => setSelectedTransaction(usage)}
+                              onClick={() => handleViewStockDetails(stock.stockId)}
                             >
-                              <Eye className="h-4 w-4" />
+                              <Eye className="h-4 w-4 mr-2" />
+                              View
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -1131,11 +1656,11 @@ export default function StockReportPage() {
                 </div>
 
                 {/* Pagination */}
-                {filteredUsedStock.length > 0 && (
+                {filteredAggregatedStock.length > 0 && (
                   <div className="flex items-center justify-between mt-4">
                     <p className="text-sm text-muted-foreground">
-                      Showing {Math.min((currentPage - 1) * itemsPerPage + 1, filteredUsedStock.length)} to{' '}
-                      {Math.min(currentPage * itemsPerPage, filteredUsedStock.length)} of {filteredUsedStock.length} records
+                      Showing {Math.min((currentPage - 1) * itemsPerPage + 1, filteredAggregatedStock.length)} to{' '}
+                      {Math.min(currentPage * itemsPerPage, filteredAggregatedStock.length)} of {filteredAggregatedStock.length} unique stocks
                     </p>
                     <div className="flex items-center gap-2">
                       <Button
@@ -1160,210 +1685,15 @@ export default function StockReportPage() {
               </CardContent>
             </Card>
           </TabsContent>
-
-          {/* Analysis Tab */}
-          <TabsContent value="analysis" className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Usage by Category</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RePieChart>
-                        <Pie
-                          data={Object.values(
-                            processedUsedStock.reduce((acc, curr) => {
-                              const category = curr.stockCategory || 'Uncategorized';
-                              if (!acc[category]) {
-                                acc[category] = {
-                                  name: category,
-                                  value: 0,
-                                }
-                              }
-                              acc[category].value += curr.totalQuantityUsed
-                              return acc
-                            }, {} as Record<string, any>)
-                          )}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                          outerRadius={80}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {processedUsedStock.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{ background: "#333", border: "none", borderRadius: "8px" }}
-                          labelStyle={{ color: "#fff" }}
-                          formatter={(value: number) => [formatNumber(value), "Units"]}
-                        />
-                      </RePieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Usage by Item (Top 5)</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RePieChart>
-                        <Pie
-                          data={summary.mostUsedItems.map(item => ({
-                            name: item.stockName,
-                            value: item.totalUsed
-                          }))}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                          outerRadius={80}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {summary.mostUsedItems.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{ background: "#333", border: "none", borderRadius: "8px" }}
-                          labelStyle={{ color: "#fff" }}
-                          formatter={(value: number) => [formatNumber(value), "Units"]}
-                        />
-                      </RePieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Usage Statistics</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 md:grid-cols-4">
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground">Average Daily Usage</Label>
-                    <p className="text-2xl font-bold">
-                      {formatNumber(summary.totalUsage / Math.max(1, summary.dailyStats.length))} units
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground">Most Used Item</Label>
-                    <p className="text-2xl font-bold">
-                      {summary.mostUsedItems[0]?.stockName || 'N/A'}
-                    </p>
-                    {summary.mostUsedItems[0] && (
-                      <p className="text-sm text-muted-foreground">
-                        {formatNumber(summary.mostUsedItems[0].totalUsed)} {summary.mostUsedItems[0].unit}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground">Peak Usage Day</Label>
-                    <p className="text-2xl font-bold">
-                      {summary.dailyStats.reduce((max, day) => day.usage > max.usage ? day : max, { usage: 0 }).usage > 0
-                        ? formatNumber(summary.dailyStats.reduce((max, day) => day.usage > max.usage ? day : max).usage)
-                        : '0'} units
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground">Total Orders with Usage</Label>
-                    <p className="text-2xl font-bold">
-                      {new Set(processedUsedStock.map(u => u.orderNumber)).size}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
       </div>
 
-      {/* Transaction Details Dialog */}
-      <Dialog open={!!selectedTransaction} onOpenChange={() => setSelectedTransaction(null)}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Stock Usage Details</DialogTitle>
-            <DialogDescription>
-              Detailed information about this stock usage
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedTransaction && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-sm text-muted-foreground">Order Number</Label>
-                  <p className="font-medium font-mono">{selectedTransaction.orderNumber}</p>
-                </div>
-                <div>
-                  <Label className="text-sm text-muted-foreground">Date</Label>
-                  <p>{formatDate(selectedTransaction.usedAt, 'long')}</p>
-                </div>
-                <div>
-                  <Label className="text-sm text-muted-foreground">Stock Item</Label>
-                  <p className="font-medium">{selectedTransaction.stockName}</p>
-                </div>
-                <div>
-                  <Label className="text-sm text-muted-foreground">Category</Label>
-                  <p>{selectedTransaction.stockCategory}</p>
-                </div>
-                <div>
-                  <Label className="text-sm text-muted-foreground">Quantity Used</Label>
-                  <p className="font-medium text-lg">
-                    {formatQuantity(selectedTransaction.totalQuantityUsed, selectedTransaction.stockUnit || 'kg')}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-sm text-muted-foreground">Unit Cost</Label>
-                  <p>{selectedTransaction.unitCost ? formatCurrency(selectedTransaction.unitCost) : '-'}</p>
-                </div>
-                <div>
-                  <Label className="text-sm text-muted-foreground">Total Cost</Label>
-                  <p className="font-medium">{selectedTransaction.totalCost ? formatCurrency(selectedTransaction.totalCost) : '-'}</p>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div>
-                <Label className="text-sm text-muted-foreground mb-2 block">Items Used In</Label>
-                <div className="space-y-2">
-                  {selectedTransaction.items.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between bg-secondary/50 p-2 rounded-md">
-                      <span className="font-medium">{item.itemName}</span>
-                      <Badge variant="outline">
-                        {formatQuantity(item.quantityUsed, 'units')}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {selectedTransaction.notes && (
-                <>
-                  <Separator />
-                  <div>
-                    <Label className="text-sm text-muted-foreground">Notes</Label>
-                    <p className="text-sm bg-secondary/50 p-2 rounded-md">{selectedTransaction.notes}</p>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Stock Usage Detail Dialog - Shows all items that use this stock */}
+      <StockUsageDetailDialog
+        stock={selectedStockDetail}
+        open={showStockDetail}
+        onOpenChange={setShowStockDetail}
+      />
     </div>
   )
 }
