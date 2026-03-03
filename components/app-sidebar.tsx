@@ -204,6 +204,7 @@ const roleBasedNavigation = {
         items: [
           { title: "Stock", url: "/stock" },
           { title: "Categories", url: "/stock/category" },
+          { title: "stockReport", url: "/stockReport" },
         ],
       },
     ],
