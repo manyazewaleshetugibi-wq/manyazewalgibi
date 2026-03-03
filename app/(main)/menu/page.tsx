@@ -287,6 +287,7 @@ const LoginPromptDialog = ({
   )
 }
 
+// Updated ItemDetailDialog without Required Ingredients section
 const ItemDetailDialog = ({ 
   item, 
   categoryName,
@@ -435,21 +436,7 @@ const ItemDetailDialog = ({
               </div>
             </div>
             
-            {item.requiredStock && item.requiredStock.length > 0 && (
-              <>
-                <Separator />
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Required Ingredients</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {item.requiredStock.map((stock, index) => (
-                      <div key={index} className="text-center p-4 bg-gray-50 rounded-lg">
-                        <p className="text-base font-semibold text-gray-800">{stock.name || 'Unknown'}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
+            {/* Required Ingredients section has been completely removed */}
           </div>
         </ScrollArea>
         
@@ -1095,7 +1082,7 @@ export default function ItemMenu() {
       } catch (err) {
         console.error('Fetch error:', err)
         setError('Failed to load menu items. Please try again.')
-        toast.error('Failed to load menu items')
+        toast.error('Failed to load menu items check your connection')
       } finally {
         setLoading(false)
       }

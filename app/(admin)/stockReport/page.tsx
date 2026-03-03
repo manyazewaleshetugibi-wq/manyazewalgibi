@@ -30,6 +30,8 @@ import {
   Grid,
   Copy,
   Hash,
+  Repeat,
+  Layers,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -43,6 +45,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
 import { Label } from "@/components/ui/label"
+import { Progress } from "@/components/ui/progress"
 import { format, subDays, startOfDay, endOfDay, isWithinInterval } from "date-fns"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import {
@@ -139,7 +142,33 @@ type UsedStock = {
   updatedAt: string
 }
 
-// Aggregated Stock Usage - Each stock appears once
+// Enhanced item usage with repetition tracking based on actual order quantities
+type ItemUsageDetail = {
+  itemId: string
+  itemName: string
+  totalQuantityUsed: number
+  usageCount: number
+  repetitionCount: number // Total servings/plates ordered (sum of quantities)
+  averageRepetitionPerOrder: number
+  percentage: number
+  stockUsage: Array<{
+    stockId: string
+    stockName: string
+    quantityUsed: number
+    unit: string
+    currentStock: number
+    stockStatus: 'normal' | 'low' | 'critical'
+  }>
+  orders: Array<{
+    orderId: string
+    orderNumber: string
+    quantityUsed: number
+    servingsInOrder: number // How many servings/plates in this order (quantity field)
+    usedAt: string
+  }>
+}
+
+// Aggregated Stock Usage - Each stock appears once with enhanced tracking
 type AggregatedStockUsage = {
   stockId: string
   stockName: string
@@ -152,17 +181,23 @@ type AggregatedStockUsage = {
   averageQuantityPerOrder: number
   firstUsed: string
   lastUsed: string
-  // Items that use this stock (for details only)
+  currentStock: number
+  stockStatus: 'normal' | 'low' | 'critical'
+  stockPercentage: number // Percentage of stock used
+  // Items that use this stock with repetition tracking based on order quantities
   itemsUsing: Array<{
     itemId: string
     itemName: string
     totalQuantityUsed: number
     usageCount: number
+    repetitionCount: number // Total servings/plates ordered (sum of quantities)
+    averageRepetition: number
     percentage: number
     orders: Array<{
       orderId: string
       orderNumber: string
       quantityUsed: number
+      servingsInOrder: number // How many servings in this specific order
       usedAt: string
     }>
   }>
@@ -173,18 +208,22 @@ type AggregatedStockUsage = {
     quantityUsed: number
     usedAt: string
     items: UsedStockItem[]
+    totalItemsInOrder: number
+    totalServingsInOrder: number // Sum of quantities for items using this stock
   }>
-  // Duplication stats - how many times items appear in orders
+  // Duplication stats based on actual servings
   duplicationStats: {
     totalDuplications: number
     averageDuplicationsPerOrder: number
     mostDuplicatedItem: {
       itemName: string
       count: number
+      servings: number
     } | null
     itemsByDuplicationCount: Array<{
       itemName: string
       duplicationCount: number
+      totalServings: number
     }>
   }
 }
@@ -213,6 +252,7 @@ type StockSummary = {
   totalValue: number
   lowStockItems: number
   outOfStockItems: number
+  criticalStockItems: number
   totalUploads: number
   totalUsage: number
   uploadValue: number
@@ -231,16 +271,19 @@ type StockSummary = {
     usage: number
     netChange: number
   }>
-  // Global duplication stats
+  // Global duplication stats based on actual order quantities
   duplicationStats: {
     totalOrders: number
     totalItems: number
     totalDuplications: number
     averageItemsPerOrder: number
+    totalServings: number // Sum of all quantities across all orders
+    averageServingsPerOrder: number
     mostOrderedItems: Array<{
       itemName: string
       orderCount: number
       totalQuantity: number
+      totalServings: number
     }>
   }
 }
@@ -357,7 +400,19 @@ const getDateRange = (type: 'today' | 'week' | 'month' | 'year' | 'custom'): Dat
   return { from: start, to: end }
 }
 
+const getStockStatus = (currentStock: number, minimumStock: number): 'normal' | 'low' | 'critical' => {
+  if (currentStock <= 0) return 'critical';
+  if (currentStock <= minimumStock * 0.5) return 'critical';
+  if (currentStock <= minimumStock) return 'low';
+  return 'normal';
+};
+
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
+const STATUS_COLORS = {
+  normal: 'bg-green-100 text-green-800',
+  low: 'bg-yellow-100 text-yellow-800',
+  critical: 'bg-red-100 text-red-800',
+}
 
 // Loading Skeleton
 const ReportSkeleton = () => (
@@ -508,10 +563,12 @@ const StockUsageDetailDialog = ({
   stock,
   open,
   onOpenChange,
+  orders,
 }: {
   stock: AggregatedStockUsage | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  orders: Order[]
 }) => {
   const [viewMode, setViewMode] = useState<'items' | 'orders' | 'duplications'>('items')
   
@@ -550,9 +607,18 @@ const StockUsageDetailDialog = ({
                 <span className="font-bold">{formatCurrency(stock.totalCost)}</span>
               </div>
               <div className="text-sm">
-                <span className="text-muted-foreground">Orders:</span>{' '}
-                <span className="font-bold">{stock.totalOrders}</span>
+                <span className="text-muted-foreground">Current Stock:</span>{' '}
+                <span className="font-bold">{formatQuantity(stock.currentStock, stock.stockUnit)}</span>
               </div>
+            </div>
+            <div className="mt-2">
+              <Badge className={STATUS_COLORS[stock.stockStatus]}>
+                {stock.stockStatus === 'normal' ? 'Normal Stock' : 
+                 stock.stockStatus === 'low' ? 'Low Stock' : 'Critical Stock'}
+              </Badge>
+              <span className="text-xs text-muted-foreground ml-2">
+                {stock.stockPercentage.toFixed(1)}% of total stock used
+              </span>
             </div>
           </div>
 
@@ -591,7 +657,7 @@ const StockUsageDetailDialog = ({
           {viewMode === 'items' && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground mb-2">
-                All menu items that use {stock.stockName}:
+                Menu items using {stock.stockName} (showing actual serving quantities):
               </p>
               {stock.itemsUsing.map((item, index) => (
                 <Card key={index} className="overflow-hidden">
@@ -600,7 +666,11 @@ const StockUsageDetailDialog = ({
                       <div className="flex items-center gap-2">
                         <span className="font-semibold">{item.itemName}</span>
                         <Badge variant="outline" className="text-xs">
-                          Used {item.usageCount} {item.usageCount === 1 ? 'time' : 'times'}
+                          {item.usageCount} orders
+                        </Badge>
+                        <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                          <Repeat className="h-3 w-3" />
+                          {item.repetitionCount} total servings
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4">
@@ -614,8 +684,21 @@ const StockUsageDetailDialog = ({
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="py-3">
+                    <div className="grid grid-cols-2 gap-4 mb-3">
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Avg servings per order:</span>{' '}
+                        <span className="font-medium">{item.averageRepetition.toFixed(2)}x</span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Stock per serving:</span>{' '}
+                        <span className="font-medium">
+                          {formatQuantity(item.totalQuantityUsed / item.repetitionCount, stock.stockUnit)}
+                        </span>
+                      </div>
+                    </div>
+
                     <div>
-                      <Label className="text-xs text-muted-foreground mb-2 block">Recent Orders with this item:</Label>
+                      <Label className="text-xs text-muted-foreground mb-2 block">Recent Orders (with serving count):</Label>
                       <div className="space-y-2 max-h-40 overflow-y-auto">
                         {item.orders.slice(0, 5).map((order, idx) => (
                           <div key={idx} className="flex items-center justify-between bg-secondary/10 p-2 rounded-md text-sm">
@@ -624,9 +707,15 @@ const StockUsageDetailDialog = ({
                               <span className="text-muted-foreground">•</span>
                               <span>{formatDate(order.usedAt, 'short')}</span>
                             </div>
-                            <Badge variant="outline">
-                              {formatQuantity(order.quantityUsed, stock.stockUnit)}
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs">
+                                <Repeat className="h-3 w-3 mr-1" />
+                                {order.servingsInOrder} servings
+                              </Badge>
+                              <Badge variant="secondary" className="text-xs">
+                                {formatQuantity(order.quantityUsed, stock.stockUnit)}
+                              </Badge>
+                            </div>
                           </div>
                         ))}
                         {item.orders.length > 5 && (
@@ -645,7 +734,7 @@ const StockUsageDetailDialog = ({
           {viewMode === 'orders' && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground mb-2">
-                All orders that used {stock.stockName}:
+                Orders that used {stock.stockName}:
               </p>
               {stock.orders.map((order, index) => (
                 <Card key={index}>
@@ -654,6 +743,14 @@ const StockUsageDetailDialog = ({
                       <div className="flex items-center gap-3">
                         <span className="font-mono font-bold">{order.orderNumber}</span>
                         <Badge variant="outline">{formatDate(order.usedAt, 'short')}</Badge>
+                        <Badge variant="secondary" className="flex items-center gap-1">
+                          <Layers className="h-3 w-3" />
+                          {order.totalItemsInOrder} items
+                        </Badge>
+                        <Badge variant="secondary" className="flex items-center gap-1">
+                          <Repeat className="h-3 w-3" />
+                          {order.totalServingsInOrder} servings
+                        </Badge>
                       </div>
                       <Badge variant="secondary">
                         Total: {formatQuantity(order.quantityUsed, stock.stockUnit)}
@@ -664,14 +761,27 @@ const StockUsageDetailDialog = ({
                     <div className="space-y-2">
                       <Label className="text-xs text-muted-foreground">Items in this order using {stock.stockName}:</Label>
                       <div className="grid gap-2">
-                        {order.items.map((item, idx) => (
-                          <div key={idx} className="flex items-center justify-between bg-secondary/10 p-2 rounded-md">
-                            <span className="font-medium">{item.itemName}</span>
-                            <Badge variant="outline">
-                              {formatQuantity(item.quantityUsed, stock.stockUnit)}
-                            </Badge>
-                          </div>
-                        ))}
+                        {order.items.map((item, idx) => {
+                          // Find the original order to get serving count
+                          const originalOrder = orders.find(o => o._id === order.orderId);
+                          const originalItem = originalOrder?.items.find(i => i.itemId === item.itemId);
+                          const servings = originalItem?.quantity || 1;
+                          
+                          return (
+                            <div key={idx} className="flex items-center justify-between bg-secondary/10 p-2 rounded-md">
+                              <span className="font-medium">{item.itemName}</span>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  <Repeat className="h-3 w-3 mr-1" />
+                                  {servings} servings
+                                </Badge>
+                                <Badge variant="outline">
+                                  {formatQuantity(item.quantityUsed, stock.stockUnit)}
+                                </Badge>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </CardContent>
@@ -716,9 +826,15 @@ const StockUsageDetailDialog = ({
                   <CardContent>
                     <div className="flex items-center justify-between">
                       <span className="font-medium text-lg">{stock.duplicationStats.mostDuplicatedItem.itemName}</span>
-                      <Badge variant="default" className="text-base px-3 py-1">
-                        {stock.duplicationStats.mostDuplicatedItem.count} duplications
-                      </Badge>
+                      <div className="flex gap-2">
+                        <Badge variant="default" className="text-base px-3 py-1">
+                          {stock.duplicationStats.mostDuplicatedItem.count} orders
+                        </Badge>
+                        <Badge variant="secondary" className="text-base px-3 py-1">
+                          <Repeat className="h-4 w-4 mr-1" />
+                          {stock.duplicationStats.mostDuplicatedItem.servings} servings
+                        </Badge>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -734,7 +850,11 @@ const StockUsageDetailDialog = ({
                       <div key={index}>
                         <div className="flex justify-between text-sm mb-1">
                           <span className="font-medium">{item.itemName}</span>
-                          <span className="text-primary font-bold">{item.duplicationCount} duplications</span>
+                          <div className="flex gap-2">
+                            <span className="text-primary font-bold">{item.duplicationCount} orders</span>
+                            <span className="text-muted-foreground">•</span>
+                            <span className="text-secondary-foreground font-bold">{item.totalServings} servings</span>
+                          </div>
                         </div>
                         <Progress 
                           value={(item.duplicationCount / stock.duplicationStats.totalDuplications) * 100} 
@@ -793,6 +913,7 @@ export default function StockReportPage() {
     totalValue: 0,
     lowStockItems: 0,
     outOfStockItems: 0,
+    criticalStockItems: 0,
     totalUploads: 0,
     totalUsage: 0,
     uploadValue: 0,
@@ -810,6 +931,8 @@ export default function StockReportPage() {
       totalItems: 0,
       totalDuplications: 0,
       averageItemsPerOrder: 0,
+      totalServings: 0,
+      averageServingsPerOrder: 0,
       mostOrderedItems: [],
     },
   })
@@ -868,11 +991,22 @@ export default function StockReportPage() {
   // Process used stock data to aggregate by stock (each stock appears once)
   const aggregatedStockUsage = useMemo(() => {
     const stockMap = new Map<string, AggregatedStockUsage>()
+    const stockDetails = new Map<string, Stock>()
+    const ordersMap = new Map<string, Order>()
+    
+    // Create stock lookup
+    stocks.forEach(s => stockDetails.set(s._id, s))
+    
+    // Create orders lookup for quick access
+    orders.forEach(o => ordersMap.set(o._id, o))
     
     usedStock.forEach(record => {
       const stockId = record.stockId
       const quantity = safeNumber(record.totalQuantityUsed)
       const cost = safeNumber(record.totalCost)
+      const stockDetail = stockDetails.get(stockId)
+      const currentStock = stockDetail?.currentStock || 0
+      const minimumStock = stockDetail?.minimumStock || 0
       
       if (!stockMap.has(stockId)) {
         // First time seeing this stock - create entry
@@ -888,6 +1022,9 @@ export default function StockReportPage() {
           averageQuantityPerOrder: quantity,
           firstUsed: record.usedAt,
           lastUsed: record.usedAt,
+          currentStock,
+          stockStatus: getStockStatus(currentStock, minimumStock),
+          stockPercentage: currentStock > 0 ? (quantity / currentStock) * 100 : 0,
           itemsUsing: [],
           orders: [{
             orderId: record.orderId,
@@ -895,6 +1032,12 @@ export default function StockReportPage() {
             quantityUsed: quantity,
             usedAt: record.usedAt,
             items: record.items,
+            totalItemsInOrder: record.items.length,
+            totalServingsInOrder: record.items.reduce((sum, item) => {
+              const originalOrder = ordersMap.get(record.orderId);
+              const originalItem = originalOrder?.items.find(i => i.itemId === item.itemId);
+              return sum + (originalItem?.quantity || 1);
+            }, 0),
           }],
           duplicationStats: {
             totalDuplications: 0,
@@ -911,6 +1054,7 @@ export default function StockReportPage() {
         existing.totalOrders++
         existing.totalUsageEvents++
         existing.averageQuantityPerOrder = existing.totalQuantityUsed / existing.totalOrders
+        existing.stockPercentage = currentStock > 0 ? (existing.totalQuantityUsed / currentStock) * 100 : 0
         
         // Update first/last used dates
         if (new Date(record.usedAt) < new Date(existing.firstUsed)) {
@@ -920,21 +1064,33 @@ export default function StockReportPage() {
           existing.lastUsed = record.usedAt
         }
         
-        // Add order
+        // Add order with servings count
         existing.orders.push({
           orderId: record.orderId,
           orderNumber: record.orderNumber,
           quantityUsed: quantity,
           usedAt: record.usedAt,
           items: record.items,
+          totalItemsInOrder: record.items.length,
+          totalServingsInOrder: record.items.reduce((sum, item) => {
+            const originalOrder = ordersMap.get(record.orderId);
+            const originalItem = originalOrder?.items.find(i => i.itemId === item.itemId);
+            return sum + (originalItem?.quantity || 1);
+          }, 0),
         })
       }
       
-      // Now process items for this stock (for the details view)
+      // Now process items for this stock with proper repetition tracking based on order quantities
       const stockEntry = stockMap.get(stockId)!
+      const originalOrder = ordersMap.get(record.orderId)
       
       record.items.forEach(item => {
         const itemQuantity = safeNumber(item.quantityUsed)
+        
+        // Get the actual serving count from the original order
+        const originalItem = originalOrder?.items.find(i => i.itemId === item.itemId)
+        const servingsInThisOrder = originalItem?.quantity || 1 // Default to 1 if not found
+        
         const existingItemIndex = stockEntry.itemsUsing.findIndex(i => i.itemId === item.itemId)
         
         if (existingItemIndex >= 0) {
@@ -942,11 +1098,14 @@ export default function StockReportPage() {
           const existingItem = stockEntry.itemsUsing[existingItemIndex]
           existingItem.totalQuantityUsed += itemQuantity
           existingItem.usageCount++
+          existingItem.repetitionCount += servingsInThisOrder // Add the actual serving count
+          existingItem.averageRepetition = existingItem.repetitionCount / existingItem.usageCount
           existingItem.percentage = (existingItem.totalQuantityUsed / stockEntry.totalQuantityUsed) * 100
           existingItem.orders.push({
             orderId: record.orderId,
             orderNumber: record.orderNumber,
             quantityUsed: itemQuantity,
+            servingsInOrder: servingsInThisOrder, // Store the actual serving count
             usedAt: record.usedAt,
           })
           stockEntry.itemsUsing[existingItemIndex] = existingItem
@@ -957,11 +1116,14 @@ export default function StockReportPage() {
             itemName: item.itemName,
             totalQuantityUsed: itemQuantity,
             usageCount: 1,
+            repetitionCount: servingsInThisOrder, // Store the actual serving count
+            averageRepetition: servingsInThisOrder,
             percentage: (itemQuantity / stockEntry.totalQuantityUsed) * 100,
             orders: [{
               orderId: record.orderId,
               orderNumber: record.orderNumber,
               quantityUsed: itemQuantity,
+              servingsInOrder: servingsInThisOrder,
               usedAt: record.usedAt,
             }],
           })
@@ -971,19 +1133,29 @@ export default function StockReportPage() {
       stockMap.set(stockId, stockEntry)
     })
     
-    // Calculate duplication stats for each stock
+    // Calculate duplication stats for each stock based on actual servings
     stockMap.forEach(stock => {
-      // Count how many times each menu item appears in orders
-      const itemDuplicationCount: Record<string, { count: number; itemName: string }> = {}
+      // Count how many times each menu item appears in orders and total servings
+      const itemDuplicationCount: Record<string, { count: number; itemName: string; servings: number }> = {}
       
       stock.orders.forEach(order => {
-        // For each order, count each item that uses this stock
+        const originalOrder = ordersMap.get(order.orderId);
+        
         order.items.forEach(item => {
           const key = item.itemId
           if (!itemDuplicationCount[key]) {
-            itemDuplicationCount[key] = { count: 0, itemName: item.itemName }
+            itemDuplicationCount[key] = { 
+              count: 0, 
+              itemName: item.itemName, 
+              servings: 0 
+            }
           }
           itemDuplicationCount[key].count++
+          
+          // Get actual servings from original order
+          const originalItem = originalOrder?.items.find(i => i.itemId === item.itemId);
+          const servings = originalItem?.quantity || 1;
+          itemDuplicationCount[key].servings += servings;
         })
       })
       
@@ -996,7 +1168,11 @@ export default function StockReportPage() {
         totalDuplications,
         averageDuplicationsPerOrder: stock.orders.length > 0 ? totalDuplications / stock.orders.length : 0,
         mostDuplicatedItem: itemsByDuplication.length > 0 ? itemsByDuplication[0] : null,
-        itemsByDuplicationCount: itemsByDuplication,
+        itemsByDuplicationCount: itemsByDuplication.map(item => ({
+          itemName: item.itemName,
+          duplicationCount: item.count,
+          totalServings: item.servings,
+        })),
       }
       
       // Sort items within each stock by quantity used
@@ -1007,7 +1183,7 @@ export default function StockReportPage() {
     // Convert map to array and sort by total quantity used
     return Array.from(stockMap.values())
       .sort((a, b) => b.totalQuantityUsed - a.totalQuantityUsed)
-  }, [usedStock])
+  }, [usedStock, stocks, orders])
 
   // Calculate summary
   useEffect(() => {
@@ -1047,6 +1223,7 @@ export default function StockReportPage() {
     const totalValue = stocks.reduce((sum, s) => sum + (s.currentStock * s.costPerUnit), 0)
     const lowStockItems = stocks.filter(s => s.currentStock <= s.minimumStock && s.currentStock > 0).length
     const outOfStockItems = stocks.filter(s => s.currentStock <= 0).length
+    const criticalStockItems = stocks.filter(s => s.currentStock <= s.minimumStock * 0.5).length
     
     // Calculate global duplication stats from orders
     const filteredOrders = Array.isArray(orders) 
@@ -1063,17 +1240,28 @@ export default function StockReportPage() {
       return sum + (order.items?.length || 0)
     }, 0)
     
-    // Most ordered items
-    const itemOrderCount: Record<string, { count: number; totalQuantity: number; itemName: string }> = {}
+    // Calculate total servings (sum of quantities) - FIXED
+    const totalServings = filteredOrders.reduce((sum, order) => {
+      return sum + (order.items?.reduce((itemSum, item) => itemSum + (item.quantity || 0), 0) || 0)
+    }, 0)
+    
+    // Most ordered items with serving tracking
+    const itemOrderCount: Record<string, { count: number; totalQuantity: number; itemName: string; totalServings: number }> = {}
     filteredOrders.forEach(order => {
       if (order.items && Array.isArray(order.items)) {
         order.items.forEach(item => {
           const key = item.itemId
           if (!itemOrderCount[key]) {
-            itemOrderCount[key] = { count: 0, totalQuantity: 0, itemName: item.itemName }
+            itemOrderCount[key] = { 
+              count: 0, 
+              totalQuantity: 0, 
+              itemName: item.itemName, 
+              totalServings: 0 
+            }
           }
           itemOrderCount[key].count++
           itemOrderCount[key].totalQuantity += item.quantity || 0
+          itemOrderCount[key].totalServings += item.quantity || 0 // Count actual servings
         })
       }
     })
@@ -1087,6 +1275,7 @@ export default function StockReportPage() {
       totalValue,
       lowStockItems,
       outOfStockItems,
+      criticalStockItems,
       totalUploads: 0,
       totalUsage,
       uploadValue: 0,
@@ -1104,6 +1293,8 @@ export default function StockReportPage() {
         totalItems: totalItemsInOrders,
         totalDuplications,
         averageItemsPerOrder: filteredOrders.length > 0 ? totalItemsInOrders / filteredOrders.length : 0,
+        totalServings,
+        averageServingsPerOrder: filteredOrders.length > 0 ? totalServings / filteredOrders.length : 0,
         mostOrderedItems,
       },
     })
@@ -1145,6 +1336,8 @@ export default function StockReportPage() {
         'Category': stock.stockCategory,
         'Total Quantity Used': stock.totalQuantityUsed.toFixed(3),
         'Unit': stock.stockUnit,
+        'Current Stock': stock.currentStock.toFixed(3),
+        'Stock Status': stock.stockStatus,
         'Total Cost': formatCurrency(stock.totalCost),
         'Number of Orders': stock.totalOrders,
         'Number of Usage Events': stock.totalUsageEvents,
@@ -1153,6 +1346,7 @@ export default function StockReportPage() {
         'Last Used': formatDate(stock.lastUsed, 'long'),
         'Total Duplications': stock.duplicationStats.totalDuplications,
         'Most Duplicated Item': stock.duplicationStats.mostDuplicatedItem?.itemName || 'N/A',
+        'Total Servings': stock.itemsUsing.reduce((sum, i) => sum + i.repetitionCount, 0),
       }))
       
       const wb = XLSX.utils.book_new()
@@ -1234,7 +1428,7 @@ export default function StockReportPage() {
             <div>
               <h2 className="text-3xl font-bold tracking-tight">Stock Report</h2>
               <p className="text-sm text-muted-foreground">
-                Track stock usage with duplication statistics
+                Track stock usage with item repetition and current stock levels
               </p>
             </div>
           </div>
@@ -1432,7 +1626,7 @@ export default function StockReportPage() {
               <SummaryCard
                 title="Total Stock Items"
                 value={summary.totalItems}
-                subValue={`${summary.lowStockItems} low, ${summary.outOfStockItems} out`}
+                subValue={`${summary.lowStockItems} low, ${summary.criticalStockItems} critical`}
                 icon={Boxes}
                 color="blue"
               />
@@ -1480,9 +1674,10 @@ export default function StockReportPage() {
                 color="orange"
               />
               <SummaryCard
-                title="Avg Items/Order"
-                value={summary.duplicationStats.averageItemsPerOrder.toFixed(2)}
-                icon={Hash}
+                title="Total Servings"
+                value={summary.duplicationStats.totalServings}
+                subValue={`${summary.duplicationStats.averageServingsPerOrder.toFixed(2)} per order`}
+                icon={Repeat}
                 color="purple"
               />
             </div>
@@ -1490,7 +1685,7 @@ export default function StockReportPage() {
             {/* Most Ordered Items */}
             <Card>
               <CardHeader>
-                <CardTitle>Most Ordered Menu Items</CardTitle>
+                <CardTitle>Most Ordered Menu Items (by servings)</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -1499,7 +1694,7 @@ export default function StockReportPage() {
                       <div>
                         <p className="font-medium">{item.itemName}</p>
                         <p className="text-xs text-muted-foreground">
-                          Total quantity: {item.totalQuantity}
+                          Total quantity: {item.totalQuantity} | Total servings: {item.totalServings}
                         </p>
                       </div>
                       <Badge variant="secondary">
@@ -1551,15 +1746,16 @@ export default function StockReportPage() {
                             <div>
                               <p className="text-sm font-medium">{stock.stockName}</p>
                               <p className="text-xs text-muted-foreground">
-                                {stock.duplicationStats.totalDuplications} duplications
+                                {stock.duplicationStats.totalDuplications} duplications | 
+                                {stock.itemsUsing.reduce((sum, i) => sum + i.repetitionCount, 0)} servings
                               </p>
                             </div>
                             <div className="text-right">
-                              <Badge variant="secondary">
-                                {((stock.totalQuantityUsed / summary.totalUsage) * 100).toFixed(1)}%
+                              <Badge className={STATUS_COLORS[stock.stockStatus]}>
+                                {stock.currentStock.toFixed(1)} left
                               </Badge>
                               <p className="text-xs text-muted-foreground mt-1">
-                                {formatNumber(stock.totalQuantityUsed)} {stock.stockUnit}
+                                {((stock.totalQuantityUsed / (stock.currentStock + stock.totalQuantityUsed)) * 100).toFixed(1)}% used
                               </p>
                             </div>
                           </div>
@@ -1597,6 +1793,7 @@ export default function StockReportPage() {
                       <SelectItem value="stockName">Stock Name</SelectItem>
                       <SelectItem value="totalOrders">Order Count</SelectItem>
                       <SelectItem value="totalCost">Total Cost</SelectItem>
+                      <SelectItem value="currentStock">Current Stock</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1613,44 +1810,68 @@ export default function StockReportPage() {
                         <TableHead className="cursor-pointer hover:bg-gray-100" onClick={() => handleSort('totalQuantityUsed')}>
                           Total Used {sortBy === 'totalQuantityUsed' && (sortOrder === 'asc' ? '↑' : '↓')}
                         </TableHead>
+                        <TableHead className="cursor-pointer hover:bg-gray-100" onClick={() => handleSort('currentStock')}>
+                          Current Stock {sortBy === 'currentStock' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead>Status</TableHead>
                         <TableHead className="cursor-pointer hover:bg-gray-100" onClick={() => handleSort('totalOrders')}>
                           Orders {sortBy === 'totalOrders' && (sortOrder === 'asc' ? '↑' : '↓')}
                         </TableHead>
                         <TableHead>Duplications</TableHead>
+                        <TableHead>Total Servings</TableHead>
                         <TableHead>Last Used</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {paginatedAggregatedStock.map((stock) => (
-                        <TableRow key={stock.stockId}>
-                          <TableCell className="font-medium">{stock.stockName}</TableCell>
-                          <TableCell>{stock.stockCategory}</TableCell>
-                          <TableCell>
-                            <Badge variant="secondary" className="font-mono">
-                              {formatNumber(stock.totalQuantityUsed)} {stock.stockUnit}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{stock.totalOrders}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="flex items-center gap-1">
-                              <Copy className="h-3 w-3" />
-                              {stock.duplicationStats.totalDuplications}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{formatDate(stock.lastUsed, 'short')}</TableCell>
-                          <TableCell>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => handleViewStockDetails(stock.stockId)}
-                            >
-                              <Eye className="h-4 w-4 mr-2" />
-                              View
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {paginatedAggregatedStock.map((stock) => {
+                        const totalServings = stock.itemsUsing.reduce((sum, i) => sum + i.repetitionCount, 0);
+                        return (
+                          <TableRow key={stock.stockId}>
+                            <TableCell className="font-medium">{stock.stockName}</TableCell>
+                            <TableCell>{stock.stockCategory}</TableCell>
+                            <TableCell>
+                              <Badge variant="secondary" className="font-mono">
+                                {formatNumber(stock.totalQuantityUsed)} {stock.stockUnit}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="font-mono">
+                                {formatNumber(stock.currentStock)} {stock.stockUnit}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={STATUS_COLORS[stock.stockStatus]}>
+                                {stock.stockStatus}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{stock.totalOrders}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="flex items-center gap-1">
+                                <Copy className="h-3 w-3" />
+                                {stock.duplicationStats.totalDuplications}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="flex items-center gap-1">
+                                <Repeat className="h-3 w-3" />
+                                {totalServings}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{formatDate(stock.lastUsed, 'short')}</TableCell>
+                            <TableCell>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => handleViewStockDetails(stock.stockId)}
+                              >
+                                <Eye className="h-4 w-4 mr-2" />
+                                View
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -1693,6 +1914,7 @@ export default function StockReportPage() {
         stock={selectedStockDetail}
         open={showStockDetail}
         onOpenChange={setShowStockDetail}
+        orders={orders}
       />
     </div>
   )

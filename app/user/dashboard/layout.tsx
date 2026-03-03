@@ -1,18 +1,20 @@
 "use client";
 
 import { useState } from 'react';
-import { useSession } from 'next-auth/react';
-import { 
-  Sidebar, 
-  SidebarContent, 
-  SidebarFooter, 
-  SidebarHeader, 
+import { redirect, useRouter } from 'next/navigation';
+
+import { useSession, signOut } from 'next-auth/react';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
   SidebarRail,
   SidebarProvider,
   SidebarTrigger,
   SidebarInset
 } from '@/components/ui/sidebar';
-import { 
+import {
   User,
   ShoppingCart,
   History,
@@ -55,7 +57,7 @@ const userNavItems = [
     url: "/user/dashboard/points",
     icon: Gift,
   },
- 
+
   {
     title: "Notifications",
     url: "/user/dashboard/notifications",
@@ -67,6 +69,20 @@ const userNavItems = [
 // Simple UserNav component
 const UserNav = ({ user }: { user: any }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    try {
+
+      localStorage.removeItem('rememberedEmail');
+      await signOut({ redirect: false });
+      router.push('/');
+    } catch (error) {
+      console.error('Error logging out:', error);
+      router.push('/');
+    }
+
+  }
 
   return (
     <div className="relative">
@@ -87,7 +103,7 @@ const UserNav = ({ user }: { user: any }) => {
         </div>
         <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''} group-data-[collapsible=icon]:hidden`} />
       </button>
-      
+
       {isOpen && (
         <div className="absolute bottom-full left-0 mb-2 bg-white border rounded-lg shadow-lg z-50 w-56">
           <div className="p-2">
@@ -107,10 +123,7 @@ const UserNav = ({ user }: { user: any }) => {
             </a>
             <div className="border-t my-1"></div>
             <button
-              onClick={() => {
-                // Handle logout
-                console.log('Logout clicked');
-              }}
+              onClick={handleLogout}
               className="flex items-center gap-2 w-full px-3 py-2 rounded hover:bg-accent text-sm text-destructive"
             >
               <LogOut className="h-4 w-4" />
@@ -166,8 +179,8 @@ export default function DashboardLayout({
   return (
     <SidebarProvider>
       {/* Sidebar for desktop */}
-      <Sidebar 
-        collapsible="icon" 
+      <Sidebar
+        collapsible="icon"
         className="border-r"
       >
         <SidebarHeader className="p-4 border-b">
@@ -181,7 +194,7 @@ export default function DashboardLayout({
             </div>
           </div>
         </SidebarHeader>
-        
+
         <SidebarContent className="p-2">
           <nav className="space-y-1">
             {userNavItems.map((item) => (
@@ -196,7 +209,7 @@ export default function DashboardLayout({
             ))}
           </nav>
         </SidebarContent>
-        
+
         <SidebarFooter className="p-4 border-t">
           <UserNav user={session.user} />
         </SidebarFooter>
@@ -235,7 +248,7 @@ export default function DashboardLayout({
               Here's what's happening with your account today.
             </p>
           </div>
-          
+
           {/* Dashboard content */}
           <div className="space-y-6">
             {children}

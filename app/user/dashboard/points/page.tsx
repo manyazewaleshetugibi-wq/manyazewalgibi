@@ -18,7 +18,11 @@ import {
   Package,
   TrendingUp,
   Award,
-  Sparkles
+  Sparkles,
+  PlusCircle,
+  ExternalLink,
+  Share2,
+  Users
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
@@ -31,13 +35,16 @@ interface PointTransaction {
   date: string;
   orderId?: string;
   referralId?: string;
+  referredUserId?: string;
+  referredName?: string;
+  orderCount?: number;
 }
 
 interface PointsData {
   totalPoints: number;
   availablePoints: number;
   transactions: PointTransaction[];
-  referralCode: string;
+  referralCode: string | null;
   userId: string;
   nextRewardThreshold: number;
   stats?: {
@@ -46,6 +53,12 @@ interface PointsData {
     ordersWithPoints: number;
     referralsWithPoints: number;
   };
+  referredUsers?: Array<{
+    name: string;
+    email: string;
+    orderCount: number;
+    date: string;
+  }>;
   _debug?: {
     uniqueOrders: number;
     uniqueReferrals: number;
@@ -68,6 +81,8 @@ export default function PointsPage() {
   const [error, setError] = useState<string | null>(null);
   const [redeeming, setRedeeming] = useState<string | null>(null);
   const [copyingCode, setCopyingCode] = useState(false);
+  const [generatingReferral, setGeneratingReferral] = useState(false);
+  const [showReferralCode, setShowReferralCode] = useState(false);
 
   useEffect(() => {
     if (sessionStatus === 'authenticated') {
@@ -99,7 +114,16 @@ export default function PointsPage() {
       
       if (data.success && data.data) {
         console.log('Points data received for user:', data.data.userId);
+        
+        // Check if user has a referral code from registration
+        const hasReferralCode = !!data.data.referralCode;
+        
         setPointsData(data.data);
+        
+        // Show referral code if it exists
+        if (hasReferralCode) {
+          setShowReferralCode(true);
+        }
       } else {
         throw new Error(data.error || 'Failed to load points data');
       }
@@ -109,6 +133,65 @@ export default function PointsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const generateReferralCode = async (): Promise<string> => {
+    try {
+      setGeneratingReferral(true);
+      
+      const response = await fetch('/api/user/referral/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to generate referral code');
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.referralCode) {
+        toast({
+          title: "Success!",
+          description: "Your unique referral code has been created",
+          duration: 3000,
+        });
+        
+        // Update points data with new referral code
+        if (pointsData) {
+          setPointsData({
+            ...pointsData,
+            referralCode: data.referralCode
+          });
+        }
+        
+        setShowReferralCode(true);
+        
+        return data.referralCode;
+      } else {
+        throw new Error(data.error || 'Failed to generate referral code');
+      }
+    } catch (error) {
+      console.error('Error generating referral code:', error);
+      
+      toast({
+        title: "Error",
+        description: "Failed to generate referral code. Please try again.",
+        variant: "destructive",
+        duration: 3000,
+      });
+      
+      return '';
+    } finally {
+      setGeneratingReferral(false);
+    }
+  };
+
+  const handleGenerateClick = async () => {
+    await generateReferralCode();
   };
 
   const copyReferralCode = async () => {
@@ -212,7 +295,7 @@ export default function PointsPage() {
   const handleShareReferral = () => {
     if (!pointsData?.referralCode) return;
     
-    const referralLink = `${window.location.origin}/signup?ref=${pointsData.referralCode}`;
+    const referralLink = `${window.location.origin}/register?ref=${pointsData.referralCode}`;
     const shareText = `Join me on FoodieHub! Use my referral code ${pointsData.referralCode} to get 10% off your first order. Sign up here: ${referralLink}`;
     
     if (navigator.share) {
@@ -261,7 +344,7 @@ export default function PointsPage() {
     
     // Calculate unique orders and referrals from transactions
     const uniqueOrderIds = new Set(orderTransactions.map(t => t.orderId).filter(Boolean));
-    const uniqueReferralIds = new Set(referralTransactions.map(t => t.referralId).filter(Boolean));
+    const uniqueReferralIds = new Set(referralTransactions.map(t => t.referredUserId).filter(Boolean));
     
     return {
       earnedFromOrders,
@@ -319,6 +402,7 @@ export default function PointsPage() {
   }
 
   const pointsBreakdown = calculatePointsBreakdown();
+  const hasReferralCode = pointsData?.referralCode && showReferralCode;
 
   return (
     <div className="space-y-6">
@@ -346,7 +430,7 @@ export default function PointsPage() {
         </div>
       </div>
 
-      {/* Points Summary */}
+      {/* Points Summary - Updated next reward threshold to 100 */}
       <Card className="bg-gradient-to-br from-primary to-primary/80 text-white">
         <CardContent className="p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between">
@@ -358,18 +442,22 @@ export default function PointsPage() {
                   ? "Start earning points by placing orders!" 
                   : "Ready to redeem for rewards"}
               </p>
-              {pointsData?.nextRewardThreshold && pointsData.availablePoints > 0 && (
+              {pointsData && (
                 <div className="mt-4 max-w-xs">
                   <p className="text-sm opacity-90">
-                    {Math.max(0, pointsData.nextRewardThreshold - (pointsData.availablePoints || 0))} points until next reward
+                    {Math.max(0, 100 - (pointsData.availablePoints || 0))} points until next reward
                   </p>
                   <div className="w-full bg-white/20 rounded-full h-2 mt-1">
                     <div 
                       className="bg-white h-2 rounded-full transition-all duration-500"
                       style={{ 
-                        width: `${Math.min(100, ((pointsData.availablePoints || 0) / pointsData.nextRewardThreshold) * 100)}%` 
+                        width: `${Math.min(100, ((pointsData.availablePoints || 0) / 100) * 100)}%` 
                       }}
                     />
+                  </div>
+                  <div className="flex justify-between text-xs opacity-80 mt-1">
+                    <span>0</span>
+                    <span>100</span>
                   </div>
                 </div>
               )}
@@ -512,43 +600,105 @@ export default function PointsPage() {
         </CardContent>
       </Card>
 
-      {/* Referral Section */}
+      {/* Referral Section - UPDATED: Shows registered referral code exactly as stored */}
       <Card>
         <CardHeader>
           <CardTitle>Refer & Earn</CardTitle>
           <CardDescription>Share your code and earn 10 points for each friend who joins</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="flex-1 p-4 bg-muted rounded-lg">
-              <p className="text-sm text-muted-foreground mb-1">Your Referral Code</p>
-              <div className="font-mono text-xl font-bold tracking-wider">
-                {pointsData?.referralCode || 'Loading...'}
+          {!hasReferralCode ? (
+            // Show generate button when no referral code exists
+            <div className="text-center py-8 border-2 border-dashed border-primary/20 rounded-lg">
+              <div className="inline-block p-4 bg-primary/10 rounded-full mb-4">
+                <PlusCircle className="h-8 w-8 text-primary" />
               </div>
+              <h3 className="text-lg font-semibold mb-2">Generate Your Referral Code</h3>
+              <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
+                Create your unique referral code to start earning points when your friends place their first order!
+              </p>
+              <Button 
+                onClick={handleGenerateClick} 
+                size="lg"
+                disabled={generatingReferral}
+                className="min-w-[200px]"
+              >
+                {generatingReferral ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="h-4 w-4 mr-2" />
+                    Generate Referral Code
+                  </>
+                )}
+              </Button>
             </div>
-            <Button 
-              onClick={copyReferralCode} 
-              size="lg"
-              disabled={copyingCode || !pointsData?.referralCode}
-              className="sm:w-auto w-full"
-            >
-              {copyingCode ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Copy className="h-4 w-4 mr-2" />
+          ) : (
+            // Show referral code exactly as stored in database (like "MW-69A00A-D6ZC")
+            <>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="flex-1 p-4 bg-muted rounded-lg">
+                  <p className="text-sm text-muted-foreground mb-1">Your Referral Code</p>
+                  <div className="font-mono text-xl font-bold tracking-wider break-all">
+                    {pointsData?.referralCode}
+                  </div>
+                </div>
+                <Button 
+                  onClick={copyReferralCode} 
+                  size="lg"
+                  disabled={copyingCode}
+                  className="sm:w-auto w-full"
+                >
+                  {copyingCode ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-2" />
+                  )}
+                  Copy Code
+                </Button>
+              </div>
+              
+              <Button 
+                onClick={handleShareReferral} 
+                className="w-full" 
+                variant="outline"
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Share Referral Link
+              </Button>
+
+              {/* Show referred users if any */}
+              {pointsData?.referredUsers && pointsData.referredUsers.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="font-semibold mb-3 flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Your Successful Referrals ({pointsData.referredUsers.length})
+                  </h4>
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    {pointsData.referredUsers.map((user, index) => (
+                      <div key={index} className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="font-medium">{user.name}</p>
+                            <p className="text-sm text-muted-foreground">{user.email}</p>
+                          </div>
+                          <Badge className="bg-green-500">
+                            {user.orderCount} {user.orderCount === 1 ? 'order' : 'orders'}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Referred on {new Date(user.date).toLocaleDateString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
-              Copy Code
-            </Button>
-          </div>
-          
-          <Button 
-            onClick={handleShareReferral} 
-            className="w-full" 
-            variant="outline"
-            disabled={!pointsData?.referralCode}
-          >
-            Share Referral Link
-          </Button>
+            </>
+          )}
           
           <div className="bg-green-50 border border-green-200 rounded-lg p-4">
             <h4 className="font-semibold text-green-800 flex items-center gap-2">
@@ -565,7 +715,7 @@ export default function PointsPage() {
         </CardContent>
       </Card>
 
-      {/* Redeem Points */}
+      {/* Redeem Points - Updated thresholds to 100, 200, 500 */}
       <Card>
         <CardHeader>
           <CardTitle>Redeem Points</CardTitle>
@@ -575,14 +725,14 @@ export default function PointsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 border rounded-lg hover:border-primary transition-colors">
               <div className="text-center">
-                <div className="text-2xl font-bold text-primary">50 pts</div>
+                <div className="text-2xl font-bold text-primary">100 pts</div>
                 <h4 className="font-semibold mt-2">10% Off</h4>
                 <p className="text-sm text-muted-foreground mt-1">Your next order</p>
               </div>
               <Button 
                 className="mt-4 w-full" 
-                disabled={(pointsData?.availablePoints || 0) < 50 || redeeming === '10% Off'}
-                onClick={() => handleRedeem(50, '10% Off')}
+                disabled={(pointsData?.availablePoints || 0) < 100 || redeeming === '10% Off'}
+                onClick={() => handleRedeem(100, '10% Off')}
               >
                 {redeeming === '10% Off' ? (
                   <>
@@ -595,14 +745,14 @@ export default function PointsPage() {
             
             <div className="p-4 border rounded-lg hover:border-primary transition-colors">
               <div className="text-center">
-                <div className="text-2xl font-bold text-primary">100 pts</div>
+                <div className="text-2xl font-bold text-primary">200 pts</div>
                 <h4 className="font-semibold mt-2">Free Drink</h4>
                 <p className="text-sm text-muted-foreground mt-1">Any beverage from menu</p>
               </div>
               <Button 
                 className="mt-4 w-full" 
-                disabled={(pointsData?.availablePoints || 0) < 100 || redeeming === 'Free Drink'}
-                onClick={() => handleRedeem(100, 'Free Drink')}
+                disabled={(pointsData?.availablePoints || 0) < 200 || redeeming === 'Free Drink'}
+                onClick={() => handleRedeem(200, 'Free Drink')}
               >
                 {redeeming === 'Free Drink' ? (
                   <>
@@ -615,14 +765,14 @@ export default function PointsPage() {
             
             <div className="p-4 border rounded-lg hover:border-primary transition-colors">
               <div className="text-center">
-                <div className="text-2xl font-bold text-primary">200 pts</div>
+                <div className="text-2xl font-bold text-primary">500 pts</div>
                 <h4 className="font-semibold mt-2">Free Appetizer</h4>
                 <p className="text-sm text-muted-foreground mt-1">Choose any starter</p>
               </div>
               <Button 
                 className="mt-4 w-full" 
-                disabled={(pointsData?.availablePoints || 0) < 200 || redeeming === 'Free Appetizer'}
-                onClick={() => handleRedeem(200, 'Free Appetizer')}
+                disabled={(pointsData?.availablePoints || 0) < 500 || redeeming === 'Free Appetizer'}
+                onClick={() => handleRedeem(500, 'Free Appetizer')}
               >
                 {redeeming === 'Free Appetizer' ? (
                   <>
@@ -638,9 +788,11 @@ export default function PointsPage() {
             <p className="text-sm text-blue-800">
               <strong>Quick Math:</strong> 
               <br />
-              • Place 10 orders (5 points each) = 50 points → <strong>10% off</strong>
+              • Place 20 orders (5 points each) = 100 points → <strong>10% off</strong>
               <br />
-              • Place 20 orders OR refer 10 friends = 100 points → <strong>Free drink</strong>
+              • Place 40 orders OR refer 20 friends = 200 points → <strong>Free drink</strong>
+              <br />
+              • Place 100 orders OR refer 50 friends = 500 points → <strong>Free appetizer</strong>
               <br />
               • Mix and match to earn faster!
             </p>
@@ -718,20 +870,6 @@ export default function PointsPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* Debug Info - Only visible in development */}
-      {process.env.NODE_ENV === 'development' && pointsData?._debug && (
-        <Card className="border-yellow-200 bg-yellow-50">
-          <CardHeader>
-            <CardTitle className="text-sm text-yellow-800">Debug Info</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="text-xs text-yellow-800 overflow-auto">
-              {JSON.stringify(pointsData._debug, null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

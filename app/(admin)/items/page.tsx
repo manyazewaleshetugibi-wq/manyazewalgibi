@@ -17,7 +17,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -33,12 +32,19 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, Plus, Edit, Trash2, Clock, Utensils, Star, Save, X, Tag, Loader2, Eye, ChefHat, Menu, ArrowUpDown, Filter, Coffee, Upload, XCircle } from 'lucide-react'
+import { Search, Plus, Edit, Trash2, Clock, Star, Save, X, Tag, Loader2, Eye, ChefHat, Menu, Filter, Coffee, XCircle, AlertCircle, Package, Check } from 'lucide-react'
 import { useDebouncedCallback } from "use-debounce"
 import { api } from "@/utils/api"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { cn } from "@/lib/utils"
 
 // Define MenuItem as a frontend type that includes the necessary properties for the component
 interface MenuItem {
@@ -61,13 +67,13 @@ interface MenuItem {
   };
   requiredStock?: {
     stockId: string;
-    quantity: number;
+    quantity: number; // Now accepts any decimal number
   }[];
   nutritionalInfo?: {
     calories: number;
-    protein: number;
-    carbohydrates: number;
-    fat: number;
+    protein: number; // Now accepts any decimal number
+    carbohydrates: number; // Now accepts any decimal number
+    fat: number; // Now accepts any decimal number
   };
   preparationTime?: number;
   isActive?: boolean;
@@ -76,30 +82,63 @@ interface MenuItem {
   updatedAt?: string;
 }
 
-// Validation schema for form
+// Custom error types
+class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
+class NetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NetworkError';
+  }
+}
+
+// Validation schema for form - updated to accept any decimal number
 const ItemSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  description: z.string().min(1, "Description is required"),
+  _id: z.string().optional(),
+  name: z.string().min(1, "Name is required").max(100, "Name must be less than 100 characters"),
+  description: z.string().min(1, "Description is required").max(500, "Description must be less than 500 characters"),
   categoryId: z.string().min(1, "Category is required"),
-  price: z.number().min(0, "Price must be positive"),
+  price: z.number()
+    .min(0, "Price must be positive")
+    .max(999999, "Price is too high"),
   imageUrl: z.string().nullable().optional(),
-  image: z.any().optional(),
   requiredStock: z.array(
     z.object({
       stockId: z.string(),
-      quantity: z.number().min(0, "Quantity must be positive"),
+      quantity: z.number()
+        .min(0, "Quantity must be positive"),
     }),
   ).optional(),
   nutritionalInfo: z.object({
-    calories: z.number().min(0),
-    protein: z.number().min(0),
-    carbohydrates: z.number().min(0),
-    fat: z.number().min(0),
+    calories: z.number()
+      .min(0, "Calories must be positive")
+      .max(10000, "Calories too high"),
+    protein: z.number()
+      .min(0, "Protein must be positive")
+      .max(1000, "Protein too high"),
+    carbohydrates: z.number()
+      .min(0, "Carbohydrates must be positive")
+      .max(1000, "Carbohydrates too high"),
+    fat: z.number()
+      .min(0, "Fat must be positive")
+      .max(1000, "Fat too high"),
   }).optional(),
-  preparationTime: z.number().min(0).optional(),
+  preparationTime: z.number()
+    .min(0, "Preparation time must be positive")
+    .max(1440, "Preparation time cannot exceed 24 hours")
+    .optional(),
   isActive: z.boolean().optional(),
   isFeatured: z.boolean().optional(),
-})
+});
+
+type FormData = z.infer<typeof ItemSchema> & {
+  image?: File;
+};
 
 type ItemCategory = {
   _id: string
@@ -109,6 +148,8 @@ type ItemCategory = {
 type Stock = {
   _id: string
   name: string
+  unit?: string
+  currentStock?: number
 }
 
 // Helper function to safely get values with defaults
@@ -127,6 +168,151 @@ const DEFAULT_NUTRITIONAL_INFO = {
 // Default values for required stock
 const DEFAULT_REQUIRED_STOCK: { stockId: string; quantity: number }[] = [];
 
+// Image validation constants
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+
+// Searchable Stock Select Component
+interface SearchableStockSelectProps {
+  value: string;
+  onChange: (value: string) => void;
+  stocks: Stock[];
+  disabled?: boolean;
+  placeholder?: string;
+}
+
+const SearchableStockSelect: React.FC<SearchableStockSelectProps> = ({
+  value,
+  onChange,
+  stocks,
+  disabled = false,
+  placeholder = "Select ingredient..."
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  const selectedStock = stocks.find(stock => stock._id === value);
+  
+  const filteredStocks = stocks.filter(stock =>
+    stock.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (stock.unit && stock.unit.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  return (
+    <div className="relative">
+      <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={isOpen}
+            className="w-full justify-between"
+            disabled={disabled}
+          >
+            {selectedStock ? (
+              <span className="flex items-center gap-2">
+                <Package className="h-4 w-4 text-gray-500" />
+                {selectedStock.name}
+                {selectedStock.unit && (
+                  <span className="text-xs text-gray-500">({selectedStock.unit})</span>
+                )}
+              </span>
+            ) : (
+              <span className="text-gray-500">{placeholder}</span>
+            )}
+            <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[300px] p-0" align="start">
+          <div className="flex flex-col">
+            {/* Search input */}
+            <div className="flex items-center border-b px-3">
+              <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+              <Input
+                placeholder="Search ingredients..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 h-10"
+                autoFocus
+              />
+            </div>
+            
+            {/* Stock list - always visible */}
+            <ScrollArea className="max-h-[300px] overflow-y-auto p-1">
+              {stocks.length === 0 ? (
+                <div className="text-center py-8 px-4">
+                  <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">No ingredients available</p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {/* Show filtered results if there's a search query, otherwise show all stocks */}
+                  {(searchQuery ? filteredStocks : stocks).map((stock) => (
+                    <Button
+                      key={stock._id}
+                      variant="ghost"
+                      className={cn(
+                        "w-full justify-start text-left font-normal h-auto py-2 px-3",
+                        value === stock._id && "bg-accent text-accent-foreground"
+                      )}
+                      onClick={() => {
+                        onChange(stock._id);
+                        setIsOpen(false);
+                        setSearchQuery(""); // Clear search after selection
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4 shrink-0",
+                          value === stock._id ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="font-medium truncate">{stock.name}</span>
+                        <span className="text-xs text-gray-500">
+                          Unit: {stock.unit || 'N/A'} | In Stock: {stock.currentStock?.toString() || '0'}
+                        </span>
+                      </div>
+                    </Button>
+                  ))}
+                  
+                  {/* Show message when search has no results */}
+                  {searchQuery && filteredStocks.length === 0 && (
+                    <div className="text-center py-8 px-4">
+                      <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                      <p className="text-sm text-gray-500">No ingredients found</p>
+                      <p className="text-xs text-gray-400 mt-1">Try a different search term</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </ScrollArea>
+            
+            {/* Quick actions footer */}
+            <div className="border-t p-2 flex justify-between items-center">
+              <span className="text-xs text-gray-500">
+                {stocks.length} total ingredients
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => {
+                  setIsOpen(false);
+                  setSearchQuery("");
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+};
+
 // Main component
 export default function RestaurantMenuManagement() {
   const [categories, setCategories] = useState<ItemCategory[]>([])
@@ -144,11 +330,29 @@ export default function RestaurantMenuManagement() {
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 1000])
   const [isLoading, setIsLoading] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [retryCount, setRetryCount] = useState(0)
+  const [networkStatus, setNetworkStatus] = useState<'online' | 'offline'>(navigator.onLine ? 'online' : 'offline')
+
+  // Monitor network status
+  useEffect(() => {
+    const handleOnline = () => setNetworkStatus('online')
+    const handleOffline = () => setNetworkStatus('offline')
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   const {
     register,
@@ -156,9 +360,9 @@ export default function RestaurantMenuManagement() {
     control,
     reset,
     setValue,
-    watch,
+    getValues,
     formState: { errors },
-  } = useForm<MenuItem & { image?: File }>({
+  } = useForm<FormData>({
     resolver: zodResolver(ItemSchema),
     defaultValues: {
       requiredStock: DEFAULT_REQUIRED_STOCK,
@@ -172,7 +376,7 @@ export default function RestaurantMenuManagement() {
 
   const { fields, append, remove } = useFieldArray({
     control,
-    name: "requiredStock" as any,
+    name: "requiredStock",
   })
 
   const debouncedSearch = useDebouncedCallback((value) => {
@@ -183,39 +387,88 @@ export default function RestaurantMenuManagement() {
     setPriceRange(value)
   }, 300)
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true)
-      setError(null)
-      try {
-        const [categoriesData, stocksData, menuItemsData] = await Promise.all([
-          api.fetchItemCategories(),
-          api.fetchStocks(),
-          api.fetchMenuItems(),
-        ])
-        setCategories(categoriesData.data || categoriesData.categories || [])
-        setStocks(stocksData.data || stocksData.stocks || [])
-        const items = menuItemsData.items || menuItemsData.data || []
-        // Ensure all items have proper defaults
-        const normalizedItems = items.map((item: MenuItem) => ({
-          ...item,
-          requiredStock: item.requiredStock || DEFAULT_REQUIRED_STOCK,
-          nutritionalInfo: item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO,
-          preparationTime: getSafeValue(item.preparationTime, 10),
-          isActive: getSafeValue(item.isActive, true),
-          isFeatured: getSafeValue(item.isFeatured, false),
-          price: getSafeValue(item.price, 0),
-        }))
-        setMenuItems(normalizedItems)
-        setFilteredItems(normalizedItems)
-      } catch (error) {
-        console.error("Failed to fetch data:", error)
-        setError("Failed to load data. Please try again later.")
-        toast.error("Failed to fetch data")
-      } finally {
-        setIsLoading(false)
+  // Fetch data with retry logic
+  const fetchData = async (retryAttempt = 0) => {
+    setIsLoading(true)
+    setError(null)
+    setFieldErrors({})
+    
+    try {
+      // Check network status
+      if (!navigator.onLine) {
+        throw new NetworkError('You are offline. Please check your internet connection.')
       }
+
+      const [categoriesData, stocksData, menuItemsData] = await Promise.all([
+        api.fetchItemCategories().catch(err => {
+          console.error('Failed to fetch categories:', err)
+          throw new Error('Failed to load categories')
+        }),
+        api.fetchStocks().catch(err => {
+          console.error('Failed to fetch stocks:', err)
+          throw new Error('Failed to load stock items')
+        }),
+        api.fetchMenuItems().catch(err => {
+          console.error('Failed to fetch menu items:', err)
+          throw new Error('Failed to load menu items check your connection')
+        }),
+      ])
+      
+      setCategories(categoriesData.data || categoriesData.categories || [])
+      setStocks(stocksData.data || stocksData.stocks || [])
+      
+      const items = menuItemsData.items || menuItemsData.data || []
+      // Ensure all items have proper defaults
+      const normalizedItems = items.map((item: MenuItem) => ({
+        ...item,
+        requiredStock: item.requiredStock || DEFAULT_REQUIRED_STOCK,
+        nutritionalInfo: item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO,
+        preparationTime: getSafeValue(item.preparationTime, 10),
+        isActive: getSafeValue(item.isActive, true),
+        isFeatured: getSafeValue(item.isFeatured, false),
+        price: getSafeValue(item.price, 0),
+      }))
+      setMenuItems(normalizedItems)
+      setFilteredItems(normalizedItems)
+      setRetryCount(0) // Reset retry count on success
+      
+    } catch (error: any) {
+      console.error("Failed to fetch data:", error)
+      
+      // Handle specific error types
+      let errorMessage = "Failed to load data. "
+      
+      if (error instanceof NetworkError) {
+        errorMessage = error.message
+      } else if (error.message?.includes('NetworkError') || error.message?.includes('Failed to fetch')) {
+        errorMessage = "Network error. Please check your internet connection."
+      } else if (error.message?.includes('500')) {
+        errorMessage = "Server error. Please try again later."
+      } else if (error.message?.includes('404')) {
+        errorMessage = "API endpoint not found. Please check your API configuration."
+      } else if (error.message) {
+        errorMessage += error.message
+      } else {
+        errorMessage += "Please try again later."
+      }
+      
+      setError(errorMessage)
+      
+      // Implement retry logic
+      if (retryAttempt < 3) {
+        setTimeout(() => {
+          setRetryCount(prev => prev + 1)
+          fetchData(retryAttempt + 1)
+        }, 2000 * (retryAttempt + 1)) // Exponential backoff
+      } else {
+        toast.error('Failed to load data after multiple attempts. Please refresh the page.')
+      }
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchData()
   }, [])
 
@@ -236,21 +489,48 @@ export default function RestaurantMenuManagement() {
 
   const paginate = (pageNumber: number) => setCurrentPage(pageNumber)
 
+  const validateImage = (file: File): { valid: boolean; error?: string } => {
+    // Check file type
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      return { 
+        valid: false, 
+        error: `Invalid file type. Allowed types: ${ALLOWED_IMAGE_EXTENSIONS.join(', ')}` 
+      }
+    }
+
+    // Check file size
+    if (file.size > MAX_IMAGE_SIZE) {
+      return { 
+        valid: false, 
+        error: `Image size should be less than ${MAX_IMAGE_SIZE / (1024 * 1024)}MB` 
+      }
+    }
+
+    // Check if file is actually an image (additional validation)
+    if (!file.type.startsWith('image/')) {
+      return { valid: false, error: 'File must be an image' }
+    }
+
+    return { valid: true }
+  }
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
-    if (!validTypes.includes(file.type)) {
-      toast.error('Please upload a valid image file (JPEG, PNG, GIF, WebP)')
-      return
-    }
+    // Clear previous image errors
+    setFieldErrors(prev => {
+      const newErrors = { ...prev }
+      delete newErrors.image
+      return newErrors
+    })
 
-    // Validate file size (max 10MB to match API)
-    const maxSize = 10 * 1024 * 1024 // 10MB
-    if (file.size > maxSize) {
-      toast.error('Image size should be less than 10MB')
+    // Validate image
+    const validation = validateImage(file)
+    if (!validation.valid) {
+      setFieldErrors(prev => ({ ...prev, image: validation.error! }))
+      toast.error(validation.error!)
+      e.target.value = '' // Clear the input
       return
     }
 
@@ -261,6 +541,10 @@ export default function RestaurantMenuManagement() {
     reader.onloadend = () => {
       setImagePreview(reader.result as string)
     }
+    reader.onerror = () => {
+      setFieldErrors(prev => ({ ...prev, image: 'Failed to read image file' }))
+      toast.error('Failed to read image file')
+    }
     reader.readAsDataURL(file)
   }
 
@@ -268,42 +552,105 @@ export default function RestaurantMenuManagement() {
     setSelectedImage(null)
     setImagePreview(null)
     setValue("imageUrl", null)
+    // Clear any image errors
+    setFieldErrors(prev => {
+      const newErrors = { ...prev }
+      delete newErrors.image
+      return newErrors
+    })
   }
 
-  const handleCreateOrUpdate = async (data: MenuItem & { image?: File }) => {
-    setIsLoading(true)
+  const validateForm = (data: FormData): boolean => {
+    const errors: Record<string, string> = {}
+    
+    // Validate required fields
+    if (!data.name?.trim()) errors.name = 'Name is required'
+    if (!data.description?.trim()) errors.description = 'Description is required'
+    if (!data.categoryId) errors.categoryId = 'Category is required'
+    
+    // Validate price
+    if (data.price === undefined || data.price === null || data.price < 0) {
+      errors.price = 'Price must be a positive number'
+    }
+    
+    // Validate image for new items
+    if (!selectedItem?._id && !selectedImage && !data.imageUrl) {
+      errors.image = 'Image is required for new menu items'
+    }
+    
+    // Validate required stock items - no decimal place restrictions
+    if (data.requiredStock) {
+      data.requiredStock.forEach((stock, index) => {
+        if (stock.stockId && stock.quantity <= 0) {
+          errors[`requiredStock.${index}.quantity`] = 'Quantity must be greater than 0'
+        }
+      })
+    }
+    
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  const onSubmit = async (data: FormData) => {
+    // Validate form first
+    if (!validateForm(data)) {
+      toast.error('Please fix the validation errors')
+      return
+    }
+
+    setIsSubmitting(true)
     setIsUploading(true)
     setUploadProgress(0)
     setError(null)
+    setFieldErrors({})
     
     try {
+      // Check network status
+      if (!navigator.onLine) {
+        throw new NetworkError('You are offline. Please check your internet connection.')
+      }
+
       // Create FormData for file upload
       const formData = new FormData()
       
-      // Add basic fields with null checks
+      // Add basic fields with null checks - preserve full precision
       formData.append("name", data.name || "")
       formData.append("description", data.description || "")
       formData.append("categoryId", data.categoryId || "")
-      formData.append("price", (data.price || 0).toString())
-      formData.append("preparationTime", (data.preparationTime || 10).toString())
+      formData.append("price", data.price?.toString() || "0") // Use toString() to preserve full precision
+      formData.append("preparationTime", data.preparationTime?.toString() || "10")
       formData.append("isActive", (data.isActive ?? true).toString())
       formData.append("isFeatured", (data.isFeatured ?? false).toString())
       
-      // Add nutritional info with defaults
+      // Add nutritional info with defaults - preserve full precision
       const nutritionalInfo = data.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
-      formData.append("nutritionalInfo", JSON.stringify(nutritionalInfo))
+      const formattedNutritionalInfo = {
+        calories: nutritionalInfo.calories,
+        protein: nutritionalInfo.protein,
+        carbohydrates: nutritionalInfo.carbohydrates,
+        fat: nutritionalInfo.fat
+      }
+      formData.append("nutritionalInfo", JSON.stringify(formattedNutritionalInfo))
       
-      // Add required stock with defaults
-      const validRequiredStock = (data.requiredStock || DEFAULT_REQUIRED_STOCK).filter(stock => stock.stockId && stock.quantity > 0)
+      // Add required stock with defaults - preserve full precision
+      const validRequiredStock = (data.requiredStock || DEFAULT_REQUIRED_STOCK)
+        .filter(stock => stock.stockId && stock.quantity > 0)
+        .map(stock => ({
+          stockId: stock.stockId,
+          quantity: stock.quantity // Keep original value without rounding
+        }))
       formData.append("requiredStock", JSON.stringify(validRequiredStock))
       
       // Handle image logic
       if (selectedImage) {
         formData.append('image', selectedImage);
-      } else if (data.imageUrl) { // if it's a string (URL), keep it
+      } else if (data.imageUrl && typeof data.imageUrl === 'string') {
         formData.append('imageUrl', data.imageUrl);
-      } else if (selectedItem && selectedItem.imageUrl) {
-        // This means an existing image was removed (data.imageUrl is null/undefined/empty)
+      } else if (selectedItem && selectedItem.imageUrl && !selectedImage) {
+        // Keep existing image
+        formData.append('imageUrl', selectedItem.imageUrl);
+      } else if (selectedItem && selectedItem.imageUrl && !data.imageUrl) {
+        // This means an existing image was removed
         formData.append("removeImage", "true")
       }
       
@@ -312,100 +659,134 @@ export default function RestaurantMenuManagement() {
       let response
       const isUpdate = selectedItem && selectedItem._id
       
-      if (isUpdate) {
-        // Simulate upload progress
-        const progressInterval = setInterval(() => {
-          setUploadProgress(prev => {
-            if (prev >= 90) {
-              clearInterval(progressInterval)
-              return 90
-            }
-            return prev + 10
-          })
-        }, 300)
-        
-        // Update existing item
-        response = await api.updateMenuItem(selectedItem!._id!, formData)
-        
-        clearInterval(progressInterval)
-        setUploadProgress(100)
-        
-        if (response && response.success) {
-          toast.success("Item updated successfully")
+      // Simulate upload progress for better UX
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval)
+            return 90
+          }
+          return prev + 10
+        })
+      }, 300)
+      
+      try {
+        if (isUpdate) {
+          // Update existing item
+          response = await api.updateMenuItem(selectedItem!._id!, formData)
         } else {
-          throw new Error(response?.message || "Failed to update item")
+          // Create new item
+          response = await api.createMenuItem(formData)
         }
-      } else {
-        // Simulate upload progress
-        const progressInterval = setInterval(() => {
-          setUploadProgress(prev => {
-            if (prev >= 90) {
-              clearInterval(progressInterval)
-              return 90
-            }
-            return prev + 10
-          })
-        }, 300)
-        
-        // Create new item
-        response = await api.createMenuItem(formData)
         
         clearInterval(progressInterval)
         setUploadProgress(100)
         
-        if (response && response.success) {
-          toast.success("Item created successfully")
+        // Check response
+        if (!response) {
+          throw new Error('No response from server')
+        }
+        
+        if (response.success === false) {
+          throw new Error(response.message || 'Operation failed')
+        }
+        
+        // Success message
+        toast.success(isUpdate ? "Item updated successfully" : "Item created successfully")
+        
+        // Wait a bit to show completion
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        // Refresh menu items
+        await fetchData()
+        
+        // Reset form state and close dialog
+        reset()
+        setSelectedImage(null)
+        setImagePreview(null)
+        setSelectedItem(null)
+        setIsDialogOpen(false)
+        setFieldErrors({})
+        
+      } catch (apiError: any) {
+        clearInterval(progressInterval)
+        
+        // Handle specific API errors
+        if (apiError.message?.includes('413')) {
+          throw new Error('Image file is too large. Maximum size is 10MB.')
+        } else if (apiError.message?.includes('400')) {
+          // Try to parse validation errors from response
+          try {
+            const errorData = JSON.parse(apiError.message)
+            if (errorData.errors) {
+              setFieldErrors(errorData.errors)
+              throw new ValidationError('Please check the form for errors')
+            }
+          } catch {
+            // If parsing fails, use generic message
+          }
+          throw new Error('Invalid data. Please check your inputs.')
+        } else if (apiError.message?.includes('401')) {
+          throw new Error('You are not authorized. Please log in again.')
+        } else if (apiError.message?.includes('403')) {
+          throw new Error('You do not have permission to perform this action.')
+        } else if (apiError.message?.includes('404')) {
+          throw new Error('API endpoint not found. Please check your configuration.')
+        } else if (apiError.message?.includes('500')) {
+          throw new Error('Server error. Please try again later.')
         } else {
-          throw new Error(response?.message || "Failed to create item")
+          throw apiError
         }
       }
-      
-      // Wait a bit to show completion
-      await new Promise(resolve => setTimeout(resolve, 500))
-      
-      // Refresh menu items
-      const updatedItems = await api.fetchMenuItems()
-      const items = updatedItems.items || updatedItems.data || []
-      // Ensure all items have proper defaults
-      const normalizedItems = items.map((item: MenuItem) => ({
-        ...item,
-        requiredStock: item.requiredStock || DEFAULT_REQUIRED_STOCK,
-        nutritionalInfo: item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO,
-        preparationTime: getSafeValue(item.preparationTime, 10),
-        isActive: getSafeValue(item.isActive, true),
-        isFeatured: getSafeValue(item.isFeatured, false),
-        price: getSafeValue(item.price, 0),
-      }))
-      setMenuItems(normalizedItems)
-      setFilteredItems(normalizedItems)
-      
-      // Reset form state
-      reset()
-      setSelectedImage(null)
-      setImagePreview(null)
-      setSelectedItem(null)
-      setIsDialogOpen(false)
       
     } catch (error: any) {
       console.error("Error saving item:", error)
       
       // Extract meaningful error message
-      let errorMessage = "Failed to save item. Please try again."
+      let errorMessage = "Failed to save item. "
       
-      if (error.message && error.message.includes("500")) {
-        errorMessage = "Server error occurred. Please check your API endpoint."
-      } else if (error.message && error.message.includes("400")) {
-        errorMessage = "Invalid data sent to server. Please check your inputs."
-      } else if (error.message && error.message.includes("404")) {
-        errorMessage = "API endpoint not found. Please check your API configuration."
-      } else if (error.message) {
+      if (error instanceof NetworkError) {
         errorMessage = error.message
+      } else if (error instanceof ValidationError) {
+        errorMessage = error.message
+      } else if (error.message) {
+        errorMessage += error.message
+      } else {
+        errorMessage += "Please try again."
       }
       
       setError(errorMessage)
       toast.error(errorMessage)
+      
+      // If it's a network error, offer retry
+      if (error instanceof NetworkError || error.message?.includes('network')) {
+        toast((t) => (
+          <div className="flex flex-col gap-2">
+            <span>Network error. Would you like to retry?</span>
+            <div className="flex gap-2">
+              <Button 
+                size="sm" 
+                onClick={() => {
+                  toast.dismiss(t.id)
+                  const currentData = getValues()
+                  onSubmit(currentData)
+                }}
+              >
+                Retry
+              </Button>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => toast.dismiss(t.id)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ), { duration: 10000 })
+      }
     } finally {
-      setIsLoading(false)
+      setIsSubmitting(false)
       setIsUploading(false)
       setUploadProgress(0)
     }
@@ -419,33 +800,42 @@ export default function RestaurantMenuManagement() {
   const confirmDelete = async () => {
     if (!itemToDelete) return
     
-    setIsLoading(true)
+    setIsSubmitting(true)
     setError(null)
+    
     try {
+      if (!navigator.onLine) {
+        throw new NetworkError('You are offline. Please check your internet connection.')
+      }
+
       await api.deleteMenuItem(itemToDelete)
-      const updatedItems = await api.fetchMenuItems()
-      const items = updatedItems.items || updatedItems.data || []
-      // Ensure all items have proper defaults
-      const normalizedItems = items.map((item: MenuItem) => ({
-        ...item,
-        requiredStock: item.requiredStock || DEFAULT_REQUIRED_STOCK,
-        nutritionalInfo: item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO,
-        preparationTime: getSafeValue(item.preparationTime, 10),
-        isActive: getSafeValue(item.isActive, true),
-        isFeatured: getSafeValue(item.isFeatured, false),
-        price: getSafeValue(item.price, 0),
-      }))
-      setMenuItems(normalizedItems)
-      setFilteredItems(normalizedItems)
+      await fetchData() // Refresh the list
       toast.success("Item deleted successfully")
-    } catch (error) {
-      console.error("Error deleting item:", error)
-      setError("Failed to delete item. Please try again.")
-      toast.error("An error occurred while deleting the item")
-    } finally {
-      setIsLoading(false)
       setIsDeleteDialogOpen(false)
       setItemToDelete(null)
+      
+    } catch (error: any) {
+      console.error("Error deleting item:", error)
+      
+      let errorMessage = "Failed to delete item. "
+      if (error instanceof NetworkError) {
+        errorMessage = error.message
+      } else if (error.message?.includes('401')) {
+        errorMessage += "You are not authorized."
+      } else if (error.message?.includes('403')) {
+        errorMessage += "You do not have permission."
+      } else if (error.message?.includes('404')) {
+        errorMessage += "Item not found."
+      } else if (error.message) {
+        errorMessage += error.message
+      } else {
+        errorMessage += "Please try again."
+      }
+      
+      setError(errorMessage)
+      toast.error(errorMessage)
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -453,6 +843,8 @@ export default function RestaurantMenuManagement() {
     setSelectedItem(item)
     setImagePreview(item.imageUrl || null)
     setSelectedImage(null)
+    setFieldErrors({})
+    setError(null)
     
     // Ensure all fields have defaults
     const itemToEdit = {
@@ -477,6 +869,8 @@ export default function RestaurantMenuManagement() {
     setSelectedItem(null)
     setImagePreview(null)
     setSelectedImage(null)
+    setFieldErrors({})
+    setError(null)
     reset({
       requiredStock: DEFAULT_REQUIRED_STOCK,
       nutritionalInfo: DEFAULT_NUTRITIONAL_INFO,
@@ -522,25 +916,43 @@ export default function RestaurantMenuManagement() {
           <div className="absolute inset-0 border-4 border-t-indigo-600 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin"></div>
         </div>
         <p className="mt-4 text-indigo-800 font-medium">Loading menu items...</p>
+        {retryCount > 0 && (
+          <p className="mt-2 text-sm text-gray-500">Retry attempt {retryCount}/3...</p>
+        )}
       </div>
     )
   }
 
   if (error && menuItems.length === 0) {
     return (
-      <div className="flex flex-col justify-center items-center h-screen bg-red-50">
+      <div className="flex flex-col justify-center items-center h-screen bg-red-50 p-4">
         <div className="max-w-md w-full p-8 bg-white rounded-lg shadow-lg">
           <div className="flex items-center justify-center bg-red-100 h-16 w-16 rounded-full mb-4 mx-auto">
-            <X className="h-8 w-8 text-red-600" />
+            <AlertCircle className="h-8 w-8 text-red-600" />
           </div>
           <h2 className="text-center text-2xl font-bold text-red-700 mb-2">Error Loading Data</h2>
           <p className="text-center text-gray-700 mb-6">{error}</p>
-          <Button 
-            onClick={() => window.location.reload()} 
-            className="w-full bg-red-600 hover:bg-red-700"
-          >
-            <Loader2 className="mr-2 h-4 w-4" /> Try Again
-          </Button>
+          {networkStatus === 'offline' && (
+            <p className="text-center text-orange-600 mb-4">
+              You are currently offline. Please check your internet connection.
+            </p>
+          )}
+          <div className="space-y-3">
+            <Button 
+              onClick={() => fetchData()} 
+              className="w-full bg-red-600 hover:bg-red-700"
+              disabled={networkStatus === 'offline'}
+            >
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Try Again
+            </Button>
+            <Button 
+              onClick={() => window.location.reload()} 
+              variant="outline"
+              className="w-full"
+            >
+              Refresh Page
+            </Button>
+          </div>
         </div>
       </div>
     )
@@ -549,6 +961,17 @@ export default function RestaurantMenuManagement() {
   return (
     <div className="container mx-auto p-4 space-y-8">
       <Toaster position="top-right" />
+      
+      {/* Network Status Alert */}
+      {networkStatus === 'offline' && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Offline</AlertTitle>
+          <AlertDescription>
+            You are currently offline. Some features may be unavailable.
+          </AlertDescription>
+        </Alert>
+      )}
       
       {/* Enhanced header with background and shadow */}
       <div className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 p-6 rounded-lg shadow-sm mb-8">
@@ -560,6 +983,15 @@ export default function RestaurantMenuManagement() {
           Manage your menu items, add new dishes, update prices, and organize your restaurant's offerings.
         </p>
       </div>
+
+      {/* Error Alert */}
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Enhanced filter section with card */}
       <Card className="mb-8">
@@ -579,10 +1011,10 @@ export default function RestaurantMenuManagement() {
                   placeholder="Search items..."
                   className="pl-10 w-64"
                   onChange={(e) => debouncedSearch(e.target.value)}
-                  disabled={isLoading}
+                  disabled={isLoading || networkStatus === 'offline'}
                 />
               </div>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter} disabled={isLoading}>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter} disabled={isLoading || networkStatus === 'offline'}>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Filter by category" />
                 </SelectTrigger>
@@ -602,14 +1034,14 @@ export default function RestaurantMenuManagement() {
                   <Slider
                     min={0}
                     max={1000}
-                    step={10}
+                    step={1}
                     value={priceRange}
                     onValueChange={debouncedPriceRange}
                     className="w-[200px]"
-                    disabled={isLoading}
+                    disabled={isLoading || networkStatus === 'offline'}
                   />
                   <span className="text-sm font-medium bg-gray-100 px-2 py-1 rounded-md min-w-[90px] text-center">
-                    {priceRange[0]} - {priceRange[1]} ETB
+                    {priceRange[0].toFixed(2)} - {priceRange[1].toFixed(2)} ETB
                   </span>
                 </div>
               </div>
@@ -618,9 +1050,9 @@ export default function RestaurantMenuManagement() {
             <Button
               onClick={handleNewItem}
               className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
-              disabled={isLoading}
+              disabled={isLoading || isSubmitting || networkStatus === 'offline'}
             >
-              <Plus className="mr-2" /> Add New Item
+              <Plus className="mr-2 h-4 w-4" /> Add New Item
             </Button>
           </div>
         </CardContent>
@@ -665,11 +1097,11 @@ export default function RestaurantMenuManagement() {
                   <div className="flex justify-between items-center">
                     <span className="flex items-center text-sm font-medium text-gray-900">
                       <Tag className="mr-1.5 text-green-600" size={14} />
-                      {item.price?.toFixed(2) || "0.00"} ETB
+                      {item.price?.toString() || "0"} ETB
                     </span>
                     <span className="flex items-center text-sm text-gray-500">
                       <Clock className="mr-1.5 text-orange-500" size={14} />
-                      {item.preparationTime || 0} min
+                      {item.preparationTime?.toString() || "0"} min
                     </span>
                   </div>
                   <div className="flex items-center text-xs text-gray-500 pt-1">
@@ -685,9 +1117,9 @@ export default function RestaurantMenuManagement() {
                   size="sm" 
                   onClick={() => handleViewDetails(item)} 
                   className="flex-1 mr-1"
-                  disabled={isLoading}
+                  disabled={isSubmitting}
                 >
-                  <Eye className="mr-1.5" size={15} />
+                  <Eye className="mr-1.5 h-4 w-4" />
                   View
                 </Button>
                 <Button 
@@ -695,9 +1127,9 @@ export default function RestaurantMenuManagement() {
                   size="sm" 
                   onClick={() => handleEdit(item)} 
                   className="flex-1 mr-1"
-                  disabled={isLoading}
+                  disabled={isSubmitting}
                 >
-                  <Edit className="mr-1.5" size={15} />
+                  <Edit className="mr-1.5 h-4 w-4" />
                   Edit
                 </Button>
                 <Button 
@@ -705,9 +1137,9 @@ export default function RestaurantMenuManagement() {
                   size="sm" 
                   onClick={() => item._id && handleDelete(item._id)} 
                   className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                  disabled={isLoading}
+                  disabled={isSubmitting}
                 >
-                  <Trash2 className="mr-1.5" size={15} />
+                  <Trash2 className="mr-1.5 h-4 w-4" />
                   Delete
                 </Button>
               </CardFooter>
@@ -730,7 +1162,7 @@ export default function RestaurantMenuManagement() {
                 variant="outline"
                 size="icon"
                 onClick={() => currentPage > 1 && paginate(currentPage - 1)}
-                disabled={currentPage === 1 || isLoading}
+                disabled={currentPage === 1 || isLoading || isSubmitting}
                 className="h-9 w-9"
               >
                 <PaginationPrevious className="h-4 w-4" />
@@ -739,9 +1171,9 @@ export default function RestaurantMenuManagement() {
             {Array.from({ length: Math.ceil(filteredItems.length / itemsPerPage) }).map((_, index) => (
               <PaginationItem key={index}>
                 <PaginationLink 
-                  onClick={() => !isLoading && paginate(index + 1)} 
+                  onClick={() => !isLoading && !isSubmitting && paginate(index + 1)} 
                   isActive={currentPage === index + 1}
-                  className={isLoading ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  className={isLoading || isSubmitting ? "pointer-events-none opacity-50" : "cursor-pointer"}
                 >
                   {index + 1}
                 </PaginationLink>
@@ -752,7 +1184,7 @@ export default function RestaurantMenuManagement() {
                 variant="outline"
                 size="icon"
                 onClick={() => currentPage < Math.ceil(filteredItems.length / itemsPerPage) && paginate(currentPage + 1)}
-                disabled={currentPage === Math.ceil(filteredItems.length / itemsPerPage) || isLoading}
+                disabled={currentPage === Math.ceil(filteredItems.length / itemsPerPage) || isLoading || isSubmitting}
                 className="h-9 w-9"
               >
                 <PaginationNext className="h-4 w-4" />
@@ -773,18 +1205,37 @@ export default function RestaurantMenuManagement() {
           setSelectedImage(null)
           setImagePreview(null)
           setUploadProgress(0)
+          setFieldErrors({})
+          setError(null)
+          setSelectedItem(null)
+          reset()
         }
       }}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>{selectedItem ? "Edit Menu Item" : "Add New Menu Item"}</DialogTitle>
             <DialogDescription>
-              {selectedItem ? "Edit the details of the menu item." : "Add a new item to your menu."}
+              {selectedItem ? "Edit the details of the menu item." : "Add a new item to your menu. Image is required for new items."}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit(handleCreateOrUpdate)}>
+          <form onSubmit={handleSubmit(onSubmit)}>
             <ScrollArea className="h-[60vh] pr-4">
               <div className="space-y-4 py-4">
+                {/* Display form errors */}
+                {Object.keys(fieldErrors).length > 0 && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Validation Errors</AlertTitle>
+                    <AlertDescription>
+                      <ul className="list-disc pl-4 mt-2">
+                        {Object.entries(fieldErrors).map(([field, message]) => (
+                          <li key={field} className="text-sm">{message}</li>
+                        ))}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 <Tabs defaultValue="basic" className="w-full">
                   <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="basic" className="flex items-center gap-1">
@@ -803,17 +1254,23 @@ export default function RestaurantMenuManagement() {
                   <TabsContent value="basic">
                     <div className="space-y-4 pt-3">
                       <div className="grid gap-2">
-                        <Label htmlFor="name">Item Name</Label>
+                        <Label htmlFor="name" className="flex items-center">
+                          Item Name <span className="text-red-500 ml-1">*</span>
+                        </Label>
                         <Input 
                           id="name" 
                           {...register("name")} 
                           placeholder="e.g., Spicy Chicken Burger" 
-                          disabled={isLoading || isUploading}
+                          disabled={isSubmitting || isUploading}
+                          className={fieldErrors.name ? "border-red-500" : ""}
                         />
                         {errors.name && <p className="text-red-500 text-sm">{errors.name.message}</p>}
+                        {fieldErrors.name && <p className="text-red-500 text-sm">{fieldErrors.name}</p>}
                       </div>
                       <div className="grid gap-2">
-                        <Label htmlFor="category">Category</Label>
+                        <Label htmlFor="category" className="flex items-center">
+                          Category <span className="text-red-500 ml-1">*</span>
+                        </Label>
                         <Controller
                           name="categoryId"
                           control={control}
@@ -821,9 +1278,9 @@ export default function RestaurantMenuManagement() {
                             <Select 
                               onValueChange={field.onChange} 
                               value={field.value || undefined}
-                              disabled={isLoading || isUploading}
+                              disabled={isSubmitting || isUploading}
                             >
-                              <SelectTrigger id="category">
+                              <SelectTrigger id="category" className={fieldErrors.categoryId ? "border-red-500" : ""}>
                                 <SelectValue placeholder="Select Category" />
                               </SelectTrigger>
                               <SelectContent>
@@ -837,30 +1294,42 @@ export default function RestaurantMenuManagement() {
                           )}
                         />
                         {errors.categoryId && <p className="text-red-500 text-sm">{errors.categoryId.message}</p>}
+                        {fieldErrors.categoryId && <p className="text-red-500 text-sm">{fieldErrors.categoryId}</p>}
                       </div>
                       <div className="grid gap-2">
-                        <Label htmlFor="description">Description</Label>
+                        <Label htmlFor="description" className="flex items-center">
+                          Description <span className="text-red-500 ml-1">*</span>
+                        </Label>
                         <Textarea 
                           id="description" 
                           {...register("description")} 
                           placeholder="Describe the item, its ingredients, flavors, etc." 
-                          className="min-h-[100px]" 
-                          disabled={isLoading || isUploading}
+                          className={`min-h-[100px] ${fieldErrors.description ? "border-red-500" : ""}`}
+                          disabled={isSubmitting || isUploading}
                         />
                         {errors.description && <p className="text-red-500 text-sm">{errors.description.message}</p>}
+                        {fieldErrors.description && <p className="text-red-500 text-sm">{fieldErrors.description}</p>}
                       </div>
                       <div className="grid grid-cols-1 gap-4">
                         <div className="grid gap-2">
-                          <Label htmlFor="price">Price (ETB)</Label>
+                          <Label htmlFor="price" className="flex items-center">
+                            Price (ETB) <span className="text-red-500 ml-1">*</span>
+                          </Label>
                           <Input
                             id="price"
-                            {...register("price", { valueAsNumber: true })}
                             type="number"
-                            step="0.01"
+                            step="any"
+                            min="0"
                             placeholder="0.00"
-                            disabled={isLoading || isUploading}
+                            disabled={isSubmitting || isUploading}
+                            className={fieldErrors.price ? "border-red-500" : ""}
+                            {...register("price", { 
+                              valueAsNumber: true,
+                              setValueAs: (v) => v === '' ? 0 : parseFloat(v)
+                            })}
                           />
                           {errors.price && <p className="text-red-500 text-sm">{errors.price.message}</p>}
+                          {fieldErrors.price && <p className="text-red-500 text-sm">{fieldErrors.price}</p>}
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
@@ -868,24 +1337,37 @@ export default function RestaurantMenuManagement() {
                           <Label htmlFor="prepTime">Preparation Time (min)</Label>
                           <Input
                             id="prepTime"
-                            {...register("preparationTime", { valueAsNumber: true })}
                             type="number"
-                            placeholder="10"
-                            disabled={isLoading || isUploading}
+                            step="any"
+                            min="0"
+                            max="1440"
+                            placeholder="10.5"
+                            disabled={isSubmitting || isUploading}
+                            {...register("preparationTime", { 
+                              valueAsNumber: true,
+                              setValueAs: (v) => v === '' ? 10 : parseFloat(v)
+                            })}
                           />
                           {errors.preparationTime && (
                             <p className="text-red-500 text-sm">{errors.preparationTime.message}</p>
                           )}
                         </div>
                         <div className="grid gap-2">
-                          <Label htmlFor="image">Item Image</Label>
+                          <Label htmlFor="image" className="flex items-center">
+                            Item Image {!selectedItem && <span className="text-red-500 ml-1">*</span>}
+                          </Label>
                           <Input
                             id="image"
                             type="file"
-                            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                            accept={ALLOWED_IMAGE_TYPES.join(',')}
                             onChange={handleImageChange}
-                            disabled={isLoading || isUploading}
+                            disabled={isSubmitting || isUploading}
+                            className={fieldErrors.image ? "border-red-500" : ""}
                           />
+                          <p className="text-xs text-gray-500">
+                            Max size: 10MB. Allowed: {ALLOWED_IMAGE_EXTENSIONS.join(', ')}
+                          </p>
+                          {fieldErrors.image && <p className="text-red-500 text-sm">{fieldErrors.image}</p>}
                         </div>
                       </div>
                       
@@ -905,7 +1387,7 @@ export default function RestaurantMenuManagement() {
                               size="icon"
                               className="absolute top-2 right-2 h-8 w-8"
                               onClick={removeImage}
-                              disabled={isLoading || isUploading}
+                              disabled={isSubmitting || isUploading}
                             >
                               <XCircle className="h-4 w-4" />
                             </Button>
@@ -942,7 +1424,7 @@ export default function RestaurantMenuManagement() {
                                   id="isActive"
                                   checked={field.value ?? true}
                                   onCheckedChange={field.onChange}
-                                  disabled={isLoading || isUploading}
+                                  disabled={isSubmitting || isUploading}
                                 />
                                 <Label htmlFor="isActive" className="cursor-pointer">Active Item</Label>
                               </div>
@@ -959,7 +1441,7 @@ export default function RestaurantMenuManagement() {
                                   id="isFeatured"
                                   checked={field.value ?? false}
                                   onCheckedChange={field.onChange}
-                                  disabled={isLoading || isUploading}
+                                  disabled={isSubmitting || isUploading}
                                 />
                                 <Label htmlFor="isFeatured" className="cursor-pointer">Featured Item</Label>
                               </div>
@@ -979,7 +1461,7 @@ export default function RestaurantMenuManagement() {
                           size="sm"
                           onClick={() => append({ stockId: "", quantity: 0 })}
                           className="text-xs h-8"
-                          disabled={isLoading || isUploading}
+                          disabled={isSubmitting || isUploading}
                         >
                           <Plus className="mr-1 h-3 w-3" /> Add Ingredient
                         </Button>
@@ -998,22 +1480,13 @@ export default function RestaurantMenuManagement() {
                               name={`requiredStock.${index}.stockId`}
                               control={control}
                               render={({ field }) => (
-                                <Select 
-                                  onValueChange={field.onChange} 
-                                  value={field.value || undefined}
-                                  disabled={isLoading || isUploading}
-                                >
-                                  <SelectTrigger id={`stock-${index}`} className="w-full">
-                                    <SelectValue placeholder="Select Ingredient" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {stocks.map((stock) => (
-                                      <SelectItem key={stock._id} value={stock._id}>
-                                        {stock.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                <SearchableStockSelect
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                  stocks={stocks}
+                                  disabled={isSubmitting || isUploading}
+                                  placeholder="Select ingredient..."
+                                />
                               )}
                             />
                           </div>
@@ -1021,12 +1494,18 @@ export default function RestaurantMenuManagement() {
                             <Label htmlFor={`quantity-${index}`} className="text-xs mb-1 block">Qty</Label>
                             <Input
                               id={`quantity-${index}`}
-                              {...register(`requiredStock.${index}.quantity` as const, { valueAsNumber: true })}
                               type="number"
-                              placeholder="0"
-                              className="w-full"
-                              disabled={isLoading || isUploading}
+                              step="any"
+                              min="0"
+                              placeholder="0.0000373463489"
+                              className={`w-full ${fieldErrors[`requiredStock.${index}.quantity`] ? "border-red-500" : ""}`}
+                              disabled={isSubmitting || isUploading}
+                              {...register(`requiredStock.${index}.quantity` as const, { 
+                                valueAsNumber: true,
+                                setValueAs: (v) => v === '' ? 0 : parseFloat(v)
+                              })}
                             />
+                            <p className="text-xs text-gray-400 mt-1">Accepts any decimal value</p>
                           </div>
                           <div className="flex items-end pb-1">
                             <Button 
@@ -1035,7 +1514,7 @@ export default function RestaurantMenuManagement() {
                               size="icon" 
                               onClick={() => remove(index)} 
                               className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
-                              disabled={isLoading || isUploading}
+                              disabled={isSubmitting || isUploading}
                             >
                               <X className="h-4 w-4" />
                             </Button>
@@ -1052,40 +1531,60 @@ export default function RestaurantMenuManagement() {
                           <Label htmlFor="calories">Calories</Label>
                           <Input
                             id="calories"
-                            {...register("nutritionalInfo.calories", { valueAsNumber: true })}
                             type="number"
-                            placeholder="0"
-                            disabled={isLoading || isUploading}
+                            step="any"
+                            min="0"
+                            placeholder="0.5"
+                            disabled={isSubmitting || isUploading}
+                            {...register("nutritionalInfo.calories", { 
+                              valueAsNumber: true,
+                              setValueAs: (v) => v === '' ? 0 : parseFloat(v)
+                            })}
                           />
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="protein">Protein (g)</Label>
                           <Input
                             id="protein"
-                            {...register("nutritionalInfo.protein", { valueAsNumber: true })}
                             type="number"
-                            placeholder="0"
-                            disabled={isLoading || isUploading}
+                            step="any"
+                            min="0"
+                            placeholder="0.5"
+                            disabled={isSubmitting || isUploading}
+                            {...register("nutritionalInfo.protein", { 
+                              valueAsNumber: true,
+                              setValueAs: (v) => v === '' ? 0 : parseFloat(v)
+                            })}
                           />
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="carbs">Carbohydrates (g)</Label>
                           <Input
                             id="carbs"
-                            {...register("nutritionalInfo.carbohydrates", { valueAsNumber: true })}
                             type="number"
-                            placeholder="0"
-                            disabled={isLoading || isUploading}
+                            step="any"
+                            min="0"
+                            placeholder="0.5"
+                            disabled={isSubmitting || isUploading}
+                            {...register("nutritionalInfo.carbohydrates", { 
+                              valueAsNumber: true,
+                              setValueAs: (v) => v === '' ? 0 : parseFloat(v)
+                            })}
                           />
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="fat">Fat (g)</Label>
                           <Input
                             id="fat"
-                            {...register("nutritionalInfo.fat", { valueAsNumber: true })}
                             type="number"
-                            placeholder="0"
-                            disabled={isLoading || isUploading}
+                            step="any"
+                            min="0"
+                            placeholder="0.5"
+                            disabled={isSubmitting || isUploading}
+                            {...register("nutritionalInfo.fat", { 
+                              valueAsNumber: true,
+                              setValueAs: (v) => v === '' ? 0 : parseFloat(v)
+                            })}
                           />
                         </div>
                       </div>
@@ -1098,9 +1597,9 @@ export default function RestaurantMenuManagement() {
               <Button 
                 type="submit" 
                 className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700" 
-                disabled={isLoading || isUploading}
+                disabled={isSubmitting || isUploading || networkStatus === 'offline'}
               >
-                {isLoading || isUploading ? (
+                {isSubmitting || isUploading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {isUploading ? 'Uploading...' : 'Saving...'}
@@ -1174,7 +1673,7 @@ export default function RestaurantMenuManagement() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-2xl font-bold">{(selectedItem.price || 0).toFixed(2)} <span className="text-sm font-normal">ETB</span></p>
+                      <p className="text-2xl font-bold">{selectedItem.price?.toString() || "0"} <span className="text-sm font-normal">ETB</span></p>
                     </CardContent>
                   </Card>
                   
@@ -1186,7 +1685,7 @@ export default function RestaurantMenuManagement() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-2xl font-bold">{selectedItem.preparationTime || 0} <span className="text-sm font-normal">minutes</span></p>
+                      <p className="text-2xl font-bold">{selectedItem.preparationTime?.toString() || "0"} <span className="text-sm font-normal">minutes</span></p>
                     </CardContent>
                   </Card>
                 </div>
@@ -1195,19 +1694,19 @@ export default function RestaurantMenuManagement() {
                   <h3 className="text-lg font-semibold mb-2">Nutritional Information</h3>
                   <div className="grid grid-cols-4 gap-3">
                     <Card className="text-center p-3">
-                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).calories}</p>
+                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).calories.toString()}</p>
                       <p className="text-xs text-gray-500">Calories</p>
                     </Card>
                     <Card className="text-center p-3">
-                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).protein}g</p>
+                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).protein.toString()}g</p>
                       <p className="text-xs text-gray-500">Protein</p>
                     </Card>
                     <Card className="text-center p-3">
-                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).carbohydrates}g</p>
+                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).carbohydrates.toString()}g</p>
                       <p className="text-xs text-gray-500">Carbs</p>
                     </Card>
                     <Card className="text-center p-3">
-                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).fat}g</p>
+                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).fat.toString()}g</p>
                       <p className="text-xs text-gray-500">Fat</p>
                     </Card>
                   </div>
@@ -1228,7 +1727,7 @@ export default function RestaurantMenuManagement() {
                           {getRequiredStock(selectedItem).map((stock, index) => (
                             <tr key={index} className="border-b border-gray-100 last:border-0">
                               <td className="py-2">{stocks.find((s) => s._id === stock.stockId)?.name || "Unknown"}</td>
-                              <td className="text-right py-2">{stock.quantity}</td>
+                              <td className="text-right py-2">{stock.quantity.toString()}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1255,13 +1754,13 @@ export default function RestaurantMenuManagement() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
-              disabled={isLoading}
+              disabled={isSubmitting}
               className="bg-red-600 hover:bg-red-700 text-white"
             >
-              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

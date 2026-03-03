@@ -13,7 +13,8 @@ import { Badge } from "@/components/ui/badge"
 import { 
   UserPlus, Phone, Mail, Lock, User, MapPin, 
   Navigation, Check, Clock, MapPinHouse, Building,
-  Shield, Sparkles, Calendar, Loader2, AlertCircle, VenusAndMars
+  Shield, Sparkles, Calendar, Loader2, AlertCircle, VenusAndMars,
+  Gift
 } from 'lucide-react'
 import { Eye, EyeOff } from 'lucide-react'
 import { RainbowButton } from "@/components/rainbow-button"
@@ -80,7 +81,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [birthDate, setBirthDate] = useState('')
-  const [referralCode, setReferralCode] = useState('')
+  const [inviterCode, setInviterCode] = useState('')
   const [gender, setGender] = useState<Gender>('male')
   const [address, setAddress] = useState('')
 
@@ -98,6 +99,9 @@ export default function RegisterPage() {
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [isRegistering, setIsRegistering] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [validatingInviter, setValidatingInviter] = useState(false)
+  const [inviterValid, setInviterValid] = useState<boolean | null>(null)
+  const [inviterDetails, setInviterDetails] = useState<{ name: string, code: string } | null>(null)
 
   const restaurantInfo: RestaurantInfo = {
     name: "manyazewaleshetuGibi Restaurant",
@@ -106,7 +110,47 @@ export default function RegisterPage() {
   }
 
   // ────────────────────────────────────────────────
-  // Location handling (unchanged)
+  // Validate inviter code when user types
+  // ────────────────────────────────────────────────
+  useEffect(() => {
+    const validateInviterCode = async () => {
+      if (!inviterCode || inviterCode.length < 4) {
+        setInviterValid(null)
+        setInviterDetails(null)
+        return
+      }
+
+      setValidatingInviter(true)
+      try {
+        const response = await fetch(`/api/user/validate-inviter?code=${encodeURIComponent(inviterCode)}`)
+        const data = await response.json()
+        
+        if (response.ok && data.valid) {
+          setInviterValid(true)
+          setInviterDetails(data.referrer)
+          toast({
+            title: "Valid Referral Code",
+            description: `You've been referred by ${data.referrer.name}!`,
+          })
+        } else {
+          setInviterValid(false)
+          setInviterDetails(null)
+        }
+      } catch (error) {
+        console.error('Error validating inviter code:', error)
+        setInviterValid(null)
+        setInviterDetails(null)
+      } finally {
+        setValidatingInviter(false)
+      }
+    }
+
+    const debounceTimer = setTimeout(validateInviterCode, 500)
+    return () => clearTimeout(debounceTimer)
+  }, [inviterCode, toast])
+
+  // ────────────────────────────────────────────────
+  // Location handling
   // ────────────────────────────────────────────────
   const getUserLocation = () => {
     if (!navigator.geolocation) {
@@ -133,21 +177,22 @@ export default function RegisterPage() {
             setLocation({ latitude, longitude, address: addr, city, country, loading: false, error: null })
             setAddress(addr)
             setIsLocationGranted(true)
-            toast({ title: "Location Detected", description: "Your location was found" })
+            toast({ title: "Location Detected", description: "Your location was found and address field updated" })
           } else {
             throw new Error("Reverse geocoding failed")
           }
         } catch {
+          const fallbackAddress = `Lat: ${latitude.toFixed(6)}, Lon: ${longitude.toFixed(6)}`
           setLocation({
             latitude,
             longitude,
-            address: `Lat: ${latitude.toFixed(6)}, Lon: ${longitude.toFixed(6)}`,
+            address: fallbackAddress,
             city: 'Unknown',
             country: 'Unknown',
             loading: false,
             error: null,
           })
-          setAddress(`Lat: ${latitude.toFixed(6)}, Lon: ${longitude.toFixed(6)}`)
+          setAddress(fallbackAddress)
           setIsLocationGranted(true)
           toast({ title: "Location Detected", description: "Coordinates captured (address unavailable)" })
         }
@@ -220,6 +265,13 @@ export default function RegisterPage() {
       return
     }
 
+    // Validate inviter code if provided
+    if (inviterCode && inviterValid === false) {
+      setError("Invalid referral code")
+      toast({ title: "Invalid Referral", description: "The referral code you entered is not valid", variant: "destructive" })
+      return
+    }
+
     setIsRegistering(true)
 
     try {
@@ -232,7 +284,7 @@ export default function RegisterPage() {
         birthDate,
         gender,
         address,
-        referralCode: referralCode || null,
+        inviterCode: inviterCode || null, // Send as inviterCode
         location: location.latitude && location.longitude
           ? { type: "Point", coordinates: [location.longitude, location.latitude] }
           : null,
@@ -257,7 +309,12 @@ export default function RegisterPage() {
         throw new Error(result.message || 'Registration failed')
       }
 
-      toast({ title: "Success! 🎉", description: "Account created — welcome!" })
+      toast({ 
+        title: "Success! 🎉", 
+        description: inviterCode 
+          ? "Account created! You've been linked to your referrer." 
+          : "Account created — welcome!" 
+      })
       setShowSuccessModal(true)
 
       setTimeout(() => {
@@ -480,7 +537,7 @@ export default function RegisterPage() {
               </p>
             </div>
 
-            {/* Email & Phone – both required now */}
+            {/* Email & Phone */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="space-y-2">
                 <Label htmlFor="email" className="flex items-center gap-2">
@@ -549,17 +606,43 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Referral (optional) */}
+            {/* Inviter Code (Referral) - Now with validation */}
             <div className="space-y-2">
-              <Label htmlFor="referralCode" className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4" /> Referral Code (optional)
+              <Label htmlFor="inviterCode" className="flex items-center gap-2">
+                <Gift className="w-4 h-4" /> Inviter Code (Optional)
               </Label>
-              <Input
-                id="referralCode"
-                placeholder="e.g. FRIEND2025"
-                value={referralCode}
-                onChange={e => setReferralCode(e.target.value.trim())}
-              />
+              <div className="relative">
+                <Input
+                  id="inviterCode"
+                  placeholder="e.g. REF-ABCD1234"
+                  value={inviterCode}
+                  onChange={e => setInviterCode(e.target.value.trim().toUpperCase())}
+                  className={`
+                    ${inviterValid === true ? 'border-green-500 pr-10' : ''}
+                    ${inviterValid === false ? 'border-red-500 pr-10' : ''}
+                  `}
+                />
+                {validatingInviter && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+                {!validatingInviter && inviterValid === true && (
+                  <Check className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" />
+                )}
+                {!validatingInviter && inviterValid === false && (
+                  <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-red-500" />
+                )}
+              </div>
+              {inviterValid === false && (
+                <p className="text-xs text-red-500 mt-1">Invalid referral code</p>
+              )}
+              {inviterValid === true && inviterDetails && (
+                <p className="text-xs text-green-500 mt-1">
+                  Valid referral code from {inviterDetails.name} ✓
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Enter a referral code from a friend to get bonus points
+              </p>
             </div>
 
             {error && (
@@ -620,6 +703,12 @@ export default function RegisterPage() {
                       <span className="text-muted-foreground">Location:</span>
                       <span className="font-medium">{location.city || 'Detected'}</span>
                     </div>
+                    {inviterCode && inviterValid && inviterDetails && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Referred by:</span>
+                        <span className="font-medium">{inviterDetails.name}</span>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 

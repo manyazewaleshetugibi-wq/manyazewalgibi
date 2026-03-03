@@ -54,6 +54,7 @@ interface ExtendedUser {
   email?: string | null
   image?: string | null
   requiresPasswordChange?: boolean
+  status?: string
 }
 
 interface NavLinkProps {
@@ -73,6 +74,7 @@ const navLinks = [
 export function NavBar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isCheckingStatus, setIsCheckingStatus] = useState(false)
+  const [validationError, setValidationError] = useState<string | null>(null)
   const pathname = usePathname()
   const router = useRouter()
   const { data: session, status } = useSession()
@@ -81,52 +83,155 @@ export function NavBar() {
   const user = session?.user as ExtendedUser | undefined
   const isUserRole = user?.role === "user"
 
-  // Check user status periodically and on session changes (skip for "user" role)
-  useEffect(() => {
-    const checkUserStatus = async () => {
-      // Skip status check if user role is "user"
-      if (user?.role === "user") {
-        return
-      }
+  // Comprehensive user validation function
+  const validateUserSession = async () => {
+    // Skip validation if no user
+    if (!user?.id && !user?.email) {
+      return true
+    }
 
-      if (user?.id && user?.email) {
+    try {
+      setIsCheckingStatus(true)
+      setValidationError(null)
+      
+      let userData = null
+      let endpoint = ''
+      
+      // Try multiple endpoints to find the user
+      const endpoints = [
+        `/users/${user.id}`,
+        `/staff/${user.id}`,
+        `/users/email/${user.email}`,
+        `/staff/email/${user.email}`,
+        '/users/current'
+      ]
+      
+      for (const ep of endpoints) {
         try {
-          setIsCheckingStatus(true)
-          // Fetch the latest user data from the staff endpoint
-          const response = await api.get(`/staff/${user.id}`)
+          endpoint = ep
+          const response = await api.get(ep, { timeout: 5000 })
           
-          if (response.data.success) {
-            const userData = response.data.data
-            
-            // If user status is not active, sign them out
-            if (userData.status !== 'active') {
-              console.log('User account is inactive. Logging out...')
-              await handleLogout(true) // Force logout without redirect
-              router.push('/login?error=account_inactive')
+          if (response.data?.success && response.data?.data) {
+            userData = response.data.data
+            break
+          } else if (response.data) {
+            userData = response.data.data || response.data.user || response.data
+            if (userData && (userData._id || userData.id)) {
+              break
             }
           }
-        } catch (error) {
-          console.error('Failed to check user status:', error)
-        } finally {
-          setIsCheckingStatus(false)
+        } catch (err) {
+          console.log(`Endpoint ${ep} failed, trying next...`)
+          continue
         }
       }
-    }
-
-    // Check status immediately when session is available (skip for "user" role)
-    if (user && user?.role !== "user") {
-      checkUserStatus()
-    }
-
-    // Set up periodic status check every 30 seconds (skip for "user" role)
-    const intervalId = setInterval(() => {
-      if (user && user?.role !== "user") {
-        checkUserStatus()
+      
+      // Case 1: User not found in database - force logout
+      if (!userData) {
+        console.error('User not found in database - invalidating session')
+        setValidationError('User account not found')
+        await handleLogout(true, '?error=user_not_found')
+        return false
       }
-    }, 30000) // 30 seconds
+      
+      // Case 2: User exists but status is not active - force logout
+      if (userData.status && userData.status !== 'active') {
+        console.log(`User account is ${userData.status}. Logging out...`)
+        setValidationError(`Account is ${userData.status}`)
+        await handleLogout(true, `?error=account_${userData.status}`)
+        return false
+      }
+      
+      // Case 3: User exists and is active - session is valid
+      return true
+      
+    } catch (error: any) {
+      console.error('Failed to validate user session:', error)
+      
+      // If it's a network error, don't logout immediately - might be temporary
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        console.log('Network timeout during validation - keeping session for now')
+        return true
+      }
+      
+      // For other errors, check if it's a 404 (user not found)
+      if (error.response?.status === 404) {
+        console.error('User not found (404) - invalidating session')
+        setValidationError('User account not found')
+        await handleLogout(true, '?error=user_not_found')
+        return false
+      }
+      
+      // For other server errors, keep session but log the error
+      return true
+    } finally {
+      setIsCheckingStatus(false)
+    }
+  }
+
+  // Initial session validation on mount and when session changes
+  useEffect(() => {
+    let validationTimeout: NodeJS.Timeout
+    let isMounted = true
+
+    const validateInitialSession = async () => {
+      if (user && isMounted) {
+        // Small delay to ensure session is fully loaded
+        validationTimeout = setTimeout(async () => {
+          if (isMounted) {
+            await validateUserSession()
+          }
+        }, 500)
+      }
+    }
+
+    validateInitialSession()
+
+    return () => {
+      isMounted = false
+      if (validationTimeout) {
+        clearTimeout(validationTimeout)
+      }
+    }
+  }, [user?.id, user?.email])
+
+  // Periodic session validation (every 60 seconds for non-user roles, every 5 minutes for users)
+  useEffect(() => {
+    // Don't run periodic checks if no user
+    if (!user) return
+
+    // Set different intervals based on role
+    const intervalTime = user.role === 'user' ? 300000 : 60000 // 5 minutes for users, 1 minute for staff
+
+    const intervalId = setInterval(async () => {
+      await validateUserSession()
+    }, intervalTime)
 
     return () => clearInterval(intervalId)
   }, [user?.id, user?.email, user?.role])
+
+  // Check on focus/visibility change (when user returns to tab)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && user) {
+        validateUserSession()
+      }
+    }
+
+    const handleFocus = () => {
+      if (user) {
+        validateUserSession()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [user])
 
   const NavLink = ({ href, icon: Icon, children }: NavLinkProps) => {
     const isActive = pathname === href || (href === "/" && pathname === "/home")
@@ -150,7 +255,7 @@ export function NavBar() {
     )
   }
 
-  const handleLogout = async (isSilent: boolean = false) => {
+  const handleLogout = async (isSilent: boolean = false, redirectPath: string = "/login") => {
     try {
       // Clear any stored data
       localStorage.removeItem("rememberedEmail")
@@ -161,20 +266,23 @@ export function NavBar() {
       // Clear session storage
       sessionStorage.clear()
       
+      // Clear any validation error
+      setValidationError(null)
+      
       // Sign out from NextAuth
       await signOut({ 
         redirect: !isSilent,
-        callbackUrl: isSilent ? undefined : "/login"
+        callbackUrl: isSilent ? undefined : redirectPath
       })
       
       // If silent logout, manually redirect
       if (isSilent) {
-        router.push('/login?error=account_inactive')
+        router.push(redirectPath)
       }
     } catch (error) {
       console.error('Logout error:', error)
       // Force redirect on error
-      window.location.href = '/login?error=logout_failed'
+      window.location.href = redirectPath
     }
   }
 
@@ -260,6 +368,17 @@ export function NavBar() {
     }
 
     if (user) {
+      // Show validation error if any
+      if (validationError) {
+        return (
+          <div className="flex items-center gap-3">
+            <div className="bg-red-50 text-red-600 px-4 py-2 rounded-md text-sm">
+              {validationError}
+            </div>
+          </div>
+        )
+      }
+
       const userRole = user.role
       const { path: dashboardPath, label: dashboardLabel, icon: DashboardIcon } = getDashboardLink(userRole)
       const isCustomer = userRole.toLowerCase() === "customer"

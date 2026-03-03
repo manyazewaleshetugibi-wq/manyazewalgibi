@@ -21,20 +21,27 @@ const createGmailTransporter = () => {
   return nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
-    secure: true, // true for 465, false for other ports
+    secure: true,
     auth: {
       user: GMAIL_EMAIL,
       pass: GMAIL_PASSWORD
     },
-    // Optional: Add this to help with Gmail's security
     tls: {
       rejectUnauthorized: false
     }
   })
 }
 
-// Generate welcome email HTML
-const generateWelcomeEmail = (firstName: string, lastName: string) => {
+// Generate referral code for new user
+const generateReferralCode = (firstName: string, lastName: string, userId: string) => {
+  const initials = (firstName.charAt(0) + lastName.charAt(0)).toUpperCase()
+  const idPart = userId.substring(0, 6).toUpperCase()
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase()
+  return `${initials}-${idPart}-${random}`
+}
+
+// Generate welcome email HTML (keeping your existing function)
+const generateWelcomeEmail = (firstName: string, lastName: string, referralCode: string) => {
   const currentYear = new Date().getFullYear()
   
   return `
@@ -76,6 +83,25 @@ const generateWelcomeEmail = (firstName: string, lastName: string) => {
                 color: #555;
                 margin-bottom: 25px;
             }
+            .referral-box {
+                background-color: #e8f5e9;
+                padding: 20px;
+                border-radius: 8px;
+                margin: 25px 0;
+                border-left: 4px solid #4caf50;
+                text-align: center;
+            }
+            .referral-code {
+                font-size: 24px;
+                font-weight: bold;
+                color: #2e7d32;
+                letter-spacing: 2px;
+                padding: 10px;
+                background: white;
+                border-radius: 5px;
+                display: inline-block;
+                margin: 10px 0;
+            }
             .cta-button {
                 display: inline-block;
                 padding: 12px 30px;
@@ -86,9 +112,6 @@ const generateWelcomeEmail = (firstName: string, lastName: string) => {
                 font-weight: bold;
                 margin: 20px 0;
             }
-            .cta-button:hover {
-                background-color: #b38b5f;
-            }
             .special-offer {
                 background-color: #fff3e0;
                 padding: 20px;
@@ -96,24 +119,11 @@ const generateWelcomeEmail = (firstName: string, lastName: string) => {
                 margin: 25px 0;
                 border-left: 4px solid #c49a6c;
             }
-            .special-offer h3 {
-                color: #c49a6c;
-                margin-top: 0;
-            }
             .footer {
                 text-align: center;
                 margin-top: 30px;
                 color: #888;
                 font-size: 14px;
-            }
-            .social-links {
-                margin: 20px 0;
-            }
-            .social-links a {
-                display: inline-block;
-                margin: 0 10px;
-                color: #c49a6c;
-                text-decoration: none;
             }
             hr {
                 border: none;
@@ -131,6 +141,15 @@ const generateWelcomeEmail = (firstName: string, lastName: string) => {
                 <div class="welcome-message">
                     <h2>Hello ${firstName} ${lastName},</h2>
                     <p>Thank you for registering with ${APP_NAME}! We're absolutely delighted to have you as part of our restaurant family.</p>
+                </div>
+                
+                <div class="referral-box">
+                    <h3>🎁 Your Personal Referral Code</h3>
+                    <p>Share this code with friends and family to earn bonus points!</p>
+                    <div class="referral-code">${referralCode}</div>
+                    <p style="font-size: 14px; margin-top: 10px;">
+                        Share this code during registration to earn 10 points per referral!
+                    </p>
                 </div>
                 
                 <p>Your account has been successfully created. You can now enjoy exclusive benefits:</p>
@@ -156,23 +175,16 @@ const generateWelcomeEmail = (firstName: string, lastName: string) => {
                 
                 <h3>📍 Visit Us</h3>
                 <p>We're located at:<br>
-                bole behined selam city moll<br]<br>
-                [City, State, ZIP]</p>
+                Bole behind Selam City Mall<br>
+                Addis Ababa, Ethiopia</p>
                 
                 <p><strong>Hours of Operation:</strong><br>
                 Monday - Friday: 11:00 AM - 10:00 PM<br>
                 Saturday - Sunday: 10:00 AM - 11:00 PM</p>
                 
                 <p><strong>Contact:</strong><br>
-                📞 Phone: [Your Phone Number]<br>
+                📞 Phone: 0904003377<br>
                 📧 Email: ${GMAIL_EMAIL}</p>
-                
-                <div class="social-links">
-                    <p>Connect with us:</p>
-                    <a href="#">Facebook</a> |
-                    <a href="#">Instagram</a> |
-                    <a href="#">Twitter</a>
-                </div>
                 
                 <div class="footer">
                     <p>This email was sent to you because you registered at ${APP_NAME}.</p>
@@ -187,13 +199,17 @@ const generateWelcomeEmail = (firstName: string, lastName: string) => {
 }
 
 // Generate plain text version
-const generatePlainTextEmail = (firstName: string, lastName: string) => {
+const generatePlainTextEmail = (firstName: string, lastName: string, referralCode: string) => {
   return `
 Welcome to ${APP_NAME}!
 
 Hello ${firstName} ${lastName},
 
 Thank you for registering with ${APP_NAME}! We're delighted to have you as part of our restaurant family.
+
+🎁 YOUR PERSONAL REFERRAL CODE: ${referralCode}
+
+Share this code with friends and family to earn 10 points per referral!
 
 Your account has been successfully created. You can now:
 - Make quick reservations
@@ -204,7 +220,8 @@ Your account has been successfully created. You can now:
 🎁 YOUR WELCOME GIFT: Enjoy 5% off on your next visit! Just mention this offer when you dine with us.
 
 Visit us at:
-behined selam city moll
+Bole behind Selam City Mall
+Addis Ababa, Ethiopia
 
 Hours:
 Monday - Friday: 11:00 AM - 10:00 PM
@@ -213,9 +230,6 @@ Saturday - Sunday: 10:00 AM - 11:00 PM
 Contact:
 📞 Phone: 0904003377
 📧 Email: ${GMAIL_EMAIL}
-
-Connect with us on social media:
-Facebook | Instagram | Twitter
 
 This email was sent because you registered at ${APP_NAME}.
 If you didn't create this account, please contact us immediately.
@@ -239,6 +253,7 @@ export async function POST(request: NextRequest) {
       gender,
       address,
       location,
+      inviterCode, // Added inviterCode
       registrationSource = 'website',
       locationConsent = false
     } = body
@@ -289,12 +304,59 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate inviter code if provided
+    let inviterId = null
+    if (inviterCode) {
+      const inviter = await usersCollection.findOne({
+        $or: [
+          { referralCode: inviterCode },
+          { 'referralInfo.code': inviterCode }
+        ]
+      })
+
+      if (!inviter) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            message: 'Invalid referral code' 
+          },
+          { status: 400 }
+        )
+      }
+
+      // Prevent self-referral
+      if (inviter.email === email || inviter.phone === phone) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            message: 'You cannot use your own referral code' 
+          },
+          { status: 400 }
+        )
+      }
+
+      inviterId = inviter._id
+    }
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    // Create new user document
-    const newUser: IUser = {
-      _id: new ObjectId(),
+    // Generate unique referral code for new user
+    const newUserId = new ObjectId()
+    const referralCode = generateReferralCode(firstName, lastName, newUserId.toString())
+
+    // Create new user document with referral info
+    const newUser: IUser & { 
+      referralCode: string,
+      referredBy?: ObjectId,
+      referralInfo?: {
+        code: string,
+        referredUsers: ObjectId[],
+        totalReferrals: number,
+        pointsEarned: number
+      }
+    } = {
+      _id: newUserId,
       firstName,
       lastName,
       email: email || null,
@@ -312,6 +374,14 @@ export async function POST(request: NextRequest) {
       role: 'user',
       registrationSource,
       locationConsent,
+      referralCode, // Store user's own referral code
+      ...(inviterId && { referredBy: inviterId }), // Store who referred them
+      referralInfo: {
+        code: referralCode,
+        referredUsers: [],
+        totalReferrals: 0,
+        pointsEarned: 0
+      },
       createdAt: new Date(),
       updatedAt: new Date(),
       __v: 0
@@ -320,22 +390,51 @@ export async function POST(request: NextRequest) {
     // Insert user into database
     const result = await usersCollection.insertOne(newUser)
 
+    // If user was referred, update the referrer's record
+    if (inviterId) {
+      await usersCollection.updateOne(
+        { _id: inviterId },
+        {
+          $push: { 
+            'referralInfo.referredUsers': newUserId 
+          },
+          $inc: {
+            'referralInfo.totalReferrals': 1,
+            'referralInfo.pointsEarned': 10 // Award 10 points for referral
+          },
+          $set: { updatedAt: new Date() }
+        }
+      )
+
+      // Also create a referral record in a separate collection if needed
+      const referralsCollection = db.collection('referrals')
+      await referralsCollection.insertOne({
+        _id: new ObjectId(),
+        referrerId: inviterId,
+        referredId: newUserId,
+        referredEmail: email,
+        referredName: `${firstName} ${lastName}`,
+        status: 'completed',
+        pointsAwarded: 10,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+    }
+
     // Send welcome email if user provided email
     let emailSent = false
     let emailError = null
     
     if (email) {
       try {
-        // Create Gmail transporter
         const transporter = createGmailTransporter()
         
-        // Send email
         const mailOptions = {
           from: `"${APP_NAME}" <${GMAIL_EMAIL}>`,
           to: email,
-          subject: `🎉 Welcome to ${APP_NAME}! We're excited to have you!`,
-          html: generateWelcomeEmail(firstName, lastName),
-          text: generatePlainTextEmail(firstName, lastName)
+          subject: `🎉 Welcome to ${APP_NAME}! Here's your referral code: ${referralCode}`,
+          html: generateWelcomeEmail(firstName, lastName, referralCode),
+          text: generatePlainTextEmail(firstName, lastName, referralCode)
         }
         
         const info = await transporter.sendMail(mailOptions)
@@ -343,7 +442,6 @@ export async function POST(request: NextRequest) {
         emailSent = true
         
       } catch (error) {
-        // Log email error but don't fail registration
         console.error('Failed to send welcome email:', error)
         emailError = error instanceof Error ? error.message : 'Unknown email error'
       }
@@ -355,11 +453,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { 
         success: true, 
-        message: 'User registered successfully',
+        message: inviterId 
+          ? 'User registered successfully with referral' 
+          : 'User registered successfully',
         user: userResponse,
         userId: result.insertedId,
+        referralCode, // Return the generated referral code
+        referredBy: inviterId ? true : false,
         emailSent: emailSent,
-        ...(emailError && { emailError: emailError }) // Only include if there was an error
+        ...(emailError && { emailError: emailError })
       },
       { status: 201 }
     )

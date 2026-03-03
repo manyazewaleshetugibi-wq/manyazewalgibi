@@ -20,7 +20,8 @@ import {
   User,
   AlertCircle,
   RefreshCw,
-  Loader2
+  Loader2,
+  PlusCircle
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
@@ -41,8 +42,8 @@ interface UserStats {
     date: string;
     status: string;
   }>;
-  referralCode: string;
-  referralLink: string;
+  referralCode: string | null; // Make it nullable
+  referralLink: string | null; // Make it nullable
   stats: {
     totalOrders: number;
     successfulReferrals: number;
@@ -126,6 +127,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [generatingReferral, setGeneratingReferral] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [showReferralCode, setShowReferralCode] = useState(false);
 
   useEffect(() => {
     if (session?.user) {
@@ -166,9 +168,9 @@ export default function DashboardPage() {
         throw new Error(ordersData.error || 'Failed to fetch orders');
       }
       
-      // Fetch referral code
-      let referralCode = '';
-      let referralLink = '';
+      // Fetch referral code (but don't display it until generated)
+      let referralCode = null;
+      let referralLink = null;
       
       try {
         const referralRes = await fetch('/api/user/referral/generate');
@@ -176,19 +178,14 @@ export default function DashboardPage() {
         if (referralRes.ok) {
           const referralData: ReferralResponse = await referralRes.json();
           
-          if (referralData.success) {
-            if (referralData.hasReferralCode === false) {
-              // User doesn't have a referral code yet, we'll generate it later
-              console.log('No referral code found, will generate when needed');
-            } else {
-              referralCode = referralData.referralCode || '';
-              referralLink = referralData.referralLink || '';
-            }
+          if (referralData.success && referralData.hasReferralCode) {
+            referralCode = referralData.referralCode || null;
+            referralLink = referralData.referralLink || null;
           }
         }
       } catch (referralError) {
         console.error('Error fetching referral code:', referralError);
-        // Don't throw - we'll generate a fallback code
+        // Don't throw - we'll just show generate button
       }
       
       // Extract data from responses
@@ -198,7 +195,7 @@ export default function DashboardPage() {
         transactions: [],
         referralCode: referralCode || '',
         userId: session?.user?.id || '',
-        nextRewardThreshold: 50,
+        nextRewardThreshold: 100, // Updated to 100
         stats: {
           totalOrders: 0,
           successfulReferrals: 0,
@@ -238,12 +235,7 @@ export default function DashboardPage() {
           status: order.status
         }));
       
-      // Create fallback referral code if none exists
-      const fallbackCode = session?.user?.id 
-        ? `REF-${session.user.id.substring(0, 8).toUpperCase()}` 
-        : 'REF-USER';
-      
-      // Create final stats object
+      // Create final stats object - only include referral code if it exists
       const userStats: UserStats = {
         totalOrders: userOrders.length,
         totalSpent,
@@ -253,10 +245,10 @@ export default function DashboardPage() {
         referralCount: pointsInfo.stats.successfulReferrals || 0,
         favoriteFood,
         recentOrders,
-        referralCode: pointsInfo.referralCode || referralCode || fallbackCode,
-        referralLink: referralLink || `${window.location.origin}/register?ref=${pointsInfo.referralCode || referralCode || fallbackCode}`,
+        referralCode: referralCode, // Can be null
+        referralLink: referralLink, // Can be null
         stats: pointsInfo.stats,
-        nextRewardThreshold: pointsInfo.nextRewardThreshold || 50,
+        nextRewardThreshold: 100, // Updated to 100
         transactions: pointsInfo.transactions || []
       };
       
@@ -266,11 +258,7 @@ export default function DashboardPage() {
       console.error('Error fetching stats:', error);
       setError(error instanceof Error ? error.message : 'Failed to load dashboard data');
       
-      // Set default stats if API fails
-      const fallbackCode = session?.user?.id 
-        ? `REF-${session.user.id.substring(0, 8).toUpperCase()}` 
-        : 'REF-USER';
-      
+      // Set default stats
       setStats({
         totalOrders: 0,
         totalSpent: 0,
@@ -280,15 +268,15 @@ export default function DashboardPage() {
         referralCount: 0,
         favoriteFood: 'Start ordering to discover favorites!',
         recentOrders: [],
-        referralCode: fallbackCode,
-        referralLink: `${window.location.origin}/register?ref=${fallbackCode}`,
+        referralCode: null,
+        referralLink: null,
         stats: {
           totalOrders: 0,
           successfulReferrals: 0,
           ordersWithPoints: 0,
           referralsWithPoints: 0
         },
-        nextRewardThreshold: 50,
+        nextRewardThreshold: 100, // Updated to 100
         transactions: []
       });
     } finally {
@@ -320,42 +308,31 @@ export default function DashboardPage() {
           description: "Your unique referral code has been created",
         });
         
-        // Update stats with new referral code
+        // Update stats with new referral code and show it
         if (stats) {
           setStats({
             ...stats,
-            referralCode: data.referralCode,
+            referralCode: data.referralCode || null,
             referralLink: data.referralLink || `${window.location.origin}/register?ref=${data.referralCode}`
           });
         }
         
-        return data.referralCode;
+        setShowReferralCode(true); // Show the code after generation
+        
+        return data.referralCode || '';
       } else {
         throw new Error(data.error || 'Failed to generate referral code');
       }
     } catch (error) {
       console.error('Error generating referral code:', error);
       
-      // Create a fallback code
-      const fallbackCode = session?.user?.id 
-        ? `REF-${session.user.id.substring(0, 8).toUpperCase()}` 
-        : 'REF-USER';
-      
       toast({
-        title: "Using temporary code",
-        description: "We'll generate a permanent code for you soon",
+        title: "Error",
+        description: "Failed to generate referral code. Please try again.",
+        variant: "destructive",
       });
       
-      // Update stats with fallback code
-      if (stats) {
-        setStats({
-          ...stats,
-          referralCode: fallbackCode,
-          referralLink: `${window.location.origin}/register?ref=${fallbackCode}`
-        });
-      }
-      
-      return fallbackCode;
+      return '';
     } finally {
       setGeneratingReferral(false);
     }
@@ -366,6 +343,8 @@ export default function DashboardPage() {
   };
 
   const copyToClipboard = async (text: string, type: string) => {
+    if (!text) return;
+    
     try {
       await navigator.clipboard.writeText(text);
       setCopied(type);
@@ -384,7 +363,7 @@ export default function DashboardPage() {
   };
 
   const shareReferral = async () => {
-    if (!stats?.referralLink) return;
+    if (!stats?.referralLink || !stats?.referralCode) return;
     
     const shareText = `Join me on FoodieHub! Use my referral code ${stats.referralCode} to get 10% off your first order. Sign up here: ${stats.referralLink}`;
     
@@ -513,7 +492,7 @@ export default function DashboardPage() {
                 <p className="text-sm text-muted-foreground">Points</p>
                 <h3 className="text-xl font-bold mt-1">{stats?.points || 0}</h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Next reward: {stats?.nextRewardThreshold || 50}
+                  Next reward: {stats?.nextRewardThreshold || 100}
                 </p>
               </div>
               <Gift className="h-8 w-8 text-amber-500/60" />
@@ -537,7 +516,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Points Progress */}
+      {/* Points Progress - Updated threshold to 100 */}
       {stats && stats.points > 0 && (
         <Card>
           <CardHeader>
@@ -560,17 +539,17 @@ export default function DashboardPage() {
                 className="h-2"
               />
               <div className="grid grid-cols-4 gap-2 text-xs text-muted-foreground mt-2">
-                <div className="text-center">50</div>
                 <div className="text-center">100</div>
                 <div className="text-center">200</div>
-                <div className="text-center">300+</div>
+                <div className="text-center">300</div>
+                <div className="text-center">500+</div>
               </div>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Referral Section */}
+      {/* Referral Section - UPDATED: No code displayed until generated */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -582,97 +561,121 @@ export default function DashboardPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <Label className="text-sm font-medium mb-2 block">Your Referral Code</Label>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <div className="flex-1 p-3 bg-muted rounded-lg font-mono flex items-center justify-between">
-                <span className="text-sm sm:text-base break-all">{stats?.referralCode || 'LOADING...'}</span>
-                <Badge variant="outline" className="ml-2 whitespace-nowrap">
-                  Active
-                </Badge>
+          {!stats?.referralCode || !showReferralCode ? (
+            // Show generate button when no code exists
+            <div className="text-center py-8 border-2 border-dashed border-primary/20 rounded-lg">
+              <div className="inline-block p-4 bg-primary/10 rounded-full mb-4">
+                <PlusCircle className="h-8 w-8 text-primary" />
               </div>
-              <div className="flex gap-2">
+              <h3 className="text-lg font-semibold mb-2">Generate Your Referral Code</h3>
+              <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
+                Create your unique referral code to start earning points when your friends place their first order!
+              </p>
+              <Button 
+                onClick={handleGenerateClick} 
+                size="lg"
+                disabled={generatingReferral}
+                className="min-w-[200px]"
+              >
+                {generatingReferral ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="h-4 w-4 mr-2" />
+                    Generate Referral Code
+                  </>
+                )}
+              </Button>
+            </div>
+          ) : (
+            // Show referral code after generation
+            <>
+              <div>
+                <Label className="text-sm font-medium mb-2 block">Your Referral Code</Label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="flex-1 p-3 bg-muted rounded-lg font-mono flex items-center justify-between">
+                    <span className="text-sm sm:text-base break-all">{stats.referralCode}</span>
+                    <Badge variant="outline" className="ml-2 whitespace-nowrap">
+                      Active
+                    </Badge>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={() => copyToClipboard(stats.referralCode || '', 'Code')} 
+                      size="icon" 
+                      variant="outline" 
+                      title="Copy Code"
+                    >
+                      {copied === 'Code' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                    <Button 
+                      onClick={() => copyToClipboard(stats.referralLink || '', 'Link')} 
+                      size="icon" 
+                      variant="outline" 
+                      title="Copy Link"
+                    >
+                      {copied === 'Link' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                    </Button>
+                    <Button 
+                      onClick={shareReferral} 
+                      size="icon" 
+                      variant="outline" 
+                      title="Share"
+                    >
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      onClick={handleGenerateClick} 
+                      size="sm" 
+                      variant="default"
+                      disabled={generatingReferral}
+                    >
+                      {generatingReferral ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        'Generate New'
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="text-center p-4 bg-primary/5 rounded-lg">
+                  <div className="text-2xl font-bold text-primary">10</div>
+                  <div className="text-sm text-muted-foreground">Points per referral</div>
+                  <div className="text-xs text-muted-foreground mt-1">When friend orders</div>
+                </div>
+                <div className="text-center p-4 bg-primary/5 rounded-lg">
+                  <div className="text-2xl font-bold text-primary">5</div>
+                  <div className="text-sm text-muted-foreground">Points per order</div>
+                  <div className="text-xs text-muted-foreground mt-1">For every order</div>
+                </div>
+              </div>
+
+              <div className="flex justify-center">
                 <Button 
-                  onClick={() => copyToClipboard(stats?.referralCode || '', 'Code')} 
-                  size="icon" 
-                  variant="outline" 
-                  title="Copy Code"
-                  disabled={!stats?.referralCode}
-                >
-                  {copied === 'Code' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
-                </Button>
-                <Button 
-                  onClick={() => copyToClipboard(stats?.referralLink || '', 'Link')} 
-                  size="icon" 
-                  variant="outline" 
-                  title="Copy Link"
-                  disabled={!stats?.referralLink}
-                >
-                  {copied === 'Link' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-                </Button>
-                <Button 
-                  onClick={shareReferral} 
-                  size="icon" 
-                  variant="outline" 
-                  title="Share"
-                  disabled={!stats?.referralLink}
-                >
-                  <Share2 className="h-4 w-4" />
-                </Button>
-                <Button 
-                  onClick={handleGenerateClick} 
-                  size="sm" 
+                  onClick={() => window.open(stats.referralLink || '', '_blank')}
                   variant="default"
-                  disabled={generatingReferral}
+                  className="w-full sm:w-auto"
                 >
-                  {generatingReferral ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    'Generate New'
-                  )}
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Open Registration Page
                 </Button>
               </div>
-            </div>
-          </div>
+            </>
+          )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="text-center p-4 bg-primary/5 rounded-lg">
-              <div className="text-2xl font-bold text-primary">10</div>
-              <div className="text-sm text-muted-foreground">Points per referral</div>
-              <div className="text-xs text-muted-foreground mt-1">When friend orders</div>
-            </div>
-            <div className="text-center p-4 bg-primary/5 rounded-lg">
-              <div className="text-2xl font-bold text-primary">5</div>
-              <div className="text-sm text-muted-foreground">Points per order</div>
-              <div className="text-xs text-muted-foreground mt-1">For every order</div>
-            </div>
-          </div>
-
-          <div className="text-sm text-muted-foreground space-y-1">
+          <div className="text-sm text-muted-foreground space-y-1 pt-4 border-t">
             <p>• Earn 10 points when a friend uses your referral code for their first order.</p>
             <p>• You earn 5 points for every order you make (excluding cancelled orders).</p>
-            <p>• Points can be redeemed for rewards starting at 50 points.</p>
-            {stats?.referralLink && (
-              <p className="mt-2">
-                <span className="font-medium">Share this link:</span>{' '}
-                <span className="font-mono text-xs bg-muted p-1 rounded break-all">{stats.referralLink}</span>
-              </p>
-            )}
-          </div>
-
-          <div className="flex justify-center">
-            <Button 
-              onClick={() => window.open(stats?.referralLink, '_blank')}
-              variant="default"
-              className="w-full sm:w-auto"
-              disabled={!stats?.referralLink}
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Open Registration Page
-            </Button>
+            <p>• Points can be redeemed for rewards starting at 100 points.</p>
           </div>
         </CardContent>
       </Card>
