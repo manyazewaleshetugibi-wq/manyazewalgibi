@@ -18,14 +18,14 @@ function HeroSection() {
     },
     { 
       name: "Fosesse", 
-      image: "/menu/fosesse1.jpg", 
+      image: "/menu/FOSESSE copy.jpg", 
       description: "A hearty Ethiopian dish made with lightly fermented dough, offering a tangy and unique flavor." ,
       tag: "Chef's Special"
 
     },  
     { 
       name: "Special Salad", 
-      image: "/menu/salad2.jpg", 
+      image: "/menu/SPECIAL SALAD.jpg", 
       description: "A vibrant mix of fresh greens, vegetables, and house dressing, perfect for a light and refreshing meal." ,
       tag: "Chef's Special"
 
@@ -48,23 +48,23 @@ function HeroSection() {
             {/* Left column - Text content */}
             <div className="space-y-8 animate-fade-in">
               <div className="flex flex-wrap gap-4">
-                <div className="inline-flex items-center px-4 py-2 bg-amber-100 rounded-full text-amber-800 text-sm font-medium">
+                <div className="inline-flex items-center px-4 py-2 bg-purple-100 rounded-full text-purple-900 text-sm font-medium">
                   <Clock className="w-4 h-4 mr-2" />
                   Open until 10:00 PM
                 </div>
                 <div className="inline-flex items-center px-4 py-2 bg-green-100 rounded-full text-green-800 text-sm font-medium">
                   <div className="flex items-center">
                     {[...Array(5)].map((_, i) => (
-                      <Star key={i} className="w-3.5 h-3.5 fill-current text-green-600" />
+                      <Star key={i} className="w-3.5 h-3.5 fill-current text-purple-900" />
                     ))}
-                    <span className="ml-2">4.9</span>
+                    <span className="ml-2 text-purple-900">4.9</span>
                   </div>
                 </div>
               </div>
               
               <h1 className="text-4xl md:text-5xl xl:text-6xl font-bold text-gray-900 leading-tight">
               Experience Ethiopian Cuisine
-                <span className="block text-amber-600 mt-2 animate-pulse">Manyazewal Eshetu Gibi</span>
+                <span className="block text-amber-600 mt-2 animate-pulse text-purple-900">Manyazewal Eshetu Gibi</span>
               </h1>
               
               <p className="text-lg text-gray-600 max-w-lg">
@@ -72,7 +72,7 @@ function HeroSection() {
               </p>
               
               <div className="flex flex-wrap items-center gap-8">
-                <button className="group inline-flex items-center px-8 py-4 bg-amber-600 text-white rounded-full font-medium hover:bg-amber-700 transform transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
+                <button className="group inline-flex items-center px-8 py-4 bg-purple-900 text-white rounded-full font-medium hover:bg-amber-700 transform transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
                   <Link href="/menu">
                     View Menu
                   </Link>
@@ -111,7 +111,7 @@ function HeroSection() {
                       </p>
                       <div className="flex items-center justify-between">
                         <Link href="/menu" className="flex items-center gap-2">
-                          <span className="text-amber-600 font-medium">Explore Dish</span>
+                          <span className="text-purple-900 font-medium ">Explore Dish</span>
                           <ChevronRight className="w-5 h-5 text-amber-600 transform transition-transform group-hover:translate-x-1" />
                         </Link>
                       </div>

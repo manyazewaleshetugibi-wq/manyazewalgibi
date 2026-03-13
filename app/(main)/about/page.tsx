@@ -26,9 +26,6 @@ export default function RestaurantLanding() {
         <FeaturesSection />
         <TestimonialsSection />
         <FAQSection />
-
-
-        
       </main>
       <Footer />
     </motion.div>

@@ -68,9 +68,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Upload payment screenshot to Cloudinary if it exists
-    let paymentScreenshotUrl = undefined;
+    let paymentScreenshotUrl = null;
     if (paymentScreenshotFile) {
       try {
+        console.log("📤 Uploading payment screenshot to Cloudinary...");
         const arrayBuffer = await paymentScreenshotFile.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
         const base64Data = buffer.toString('base64');
@@ -88,11 +89,32 @@ export async function POST(req: NextRequest) {
         if (uploadRes.ok) {
           const uploadData = await uploadRes.json();
           paymentScreenshotUrl = uploadData.secure_url;
+          console.log("✅ Cloudinary upload successful:", paymentScreenshotUrl);
         } else {
-          console.error("Cloudinary upload failed", await uploadRes.text());
+          const errorText = await uploadRes.text();
+          console.error("❌ Cloudinary upload failed:", errorText);
+          return NextResponse.json(
+            { error: "Failed to upload payment screenshot" },
+            { status: 400 }
+          );
         }
       } catch (uploadError) {
-        console.error("Error uploading to Cloudinary", uploadError);
+        console.error("❌ Error uploading to Cloudinary", uploadError);
+        return NextResponse.json(
+          { error: "Failed to upload payment screenshot" },
+          { status: 400 }
+        );
+      }
+    } else {
+      // If no file was uploaded, check if URL was provided in body
+      if (body.paymentScreenshotUrl) {
+        paymentScreenshotUrl = body.paymentScreenshotUrl;
+        console.log("📦 Using provided payment screenshot URL:", paymentScreenshotUrl);
+      } else {
+        return NextResponse.json(
+          { error: "Payment screenshot is required" },
+          { status: 400 }
+        );
       }
     }
 
@@ -101,6 +123,7 @@ export async function POST(req: NextRequest) {
     let finalAmount = 0;
 
     // Fetch unitPrice for each item and calculate subtotal
+    const itemsWithDetails = [];
     for (const item of body.items) {
       if (!ObjectId.isValid(item.itemId)) {
         return NextResponse.json(
@@ -122,90 +145,98 @@ export async function POST(req: NextRequest) {
       }
 
       // Calculate subtotal for the item
-      const unitPrice = itemData.price; // Fetch unitPrice from the database
+      const unitPrice = itemData.price;
       const subtotal = item.quantity * unitPrice;
 
       // Add subtotal to the total amount
       totalAmount += subtotal;
 
-      // Add subtotal and unitPrice to the item object
-      item.subtotal = subtotal;
-      item.unitPrice = unitPrice; // Ensure unitPrice is updated
-      item.itemName = itemData.name;
+      // Add item with all details
+      itemsWithDetails.push({
+        itemId: item.itemId,
+        quantity: item.quantity,
+        notes: item.notes || '',
+        subtotal: subtotal,
+        unitPrice: unitPrice,
+        itemName: itemData.name,
+        price: unitPrice
+      });
     }
 
     // Calculate tax and final amount
-    taxAmount = totalAmount * 0.15; // Apply 15% tax
-    finalAmount = totalAmount + taxAmount - (body.discount || 0); // Apply discount if present
+    taxAmount = totalAmount * 0.15;
+    finalAmount = totalAmount + taxAmount - (body.discount || 0) + (body.deliveryFee || 0);
 
-    // Validate the order after calculating values
-    const validatedOrder = DeliveryOrderSchema.parse({
-      ...body,
-      totalAmount,
-      tax: taxAmount,
-      finalAmount,
-      _id: undefined, // Ensure _id is not part of the body
-      userId: session?.user?.id,
-      paymentScreenshotUrl,
-    });
-
-    // Deduct required stock
-    const stockPromises = validatedOrder.items.map(async (item) => {
-      const itemData = await db
-        .collection("items")
-        .findOne({ _id: new ObjectId(item.itemId) });
-
-      if (!itemData) {
-        return NextResponse.json(
-          { error: `Item not found: ${item.itemId}` },
-          { status: 404 }
-        );
-      }
-
-      // Check if required stock is sufficient
-      for (const requiredStock of itemData.requiredStock || []) {
-        const stock = await db
-          .collection("stocks")
-          .findOne({ _id: new ObjectId(requiredStock.stockId) });
-
-        if (!stock || stock.quantity < requiredStock.quantity * item.quantity) {
-          return NextResponse.json(
-            { error: `Insufficient stock for item: ${itemData.name}` },
-            { status: 400 }
-          );
-        }
-
-        // Deduct stock
-        await db.collection("stocks").updateOne(
-          { _id: new ObjectId(requiredStock.stockId) },
-          { $inc: { quantity: -requiredStock.quantity * item.quantity } }
-        );
-      }
-    });
-
-    // Wait for all stock updates to complete
-    await Promise.all(stockPromises);
-
-    // Insert order into the database
-    const newOrder = {
-      ...validatedOrder,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    // Prepare delivery info with coordinates if available
+    const deliveryInfo = {
+      fullName: body.deliveryInfo?.fullName || '',
+      phoneNumber: body.deliveryInfo?.phoneNumber || '',
+      email: body.deliveryInfo?.email || '',
+      address: body.deliveryInfo?.address || '',
+      city: body.deliveryInfo?.city || 'Addis Ababa',
+      landmark: body.deliveryInfo?.landmark || '',
+      deliveryInstructions: body.deliveryInfo?.deliveryInstructions || '',
+      location: body.deliveryInfo?.location || null // This will store coordinates
     };
 
-    const result = await db.collection("orders").insertOne(newOrder);
+    // Prepare the order data
+    const orderData = {
+      orderNumber: body.orderNumber || `ORD-${Date.now().toString().slice(-6)}`,
+      userId: session?.user?.id,
+      customerId: body.customerId || session?.user?.id,
+      items: itemsWithDetails,
+      deliveryInfo: deliveryInfo, // Now includes location coordinates
+      specialRequirements: body.specialRequirements || '',
+      status: 'PENDING',
+      paymentMethod: body.paymentMethod || 'ONLINE',
+      paymentScreenshotUrl: paymentScreenshotUrl,
+      transactionId: body.transactionId || `TXN-${Date.now()}`,
+      deliveryFee: body.deliveryFee || 0,
+      discount: body.discount || 0,
+      subtotal: totalAmount,
+      tax: taxAmount,
+      totalAmount: body.totalAmount || finalAmount,
+      finalAmount: finalAmount,
+      delivery: true,
+      inTable: false,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    console.log("💾 Saving order with:", {
+      orderNumber: orderData.orderNumber,
+      hasScreenshot: !!orderData.paymentScreenshotUrl,
+      hasCoordinates: !!orderData.deliveryInfo?.location?.coordinates,
+      coordinates: orderData.deliveryInfo?.location?.coordinates
+    });
+
+    // Validate with schema
+    const validatedOrder = DeliveryOrderSchema.parse(orderData);
+
+    // Insert order into the database
+    const result = await db.collection("orders").insertOne(validatedOrder);
+
+    console.log("✅ Order created successfully:", {
+      id: result.insertedId,
+      orderNumber: orderData.orderNumber,
+      hasCoordinates: !!orderData.deliveryInfo?.location?.coordinates
+    });
 
     return NextResponse.json(
       {
         success: true,
         orderId: result.insertedId,
+        orderNumber: orderData.orderNumber,
         finalAmount,
         tax: taxAmount,
+        paymentScreenshotUrl: orderData.paymentScreenshotUrl,
+        hasCoordinates: !!orderData.deliveryInfo?.location?.coordinates
       },
       { status: 201 }
     );
   } catch (error) {
-    console.error("Order placement error:", error);
+    console.error("❌ Order placement error:", error);
     return NextResponse.json(
       { error: "Internal Server Error" },
       { status: 500 }
@@ -228,47 +259,37 @@ export async function GET(req: NextRequest) {
       delivery: true
     };
 
-    // If status parameter is provided
     if (statusParam) {
       if (statusParam === "all") {
-        // Fetch all delivery orders regardless of status
         matchQuery = { delivery: true };
       } else if (statusParam === "notConfirmed") {
-        // Fetch all delivery orders that are NOT CONFIRMED
         matchQuery = {
           delivery: true,
           status: { $ne: "CONFIRMED" }
         };
       } else {
-        // Validate specific status
         if (!VALID_STATUSES.includes(statusParam as OrderStatus)) {
           return NextResponse.json(
-            { error: `Invalid status parameter. Must be one of: ${VALID_STATUSES.join(", ")}, "all", or "notConfirmed"` },
+            { error: `Invalid status parameter` },
             { status: 400 }
           );
         }
         matchQuery.status = statusParam;
       }
-    }
-    // Default: Fetch orders that are NOT CONFIRMED
-    else {
+    } else {
       matchQuery = {
         delivery: true,
         status: { $ne: "CONFIRMED" }
       };
     }
 
-    // If includeAll is true (alternative parameter), fetch all delivery orders
     if (includeAll) {
       matchQuery = { delivery: true };
     }
 
-    // Fetch all orders from the 'delivery' collection based on the match query
+    // Fetch orders with location data
     const orders = await db.collection("orders").aggregate([
-      {
-        $match: matchQuery
-      },
-      // Lookup User Details
+      { $match: matchQuery },
       {
         $addFields: {
           userIdObj: {
@@ -289,7 +310,6 @@ export async function GET(req: NextRequest) {
         }
       },
       { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
-      // Lookup Item Details
       { $unwind: "$items" },
       {
         $addFields: {
@@ -327,7 +347,6 @@ export async function GET(req: NextRequest) {
       { $sort: { createdAt: -1 } }
     ]).toArray();
 
-    // Return the orders in the response
     return NextResponse.json(
       { 
         success: true,

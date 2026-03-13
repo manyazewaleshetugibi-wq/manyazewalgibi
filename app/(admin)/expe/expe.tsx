@@ -65,7 +65,6 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import DailyCash from "../../../components/CommonExpenses/dailycash"
-import { navigate } from "next/dist/client/components/segment-cache/navigation"
 
 type Expense = {
   _id: string
@@ -131,6 +130,30 @@ async function fetchDailyCash(): Promise<DailyCashEntry[]> {
   const response = await fetch("/api/daily-cash")
   const data = await response.json()
   return data.data || []
+}
+
+// Add the missing exportToExcel function
+function exportToExcel(data: Expense[], filename: string) {
+  // Prepare data for export
+  const exportData = data.map(expense => ({
+    'Title': expense.title,
+    'Description': expense.description,
+    'Amount (ETB)': expense.amount.toFixed(2),
+    'Category': expense.category,
+    'Date': format(new Date(expense.date), 'PPP'),
+    'Status': expense.status,
+    'Priority': expense.priority,
+    'Recurring': expense.recurring ? 'Yes' : 'No',
+    'Frequency': expense.frequency || 'N/A',
+    'Tags': expense.tags.join(', '),
+    'Notes': expense.notes || '',
+    'Created By': expense.createdBy || 'N/A'
+  }))
+  
+  const worksheet = XLSX.utils.json_to_sheet(exportData)
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Expenses")
+  XLSX.writeFile(workbook, `${filename}.xlsx`)
 }
 
 function exportBalanceToExcel(data: DailyBalance[], filename: string) {
@@ -216,8 +239,6 @@ export default function ExpensesPage() {
   const [balanceTab, setBalanceTab] = useState<'daily' | 'summary'>('daily')
 
   const router = useRouter()
-
-
 
   useEffect(() => {
     const loadData = async () => {
@@ -638,7 +659,7 @@ export default function ExpensesPage() {
           <div className="flex items-center space-x-2">
             <Button
             onClick={() => router.push("expenses")}
-            className="bg-blue-600 hover:bg-blue-700 w-outo"
+            className="bg-blue-600 hover:bg-blue-700"
             variant="default"
             >
               <Wallet className="mr-2 h-4 w-4" />

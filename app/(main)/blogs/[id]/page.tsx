@@ -179,7 +179,7 @@ export default function BlogDetailPage() {
           ...postData,
           author: {
             name: "Manyazewal Eshetu Gibi",
-            avatar: "/man_logo.png",
+            avatar: "/man_logo.jpg",
           },
           readTime: 5, // Could calculate based on content length
         })
@@ -368,7 +368,7 @@ const RelatedPostCard: React.FC<{ post: BlogPost }> = ({ post }) => (
             <AvatarImage src={post.author?.avatar} alt={post.author?.name} />
             <AvatarFallback>{post.author?.name?.charAt(0) || "A"}</AvatarFallback>
           </Avatar>
-          <span className="text-sm font-medium">{post.author?.name || "Manyazewal Eshetu Gibi"}</span>
+          <span className="text-sm font-medium text-purple-600">{post.author?.name || "Manyazewal Eshetu Gibi"}</span>
         </div>
         <span className="text-sm text-muted-foreground">{post.readTime || "5"} min read</span>
       </div>

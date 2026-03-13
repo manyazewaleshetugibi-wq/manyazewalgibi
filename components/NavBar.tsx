@@ -64,11 +64,11 @@ interface NavLinkProps {
 }
 
 const navLinks = [
-  { href: "/", icon: Home, label: "Home" },
-  { href: "/about", icon: Info, label: "About Us" },
-  { href: "/menu", icon: UtensilsCrossed, label: "Menu" },
-  { href: "/blogs", icon: BookOpen, label: "Blogs" },
-  { href: "/contact", icon: PhoneCall, label: "Contact Us" },
+  { href: "/", icon: Home, label: "Home", className: "hidden md:inline-flex text-purple-900" },
+  { href: "/about", icon: Info, label: "About Us", className: "hidden md:inline-flex " },
+  { href: "/menu", icon: UtensilsCrossed, label: "Menu", className: "hidden md:inline-flex " },
+  { href: "/blogs", icon: BookOpen, label: "Blogs", className: "hidden md:inline-flex " },
+  { href: "/contact", icon: PhoneCall, label: "Contact Us", className: "hidden md:inline-flex " },
 ]
 
 export function NavBar() {
@@ -334,7 +334,7 @@ export function NavBar() {
         icon: BookOpen 
       },
       user: {
-        path: "/user/dashboard",
+        path: "/",
         label: "Accounts",
         icon: LayoutDashboard
       }
@@ -529,8 +529,7 @@ export function NavBar() {
   }
 
   return (
-    <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/60 shadow-sm">
-      <div className="px-4 mx-auto max-w-7xl sm:px-6 lg:px-8">
+       <header className="sticky top-0 z-50 bg-purple-200/40 backdrop-blur-md supports-[backdrop-filter]:bg-purple-200/30 shadow-sm">      <div className="px-4 mx-auto max-w-7xl sm:px-6 lg:px-8">
         <nav className="flex items-center justify-between h-16 md:h-20">
           {/* Logo on the left */}
           <div className="flex items-center flex-1">
@@ -540,11 +539,11 @@ export function NavBar() {
                 transition={{ type: "spring", stiffness: 400, damping: 10 }}
               >
                 <Image 
-                  src="/man_logo.png" 
+                  src="/man_logo.jpg" 
                   alt="Manyazewal Logo" 
                   width={80} 
                   height={80} 
-                  className="w-auto h-10 md:h-12 transition-transform duration-300 group-hover:scale-105" 
+                  className="w-auto h-10 md:h-12 transition-transform duration-300 group-hover:scale-105 rounded-xl border border-transparent group-hover:border-[#1a1942] shadow-sm group-hover:shadow-md" 
                 />
               </motion.div>
             </Link>
@@ -557,11 +556,11 @@ export function NavBar() {
                 {link.label}
               </NavLink>
             ))}
-            {isUserRole && (
+            {/* {isUserRole && (
               <NavLink href="/user/dashboard" icon={LayoutDashboard}>
                 Accounts
               </NavLink>
-            )}
+            )} */}
           </div>
 
           {/* Right side - User menu and mobile menu */}
@@ -613,11 +612,11 @@ export function NavBar() {
                   {link.label}
                 </NavLink>
               ))}
-              {isUserRole && (
+              {/* {isUserRole && (
                 <NavLink href="/user/dashboard" icon={LayoutDashboard}>
                   Accounts
                 </NavLink>
-              )}
+              )} */}
               
               {/* Mobile auth buttons */}
               <div className="pt-4 mt-4 border-t border-gray-100 space-y-3">

@@ -12,7 +12,7 @@ export function TeamSwitcher() {
             <a href="#">
               <div className="flex aspect-square size-8 items-center justify-center rounded-lg">
                 <Image
-                  src="/man_logo.png"
+                  src="/man_logo.jpg"
                   alt="Manyazewal Logo"
                   width={40}
                   height={40}

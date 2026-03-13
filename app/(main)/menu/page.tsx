@@ -1,293 +1,520 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import Image from 'next/image'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { useSession } from 'next-auth/react'
 import { toast } from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Search, X, ChevronDown, ChevronUp, Clock, DollarSign, Tag, Utensils, 
-  Grid, List, ShoppingCart, Plus, Minus, ChefHat, Sparkles, ArrowLeft, Receipt,
-  Users, MapPin, Phone, User, Mail, Home, CreditCard, Upload, Check, Info,
-  Wallet, LogIn, Map, Calendar, Fingerprint, Globe, Shield, Clock as ClockIcon
+  Grid, List, ShoppingCart, Plus, Minus, ChefHat, Sparkles, ArrowLeft, 
+  MapPin, Home, Users, Info, RefreshCw, LogIn, AlertCircle, Loader2,
+  Navigation, WifiOff, Truck, Star, Heart, Share2, Eye,
+  Filter, SortAsc, SortDesc, Layers, Coffee, Pizza, Salad, ChefHat as Chef
 } from 'lucide-react'
-import { NavBar } from '@/components/NavBar'
+import axios, { AxiosResponse } from 'axios'
+
+// UI Components
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { Separator } from "@/components/ui/separator"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import axios from 'axios'
+import { Progress } from "@/components/ui/progress"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { NavBar } from '@/components/NavBar'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Separator } from "@/components/ui/separator"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
-// API client setup with interceptors
+// Custom Hooks and Providers
+import { useUserData } from '@/providers/UserDataProvider'
+import { useCart } from '@/hooks/useCart'
+
+// Components
+import { CartPanel } from '@/components/cart/CartPanel'
+import { PaymentUploadDialog } from '@/components/cart/PaymentUploadDialog'
+import { LoginPromptDialog } from '@/components/auth/LoginPromptDialog'
+
+// Utils
+import { EnhancedDeliveryCalculator, DeliveryError } from '@/utils/enhancedDeliveryCalculator'
+
+// Types
+import { 
+  Category, Item, Waiter, UserData, PaginationInfo, 
+  DeliveryFeeDetails, PaymentScreenshot, OrderData,
+  OrderItem
+} from '@/types'
+
+// Constants
+const DEFAULT_PAGINATION: PaginationInfo = {
+  page: 1,
+  limit: 12,
+  total: 0,
+  totalPages: 0,
+  hasMore: false
+}
+
+const API_TIMEOUT = 30000 // 30 seconds
+const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo'
+const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload'
+
+// API Client
 const api = axios.create({
   baseURL: '/api',
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  timeout: 30000,
+  headers: { 'Content-Type': 'application/json' }
 })
 
-// Add response interceptor for better error handling
-api.interceptors.response.use(
-  response => response,
-  error => {
-    if (error.code === 'ECONNABORTED') {
-      console.error('Request timeout:', error);
-      return Promise.reject(new Error('Request timeout - please try again'));
-    }
-    
-    if (error.response?.data) {
-      const contentType = error.response.headers['content-type'];
-      if (contentType && contentType.includes('text/html')) {
-        console.error('Received HTML instead of JSON');
-        return Promise.reject(new Error('Server error - please try again'));
-      }
-    }
-    
-    return Promise.reject(error);
+api.interceptors.response.use(undefined, async (err) => {
+  const config = err.config
+  if (!config || !config.retry) {
+    return Promise.reject(err)
   }
-);
-
-// Cloudinary configuration
-const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
-const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
-
-interface Category {
-  _id: string
-  name: string
-  description: string
-  type: string
-  imageUrl: string
-}
-
-interface NutritionalInfo {
-  calories?: number
-  protein?: number
-  carbohydrates?: number
-  fat?: number
-}
-
-interface Item {
-  _id: string
-  name: string
-  description?: string
-  categoryId: string
-  price: number
-  imageUrl?: string
-  preparationTime?: number
-  nutritionalInfo?: NutritionalInfo
-  isActive?: boolean
-  isFeatured?: boolean
-  tags?: string[]
-  requiredStock?: any[]
-  cloudinaryData?: any
-  createdAt?: string
-  updatedAt?: string
-}
-
-interface CartItem extends Item {
-  quantity: number
-  specialInstructions?: string
-}
-
-interface DeliveryInfo {
-  fullName: string
-  phone: string
-  email: string
-  address: string
-  city: string
-  landmark?: string
-  deliveryInstructions?: string
-}
-
-interface PaymentScreenshot {
-  file: File | null
-  previewUrl: string
-  uploaded: boolean
-}
-
-interface Waiter {
-  _id: string
-  name: string
-  shift?: string
-  avatar?: string
-}
-
-interface UserData {
-  _id: string
-  id?: string
-  firstName: string
-  lastName: string
-  email: string
-  phone: string
-  password?: string
-  birthDate: string
-  gender: string
-  address: string
-  location?: {
-    type: string
-    coordinates: [number, number]
+  config.retryCount = config.retryCount || 0
+  if (config.retryCount >= 3) {
+    return Promise.reject(err)
   }
-  role: string
-  registrationSource: string
-  locationConsent: boolean
-  createdAt: string
-  updatedAt: string
-  __v?: number
-  lastLogin: string
-  loginAttempts: number
-  image?: string
-  employeeId?: string
-  permissions?: string[]
-  status?: string
-  requiresPasswordChange?: boolean
-  googleId?: string
-  emailVerified?: boolean
-  specialization?: string
-  shift?: string
-}
+  config.retryCount += 1
+  const delay = new Promise(resolve => setTimeout(resolve, 1000 * config.retryCount))
+  await delay
+  return api(config)
+})
 
-interface ExtendedUser {
-  id: string
-  role: string
-  name?: string | null
-  email?: string | null
-  image?: string | null
-}
-
-const DEFAULT_NUTRITIONAL_INFO: NutritionalInfo = {
-  calories: 0,
-  protein: 0,
-  carbohydrates: 0,
-  fat: 0
-}
-
-const useDebounce = <T,>(value: T, delay: number): T => {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value)
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedValue(value)
-    }, delay)
-
-    return () => {
-      clearTimeout(timer)
-    }
-  }, [value, delay])
-
-  return debouncedValue
-}
-
-const extractCityFromAddress = (address: string): string => {
-  if (!address) return 'Addis Ababa';
-  
-  const addressParts = address.split(',');
-  
-  const cityKeywords = [
-    'addis ababa', 'bole', 'kazanchis', 'megenagna', 'piassa',
-    'merkato', 'sarbet', 'cazanchis', 'old airport', 'new airport',
-    'ayertena', 'summit', 'gerji', 'atlas', 'gotera', 'lafto',
-    'mexico', 'saris', 'kera', 'akaki', 'kality', 'kaliti'
-  ];
-  
-  for (const part of addressParts) {
-    const trimmedPart = part.trim().toLowerCase();
-    if (cityKeywords.some(keyword => trimmedPart.includes(keyword))) {
-      return part.trim();
-    }
-  }
-  
-  if (addressParts.length > 1) {
-    return addressParts[addressParts.length - 2]?.trim() || 'Addis Ababa';
-  }
-  
-  return 'Addis Ababa';
-}
-
-const getCategoryIcon = (type: string) => {
-  switch (type.toLowerCase()) {
-    case 'food':
-      return <Utensils className="h-4 w-4" />
-    case 'drink':
-      return <Sparkles className="h-4 w-4" />
-    case 'dessert':
-      return <Sparkles className="h-4 w-4" />
-    default:
-      return <Tag className="h-4 w-4" />
-  }
-}
-
-const LoginPromptDialog = ({ 
-  open, 
-  onOpenChange,
-  onLogin,
-  message = 'Please login to continue'
-}: { 
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onLogin: () => void
+interface ApiResponse<T> {
+  data?: T
   message?: string
+  error?: string
+}
+
+// Utility Functions
+const getCategoryIcon = (type: string, className?: string) => {
+  switch (type?.toLowerCase()) {
+    case 'food': return <Utensils className={className || "h-4 w-4"} />
+    case 'drink': return <Coffee className={className || "h-4 w-4"} />
+    case 'dessert': return <Sparkles className={className || "h-4 w-4"} />
+    case 'appetizer': return <Salad className={className || "h-4 w-4"} />
+    case 'main course': return <Pizza className={className || "h-4 w-4"} />
+    default: return <Layers className={className || "h-4 w-4"} />
+  }
+}
+
+const getImageSrc = (imageUrl?: string): string => {
+  if (!imageUrl) return '/placeholder.svg'
+  if (imageUrl.startsWith('http')) return imageUrl
+  if (imageUrl.startsWith('/uploads')) return imageUrl
+  return `/uploads/${imageUrl}`
+}
+
+const preloadImages = (urls: string[]) => {
+  urls.forEach(url => {
+    if (url && url !== '/placeholder.svg') {
+      const img = new Image()
+      img.src = url
+    }
+  })
+}
+
+// Enhanced Item Card Component with Purple-900 UI
+const ItemCard = ({ 
+  item, 
+  categoryName, 
+  onAddToCart, 
+  onViewDetails,
+  isUserLoggedIn,
+  onLoginRequired,
+  index = 0
+}: { 
+  item: Item
+  categoryName: string
+  onAddToCart: (item: Item) => void
+  onViewDetails: (item: Item) => void
+  isUserLoggedIn: boolean
+  onLoginRequired: (message: string) => void
+  index?: number
 }) => {
+  const [isHovered, setIsHovered] = useState(false)
+  const [isImageLoaded, setIsImageLoaded] = useState(false)
+  
+  const handleAddToCart = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!isUserLoggedIn) {
+      onLoginRequired('Please login to add items to your cart')
+      return
+    }
+    if (item.isActive === false) {
+      toast.error(`Sorry, ${item.name} is currently unavailable`)
+      return
+    }
+    onAddToCart(item)
+    toast.success(`Added ${item.name} to cart`, {
+      icon: '🛒',
+      style: {
+        borderRadius: '10px',
+        background: '#4a1d6d', // purple-900
+        color: '#fff',
+      },
+    })
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-2xl">
-            <LogIn className="h-6 w-6 text-primary" />
-            Login Required
-          </DialogTitle>
-          <DialogDescription className="text-base pt-2">
-            {message}
-          </DialogDescription>
-        </DialogHeader>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: index * 0.05 }}
+      whileHover={{ y: -8 }}
+      onHoverStart={() => setIsHovered(true)}
+      onHoverEnd={() => setIsHovered(false)}
+    >
+      <Card className="group relative overflow-hidden border-0 bg-white/90 backdrop-blur-sm shadow-xl hover:shadow-2xl transition-all duration-500 rounded-3xl">
+        {/* Gradient overlay on hover - purple-900 */}
+        <div className="absolute inset-0 bg-gradient-to-t from-purple-900/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 z-10 rounded-3xl" />
         
-        <div className="py-4">
-          <Alert>
-            <AlertDescription className="text-sm">
-              You need to be logged in to:
-              <ul className="list-disc ml-4 mt-2 space-y-1">
-                <li>Add items to your cart</li>
-                <li>Place orders</li>
-                <li>Track your order history</li>
-                <li>Save your delivery information</li>
-              </ul>
-            </AlertDescription>
-          </Alert>
+        {/* Image container with purple effect */}
+        <div className="relative h-56 overflow-hidden rounded-t-3xl">
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent z-10 mix-blend-overlay" />
+          
+          {/* Skeleton loader with purple shimmer */}
+          {!isImageLoaded && (
+            <Skeleton className="absolute inset-0 bg-gradient-to-r from-gray-200 via-purple-100 to-gray-200 animate-shimmer" />
+          )}
+          
+          <img
+            src={getImageSrc(item.imageUrl)}
+            alt={item.name}
+            className={`object-cover w-full h-full transition-all duration-700 ${
+              isHovered ? 'scale-110 rotate-1' : 'scale-100'
+            } ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
+            onLoad={() => setIsImageLoaded(true)}
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = '/placeholder.svg'
+              setIsImageLoaded(true)
+            }}
+          />
+          
+          {/* Decorative elements - purple-900 */}
+          <div className="absolute top-0 left-0 w-32 h-32 bg-gradient-to-br from-purple-900/20 to-transparent rounded-full -translate-x-16 -translate-y-16 blur-2xl" />
+          <div className="absolute bottom-0 right-0 w-40 h-40 bg-gradient-to-tl from-purple-900/20 to-transparent rounded-full translate-x-20 translate-y-20 blur-2xl" />
+          
+          {/* Price tag with purple style */}
+          <div className="absolute top-4 right-4 z-20">
+            <div className="bg-white/95 backdrop-blur-sm text-purple-900 font-bold px-4 py-2 rounded-full shadow-lg border border-purple-200 flex items-center gap-1">
+              <DollarSign className="h-4 w-4 text-purple-700" />
+              <span>{Number(item.price).toLocaleString()} ETB</span>
+            </div>
+          </div>
+          
+          {/* Featured badge - purple gradient */}
+          {item.isFeatured && (
+            <div className="absolute top-4 left-4 z-20">
+              <div className="bg-gradient-to-r from-purple-800 to-purple-900 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 backdrop-blur-sm">
+                <Sparkles className="h-3 w-3" />
+                <span>Featured</span>
+              </div>
+            </div>
+          )}
+          
+          {/* Quick view overlay */}
+          <div className={`absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center gap-3 transition-all duration-300 z-30 ${
+            isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    className="rounded-full bg-white/90 hover:bg-white shadow-lg hover:scale-110 transition-all"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onViewDetails(item)
+                    }}
+                  >
+                    <Eye className="h-4 w-4 text-purple-900" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Quick view</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    className="rounded-full bg-white/90 hover:bg-white shadow-lg hover:scale-110 transition-all"
+                    onClick={handleAddToCart}
+                    disabled={item.isActive === false}
+                  >
+                    <ShoppingCart className="h-4 w-4 text-purple-900" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Add to cart</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
         
-        <DialogFooter className="gap-2">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={onLogin}
-            className="bg-primary hover:bg-primary/90"
-          >
-            <LogIn className="mr-2 h-4 w-4" />
-            Login Now
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <CardContent className="p-5 relative z-10">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <h3 className="text-xl font-bold text-gray-800 mb-1 line-clamp-1 group-hover:text-purple-900 transition-colors">
+                {item.name}
+              </h3>
+              <p className="text-sm text-gray-500 line-clamp-2 min-h-[40px]">
+                {item.description || 'No description available'}
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <Badge variant="secondary" className="bg-purple-50 text-purple-900 border-purple-200 rounded-full px-3 py-1 text-xs font-medium">
+              {getCategoryIcon(categoryName, "h-3 w-3 mr-1")}
+              {categoryName}
+            </Badge>
+            <Badge variant="outline" className="bg-gray-50 text-gray-600 border-gray-200 rounded-full px-3 py-1 text-xs font-medium flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {Number(item.preparationTime) || 0} min
+            </Badge>
+          </div>
+          
+          <Separator className="my-3 bg-gradient-to-r from-transparent via-purple-200 to-transparent" />
+          
+          <div className="flex items-center justify-between pt-2">
+            <div className="flex items-center gap-1">
+              <Star className="h-4 w-4 fill-purple-900 text-purple-900" />
+              <Star className="h-4 w-4 fill-purple-900 text-purple-900" />
+              <Star className="h-4 w-4 fill-purple-900 text-purple-900" />
+              <Star className="h-4 w-4 fill-purple-900 text-purple-900" />
+              <Star className="h-4 w-4 fill-purple-300 text-purple-300" />
+              <span className="text-xs text-gray-500 ml-1">(24)</span>
+            </div>
+            
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleAddToCart}
+              disabled={item.isActive === false}
+              className={`relative overflow-hidden group/btn rounded-full p-2.5 transition-all ${
+                item.isActive === false 
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                  : 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg hover:shadow-xl'
+              }`}
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-1000" />
+              <Plus className="h-5 w-5" />
+            </motion.button>
+          </div>
+        </CardContent>
+        
+        {/* Decorative corner - purple-900 */}
+        <div className="absolute bottom-0 right-0 w-16 h-16 bg-gradient-to-tl from-purple-900/20 to-transparent rounded-tl-full" />
+      </Card>
+    </motion.div>
   )
 }
 
-// Updated ItemDetailDialog without Required Ingredients section
+// Enhanced List View Item Component with Purple-900
+const ListViewItem = ({ 
+  item, 
+  categoryName, 
+  onAddToCart, 
+  onViewDetails,
+  isUserLoggedIn,
+  onLoginRequired,
+  index = 0
+}: { 
+  item: Item
+  categoryName: string
+  onAddToCart: (item: Item) => void
+  onViewDetails: (item: Item) => void
+  isUserLoggedIn: boolean
+  onLoginRequired: (message: string) => void
+  index?: number
+}) => {
+  const [isHovered, setIsHovered] = useState(false)
+  
+  const handleAddToCart = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!isUserLoggedIn) {
+      onLoginRequired('Please login to add items to your cart')
+      return
+    }
+    if (item.isActive === false) {
+      toast.error(`Sorry, ${item.name} is currently unavailable`)
+      return
+    }
+    onAddToCart(item)
+    toast.success(`Added ${item.name} to cart`, {
+      icon: '🛒',
+      style: {
+        borderRadius: '10px',
+        background: '#4a1d6d', // purple-900
+        color: '#fff',
+      },
+    })
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3, delay: index * 0.05 }}
+      whileHover={{ scale: 1.02, x: 4 }}
+      onHoverStart={() => setIsHovered(true)}
+      onHoverEnd={() => setIsHovered(false)}
+    >
+      <Card className={`relative overflow-hidden border-0 bg-white/90 backdrop-blur-sm shadow-md hover:shadow-xl transition-all duration-500 rounded-2xl ${
+        isHovered ? 'border-l-4 border-l-purple-900' : ''
+      }`}>
+        <div className="flex flex-col md:flex-row">
+          {/* Image section */}
+          <div className="relative md:w-48 h-48 md:h-auto overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent z-10 mix-blend-overlay" />
+            <img
+              src={getImageSrc(item.imageUrl)}
+              alt={item.name}
+              className="object-cover w-full h-full transition-transform duration-700"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = '/placeholder.svg'
+              }}
+            />
+            
+            {/* Featured badge for list view - purple gradient */}
+            {item.isFeatured && (
+              <div className="absolute top-3 left-3 z-20">
+                <Badge className="bg-gradient-to-r from-purple-800 to-purple-900 text-white border-0 shadow-lg">
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  Featured
+                </Badge>
+              </div>
+            )}
+          </div>
+          
+          {/* Content section */}
+          <div className="flex-1 p-6">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-2xl font-bold text-gray-800 group-hover:text-purple-900 transition-colors">
+                    {item.name}
+                  </h3>
+                  {item.isActive === false && (
+                    <Badge variant="destructive" className="rounded-full">
+                      Unavailable
+                    </Badge>
+                  )}
+                </div>
+                
+                <p className="text-gray-600 mb-4 line-clamp-2">
+                  {item.description || 'No description available'}
+                </p>
+                
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                  <Badge variant="secondary" className="bg-purple-50 text-purple-900 border-purple-200 rounded-full px-3 py-1.5">
+                    {getCategoryIcon(categoryName, "h-3.5 w-3.5 mr-1")}
+                    {categoryName}
+                  </Badge>
+                  <Badge variant="outline" className="bg-gray-50 text-gray-600 border-gray-200 rounded-full px-3 py-1.5 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    {Number(item.preparationTime) || 0} min
+                  </Badge>
+                  <Badge variant="outline" className="bg-purple-50 text-purple-900 border-purple-200 rounded-full px-3 py-1.5 flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5 fill-purple-900 text-purple-900" />
+                    4.5 (24 reviews)
+                  </Badge>
+                </div>
+                
+                {/* Nutritional info pills */}
+                <div className="flex flex-wrap gap-2">
+                  <div className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                    🔥 {item.nutritionalInfo?.calories || 0} cal
+                  </div>
+                  <div className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                    💪 {item.nutritionalInfo?.protein || 0}g protein
+                  </div>
+                  <div className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                    🥑 {item.nutritionalInfo?.fat || 0}g fat
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex flex-row md:flex-col items-center md:items-end gap-4 md:gap-3">
+                <div className="text-3xl font-bold text-purple-900">
+                  {Number(item.price).toLocaleString()} <span className="text-sm font-normal text-gray-500">ETB</span>
+                </div>
+                
+                <div className="flex gap-2">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="rounded-full border-gray-200 hover:border-purple-300 hover:bg-purple-50"
+                          onClick={() => onViewDetails(item)}
+                        >
+                          <Eye className="h-4 w-4 text-purple-900" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>View details</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="icon"
+                          onClick={handleAddToCart}
+                          disabled={item.isActive === false}
+                          className={`rounded-full ${
+                            item.isActive === false
+                              ? 'bg-gray-200 text-gray-400'
+                              : 'bg-gradient-to-r from-purple-800 to-purple-900 text-white hover:from-purple-900 hover:to-purple-950 shadow-md hover:shadow-lg'
+                          }`}
+                        >
+                          <ShoppingCart className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Add to cart</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Hover effect overlay - purple-900 */}
+        <div className={`absolute inset-0 bg-gradient-to-r from-purple-900/5 to-transparent pointer-events-none transition-opacity duration-500 ${
+          isHovered ? 'opacity-100' : 'opacity-0'
+        }`} />
+      </Card>
+    </motion.div>
+  )
+}
+
+// Item Detail Dialog with Purple-900 UI
 const ItemDetailDialog = ({ 
   item, 
   categoryName,
@@ -305,17 +532,12 @@ const ItemDetailDialog = ({
   isUserLoggedIn: boolean
   onLoginRequired: (message: string) => void
 }) => {
-  const getImagePath = (imageUrl?: string) => {
-    if (!imageUrl) return '/placeholder.svg';
-    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
-    if (imageUrl.includes('cloudinary.com')) return imageUrl;
-    if (imageUrl.startsWith('/uploads/')) return imageUrl;
-    if (!imageUrl.startsWith('/') && !imageUrl.includes('://')) return `/uploads/${imageUrl}`;
-    return imageUrl;
-  };
-  
-  const [selectedImage, setSelectedImage] = useState(getImagePath(item.imageUrl))
-  const nutritionalInfo = item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
+  const nutritionalInfo = item.nutritionalInfo || { 
+    calories: 0, 
+    protein: 0, 
+    carbohydrates: 0, 
+    fat: 0 
+  }
   
   const handleAddToCartClick = () => {
     if (!isUserLoggedIn) {
@@ -324,685 +546,168 @@ const ItemDetailDialog = ({
     }
     onAddToCart(item)
     onOpenChange(false)
-    toast.success(`Added ${item.name} to cart`)
+    toast.success(`Added ${item.name} to cart`, {
+      icon: '🛒',
+      style: {
+        borderRadius: '10px',
+        background: '#4a1d6d', // purple-900
+        color: '#fff',
+      },
+    })
   }
   
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl max-h-[90vh]">
-        <DialogHeader>
-          <DialogTitle className="text-2xl font-bold flex items-center gap-2">
-            <Info className="h-5 w-5 text-primary" />
-            {item.name}
-          </DialogTitle>
-          <DialogDescription className="text-base">
-            Complete details of the menu item
-          </DialogDescription>
-        </DialogHeader>
-        
-        <ScrollArea className="max-h-[70vh] pr-4">
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="relative h-64 lg:h-80 rounded-lg overflow-hidden">
-                <Image
-                  src={selectedImage}
-                  alt={item.name}
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 768px) 100vw, 50vw"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement
-                    target.src = '/placeholder.svg'
-                  }}
-                  unoptimized={selectedImage.includes('cloudinary.com')}
-                />
-                {item.isFeatured && (
-                  <Badge className="absolute top-3 left-3 bg-yellow-400 text-white border-none">
-                    <Sparkles className="mr-1 h-3 w-3" /> Featured
-                  </Badge>
-                )}
-                {item.isActive === false && (
-                  <Badge className="absolute top-3 right-3 bg-red-500 text-white border-none">
-                    Out of Stock
-                  </Badge>
-                )}
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto p-0 bg-gradient-to-br from-white to-purple-50/30 border-0 shadow-2xl rounded-3xl">
+        <div className="relative">
+          {/* Decorative header gradient - purple-900 */}
+          <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-purple-900/20 to-transparent rounded-t-3xl" />
+          
+          <DialogHeader className="p-6 pb-0 relative">
+            <DialogTitle className="text-3xl font-bold flex items-center gap-3 text-gray-800">
+              <div className="p-3 bg-gradient-to-br from-purple-800 to-purple-900 rounded-2xl shadow-lg">
+                <Info className="h-6 w-6 text-white" />
+              </div>
+              {item.name}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="p-6 space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="relative group">
+                <div className="absolute -inset-2 bg-gradient-to-r from-purple-700 to-purple-900 rounded-3xl blur-lg opacity-50 group-hover:opacity-75 transition-opacity" />
+                <div className="relative h-80 rounded-2xl overflow-hidden shadow-xl">
+                  <img
+                    src={getImageSrc(item.imageUrl)}
+                    alt={item.name}
+                    className="object-cover w-full h-full transition-transform duration-700 group-hover:scale-110"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = '/placeholder.svg'
+                    }}
+                  />
+                </div>
               </div>
               
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">Description</h3>
-                  <p className="text-gray-600">{item.description || 'No description available'}</p>
+              <div className="space-y-6">
+                <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-purple-100">
+                  <h3 className="text-xl font-semibold mb-3 flex items-center gap-2 text-gray-800">
+                    <Chef className="h-5 w-5 text-purple-900" />
+                    Description
+                  </h3>
+                  <p className="text-gray-600 leading-relaxed">
+                    {item.description || 'No description available'}
+                  </p>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-gray-50 p-3 rounded-lg">
-                    <div className="flex items-center gap-2 text-gray-700 mb-1">
-                      <DollarSign className="h-4 w-4" />
-                      <span className="text-sm font-medium">Price</span>
+                  <div className="bg-gradient-to-br from-purple-50 to-white p-5 rounded-xl shadow-md border border-purple-100">
+                    <div className="flex items-center gap-2 text-purple-900 mb-2">
+                      <DollarSign className="h-5 w-5" />
+                      <span className="font-medium">Price</span>
                     </div>
-                    <p className="text-2xl font-bold text-primary">{(item.price || 0).toFixed(2)} ETB</p>
+                    <p className="text-3xl font-bold text-purple-900">
+                      {Number(item.price).toFixed(2)} <span className="text-sm font-normal text-gray-500">ETB</span>
+                    </p>
                   </div>
                   
-                  <div className="bg-gray-50 p-3 rounded-lg">
-                    <div className="flex items-center gap-2 text-gray-700 mb-1">
-                      <Clock className="h-4 w-4" />
-                      <span className="text-sm font-medium">Prep Time</span>
+                  <div className="bg-gradient-to-br from-blue-50 to-white p-5 rounded-xl shadow-md border border-blue-100">
+                    <div className="flex items-center gap-2 text-blue-700 mb-2">
+                      <Clock className="h-5 w-5" />
+                      <span className="font-medium">Prep Time</span>
                     </div>
-                    <p className="text-2xl font-bold text-blue-600">{item.preparationTime || 0} min</p>
+                    <p className="text-3xl font-bold text-blue-600">
+                      {Number(item.preparationTime) || 0} <span className="text-sm font-normal text-gray-500">min</span>
+                    </p>
                   </div>
-                  
-                  <div className="bg-gray-50 p-3 rounded-lg">
-                    <div className="flex items-center gap-2 text-gray-700 mb-1">
-                      <Tag className="h-4 w-4" />
-                      <span className="text-sm font-medium">Category</span>
+                </div>
+                
+                <div className="bg-gradient-to-br from-purple-50 to-white p-5 rounded-xl shadow-md border border-purple-100">
+                  <h4 className="font-medium text-purple-900 mb-3 flex items-center gap-2">
+                    <Tag className="h-4 w-4" />
+                    Category
+                  </h4>
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-purple-100 rounded-lg">
+                      {getCategoryIcon(categoryName, "h-5 w-5 text-purple-900")}
                     </div>
-                    <p className="text-lg font-semibold">{categoryName || 'Uncategorized'}</p>
-                  </div>
-                  
-                  <div className="bg-gray-50 p-3 rounded-lg">
-                    <div className="flex items-center gap-2 text-gray-700 mb-1">
-                      <Utensils className="h-4 w-4" />
-                      <span className="text-sm font-medium">Status</span>
-                    </div>
-                    <Badge variant={item.isActive ? "default" : "secondary"} className="text-lg">
-                      {item.isActive ? 'Available' : 'Unavailable'}
-                    </Badge>
+                    <span className="text-lg font-medium text-gray-700">{categoryName}</span>
                   </div>
                 </div>
               </div>
             </div>
             
-            <Separator />
-            
-            <div>
-              <h3 className="text-lg font-semibold mb-4">Nutritional Information</h3>
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-purple-100">
+              <h3 className="text-xl font-semibold mb-6 flex items-center gap-2 text-gray-800">
+                <Sparkles className="h-5 w-5 text-purple-900" />
+                Nutritional Information
+              </h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <p className="text-2xl font-bold text-green-700">{nutritionalInfo.calories || 0}</p>
-                  <p className="text-sm text-gray-600">Calories</p>
+                <div className="text-center p-4 bg-gradient-to-br from-green-50 to-white rounded-xl shadow-sm border border-green-100">
+                  <p className="text-3xl font-bold text-green-600 mb-1">{Number(nutritionalInfo.calories) || 0}</p>
+                  <p className="text-sm text-gray-600 flex items-center justify-center gap-1">
+                    <span>🔥</span> Calories
+                  </p>
                 </div>
-                <div className="text-center p-4 bg-blue-50 rounded-lg">
-                  <p className="text-2xl font-bold text-blue-700">{nutritionalInfo.protein || 0}g</p>
-                  <p className="text-sm text-gray-600">Protein</p>
+                <div className="text-center p-4 bg-gradient-to-br from-blue-50 to-white rounded-xl shadow-sm border border-blue-100">
+                  <p className="text-3xl font-bold text-blue-600 mb-1">{Number(nutritionalInfo.protein) || 0}g</p>
+                  <p className="text-sm text-gray-600 flex items-center justify-center gap-1">
+                    <span>💪</span> Protein
+                  </p>
                 </div>
-                <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                  <p className="text-2xl font-bold text-yellow-700">{nutritionalInfo.carbohydrates || 0}g</p>
-                  <p className="text-sm text-gray-600">Carbs</p>
+                <div className="text-center p-4 bg-gradient-to-br from-yellow-50 to-white rounded-xl shadow-sm border border-yellow-100">
+                  <p className="text-3xl font-bold text-yellow-600 mb-1">{Number(nutritionalInfo.carbohydrates) || 0}g</p>
+                  <p className="text-sm text-gray-600 flex items-center justify-center gap-1">
+                    <span>🌾</span> Carbs
+                  </p>
                 </div>
-                <div className="text-center p-4 bg-red-50 rounded-lg">
-                  <p className="text-2xl font-bold text-red-700">{nutritionalInfo.fat || 0}g</p>
-                  <p className="text-sm text-gray-600">Fat</p>
+                <div className="text-center p-4 bg-gradient-to-br from-red-50 to-white rounded-xl shadow-sm border border-red-100">
+                  <p className="text-3xl font-bold text-red-600 mb-1">{Number(nutritionalInfo.fat) || 0}g</p>
+                  <p className="text-sm text-gray-600 flex items-center justify-center gap-1">
+                    <span>🥑</span> Fat
+                  </p>
                 </div>
               </div>
             </div>
-            
-            {/* Required Ingredients section has been completely removed */}
           </div>
-        </ScrollArea>
-        
-        <DialogFooter className="gap-2">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
-            Close
-          </Button>
-          <Button
-            onClick={handleAddToCartClick}
-            className="bg-primary hover:bg-primary/90"
-          >
-            <ShoppingCart className="mr-2 h-4 w-4" />
-            Add to Cart
-          </Button>
-        </DialogFooter>
+          
+          <DialogFooter className="p-6 pt-0 gap-3">
+            <Button 
+              variant="outline" 
+              onClick={() => onOpenChange(false)}
+              className="rounded-full px-6 border-2 border-gray-200 hover:border-purple-300 hover:bg-purple-50"
+            >
+              Close
+            </Button>
+            <Button 
+              onClick={handleAddToCartClick} 
+              className="rounded-full px-8 bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border-0 shadow-lg hover:shadow-xl transition-all"
+            >
+              <ShoppingCart className="mr-2 h-5 w-5" />
+              Add to Cart
+            </Button>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   )
 }
 
-const PaymentUploadDialog = ({
-  open,
-  onOpenChange,
-  paymentScreenshot,
-  onRemoveScreenshot,
-  onFileUpload,
-  transactionId,
-  onTransactionIdChange,
-  subtotal,
-  tax,
-  orderType,
-  deliveryFee,
-  total,
-  onFinalizeOrder,
-  isPlacingOrder
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  paymentScreenshot: PaymentScreenshot
-  onRemoveScreenshot: () => void
-  onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
-  transactionId: string
-  onTransactionIdChange: (value: string) => void
-  subtotal: number
-  tax: number
-  orderType: string
-  deliveryFee: number
-  total: number
-  onFinalizeOrder: () => void
-  isPlacingOrder: boolean
-}) => (
-  <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
-      <DialogHeader>
-        <DialogTitle className="flex items-center gap-2">
-          <CreditCard className="h-5 w-5" />
-          Payment Verification
-        </DialogTitle>
-        <DialogDescription>
-          Please upload a screenshot of your payment confirmation
-        </DialogDescription>
-      </DialogHeader>
-      
-      <div className="flex-1 overflow-y-auto -mr-4 pr-4">
-        <div className="space-y-4 py-1">
-          <Alert>
-            <AlertDescription className="text-sm">
-              Payment Details:
-              <div className="mt-2 space-y-1">
-                <div className="flex justify-between">
-                  <span>Bank Name:</span>
-                  <span className="font-semibold">Commercial Bank of Ethiopia</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Account Number:</span>
-                  <span className="font-semibold">1000000000000</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Account Name:</span>
-                  <span className="font-semibold">Manyazewal Eshetu Gibi</span>
-                </div>
-              </div>
-            </AlertDescription>
-          </Alert>
-          
-          <div className="space-y-3">
-            <Label>Upload Payment Screenshot</Label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary transition-colors">
-              {paymentScreenshot.previewUrl ? (
-                <div className="space-y-3">
-                  <div className="relative w-48 h-48 mx-auto">
-                    <Image
-                      src={paymentScreenshot.previewUrl}
-                      alt="Payment screenshot"
-                      fill
-                      className="object-contain rounded-md"
-                      unoptimized
-                    />
-                  </div>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={onRemoveScreenshot}
-                    className="mt-2"
-                  >
-                    <X className="mr-2 h-4 w-4" />
-                    Remove Image
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <Upload className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                  <div className="text-sm text-gray-600 mb-3">
-                    Drag & drop your payment screenshot here, or click to browse
-                  </div>
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={onFileUpload}
-                    className="hidden"
-                    id="payment-screenshot"
-                  />
-                  <Button
-                    variant="outline"
-                    onClick={() => document.getElementById('payment-screenshot')?.click()}
-                  >
-                    <Upload className="mr-2 h-4 w-4" />
-                    Choose File
-                  </Button>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Supported: JPG, PNG, GIF (Max 5MB)
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="transaction-id">Transaction ID (Optional)</Label>
-            <Input
-              id="transaction-id"
-              placeholder="Enter transaction ID if available"
-              value={transactionId}
-              onChange={(e) => onTransactionIdChange(e.target.value)}
-            />
-          </div>
-          
-          <div className="pt-4 space-y-2">
-            <div className="bg-gray-50 p-3 rounded-lg">
-              <div className="text-sm font-medium mb-1">Order Summary</div>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span>Subtotal:</span>
-                  <span>{subtotal.toLocaleString()} ETB</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Tax (15%):</span>
-                  <span>{tax.toLocaleString()} ETB</span>
-                </div>
-                {orderType === 'delivery' && (
-                  <div className="flex justify-between">
-                    <span>Delivery Fee:</span>
-                    <span>{deliveryFee.toLocaleString()} ETB</span>
-                  </div>
-                )}
-                <Separator className="my-1" />
-                <div className="flex justify-between font-bold">
-                  <span>Total:</span>
-                  <span>{total.toLocaleString()} ETB</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <DialogFooter className="gap-2 mt-2">
-        <Button
-          variant="outline"
-          onClick={() => onOpenChange(false)}
-          disabled={isPlacingOrder}
-        >
-          Cancel
-        </Button>
-        <Button
-          onClick={onFinalizeOrder}
-          disabled={!paymentScreenshot.uploaded || isPlacingOrder}
-          className="min-w-[120px]"
-        >
-          {isPlacingOrder ? (
-            <>
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
-              Processing...
-            </>
-          ) : (
-            <>
-              <Check className="mr-2 h-4 w-4" />
-              Confirm Payment
-            </>
-          )}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
-)
-
-const CartPanel = ({
-  cart,
-  onClose,
-  onRemoveItem,
-  onUpdateQuantity,
-  orderType,
-  onOrderTypeChange,
-  tableNumber,
-  onTableNumberChange,
-  waiters,
-  selectedWaiter,
-  onWaiterChange,
-  numberOfGuests,
-  onGuestsChange,
-  specialRequirements,
-  onSpecialRequirementsChange,
-  subtotal,
-  tax,
-  deliveryFee,
-  total,
-  orderNumber,
-  onPlaceOrder,
-  isPlacingOrder,
-  isUserLoggedIn,
-  onLoginRequired,
-  userData
-}: {
-  cart: CartItem[]
-  onClose: () => void
-  onRemoveItem: (id: string) => void
-  onUpdateQuantity: (id: string, qty: number) => void
-  orderType: 'table' | 'delivery' | ''
-  onOrderTypeChange: (type: 'table' | 'delivery' | '') => void
-  tableNumber: string
-  onTableNumberChange: (num: string) => void
-  waiters: Waiter[]
-  selectedWaiter: string
-  onWaiterChange: (id: string) => void
-  numberOfGuests: number
-  onGuestsChange: (num: number) => void
-  specialRequirements: string
-  onSpecialRequirementsChange: (req: string) => void
-  subtotal: number
-  tax: number
-  deliveryFee: number
-  total: number
-  orderNumber: string
-  onPlaceOrder: () => void
-  isPlacingOrder: boolean
-  isUserLoggedIn: boolean
-  onLoginRequired: (message: string) => void
-  userData: UserData | null
-}) => {
-  const handlePlaceOrder = () => {
-    if (!isUserLoggedIn) {
-      onLoginRequired('Please login to place an order')
-      return
-    }
-    onPlaceOrder()
-  }
-
-  const userFullName = userData ? `${userData.firstName} ${userData.lastName}`.trim() : '';
-  
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-4 border-b">
-        <h3 className="font-semibold flex items-center gap-2 text-lg">
-          <ShoppingCart className="h-5 w-5" />
-          Your Order
-          <Badge variant="outline">
-            {cart.length} {cart.length === 1 ? 'item' : 'items'}
-          </Badge>
-        </h3>
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          onClick={onClose}
-          className="h-8 w-8 rounded-full"
-        >
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </Button>
-      </div>
-
-      {cart.length > 0 ? (
-        <>
-          <ScrollArea className="flex-1">
-            <div className="p-4 space-y-6">
-              <div className="space-y-3">
-                {cart.map((item) => {
-                  const getImagePath = (imageUrl?: string) => {
-                    if (!imageUrl) return '/placeholder.svg';
-                    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
-                    if (imageUrl.includes('cloudinary.com')) return imageUrl;
-                    if (imageUrl.startsWith('/uploads/')) return imageUrl;
-                    if (!imageUrl.startsWith('/') && !imageUrl.includes('://')) return `/uploads/${imageUrl}`;
-                    return imageUrl;
-                  };
-                  
-                  return (
-                    <div key={item._id} className="flex border rounded-lg overflow-hidden bg-background/50">
-                      <div className="relative h-20 w-20 flex-shrink-0">
-                        <Image
-                          src={getImagePath(item.imageUrl)}
-                          alt={item.name}
-                          fill
-                          sizes="80px"
-                          className="object-cover"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement
-                            target.src = '/placeholder.svg'
-                          }}
-                          unoptimized={item.imageUrl?.includes('cloudinary.com')}
-                        />
-                      </div>
-                      
-                      <div className="flex-1 p-3 flex flex-col">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <h4 className="font-medium">{item.name}</h4>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {item.price.toLocaleString()} ETB
-                            </p>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => onRemoveItem(item._id)}
-                            className="h-6 w-6 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
-                          >
-                            <X className="h-3 w-3" />
-                            <span className="sr-only">Remove</span>
-                          </Button>
-                        </div>
-                        
-                        <div className="mt-auto pt-2 flex justify-between items-center">
-                          <div className="flex items-center border rounded-md">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => onUpdateQuantity(item._id, item.quantity - 1)}
-                              className="h-7 w-7 rounded-none rounded-l-md p-0"
-                            >
-                              <Minus className="h-3 w-3" />
-                              <span className="sr-only">Decrease</span>
-                            </Button>
-                            <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => onUpdateQuantity(item._id, item.quantity + 1)}
-                              className="h-7 w-7 rounded-none rounded-r-md p-0"
-                            >
-                              <Plus className="h-3 w-3" />
-                              <span className="sr-only">Increase</span>
-                            </Button>
-                          </div>
-                          
-                          <span className="text-sm font-medium">
-                            {(item.price * item.quantity).toLocaleString()} ETB
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <div className="space-y-3">
-                  <Label className="text-base font-medium">Order Type</Label>
-                  <RadioGroup
-                    value={orderType}
-                    onValueChange={(value: 'table' | 'delivery') => {
-                      if (!isUserLoggedIn) {
-                        onLoginRequired('Please login to select order type')
-                        return
-                      }
-                      onOrderTypeChange(value)
-                    }}
-                    className="flex gap-4"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="table" id="table" />
-                      <Label htmlFor="table" className="cursor-pointer">
-                        <div className="flex items-center gap-2">
-                          <Home className="h-4 w-4" />
-                          Dine In (Table)
-                        </div>
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="delivery" id="delivery" />
-                      <Label htmlFor="delivery" className="cursor-pointer">
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4" />
-                          Delivery
-                        </div>
-                      </Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-
-                {orderType === 'table' && (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="table-number">Table Number *</Label>
-                      <Select value={tableNumber} onValueChange={onTableNumberChange}>
-                        <SelectTrigger id="table-number">
-                          <SelectValue placeholder="Select Table" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from({ length: 20 }, (_, i) => (
-                            <SelectItem key={i} value={`T${i + 1}`}>Table {i + 1}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="waiter">Waitress/Server *</Label>
-                      <Select value={selectedWaiter} onValueChange={onWaiterChange}>
-                        <SelectTrigger id="waiter">
-                          <SelectValue placeholder="Select Waitress" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {waiters.map((waiter) => (
-                            <SelectItem key={waiter._id} value={waiter._id}>{waiter.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    {/* Number of Guests - Only for Table Orders */}
-                    <div className="space-y-2">
-                      <Label htmlFor="guests">
-                        <Users className="inline mr-2 h-4 w-4" />
-                        Number of Guests *
-                      </Label>
-                      <Select 
-                        value={numberOfGuests.toString()} 
-                        onValueChange={(v) => onGuestsChange(parseInt(v))}
-                      >
-                        <SelectTrigger id="guests">
-                          <SelectValue placeholder="Select number of guests" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from({ length: 10 }, (_, i) => (
-                            <SelectItem key={i} value={(i + 1).toString()}>
-                              {i + 1} {i === 0 ? 'guest' : 'guests'}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </>
-                )}
-
-                {orderType === 'delivery' && (
-                  <div className="space-y-3 border rounded-lg p-3 bg-green-50">
-                    <h4 className="font-medium flex items-center gap-2 text-green-700">
-                      <MapPin className="h-4 w-4" />
-                      Delivery Information (Auto-filled from your profile)
-                    </h4>
-                    <div className="space-y-2 text-sm">
-                      <p><span className="font-medium">Name:</span> {userFullName || 'Not provided'}</p>
-                      <p><span className="font-medium">Phone:</span> {userData?.phone || 'Not provided'}</p>
-                      <p><span className="font-medium">Email:</span> {userData?.email || 'Not provided'}</p>
-                      <p><span className="font-medium">Address:</span> {userData?.address || 'Not provided'}</p>
-                      <p><span className="font-medium">City:</span> {userData?.address ? extractCityFromAddress(userData.address) : 'Addis Ababa'}</p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="special-requirements">Special Requirements</Label>
-                  <Textarea
-                    id="special-requirements"
-                    placeholder="Any special requirements or notes..."
-                    value={specialRequirements}
-                    onChange={(e) => onSpecialRequirementsChange(e.target.value)}
-                    rows={2}
-                  />
-                </div>
-              </div>
-            </div>
-          </ScrollArea>
-
-          <div className="border-t p-4 space-y-4 bg-background shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-10">
-            <div className="space-y-2 bg-gray-50 p-3 rounded-lg">
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-sm">Subtotal:</span>
-                  <span className="font-medium">{subtotal.toLocaleString()} ETB</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Tax (15%):</span>
-                  <span className="font-medium">{tax.toLocaleString()} ETB</span>
-                </div>
-                {orderType === 'delivery' && (
-                  <div className="flex justify-between">
-                    <span className="text-sm">Delivery Fee:</span>
-                    <span className="font-medium">{deliveryFee.toLocaleString()} ETB</span>
-                  </div>
-                )}
-                <Separator className="my-1" />
-                <div className="flex justify-between font-bold">
-                  <span>Total:</span>
-                  <span className="text-lg">{total.toLocaleString()} ETB</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-2">
-              <p className="text-sm text-muted-foreground mb-2">
-                Order #: <span className="font-mono font-medium">{orderNumber}</span>
-              </p>
-              <Button 
-                onClick={handlePlaceOrder} 
-                className="w-full"
-                disabled={cart.length === 0 || !orderType || isPlacingOrder}
-              >
-                <Receipt className="mr-2 h-4 w-4" />
-                {isPlacingOrder ? 'Processing...' : 'Proceed to Payment'}
-              </Button>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-          <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
-            <ShoppingCart className="h-8 w-8 text-muted-foreground" />
-          </div>
-          <h3 className="text-xl font-medium mb-2">Your cart is empty</h3>
-          <p className="text-muted-foreground max-w-md mb-6">
-            {!isUserLoggedIn 
-              ? 'Please login to add items to your cart and place orders.'
-              : 'Add some delicious items from the menu to get started with your order.'
-            }
-          </p>
-          <Button variant="outline" onClick={onClose}>
-            Browse Menu
-          </Button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-export default function ItemMenu() {
+// Main Component
+export default function MenuPage() {
   const router = useRouter()
-  const { data: session, status: sessionStatus } = useSession()
+  const { userData, isLoggedIn, isLoading: isLoadingUser } = useUserData()
+  const {
+    cart,
+    addToCart,
+    removeFromCart,
+    updateQuantity,
+    clearCart,
+    subtotal,
+    tax,
+    totalItems
+  } = useCart()
   
-  const user = session?.user as ExtendedUser | undefined
-  const isUserLoggedIn = !!user
-  
+  // State
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [filteredItems, setFilteredItems] = useState<Item[]>([])
@@ -1012,12 +717,9 @@ export default function ItemMenu() {
   const [sortField, setSortField] = useState<'name' | 'price' | 'preparationTime'>('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [loadingTimeout, setLoadingTimeout] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  
-  const [userData, setUserData] = useState<UserData | null>(null)
-  const [userDataError, setUserDataError] = useState<string | null>(null)
-  const [isLoadingUser, setIsLoadingUser] = useState(false)
+  const [imagesPreloaded, setImagesPreloaded] = useState(false)
   
   const [showLoginPrompt, setShowLoginPrompt] = useState(false)
   const [loginPromptMessage, setLoginPromptMessage] = useState('Please login to continue')
@@ -1025,7 +727,6 @@ export default function ItemMenu() {
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
   const [showItemDetail, setShowItemDetail] = useState(false)
   
-  const [cart, setCart] = useState<CartItem[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [orderProgress, setOrderProgress] = useState(0)
   const [orderNumber, setOrderNumber] = useState(`ORD-${Date.now().toString().slice(-6)}`)
@@ -1033,6 +734,8 @@ export default function ItemMenu() {
   const [orderType, setOrderType] = useState<'table' | 'delivery' | ''>('')
   const [tableNumber, setTableNumber] = useState('')
   const [selectedWaiter, setSelectedWaiter] = useState('')
+  const [numberOfGuests, setNumberOfGuests] = useState(1)
+  const [specialRequirements, setSpecialRequirements] = useState('')
   
   const [paymentScreenshot, setPaymentScreenshot] = useState<PaymentScreenshot>({
     file: null,
@@ -1040,169 +743,197 @@ export default function ItemMenu() {
     uploaded: false
   })
   const [transactionId, setTransactionId] = useState('')
-  const [specialRequirements, setSpecialRequirements] = useState('')
-  const [numberOfGuests, setNumberOfGuests] = useState(1)
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
   const [showPaymentUpload, setShowPaymentUpload] = useState(false)
+  
+  // Enhanced Delivery States - REMOVED PROMO CODE
+  const [deliveryFee, setDeliveryFee] = useState<DeliveryFeeDetails | null>(null)
+  const [isCalculatingDelivery, setIsCalculatingDelivery] = useState(false)
+  
+  const deliveryCalculator = useMemo(() => new EnhancedDeliveryCalculator(), [])
+  
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true)
-        
-        const [categoriesRes, itemsRes] = await Promise.all([
-          api.get('/item-category'),
-          api.get('/items')
-        ])
+  // REMOVED PROMO CODE LOADING
 
-        setCategories(categoriesRes.data?.data || [])
+  // Fetch menu data
+  const fetchMenuData = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+    
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    timeoutRef.current = setTimeout(() => {
+      if (loading) {
+        setLoadingTimeout(true)
+        toast.error('Loading is taking longer than expected...', {
+          duration: 5000,
+          icon: '⏳',
+          style: {
+            borderRadius: '10px',
+            background: '#4a1d6d', // purple-900
+            color: '#fff',
+          },
+        })
+      }
+    }, 25000)
+
+    try {
+      setLoading(true)
+      setLoadingTimeout(false)
+
+      const timeoutPromise = (ms: number) => new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), ms)
+      )
+
+      const categoriesPromise = api.get('/item-category', { 
+        signal: controller.signal,
+        timeout: 30000
+      })
+      
+      const itemsPromise = api.get('/items', { 
+        signal: controller.signal,
+        timeout: 30000
+      })
+      
+      const waitersPromise = api.get('/waitress', { 
+        signal: controller.signal,
+        timeout: 30000
+      }).catch(() => ({ data: [] }))
+
+      const [categoriesRes, itemsRes, waitersRes] = await Promise.allSettled([
+        Promise.race([categoriesPromise, timeoutPromise(30000)]),
+        Promise.race([itemsPromise, timeoutPromise(30000)]),
+        Promise.race([waitersPromise, timeoutPromise(30000)])
+      ])
+
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+      }
+
+      if (categoriesRes.status === 'fulfilled') {
+        const response = categoriesRes.value as AxiosResponse<ApiResponse<Category[]>>
+        let categoriesData: Category[] = []
+        const catData = response.data as any
         
-        try {
-          const waitersRes = await api.get('/waitress')
-          setWaiters(waitersRes.data || [])
-        } catch (err) {
-          console.log('Waiters endpoint not available')
-          setWaiters([])
-        }
+        if (Array.isArray(catData)) categoriesData = catData
+        else if (catData?.data && Array.isArray(catData.data)) categoriesData = catData.data
+        else if (catData?.categories && Array.isArray(catData.categories)) categoriesData = catData.categories
         
-        const itemsData = itemsRes.data?.items || itemsRes.data?.data || []
-        const normalizedItems = itemsData.map((item: Item) => ({
-          ...item,
-          nutritionalInfo: item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO,
-          price: item.price || 0,
-          preparationTime: item.preparationTime || 0,
+        setCategories(categoriesData)
+      }
+
+      if (itemsRes.status === 'fulfilled') {
+        const response = itemsRes.value as AxiosResponse<ApiResponse<any[]>>
+        
+        let itemsData: any[] = []
+        const itemData = response.data as any
+        
+        if (Array.isArray(itemData)) itemsData = itemData
+        else if (itemData?.data && Array.isArray(itemData.data)) itemsData = itemData.data
+        else if (itemData?.items && Array.isArray(itemData.items)) itemsData = itemData.items
+        
+        const normalizedItems: Item[] = itemsData.map((item: any) => ({
+          _id: item._id || item.id || '',
+          name: item.name || 'Unnamed Item',
+          description: item.description || '',
+          categoryId: item.categoryId || item.category || item.category_id || '',
+          price: Number(item.price) || 0,
+          imageUrl: item.imageUrl || item.image || item.image_url || '',
+          preparationTime: Number(item.preparationTime) || Number(item.preparation_time) || 0,
+          nutritionalInfo: {
+            calories: Number(item.nutritionalInfo?.calories) || 0,
+            protein: Number(item.nutritionalInfo?.protein) || 0,
+            carbohydrates: Number(item.nutritionalInfo?.carbohydrates) || 0,
+            fat: Number(item.nutritionalInfo?.fat) || 0
+          },
           isActive: item.isActive !== undefined ? item.isActive : true,
           isFeatured: item.isFeatured || false,
-          description: item.description || '',
-          imageUrl: item.imageUrl || '/placeholder.svg'
+          tags: item.tags || [],
+          createdAt: item.createdAt || '',
+          updatedAt: item.updatedAt || ''
         }))
         
         setItems(normalizedItems)
         setFilteredItems(normalizedItems)
-      } catch (err) {
-        console.error('Fetch error:', err)
-        setError('Failed to load menu items. Please try again.')
-        toast.error('Failed to load menu items check your connection')
-      } finally {
-        setLoading(false)
+      }
+
+      if (waitersRes.status === 'fulfilled') {
+        const response = waitersRes.value as AxiosResponse<ApiResponse<Waiter[]>>
+        let waitersData: Waiter[] = []
+        const waiterData = response.data as any
+        
+        if (Array.isArray(waiterData)) waitersData = waiterData
+        else if (waiterData?.data && Array.isArray(waiterData.data)) waitersData = waiterData.data
+        
+        setWaiters(waitersData)
+      }
+
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        console.log('🛑 Request aborted')
+        return
+      }
+      
+      console.error('❌ Fetch error:', err)
+      
+      if (err.message === 'Request timeout') {
+        toast.error('Connection timeout. Please try again.', { 
+          duration: 3000,
+          style: {
+            borderRadius: '10px',
+            background: '#4a1d6d', // purple-900
+            color: '#fff',
+          },
+        })
+      }
+    } finally {
+      setLoading(false)
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
       }
     }
-
-    fetchData()
   }, [])
 
+  // Preload images
   useEffect(() => {
-    let isMounted = true;
-    
-    const fetchUserData = async () => {
-      if (user?.id) {
-        try {
-          setIsLoadingUser(true);
-          setUserDataError(null);
-          
-          let response;
-          let userDataFromApi;
-          
-          try {
-            response = await api.get('/users/current');
-            if (response.data?.success && response.data?.data) {
-              userDataFromApi = response.data.data;
-            } else if (response.data) {
-              userDataFromApi = response.data.data || response.data;
-            }
-          } catch (err) {
-            try {
-              response = await api.get(`/users/${user.id}`);
-              if (response.data) {
-                userDataFromApi = response.data.data || response.data.user || response.data;
-              }
-            } catch (idErr) {
-              throw idErr;
-            }
-          }
-          
-          if (isMounted && userDataFromApi) {
-            const mappedUserData: UserData = {
-              _id: userDataFromApi._id || userDataFromApi.id || user.id,
-              id: userDataFromApi._id || userDataFromApi.id || user.id,
-              firstName: userDataFromApi.firstName || '',
-              lastName: userDataFromApi.lastName || '',
-              email: userDataFromApi.email || user.email || '',
-              phone: userDataFromApi.phone || '',
-              birthDate: userDataFromApi.birthDate || '',
-              gender: userDataFromApi.gender || '',
-              address: userDataFromApi.address || '',
-              location: userDataFromApi.location || null,
-              role: userDataFromApi.role || user.role || 'user',
-              registrationSource: userDataFromApi.registrationSource || 'website',
-              locationConsent: userDataFromApi.locationConsent || false,
-              createdAt: userDataFromApi.createdAt || '',
-              updatedAt: userDataFromApi.updatedAt || '',
-              lastLogin: userDataFromApi.lastLogin || '',
-              loginAttempts: userDataFromApi.loginAttempts || 0,
-              __v: userDataFromApi.__v,
-              image: userDataFromApi.image,
-              employeeId: userDataFromApi.employeeId,
-              permissions: userDataFromApi.permissions,
-              status: userDataFromApi.status,
-              requiresPasswordChange: userDataFromApi.requiresPasswordChange,
-              googleId: userDataFromApi.googleId,
-              emailVerified: userDataFromApi.emailVerified,
-              specialization: userDataFromApi.specialization,
-              shift: userDataFromApi.shift
-            };
-            
-            setUserData(mappedUserData);
-          }
-        } catch (err: any) {
-          console.error('Error fetching user data:', err);
-          
-          if (isMounted) {
-            setUserDataError('Could not load user profile data');
-            
-            const minimalUserData: UserData = {
-              _id: user.id,
-              id: user.id,
-              firstName: user.name?.split(' ')[0] || '',
-              lastName: user.name?.split(' ').slice(1).join(' ') || '',
-              email: user.email || '',
-              phone: '',
-              birthDate: '',
-              gender: '',
-              address: '',
-              location: null,
-              role: user.role || 'user',
-              registrationSource: 'website',
-              locationConsent: false,
-              createdAt: '',
-              updatedAt: '',
-              lastLogin: '',
-              loginAttempts: 0
-            };
-            
-            setUserData(minimalUserData);
-          }
-        } finally {
-          if (isMounted) {
-            setIsLoadingUser(false);
-          }
-        }
-      } else {
-        if (isMounted) {
-          setUserData(null);
-        }
+    if (items.length > 0 && !imagesPreloaded) {
+      const imageUrls = items
+        .map(item => getImageSrc(item.imageUrl))
+        .filter(url => url && url !== '/placeholder.svg')
+      
+      preloadImages(imageUrls)
+      setImagesPreloaded(true)
+
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(() => preloadImages(imageUrls))
       }
-    };
+    }
+  }, [items, imagesPreloaded])
 
-    fetchUserData();
-    
-    return () => {
-      isMounted = false;
-    };
-  }, [user?.id, user?.name, user?.email, user?.role]);
-
+  // Initial load
   useEffect(() => {
-    let result = items
+    fetchMenuData()
+    return () => {
+      if (abortControllerRef.current) abortControllerRef.current.abort()
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [fetchMenuData])
+
+  // Filter and sort items
+  useEffect(() => {
+    if (items.length === 0) return
+    
+    let result = [...items]
 
     if (selectedCategory) {
       result = result.filter(item => item.categoryId === selectedCategory)
@@ -1212,24 +943,124 @@ export default function ItemMenu() {
       const term = searchTerm.toLowerCase()
       result = result.filter(item =>
         item.name.toLowerCase().includes(term) ||
-        (item.description && item.description.toLowerCase().includes(term))
+        (item.description?.toLowerCase() || '').includes(term)
       )
     }
 
     result.sort((a, b) => {
-      const aValue = a[sortField] || 0
-      const bValue = b[sortField] || 0
-      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1
-      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1
-      return 0
+      if (sortField === 'name') {
+        return sortDirection === 'asc' 
+          ? a.name.localeCompare(b.name)
+          : b.name.localeCompare(a.name)
+      } else {
+        const aVal = Number(a[sortField]) || 0
+        const bVal = Number(b[sortField]) || 0
+        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal
+      }
     })
 
     setFilteredItems(result)
   }, [items, selectedCategory, searchTerm, sortField, sortDirection])
 
+  // Enhanced delivery fee calculation - REMOVED PROMO CODE
+  useEffect(() => {
+    const calculateDeliveryFee = async () => {
+      if (orderType === 'delivery' && userData && subtotal > 0) {
+        setIsCalculatingDelivery(true)
+        
+        try {
+          let feeDetails: DeliveryFeeDetails
+          
+          if (userData.location?.coordinates && 
+              Array.isArray(userData.location.coordinates) && 
+              userData.location.coordinates.length === 2) {
+            
+            const [lng, lat] = userData.location.coordinates
+            
+            if (lat < 3 || lat > 15 || lng < 33 || lng > 48) {
+              throw new DeliveryError(
+                'Invalid coordinates outside Ethiopia',
+                'INVALID_COORDINATES'
+              )
+            }
+            
+            feeDetails = await deliveryCalculator.calculateDeliveryFeeFromCoordinates(
+              lat, 
+              lng, 
+              subtotal,
+              new Date().getHours()
+              // REMOVED PROMO CODE PARAMETER
+            )
+            
+          } else if (userData.address) {
+            const area = deliveryCalculator.extractAreaFromAddress(userData.address)
+            feeDetails = deliveryCalculator.calculateEstimatedDeliveryFee(
+              'Addis Ababa', 
+              area, 
+              subtotal
+              // REMOVED PROMO CODE PARAMETER
+            )
+          } else {
+            setDeliveryFee(null)
+            setIsCalculatingDelivery(false)
+            return
+          }
+          
+          setDeliveryFee(feeDetails)
+          
+          if (feeDetails.fee === 0) {
+            toast.success('🎉 Free delivery eligible!', {
+              style: {
+                borderRadius: '10px',
+                background: '#4a1d6d', // purple-900
+                color: '#fff',
+              },
+            })
+          }
+          
+        } catch (error: unknown) {
+          console.error('❌ Delivery calculation error:', error)
+          
+          if (error instanceof DeliveryError) {
+            switch (error.code) {
+              case 'OUT_OF_RANGE':
+                toast.error(`Delivery not available to this location (${error.details?.distance}km away)`)
+                break
+              case 'MIN_ORDER_NOT_MET':
+                toast.error(`Minimum order for delivery is ${error.details?.minRequired} ETB`)
+                break
+              case 'ZONE_INACTIVE':
+                toast.error('Delivery temporarily unavailable in this area')
+                break
+              default:
+                toast.error(error.message)
+            }
+          } else if (error instanceof Error) {
+            toast.error(error.message || 'Unable to calculate delivery fee')
+          } else {
+            toast.error('Unable to calculate delivery fee')
+          }
+          
+          setDeliveryFee(null)
+        } finally {
+          setIsCalculatingDelivery(false)
+        }
+      } else {
+        setDeliveryFee(null)
+      }
+    }
+    
+    calculateDeliveryFee()
+  }, [orderType, userData, subtotal, deliveryCalculator])
+
+  const finalTotal = useMemo(() => {
+    return subtotal + tax + (deliveryFee?.fee || 0)
+  }, [subtotal, tax, deliveryFee])
+
+  // Handlers
   const handleSort = (field: 'name' | 'price' | 'preparationTime') => {
     if (field === sortField) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
     } else {
       setSortField(field)
       setSortDirection('asc')
@@ -1246,272 +1077,13 @@ export default function ItemMenu() {
     router.push('/login?callbackUrl=/menu')
   }
 
-  const addToCart = useCallback((item: Item) => {
-    if (!isUserLoggedIn) {
-      handleLoginRequired('Please login to add items to your cart')
-      return
-    }
-
-    if (item.isActive === false) {
-      toast.error(`Sorry, ${item.name} is currently unavailable`, {
-        icon: '❌',
-        duration: 3000,
-      })
-      return
-    }
-    
-    setCart(prev => {
-      const existing = prev.find(i => i._id === item._id)
-      if (existing) {
-        return prev.map(i => 
-          i._id === item._id ? { ...i, quantity: i.quantity + 1 } : i
-        )
-      }
-      return [...prev, { ...item, quantity: 1 }]
-    })
-    
-    toast.success(`Added ${item.name} to cart`, {
-      icon: '🛒',
-      duration: 2000,
-    })
-  }, [isUserLoggedIn])
-
-  const removeFromCart = useCallback((itemId: string) => {
-    setCart(prev => prev.filter(item => item._id !== itemId))
-    toast.success('Item removed from cart')
-  }, [])
-
-  const updateQuantity = useCallback((itemId: string, newQuantity: number) => {
-    if (newQuantity < 1) {
-      removeFromCart(itemId)
-      return
-    }
-    setCart(prev => prev.map(item => 
-      item._id === itemId ? { ...item, quantity: newQuantity } : item
-    ))
-  }, [removeFromCart])
-
-  const subtotal = useMemo(() => 
-    cart.reduce((sum, item) => sum + (item.price || 0) * item.quantity, 0), 
-    [cart]
-  )
-  
-  const tax = useMemo(() => subtotal * 0.15, [subtotal])
-  const deliveryFee = useMemo(() => orderType === 'delivery' ? 50 : 0, [orderType])
-  const finalAmount = useMemo(() => subtotal + tax + deliveryFee, [subtotal, tax, deliveryFee])
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      if (!file.type.startsWith('image/')) {
-        toast.error('Please upload an image file')
-        return
-      }
-      
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('File size must be less than 5MB')
-        return
-      }
-      
-      const previewUrl = URL.createObjectURL(file)
-      setPaymentScreenshot({
-        file,
-        previewUrl,
-        uploaded: true
-      })
-      toast.success('Payment screenshot uploaded successfully')
-    }
+  const handleViewDetails = (item: Item) => {
+    setSelectedItem(item)
+    setShowItemDetail(true)
   }
 
-  const removePaymentScreenshot = () => {
-    if (paymentScreenshot.previewUrl) {
-      URL.revokeObjectURL(paymentScreenshot.previewUrl)
-    }
-    setPaymentScreenshot({
-      file: null,
-      previewUrl: '',
-      uploaded: false
-    })
-  }
-
-  const uploadToCloudinary = async (file: File): Promise<string> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-    
-    const response = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-      {
-        method: 'POST',
-        body: formData,
-      }
-    );
-    
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('Cloudinary upload failed:', error);
-      throw new Error('Failed to upload payment screenshot');
-    }
-    
-    const data = await response.json();
-    return data.secure_url;
-  };
-
-  const handleFinalizeOrder = async () => {
-    if (!isUserLoggedIn) {
-      handleLoginRequired('Please login to place an order')
-      return
-    }
-
-    if (!paymentScreenshot.uploaded || !paymentScreenshot.file) {
-      toast.error('Please upload payment screenshot')
-      return
-    }
-
-    setIsPlacingOrder(true)
-    const orderToast = toast.loading('Placing your order...')
-
-    try {
-      const userLocation = userData?.location || null;
-      
-      if (orderType === 'delivery') {
-        if (!userData) {
-          toast.error('User data not found. Please try again.', { id: orderToast });
-          setIsPlacingOrder(false);
-          return;
-        }
-
-        const extractedCity = extractCityFromAddress(userData.address || '');
-        
-        const orderData = {
-          orderNumber: orderNumber,
-          paymentMethod: 'ONLINE',
-          numberOfGuests: 1, // Default to 1 for delivery
-          items: cart.map(item => ({
-            itemId: item._id,
-            quantity: item.quantity,
-            notes: item.specialInstructions || ''
-          })),
-          discount: 0,
-          specialRequirements: specialRequirements,
-          deliveryInfo: {
-            fullName: `${userData.firstName} ${userData.lastName}`.trim(),
-            phoneNumber: userData.phone,
-            email: userData.email,
-            address: userData.address || '',
-            city: extractedCity,
-            landmark: '',
-            deliveryInstructions: specialRequirements,
-          },
-          location: userLocation,
-          transactionId: transactionId || undefined,
-          customerId: user?.id || 'walk-in',
-        };
-
-        console.log('Submitting delivery order:', orderData);
-
-        const formData = new FormData();
-        formData.append('orderData', JSON.stringify(orderData));
-        formData.append('paymentScreenshot', paymentScreenshot.file);
-        
-        const response = await fetch('/api/delivery', {
-          method: 'POST',
-          body: formData,
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(result.error || 'Failed to place delivery order');
-        }
-
-        console.log('Delivery order placed successfully:', result);
-        toast.success('Delivery order placed successfully!', { id: orderToast });
-        
-      } else {
-        const screenshotUrl = await uploadToCloudinary(paymentScreenshot.file);
-        
-        const orderData = {
-          orderNumber: orderNumber,
-          paymentMethod: 'ONLINE',
-          numberOfGuests: numberOfGuests,
-          items: cart.map(item => ({
-            itemId: item._id,
-            quantity: item.quantity,
-            notes: item.specialInstructions || ''
-          })),
-          tableNumber: tableNumber,
-          waiterId: selectedWaiter,
-          inTable: true,
-          delivery: false,
-          discount: 0,
-          paymentScreenshotUrl: screenshotUrl,
-          transactionId: transactionId || undefined,
-          specialRequirements: specialRequirements,
-          customerId: user?.id || 'walk-in',
-        };
-        
-        console.log('Submitting table order:', orderData);
-        
-        const response = await fetch('/api/order', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(orderData),
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(result.error || result.details || 'Failed to place table order');
-        }
-
-        console.log('Table order placed successfully:', result);
-        toast.success('Table order placed successfully!', { id: orderToast });
-      }
-
-      setCart([]);
-      setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`);
-      setOrderType('');
-      setTableNumber('');
-      setSelectedWaiter('');
-      setPaymentScreenshot({
-        file: null,
-        previewUrl: '',
-        uploaded: false
-      });
-      setTransactionId('');
-      setSpecialRequirements('');
-      setShowPaymentUpload(false);
-      
-      let progress = 0;
-      const interval = setInterval(() => {
-        progress += 10;
-        setOrderProgress(progress);
-        if (progress >= 100) {
-          clearInterval(interval);
-          toast.success(
-            orderType === 'delivery' 
-              ? 'Your order is on the way!' 
-              : 'Your order is being prepared!'
-          );
-          setTimeout(() => {
-            setOrderProgress(0);
-          }, 2000);
-        }
-      }, 500);
-      
-    } catch (error: any) {
-      console.error('Error placing order:', error);
-      toast.error(error.message || 'Failed to place order. Please try again.', { id: orderToast });
-    } finally {
-      setIsPlacingOrder(false);
-    }
-  }
-
-  const handlePlaceOrder = async () => {
-    if (!isUserLoggedIn) {
+  const handlePlaceOrder = () => {
+    if (!isLoggedIn) {
       handleLoginRequired('Please login to place an order')
       return
     }
@@ -1532,265 +1104,311 @@ export default function ItemMenu() {
         return
       }
       if (!selectedWaiter) {
-        toast.error('Please select a waitress/server')
+        toast.error('Please select a server')
         return
       }
     }
 
     if (orderType === 'delivery') {
-      if (!userData) {
-        toast.error('User data not loaded. Please try again.');
-        return;
+      if (!userData?.phone || !userData?.address) {
+        toast.error('Please complete your profile with phone and address')
+        router.push('/profile')
+        return
       }
-      
-      if (!userData.phone || !userData.address) {
-        toast.error('Please complete your profile information (phone and address) before placing a delivery order');
-        router.push('/profile');
-        return;
+      if (!deliveryFee) {
+        toast.error('Unable to calculate delivery fee')
+        return
       }
     }
 
     setShowPaymentUpload(true)
   }
 
-  const handleViewDetails = (item: Item) => {
-    setSelectedItem(item)
-    setShowItemDetail(true)
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        toast.error('Please upload an image file')
+        return
+      }
+      
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('File size must be less than 5MB')
+        return
+      }
+      
+      const previewUrl = URL.createObjectURL(file)
+      setPaymentScreenshot({
+        file,
+        previewUrl,
+        uploaded: true
+      })
+      toast.success('Payment screenshot uploaded', {
+        style: {
+          borderRadius: '10px',
+          background: '#4a1d6d', // purple-900
+          color: '#fff',
+        },
+      })
+    }
   }
 
-  const getImagePath = (imageUrl?: string) => {
-    if (!imageUrl) return '/placeholder.svg';
-    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
-    if (imageUrl.includes('cloudinary.com')) return imageUrl;
-    if (imageUrl.startsWith('/uploads/')) return imageUrl;
-    if (!imageUrl.startsWith('/') && !imageUrl.includes('://')) return `/uploads/${imageUrl}`;
-    return imageUrl;
-  };
+  const removePaymentScreenshot = () => {
+    if (paymentScreenshot.previewUrl) URL.revokeObjectURL(paymentScreenshot.previewUrl)
+    setPaymentScreenshot({ file: null, previewUrl: '', uploaded: false })
+  }
 
-  const ItemCard = ({ item }: { item: Item }) => {
-    const categoryName = categories.find(c => c._id === item.categoryId)?.name || 'Uncategorized'
-    
+  const handleFinalizeOrder = async () => {
+    if (!isLoggedIn) {
+      handleLoginRequired('Please login to place an order')
+      return
+    }
+
+    if (!paymentScreenshot.uploaded || !paymentScreenshot.file) {
+      toast.error('Please upload payment screenshot')
+      return
+    }
+
+    setIsPlacingOrder(true)
+    const orderToast = toast.loading('Processing your order...', {
+      style: {
+        borderRadius: '10px',
+        background: '#4a1d6d', // purple-900
+        color: '#fff',
+      },
+    })
+
+    try {
+      const orderData = {
+        orderNumber,
+        paymentMethod: 'ONLINE',
+        numberOfGuests: orderType === 'table' ? numberOfGuests : 1,
+        items: cart.map(item => ({
+          itemId: item._id,
+          quantity: item.quantity,
+          notes: item.specialInstructions || '',
+          price: item.price
+        })),
+        discount: 0,
+        specialRequirements,
+        transactionId: transactionId || `TXN-${Date.now()}`,
+        customerId: userData?.id || userData?._id || 'walk-in',
+        deliveryFee: orderType === 'delivery' ? deliveryFee?.fee || 0 : 0,
+        subtotal,
+        tax,
+        totalAmount: finalTotal,
+        finalAmount: finalTotal,
+        // REMOVED appliedPromotion
+        ...(orderType === 'table' && {
+          tableNumber,
+          waiterId: selectedWaiter,
+          inTable: true,
+          delivery: false
+        })
+      }
+
+      if (orderType === 'delivery') {
+        let locationData = null
+        if (userData?.location?.coordinates && Array.isArray(userData.location.coordinates) && userData.location.coordinates.length === 2) {
+          const [lng, lat] = userData.location.coordinates
+          if (lat >= 3 && lat <= 15 && lng >= 33 && lng <= 48) {
+            locationData = { type: "Point", coordinates: [lng, lat] }
+          }
+        }
+
+        (orderData as any).deliveryInfo = {
+          fullName: `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim() || 'Customer',
+          phoneNumber: userData?.phone || '',
+          email: userData?.email || '',
+          address: userData?.address || '',
+          city: 'Addis Ababa',
+          landmark: '',
+          deliveryInstructions: specialRequirements || '',
+          location: locationData,
+          latitude: locationData?.coordinates?.[1],
+          longitude: locationData?.coordinates?.[0]
+        };
+        (orderData as any).delivery = true;
+        (orderData as any).inTable = false;
+      }
+
+      const formData = new FormData()
+      formData.append('paymentScreenshot', paymentScreenshot.file)
+      formData.append('orderData', JSON.stringify(orderData))
+
+      const endpoint = orderType === 'delivery' ? '/api/delivery' : '/api/order'
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) throw new Error(result.error || result.message || 'Failed to place order')
+
+      clearCart()
+      setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`)
+      setOrderType('')
+      setTableNumber('')
+      setSelectedWaiter('')
+      setPaymentScreenshot({ file: null, previewUrl: '', uploaded: false })
+      setTransactionId('')
+      setSpecialRequirements('')
+      // REMOVED PROMO CODE STATE RESET
+      setShowPaymentUpload(false)
+      setIsCartOpen(false)
+      
+      toast.success(
+        orderType === 'delivery' 
+          ? 'Your order has been placed and will be delivered soon!' 
+          : 'Your order has been placed and is being prepared!',
+        { id: orderToast, duration: 5000 }
+      )
+      
+      let progress = 0
+      const interval = setInterval(() => {
+        progress += 10
+        setOrderProgress(progress)
+        if (progress >= 100) {
+          clearInterval(interval)
+          setTimeout(() => setOrderProgress(0), 2000)
+        }
+      }, 300)
+      
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to place order. Please try again.', { id: orderToast })
+    } finally {
+      setIsPlacingOrder(false)
+    }
+  }
+
+  const handleNavigateToProfile = () => router.push('/profile')
+
+  const categoryCounts = useMemo(() => {
+    return items.reduce((acc, item) => {
+      acc[item.categoryId] = (acc[item.categoryId] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+  }, [items])
+
+  // Enhanced loading skeleton with purple-900 style
+  if (loading) {
     return (
-      <Card className="h-full transition-all duration-300 hover:shadow-lg group">
-        <CardHeader className="p-0 relative">
-          <div className="relative w-full h-48">
-            <Image
-              src={getImagePath(item.imageUrl)}
-              alt={item.name}
-              fill
-              className="object-cover rounded-t-lg"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement
-                target.src = '/placeholder.svg'
-              }}
-              unoptimized={item.imageUrl?.includes('cloudinary.com')}
-              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-            />
-          </div>
-          
-          <div className="absolute top-2 right-2 bg-black/75 text-white text-xs font-semibold px-2 py-1 rounded-md backdrop-blur-sm">
-            {(item.price || 0).toLocaleString()} ETB
-          </div>
-          
-          {item.isFeatured && (
-            <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-xs font-medium px-2 py-1 rounded-md backdrop-blur-sm flex items-center gap-1">
-              <Sparkles className="h-3 w-3" />
-              Featured
-            </div>
-          )}
-          
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-            <Button
-              variant="default"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                addToCart(item)
-              }}
-              className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm"
-              disabled={item.isActive === false}
+      <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30">
+        <NavBar />
+        <main className="container mx-auto px-4 py-8">
+          {loadingTimeout && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6"
             >
-              <Plus className="mr-1 h-3.5 w-3.5" />
-              {item.isActive === false ? 'Unavailable' : 'Add to cart'}
-            </Button>
-          </div>
-        </CardHeader>
-        
-        <CardContent className="p-4">
-          <CardTitle className="text-xl mb-2 group-hover:text-primary transition-colors line-clamp-1">
-            {item.name}
-          </CardTitle>
-          <CardDescription className="text-sm text-gray-600 mb-4 line-clamp-2 min-h-[40px]">
-            {item.description || 'No description available'}
-          </CardDescription>
-          
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="text-lg font-semibold">
-                {(item.price || 0).toLocaleString()} ETB
-              </Badge>
-              <Badge variant="outline" className="flex items-center gap-1">
-                <Clock className="w-4 h-4" />
-                {item.preparationTime || 0} mins
-              </Badge>
-            </div>
-            
-            <div className="flex gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  addToCart(item)
-                }}
-                className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20 text-primary"
-                disabled={item.isActive === false}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleViewDetails(item)
-                }}
-                className="h-8 w-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700"
-              >
-                <Info className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-        
-        <CardFooter className="p-4 pt-0">
-          <Button 
-            variant="outline" 
-            className="w-full"
-            onClick={() => handleViewDetails(item)}
-          >
-            <Info className="mr-2 h-4 w-4" />
-            View Full Details
-          </Button>
-        </CardFooter>
-      </Card>
-    )
-  }
-
-  const ListViewItem = ({ item }: { item: Item }) => {
-    return (
-      <div className="flex border border-border/40 rounded-lg overflow-hidden hover:border-primary/30 transition-all bg-background hover:bg-background/95 hover:shadow-sm group">
-        <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden">
-          <Image
-            src={getImagePath(item.imageUrl)}
-            alt={item.name}
-            fill
-            sizes="96px"
-            className="object-cover transition-transform duration-500 group-hover:scale-110"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement
-              target.src = '/placeholder.svg'
-            }}
-            unoptimized={item.imageUrl?.includes('cloudinary.com')}
-          />
-          {item.isFeatured && (
-            <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-xs font-medium px-1.5 py-0.5 rounded flex items-center gap-1">
-              <Sparkles className="h-2.5 w-2.5" />
-              Featured
-            </div>
+              <Alert className="bg-gradient-to-r from-purple-100 to-purple-200 border-purple-300 rounded-2xl shadow-lg">
+                <Clock className="h-5 w-5 text-purple-900" />
+                <AlertDescription className="text-purple-900 font-medium">
+                  Loading is taking longer than expected. Please bear with us...
+                </AlertDescription>
+              </Alert>
+            </motion.div>
           )}
-        </div>
-        
-        <div className="flex-1 p-4 flex flex-col">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="font-medium text-lg group-hover:text-primary transition-colors line-clamp-1">
-                {item.name}
-              </h3>
-              <p className="text-sm text-muted-foreground line-clamp-2 mt-1 min-h-[40px]">
-                {item.description || 'No description available'}
-              </p>
+          
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-4">
+              <Skeleton className="h-12 w-12 rounded-full" />
+              <Skeleton className="h-12 w-48 rounded-xl" />
             </div>
-            <div className="flex flex-col items-end">
-              <span className="text-lg font-medium text-primary">
-                {(item.price || 0).toLocaleString()} ETB
-              </span>
-              <div className="flex gap-1 mt-2">
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  {item.preparationTime || 0}m
-                </Badge>
-              </div>
+            <Skeleton className="h-12 w-32 rounded-xl" />
+          </div>
+          
+          <div className="space-y-6 mb-10">
+            <Skeleton className="h-14 w-full rounded-2xl" />
+            <div className="flex gap-3">
+              <Skeleton className="h-12 w-28 rounded-xl" />
+              <Skeleton className="h-12 w-28 rounded-xl" />
+              <Skeleton className="h-12 w-28 rounded-xl" />
             </div>
           </div>
           
-          <div className="mt-auto pt-2 flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">
-                {categories.find(c => c._id === item.categoryId)?.name || 'Uncategorized'}
-              </Badge>
-            </div>
-            
-            <div className="flex gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => addToCart(item)}
-                className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20 text-primary"
-                disabled={item.isActive === false}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleViewDetails(item)}
-                className="h-8 w-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700"
-              >
-                <Info className="h-4 w-4" />
-              </Button>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {[...Array(8)].map((_, i) => (
+              <Card key={i} className="overflow-hidden rounded-3xl border-0 shadow-xl">
+                <Skeleton className="h-56 w-full bg-gradient-to-r from-gray-200 via-purple-100 to-gray-200 animate-shimmer" />
+                <CardContent className="p-5 space-y-4">
+                  <Skeleton className="h-7 w-3/4 rounded-lg" />
+                  <Skeleton className="h-4 w-full rounded-lg" />
+                  <Skeleton className="h-4 w-2/3 rounded-lg" />
+                  <div className="flex justify-between pt-3">
+                    <Skeleton className="h-10 w-24 rounded-full" />
+                    <Skeleton className="h-10 w-10 rounded-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
-        </div>
+        </main>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30">
       <NavBar />
       
       <main className="container mx-auto px-4 py-8">
-        {/* Sticky Header with Cart Button */}
-        <div className="sticky top-0 z-20 bg-gray-100 pt-4 pb-6 -mt-4">
+        {/* Header with Purple-900 UI */}
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="sticky top-0 z-20 bg-gradient-to-b from-purple-50/80 via-white/80 to-transparent backdrop-blur-xl pt-4 pb-6 -mt-4"
+        >
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-4">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => router.back()}
-                className="rounded-full"
+              <motion.div
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
               >
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-              <h1 className="text-4xl font-bold">Item Menu</h1>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => router.back()}
+                  className="rounded-full border-2 border-purple-200 hover:border-purple-900 hover:bg-purple-50 bg-white/80 backdrop-blur-sm shadow-lg"
+                >
+                  <ArrowLeft className="w-5 h-5 text-purple-900" />
+                </Button>
+              </motion.div>
+              <h1 className="text-5xl font-bold bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent">
+                Our Menu
+              </h1>
             </div>
             
             <div className="flex items-center gap-4">
               <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="default" className="relative shadow-lg hover:shadow-xl transition-shadow">
-                    <ShoppingCart className="mr-2 h-4 w-4" />
-                    Cart
-                    {cart.length > 0 && (
-                      <span className="absolute -top-2 -right-2 bg-primary text-primary-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
-                        {cart.length}
-                      </span>
-                    )}
-                  </Button>
+                  <motion.div
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Button 
+                      variant="default" 
+                      className="relative shadow-xl bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border-0 rounded-full px-6 py-6 text-lg"
+                    >
+                      <ShoppingCart className="mr-2 h-5 w-5" />
+                      Cart
+                      {totalItems > 0 && (
+                        <motion.span 
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-6 w-6 flex items-center justify-center shadow-lg"
+                        >
+                          {totalItems}
+                        </motion.span>
+                      )}
+                    </Button>
+                  </motion.div>
                 </SheetTrigger>
-                <SheetContent side="right" className="w-full sm:max-w-lg">
-                  <CartPanel 
+                <SheetContent side="right" className="w-full sm:max-w-lg p-0 bg-gradient-to-br from-white to-purple-50/30 border-l-0 shadow-2xl">
+                  <CartPanel
                     cart={cart}
                     onClose={() => setIsCartOpen(false)}
                     onRemoveItem={removeFromCart}
@@ -1809,43 +1427,60 @@ export default function ItemMenu() {
                     subtotal={subtotal}
                     tax={tax}
                     deliveryFee={deliveryFee}
-                    total={finalAmount}
+                    total={finalTotal}
                     orderNumber={orderNumber}
                     onPlaceOrder={handlePlaceOrder}
                     isPlacingOrder={isPlacingOrder}
-                    isUserLoggedIn={isUserLoggedIn}
+                    isUserLoggedIn={isLoggedIn}
                     onLoginRequired={handleLoginRequired}
-                    userData={userData}
+                    userData={userData as UserData | null}
+                    onNavigateToProfile={handleNavigateToProfile}
+                    // Enhanced delivery props - REMOVED PROMO CODE
+                    isCalculatingDelivery={isCalculatingDelivery}
                   />
                 </SheetContent>
               </Sheet>
             </div>
           </div>
           
-          {/* Search and Filter Bar */}
+          {/* Search and Filter with Purple-900 UI */}
           <div className="space-y-4">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="relative flex-grow">
-                <Search className="absolute left-3 top-3 text-gray-400" size={20} />
+                <Search className="absolute left-4 top-4 text-purple-700" size={20} />
                 <Input
                   type="text"
-                  placeholder="Search items..."
+                  placeholder="Search for delicious items..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-white/80 backdrop-blur-sm"
+                  className="pl-12 pr-4 py-6 text-lg bg-white/90 backdrop-blur-sm border-2 border-purple-200 rounded-2xl focus:border-purple-900 focus:ring-4 focus:ring-purple-200 transition-all shadow-lg"
                 />
               </div>
-              <Select onValueChange={(value) => setSelectedCategory(value === 'all' ? null : value)}>
-                <SelectTrigger className="w-full md:w-[200px] bg-white/80 backdrop-blur-sm">
+              
+              <Select 
+                value={selectedCategory || 'all'} 
+                onValueChange={(value) => setSelectedCategory(value === 'all' ? null : value)}
+              >
+                <SelectTrigger className="w-full md:w-[280px] bg-white/90 backdrop-blur-sm border-2 border-purple-200 rounded-2xl px-4 py-6 text-lg focus:border-purple-900 focus:ring-4 focus:ring-purple-200 shadow-lg">
                   <SelectValue placeholder="All Categories" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
+                <SelectContent className="rounded-2xl border-2 border-purple-200 shadow-xl">
+                  <SelectItem value="all" className="py-3 text-base">
+                    <div className="flex items-center gap-2">
+                      <Layers className="h-4 w-4 text-purple-900" />
+                      All Categories
+                    </div>
+                  </SelectItem>
                   {categories.map((category) => (
-                    <SelectItem key={category._id} value={category._id}>
-                      <div className="flex items-center gap-2">
-                        {getCategoryIcon(category.type)}
-                        {category.name}
+                    <SelectItem key={category._id} value={category._id} className="py-3 text-base">
+                      <div className="flex items-center gap-3">
+                        <div className="p-1.5 bg-purple-100 rounded-lg">
+                          {getCategoryIcon(category.type, "h-4 w-4 text-purple-900")}
+                        </div>
+                        <span>{category.name}</span>
+                        <Badge variant="secondary" className="ml-2 bg-purple-100 text-purple-900 rounded-full">
+                          {categoryCounts[category._id] || 0}
+                        </Badge>
                       </div>
                     </SelectItem>
                   ))}
@@ -1853,109 +1488,215 @@ export default function ItemMenu() {
               </Select>
             </div>
             
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex gap-2 bg-white/80 backdrop-blur-sm p-2 rounded-2xl border border-purple-200 shadow-md">
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={() => handleSort('name')}
-                  className="flex items-center gap-1 bg-white/80 backdrop-blur-sm"
+                  className={`rounded-xl px-4 py-2 transition-all ${
+                    sortField === 'name' 
+                      ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg' 
+                      : 'hover:bg-purple-50 text-gray-600'
+                  }`}
                 >
-                  Name
-                  {sortField === 'name' && (sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
+                  <span className="flex items-center gap-1">
+                    Name
+                    {sortField === 'name' && (
+                      sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />
+                    )}
+                  </span>
                 </Button>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={() => handleSort('price')}
-                  className="flex items-center gap-1 bg-white/80 backdrop-blur-sm"
+                  className={`rounded-xl px-4 py-2 transition-all ${
+                    sortField === 'price' 
+                      ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg' 
+                      : 'hover:bg-purple-50 text-gray-600'
+                  }`}
                 >
-                  Price
-                  {sortField === 'price' && (sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
+                  <span className="flex items-center gap-1">
+                    Price
+                    {sortField === 'price' && (
+                      sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />
+                    )}
+                  </span>
                 </Button>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={() => handleSort('preparationTime')}
-                  className="flex items-center gap-1 bg-white/80 backdrop-blur-sm"
+                  className={`rounded-xl px-4 py-2 transition-all ${
+                    sortField === 'preparationTime' 
+                      ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg' 
+                      : 'hover:bg-purple-50 text-gray-600'
+                  }`}
                 >
-                  Prep Time
-                  {sortField === 'preparationTime' && (sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
+                  <span className="flex items-center gap-1">
+                    Prep Time
+                    {sortField === 'preparationTime' && (
+                      sortDirection === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />
+                    )}
+                  </span>
                 </Button>
               </div>
               
-              <div className="ml-auto flex gap-2">
-                <Button
-                  variant={viewMode === 'grid' ? 'default' : 'outline'}
-                  size="icon"
-                  onClick={() => setViewMode('grid')}
-                  className="bg-white/80 backdrop-blur-sm"
-                >
-                  <Grid size={20} />
-                </Button>
-                <Button
-                  variant={viewMode === 'list' ? 'default' : 'outline'}
-                  size="icon"
-                  onClick={() => setViewMode('list')}
-                  className="bg-white/80 backdrop-blur-sm"
-                >
-                  <List size={20} />
-                </Button>
+              <div className="ml-auto flex gap-2 bg-white/80 backdrop-blur-sm p-2 rounded-2xl border border-purple-200 shadow-md">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                        size="icon"
+                        onClick={() => setViewMode('grid')}
+                        className={`rounded-xl h-10 w-10 transition-all ${
+                          viewMode === 'grid' 
+                            ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg' 
+                            : 'hover:bg-purple-50 text-gray-600'
+                        }`}
+                      >
+                        <Grid size={18} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Grid view</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={viewMode === 'list' ? 'default' : 'ghost'}
+                        size="icon"
+                        onClick={() => setViewMode('list')}
+                        className={`rounded-xl h-10 w-10 transition-all ${
+                          viewMode === 'list' 
+                            ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg' 
+                            : 'hover:bg-purple-50 text-gray-600'
+                        }`}
+                      >
+                        <List size={18} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>List view</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             </div>
           </div>
-        </div>
+        </motion.div>
 
-        {/* Menu Items with Smooth Scrolling */}
-        <div className="scroll-smooth">
-          {loading || sessionStatus === 'loading' || isLoadingUser ? (
-            <div className={`grid gap-8 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
-              {[...Array(8)].map((_, index) => (
-                <Card key={index} className="h-full">
-                  <Skeleton className="h-48 w-full rounded-t-lg" />
-                  <CardContent className="p-4">
-                    <Skeleton className="h-6 w-3/4 mb-2" />
-                    <Skeleton className="h-4 w-full mb-4" />
-                    <Skeleton className="h-10 w-full" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : error ? (
-            <div className="text-center text-red-500 p-8">
-              <p className="text-lg">{error}</p>
-              <Button onClick={() => window.location.reload()} className="mt-4">
-                Try Again
-              </Button>
-            </div>
-          ) : (
-            <motion.div
-              layout
-              className={`grid gap-6 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}
+        {/* Menu Items with Purple-900 UI */}
+        <AnimatePresence mode="wait">
+          {filteredItems.length === 0 ? (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="text-center py-20"
             >
-              <AnimatePresence>
-                {filteredItems.map((item) => (
-                  <motion.div
-                    key={item._id}
-                    layout
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    {viewMode === 'grid' ? (
-                      <ItemCard item={item} />
-                    ) : (
-                      <ListViewItem item={item} />
-                    )}
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+              <div className="relative inline-block">
+                <div className="text-8xl mb-6 animate-float">🍽️</div>
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-700 to-purple-900 rounded-full blur-3xl opacity-20" />
+              </div>
+              <h3 className="text-3xl font-bold text-gray-800 mb-3">No items found</h3>
+              <p className="text-gray-600 text-lg mb-8 max-w-md mx-auto">
+                {searchTerm 
+                  ? `No items matching "${searchTerm}"` 
+                  : selectedCategory
+                  ? 'No items in this category'
+                  : items.length === 0 
+                  ? 'No items available. Please check back later.'
+                  : 'No items match your filters'}
+              </p>
+              {(searchTerm || selectedCategory) && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setSearchTerm('')
+                    setSelectedCategory(null)
+                  }}
+                  className="rounded-full px-8 py-6 text-lg border-2 border-purple-200 hover:border-purple-900 hover:bg-purple-50"
+                >
+                  Clear Filters
+                </Button>
+              )}
+              {items.length === 0 && !searchTerm && !selectedCategory && (
+                <Button 
+                  variant="outline" 
+                  onClick={fetchMenuData}
+                  className="rounded-full px-8 py-6 text-lg border-2 border-purple-200 hover:border-purple-900 hover:bg-purple-50"
+                >
+                  <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
+                  Refresh
+                </Button>
+              )}
             </motion.div>
+          ) : (
+            <>
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className={`grid gap-6 ${
+                  viewMode === 'grid' 
+                    ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' 
+                    : 'grid-cols-1'
+                }`}
+              >
+                {filteredItems.map((item, index) => {
+                  const category = categories.find(c => c._id === item.categoryId)
+                  const categoryName = category?.name || 'Uncategorized'
+                  
+                  return viewMode === 'grid' ? (
+                    <ItemCard
+                      key={item._id}
+                      item={item}
+                      categoryName={categoryName}
+                      onAddToCart={addToCart}
+                      onViewDetails={handleViewDetails}
+                      isUserLoggedIn={isLoggedIn}
+                      onLoginRequired={handleLoginRequired}
+                      index={index}
+                    />
+                  ) : (
+                    <ListViewItem
+                      key={item._id}
+                      item={item}
+                      categoryName={categoryName}
+                      onAddToCart={addToCart}
+                      onViewDetails={handleViewDetails}
+                      isUserLoggedIn={isLoggedIn}
+                      onLoginRequired={handleLoginRequired}
+                      index={index}
+                    />
+                  )
+                })}
+              </motion.div>
+
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.5 }}
+                className="text-center mt-12"
+              >
+                <Badge variant="outline" className="bg-white/80 backdrop-blur-sm px-6 py-3 rounded-full text-base border-2 border-purple-200 shadow-lg">
+                  <Eye className="h-4 w-4 mr-2 text-purple-900" />
+                  Showing {filteredItems.length} of {items.length} menu items
+                </Badge>
+              </motion.div>
+            </>
           )}
-        </div>
+        </AnimatePresence>
       </main>
 
+      {/* Dialogs */}
       <LoginPromptDialog 
         open={showLoginPrompt}
         onOpenChange={setShowLoginPrompt}
@@ -1970,7 +1711,7 @@ export default function ItemMenu() {
           isOpen={showItemDetail}
           onOpenChange={setShowItemDetail}
           onAddToCart={addToCart}
-          isUserLoggedIn={isUserLoggedIn}
+          isUserLoggedIn={isLoggedIn}
           onLoginRequired={handleLoginRequired}
         />
       )}
@@ -1986,38 +1727,45 @@ export default function ItemMenu() {
         subtotal={subtotal}
         tax={tax}
         orderType={orderType}
-        deliveryFee={deliveryFee}
-        total={finalAmount}
+        deliveryFee={deliveryFee?.fee || 0}
+        total={finalTotal}
         onFinalizeOrder={handleFinalizeOrder}
         isPlacingOrder={isPlacingOrder}
+        // REMOVED appliedPromotion
       />
 
-      {orderProgress > 0 && orderProgress < 100 && (
-        <motion.div
-          className="fixed bottom-5 right-5 bg-background/95 backdrop-blur-sm p-4 rounded-xl shadow-lg border border-primary/20 z-50 w-64"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 20 }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-medium flex items-center gap-2">
-              <div className="bg-primary/20 rounded-full p-1.5">
-                <ChefHat className="h-4 w-4 text-primary animate-pulse" />
+      {/* Order Progress with Purple-900 UI */}
+      <AnimatePresence>
+        {orderProgress > 0 && orderProgress < 100 && (
+          <motion.div
+            className="fixed bottom-6 right-6 z-50"
+            initial={{ opacity: 0, y: 20, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+          >
+            <div className="bg-white/95 backdrop-blur-xl p-5 rounded-2xl shadow-2xl border border-purple-200 w-72">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold flex items-center gap-2 text-gray-800">
+                  <div className="p-1.5 bg-gradient-to-r from-purple-800 to-purple-900 rounded-lg">
+                    <ChefHat className="h-4 w-4 text-white" />
+                  </div>
+                  {orderType === 'delivery' ? 'Preparing Delivery' : 'Preparing Order'}
+                </h3>
+                <Badge className="bg-gradient-to-r from-purple-800 to-purple-900 text-white border-0">
+                  {orderProgress}%
+                </Badge>
               </div>
-              {orderType === 'delivery' ? 'Preparing Delivery' : 'Preparing Order'}
-            </h3>
-            <Badge className="bg-primary/20 text-primary border-none">
-              {orderProgress}%
-            </Badge>
-          </div>
-          <Progress value={orderProgress} className="w-full h-2 bg-primary/10" />
-          <p className="text-xs text-muted-foreground mt-2">
-            {orderType === 'delivery' 
-              ? 'Your order is being prepared for delivery...' 
-              : 'Your order is being prepared...'}
-          </p>
-        </motion.div>
-      )}
+              <Progress value={orderProgress} className="h-2.5 bg-purple-100 [&>div]:bg-gradient-to-r [&>div]:from-purple-800 [&>div]:to-purple-900" />
+              <p className="text-sm text-gray-500 mt-3 flex items-center gap-2">
+                <Clock className="h-4 w-4 animate-pulse text-purple-900" />
+                {orderType === 'delivery' 
+                  ? 'Your order is being prepared for delivery...' 
+                  : 'Your order is being prepared...'}
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

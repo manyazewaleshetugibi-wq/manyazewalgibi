@@ -159,17 +159,19 @@ const api = {
     }),
 }
 
-// CostForm Component
+// CostForm Component with loading state
 const CostForm = ({
   defaultValues,
   onSubmit,
   mode = "create",
   onClose,
+  loading = false,
 }: {
   defaultValues?: Partial<CostFormData>
   onSubmit: (data: CostFormData) => Promise<void>
   mode?: "create" | "edit"
   onClose: () => void
+  loading?: boolean
 }) => {
   const form = useForm<CostFormData>({
     resolver: zodResolver(costSchema),
@@ -204,7 +206,7 @@ const CostForm = ({
             <FormItem>
               <FormLabel>Title</FormLabel>
               <FormControl>
-                <Input placeholder="Enter cost title" {...field} />
+                <Input placeholder="Enter cost title" {...field} disabled={loading} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -217,7 +219,7 @@ const CostForm = ({
             <FormItem>
               <FormLabel>Description</FormLabel>
               <FormControl>
-                <Textarea placeholder="Enter cost description" {...field} />
+                <Textarea placeholder="Enter cost description" {...field} disabled={loading} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -236,6 +238,7 @@ const CostForm = ({
                     placeholder="Enter amount"
                     {...field}
                     onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
+                    disabled={loading}
                   />
                 </FormControl>
                 <FormMessage />
@@ -248,7 +251,7 @@ const CostForm = ({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Category</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} defaultValue={field.value} disabled={loading}>
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue placeholder="Select a category" />
@@ -387,6 +390,7 @@ const CostForm = ({
                       <Button
                         variant={"outline"}
                         className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
+                        disabled={loading}
                       >
                         {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
                         <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
@@ -413,7 +417,7 @@ const CostForm = ({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Priority</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} defaultValue={field.value} disabled={loading}>
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue placeholder="Select priority" />
@@ -437,7 +441,7 @@ const CostForm = ({
             <FormItem>
               <FormLabel>Tags</FormLabel>
               <FormControl>
-                <Input placeholder="Enter tags, separated by commas" {...field} />
+                <Input placeholder="Enter tags, separated by commas" {...field} disabled={loading} />
               </FormControl>
               <FormDescription>Enter tags separated by commas (e.g., "office, rent, monthly")</FormDescription>
               <FormMessage />
@@ -451,7 +455,7 @@ const CostForm = ({
             render={({ field }) => (
               <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
                 <FormControl>
-                  <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} disabled={loading} />
                 </FormControl>
                 <div className="space-y-1 leading-none">
                   <FormLabel>Recurring Cost</FormLabel>
@@ -466,7 +470,7 @@ const CostForm = ({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Frequency</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} defaultValue={field.value} disabled={loading}>
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue placeholder="Select frequency" />
@@ -491,7 +495,7 @@ const CostForm = ({
             <FormItem>
               <FormLabel>Notes</FormLabel>
               <FormControl>
-                <Textarea placeholder="Additional notes" {...field} />
+                <Textarea placeholder="Additional notes" {...field} disabled={loading} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -503,7 +507,7 @@ const CostForm = ({
           render={({ field }) => (
             <FormItem>
               <FormLabel>Status</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} defaultValue={field.value} disabled={loading}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select status" />
@@ -518,8 +522,15 @@ const CostForm = ({
             </FormItem>
           )}
         />
-        <Button type="submit" className="w-full">
-          {mode === "create" ? "Add Cost" : "Update Cost"}
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading ? (
+            <>
+              <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+              {mode === "create" ? "Adding..." : "Updating..."}
+            </>
+          ) : (
+            mode === "create" ? "Add Cost" : "Update Cost"
+          )}
         </Button>
       </form>
     </Form>
@@ -531,10 +542,12 @@ const CostCard = ({
   cost,
   onUpdate,
   onDelete,
+  isUpdating,
 }: {
   cost: Cost
   onUpdate: (id: string, data: CostFormData) => void
   onDelete: (id: string) => void
+  isUpdating: boolean
 }) => {
   return (
     <Card>
@@ -545,7 +558,7 @@ const CostCard = ({
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" disabled={isUpdating}>
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -570,6 +583,7 @@ const CostCard = ({
                     }}
                     onSubmit={async (data) => onUpdate(cost._id, data)}
                     onClose={() => {}}
+                    loading={isUpdating}
                   />
                 </DialogContent>
               </Dialog>
@@ -651,12 +665,14 @@ const CostTable = ({
   onSort,
   onUpdate,
   onDelete,
+  updatingId,
 }: {
   costs: Cost[]
   sortConfig: SortConfig
   onSort: (key: keyof Cost) => void
   onUpdate: (id: string, data: CostFormData) => void
   onDelete: (id: string) => void
+  updatingId: string | null
 }) => {
   return (
     <div className="relative overflow-x-auto">
@@ -743,8 +759,12 @@ const CostTable = ({
               <TableCell>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                      <MoreHorizontal className="h-4 w-4" />
+                    <Button variant="ghost" size="icon" disabled={updatingId === cost._id}>
+                      {updatingId === cost._id ? (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      ) : (
+                        <MoreHorizontal className="h-4 w-4" />
+                      )}
                       <span className="sr-only">Actions</span>
                     </Button>
                   </DropdownMenuTrigger>
@@ -769,6 +789,7 @@ const CostTable = ({
                           }}
                           onSubmit={async (data) => onUpdate(cost._id, data)}
                           onClose={() => {}}
+                          loading={updatingId === cost._id}
                         />
                       </DialogContent>
                     </Dialog>
@@ -812,6 +833,8 @@ const CostTable = ({
 export default function CostManagementPage() {
   const [costs, setCosts] = useState<Cost[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isAdding, setIsAdding] = useState(false)
+  const [isUpdating, setIsUpdating] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"table" | "grid">("table")
   const [searchTerm, setSearchTerm] = useState("")
@@ -849,6 +872,7 @@ export default function CostManagementPage() {
 
   const handleAddCost = async (formData: CostFormData) => {
     console.log("Adding cost:", formData)
+    setIsAdding(true)
     try {
       const costData = {
         ...formData,
@@ -873,11 +897,14 @@ export default function CostManagementPage() {
         description: "Failed to add cost. Please try again.",
         variant: "destructive"
       })
+    } finally {
+      setIsAdding(false)
     }
   }
 
   const handleUpdateCost = async (id: string, formData: CostFormData) => {
     console.log("Updating cost:", id, formData)
+    setIsUpdating(id)
     try {
       const costData = {
         ...formData,
@@ -901,6 +928,8 @@ export default function CostManagementPage() {
         description: "Failed to update cost. Please try again.",
         variant: "destructive",
       })
+    } finally {
+      setIsUpdating(null)
     }
   }
 
@@ -932,6 +961,7 @@ export default function CostManagementPage() {
       direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
     }))
   }
+  
   const filteredAndSortedCosts = useMemo(() => {
     return [...costs]
       .filter(
@@ -972,8 +1002,17 @@ export default function CostManagementPage() {
           <h1 className="text-3xl font-bold">Expenses Management</h1>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => setIsDialogOpen(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Add New Cost
+              <Button onClick={() => setIsDialogOpen(true)} disabled={isAdding}>
+                {isAdding ? (
+                  <>
+                    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                    Adding...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="mr-2 h-4 w-4" /> Add New Cost
+                  </>
+                )}
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[650px] bg-white p-6 rounded-lg shadow-lg z-50">
@@ -981,7 +1020,7 @@ export default function CostManagementPage() {
                 <DialogTitle>Add New Cost</DialogTitle>
                 <DialogDescription>Fill in the details below to add a new cost.</DialogDescription>
               </DialogHeader>
-              <CostForm onSubmit={handleAddCost} onClose={() => setIsDialogOpen(false)} />
+              <CostForm onSubmit={handleAddCost} onClose={() => setIsDialogOpen(false)} loading={isAdding} />
             </DialogContent>
           </Dialog>
         </div>
@@ -1156,11 +1195,18 @@ export default function CostManagementPage() {
                 onSort={handleSort}
                 onUpdate={handleUpdateCost}
                 onDelete={handleDeleteCost}
+                updatingId={isUpdating}
               />
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredAndSortedCosts.map((cost) => (
-                  <CostCard key={cost._id} cost={cost} onUpdate={handleUpdateCost} onDelete={handleDeleteCost} />
+                  <CostCard 
+                    key={cost._id} 
+                    cost={cost} 
+                    onUpdate={handleUpdateCost} 
+                    onDelete={handleDeleteCost}
+                    isUpdating={isUpdating === cost._id}
+                  />
                 ))}
               </div>
             )}
@@ -1171,4 +1217,3 @@ export default function CostManagementPage() {
     </div>
   )
 }
-

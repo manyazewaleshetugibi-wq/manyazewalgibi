@@ -83,7 +83,7 @@ const formatFileSize = (bytes?: number) => {
 
 const BrutalButton = ({ children, className = "", ...props }: { children: ReactNode; className?: string }) => (
   <button
-    className={`px-8 py-2 border-2 border-black dark:border-white uppercase bg-white dark:bg-black text-black dark:text-white transition duration-200 text-sm font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)] hover:translate-x-[4px] hover:translate-y-[4px] hover:shadow-none ${className}`}
+    className={`px-8 py-2 border-2 border-purple-900 bg-white text-purple-900 transition duration-200 text-sm font-bold shadow-[4px_4px_0px_0px_rgba(88,28,135,1)] hover:translate-x-[4px] hover:translate-y-[4px] hover:shadow-none ${className}`}
     {...props}
   >
     {children}
@@ -91,12 +91,12 @@ const BrutalButton = ({ children, className = "", ...props }: { children: ReactN
 )
 
 const SkeletonCard = () => (
-  <div className="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-lg animate-pulse">
-    <div className="h-64 bg-gray-300 dark:bg-gray-700"></div>
+  <div className="bg-white rounded-lg overflow-hidden shadow-lg animate-pulse">
+    <div className="h-64 bg-purple-100"></div>
     <div className="p-6">
-      <div className="h-6 bg-gray-300 dark:bg-gray-700 rounded w-3/4 mb-4"></div>
-      <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded w-full mb-2"></div>
-      <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded w-2/3"></div>
+      <div className="h-6 bg-purple-100 rounded w-3/4 mb-4"></div>
+      <div className="h-4 bg-purple-100 rounded w-full mb-2"></div>
+      <div className="h-4 bg-purple-100 rounded w-2/3"></div>
     </div>
   </div>
 )
@@ -179,21 +179,21 @@ const BlogMediaPreview = ({
             className="transition-all duration-300 group-hover:scale-105"
           />
           {showPlayIcon && (
-            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute inset-0 bg-purple-900/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
                 <Play className="w-6 h-6 text-white" />
               </div>
             </div>
           )}
           {showMediaBadge && (
-            <div className="absolute bottom-4 left-4 bg-black/70 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
+            <div className="absolute bottom-4 left-4 bg-purple-900/90 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1 backdrop-blur-sm">
               <Video className="h-3 w-3" /> Video
             </div>
           )}
           {showFullScreen && onFullScreenClick && (
             <button
               onClick={onFullScreenClick}
-              className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-sm rounded-full hover:bg-black/70 transition-colors z-10"
+              className="absolute top-4 right-4 p-2 bg-purple-900/50 backdrop-blur-sm rounded-full hover:bg-purple-900/70 transition-colors z-10"
             >
               <Maximize2 className="w-4 h-4 text-white" />
             </button>
@@ -215,7 +215,7 @@ const BlogMediaPreview = ({
             allowFullScreen
           />
           {showMediaBadge && (
-            <div className="absolute bottom-4 left-4 bg-black/70 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
+            <div className="absolute bottom-4 left-4 bg-purple-900/90 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1 backdrop-blur-sm">
               <Video className="h-3 w-3" /> Video
             </div>
           )}
@@ -246,23 +246,23 @@ const BlogMediaPreview = ({
           />
           
           {isVideoLoading && !videoError && (
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-purple-900/50 flex items-center justify-center">
               <Loader2 className="w-8 h-8 text-white animate-spin" />
             </div>
           )}
           
           {videoError && (
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-purple-900/50 flex items-center justify-center">
               <div className="text-center">
-                <Video className="h-12 w-12 mx-auto text-gray-400 mb-2" />
-                <p className="text-sm text-gray-400">Video not available</p>
-                <p className="text-xs text-gray-500 mt-1">URL: {videoSource.substring(0, 50)}...</p>
+                <Video className="h-12 w-12 mx-auto text-purple-300 mb-2" />
+                <p className="text-sm text-purple-200">Video not available</p>
+                <p className="text-xs text-purple-300 mt-1">URL: {videoSource.substring(0, 50)}...</p>
               </div>
             </div>
           )}
           
           {!showFullScreen && showPlayIcon && !videoError && (
-            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute inset-0 bg-purple-900/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
                 <Play className="w-6 h-6 text-white" />
               </div>
@@ -270,7 +270,7 @@ const BlogMediaPreview = ({
           )}
           
           {showMediaBadge && !videoError && (
-            <div className="absolute bottom-4 left-4 bg-black/70 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
+            <div className="absolute bottom-4 left-4 bg-purple-900/90 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1 backdrop-blur-sm">
               <Video className="h-3 w-3" /> Video
             </div>
           )}
@@ -278,7 +278,7 @@ const BlogMediaPreview = ({
           {showFullScreen && onFullScreenClick && !videoError && (
             <button
               onClick={onFullScreenClick}
-              className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-sm rounded-full hover:bg-black/70 transition-colors z-10"
+              className="absolute top-4 right-4 p-2 bg-purple-900/50 backdrop-blur-sm rounded-full hover:bg-purple-900/70 transition-colors z-10"
             >
               <Maximize2 className="w-5 h-5 text-white" />
             </button>
@@ -290,27 +290,28 @@ const BlogMediaPreview = ({
   
   if (isImage && imageSource) {
     return (
-      <div className={`relative ${heightClass} w-full`}>
+      <div className={`relative ${heightClass} w-full overflow-hidden`}>
         <Image 
           src={imageSource} 
           alt={blog.title} 
           layout="fill" 
           objectFit={objectFit} 
-          className="transition-transform duration-300 hover:scale-105"
+          className="transition-transform duration-500 hover:scale-110"
           onError={(e) => {
             console.error("Image loading error:", e)
             e.currentTarget.src = "/placeholder.svg"
           }}
         />
+        <div className="absolute inset-0 bg-gradient-to-t from-purple-900/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
         {showMediaBadge && (
-          <div className="absolute bottom-4 left-4 bg-black/70 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
+          <div className="absolute bottom-4 left-4 bg-purple-900/90 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1 backdrop-blur-sm">
             <ImageIcon className="h-3 w-3" /> Image
           </div>
         )}
         {showFullScreen && onFullScreenClick && (
           <button
             onClick={onFullScreenClick}
-            className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-sm rounded-full hover:bg-black/70 transition-colors z-10"
+            className="absolute top-4 right-4 p-2 bg-purple-900/50 backdrop-blur-sm rounded-full hover:bg-purple-900/70 transition-colors z-10"
           >
             <Maximize2 className="w-5 h-5 text-white" />
           </button>
@@ -321,15 +322,15 @@ const BlogMediaPreview = ({
   
   // Fallback for no media
   return (
-    <div className={`relative ${heightClass} w-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center`}>
-      <div className="text-gray-400 dark:text-gray-500 text-center">
+    <div className={`relative ${heightClass} w-full bg-gradient-to-br from-purple-100 to-purple-50 flex items-center justify-center`}>
+      <div className="text-purple-400 text-center">
         <div className="mb-2">
           {blog.mediaType === 'video' ? <Video className="h-12 w-12 mx-auto" /> : 
            blog.mediaType === 'image' ? <ImageIcon className="h-12 w-12 mx-auto" /> : 
            <FileText className="h-12 w-12 mx-auto" />}
         </div>
-        <p className="text-sm">No media available</p>
-        <p className="text-xs mt-1">Type: {blog.mediaType || 'none'}</p>
+        <p className="text-sm text-purple-600">No media available</p>
+        <p className="text-xs text-purple-500 mt-1">Type: {blog.mediaType || 'none'}</p>
       </div>
     </div>
   )
@@ -476,20 +477,20 @@ const BlogDetailModal = ({
 
   return (
     <>
-      <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md ${isFullScreen ? 'p-0' : 'p-4 md:p-6'}`}>
+      <div className={`fixed inset-0 z-50 flex items-center justify-center bg-purple-900/90 backdrop-blur-md ${isFullScreen ? 'p-0' : 'p-4 md:p-6'}`}>
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
-          className={`relative bg-white dark:bg-gray-950 w-full overflow-hidden shadow-2xl flex flex-col ${
-            isFullScreen ? "h-full rounded-none" : "rounded-2xl max-w-5xl max-h-[90vh] border border-gray-200 dark:border-gray-800"
+          className={`relative bg-white w-full overflow-hidden shadow-2xl flex flex-col ${
+            isFullScreen ? "h-full rounded-none" : "rounded-2xl max-w-5xl max-h-[90vh] border border-purple-200"
           }`}
         >
           {/* Close button - Floating */}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 z-50 p-2 bg-black/50 hover:bg-black/70 text-white backdrop-blur-sm rounded-full transition-all duration-200 hover:scale-110"
+            className="absolute top-4 right-4 z-50 p-2 bg-purple-900/70 hover:bg-purple-900 text-white backdrop-blur-sm rounded-full transition-all duration-200 hover:scale-110"
           >
             <X className="w-5 h-5" />
           </button>
@@ -497,7 +498,7 @@ const BlogDetailModal = ({
           {/* Loading state */}
           {isLoading && (
             <div className="flex items-center justify-center h-96">
-              <Loader2 className="w-12 h-12 text-primary animate-spin" />
+              <Loader2 className="w-12 h-12 text-purple-900 animate-spin" />
             </div>
           )}
 
@@ -505,11 +506,11 @@ const BlogDetailModal = ({
           {error && !isLoading && (
             <div className="flex flex-col items-center justify-center h-96 p-8 text-center">
               <AlertTriangle className="w-16 h-16 text-red-500 mb-4" />
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Error Loading Blog</h3>
-              <p className="text-gray-600 dark:text-gray-300">{error}</p>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Error Loading Blog</h3>
+              <p className="text-gray-600">{error}</p>
               <button
                 onClick={onClose}
-                className="mt-4 px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                className="mt-4 px-6 py-2 bg-purple-900 text-white rounded-lg hover:bg-purple-800 transition-colors"
               >
                 Close
               </button>
@@ -520,14 +521,14 @@ const BlogDetailModal = ({
           {!isLoading && !error && (
             <div className="flex flex-col h-full overflow-y-auto custom-scrollbar scroll-smooth">
               {/* Content section */}
-              <div className="flex-1 bg-background relative">
+              <div className="flex-1 bg-white">
                  <div className="container px-4 py-8 mx-auto">
                   <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
                     {/* Main Content */}
                     <main className="space-y-8">
                     
                     {/* Media Section */}
-                    <div className="rounded-xl overflow-hidden shadow-lg bg-black">
+                    <div className="rounded-xl overflow-hidden shadow-lg bg-purple-950">
                       <BlogMediaPreview 
                         blog={blog}
                         heightClass="aspect-video"
@@ -539,45 +540,45 @@ const BlogDetailModal = ({
                     </div>
 
                     {/* Header Info */}
-                    <div className="mb-10 border-b border-gray-100 dark:border-gray-800 pb-10">
+                    <div className="mb-10 border-b border-purple-100 pb-10">
                         <div className="flex flex-wrap items-center gap-3 mb-5">
-                            <span className="px-4 py-1.5 rounded-full bg-primary text-white text-xs font-bold tracking-wider uppercase shadow-sm">
+                            <span className="px-4 py-1.5 rounded-full bg-purple-900 text-white text-xs font-bold tracking-wider uppercase shadow-sm">
                                 {blog.category}
                             </span>
-                            <span className="flex items-center text-sm text-gray-500 dark:text-gray-400 font-medium">
-                                <CalendarDays className="mr-2 h-4 w-4 text-primary" />
+                            <span className="flex items-center text-sm text-gray-500 font-medium">
+                                <CalendarDays className="mr-2 h-4 w-4 text-purple-900" />
                                 {formatDateSafe(blog.publishedAt)}
                             </span>
                         </div>
 
-                        <h1 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-gray-900 dark:text-white leading-tight mb-6 tracking-tight">
+                        <h1 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-gray-900 leading-tight mb-6 tracking-tight">
                             {blog.title}
                         </h1>
 
                         {/* Author & Actions Bar */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
                             <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center text-white shadow-md">
+                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-900 to-purple-700 flex items-center justify-center text-white shadow-md">
                                     <User className="w-6 h-6" />
                                 </div>
                                 <div>
-                                    <p className="text-base font-bold text-gray-900 dark:text-white">Manyazewal Eshetu</p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wide">Admin • 5 min read</p>
+                                    <p className="text-base font-bold text-gray-900">Manyazewal Eshetu</p>
+                                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Admin • 5 min read</p>
                                 </div>
                             </div>
 
                             <div className="flex items-center gap-3">
-                                <button className="p-2.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-primary hover:text-white transition-colors duration-200">
+                                <button className="p-2.5 rounded-full bg-purple-100 text-purple-900 hover:bg-purple-900 hover:text-white transition-colors duration-200">
                                     <Heart className="w-5 h-5" />
                                 </button>
-                                <button className="p-2.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-primary hover:text-white transition-colors duration-200">
+                                <button className="p-2.5 rounded-full bg-purple-100 text-purple-900 hover:bg-purple-900 hover:text-white transition-colors duration-200">
                                     <Share2 className="w-5 h-5" />
                                 </button>
                                 {blog.uploadStatus === "completed" && (blog.fileUrl || blog.Video || blog.Image) && (
                                     <a
                                       href={blog.fileUrl || blog.Video || blog.Image}
                                       download={blog.originalFileName || `${blog.title}.${blog.format || (currentMediaType === 'video' ? 'mp4' : 'jpg')}`}
-                                      className="p-2.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-primary hover:text-white transition-colors duration-200"
+                                      className="p-2.5 rounded-full bg-purple-100 text-purple-900 hover:bg-purple-900 hover:text-white transition-colors duration-200"
                                       title="Download"
                                     >
                                       <Download className="w-5 h-5" />
@@ -591,7 +592,7 @@ const BlogDetailModal = ({
                     {blog.tags && blog.tags.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-8">
                             {blog.tags.map((tag) => (
-                                <span key={tag} className="px-3 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded-md text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors cursor-default">
+                                <span key={tag} className="px-3 py-1 bg-purple-100 text-purple-900 rounded-md text-sm font-medium hover:bg-purple-200 transition-colors cursor-default">
                                     #{tag}
                                 </span>
                             ))}
@@ -599,18 +600,18 @@ const BlogDetailModal = ({
                     )}
 
                     {/* Content Body */}
-                    <div className="prose prose-lg dark:prose-invert max-w-none mb-16">
+                    <div className="prose prose-lg max-w-none mb-16">
                         <div 
-                            className="text-gray-700 dark:text-gray-300 leading-relaxed"
+                            className="text-gray-700 leading-relaxed"
                             dangerouslySetInnerHTML={{ __html: blog.content }}
                         />
                     </div>
 
                     {/* Related Posts */}
                     {mediaBlogs.length > 0 && (
-                        <div className="border-t border-gray-200 dark:border-gray-800 pt-12">
-                            <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-8 flex items-center gap-3">
-                                <span className="w-1 h-8 bg-primary rounded-full"></span>
+                        <div className="border-t border-purple-100 pt-12">
+                            <h3 className="text-2xl font-bold text-gray-900 mb-8 flex items-center gap-3">
+                                <span className="w-1 h-8 bg-purple-900 rounded-full"></span>
                                 Related Media
                             </h3>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -620,22 +621,22 @@ const BlogDetailModal = ({
                                         className="group cursor-pointer"
                                         onClick={() => onSelectBlog(mediaBlog)}
                                     >
-                                        <div className="relative aspect-video rounded-xl overflow-hidden mb-4 bg-gray-100 dark:bg-gray-800 shadow-sm group-hover:shadow-md transition-all duration-300">
+                                        <div className="relative aspect-video rounded-xl overflow-hidden mb-4 bg-purple-100 shadow-sm group-hover:shadow-md transition-all duration-300">
                                             <BlogMediaPreview 
                                                 blog={mediaBlog} 
                                                 heightClass="h-full" 
                                                 showPlayIcon={false}
                                                 showMediaBadge={false}
                                             />
-                                            <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors" />
-                                            <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-sm text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
+                                            <div className="absolute inset-0 bg-purple-900/20 group-hover:bg-purple-900/10 transition-colors" />
+                                            <div className="absolute bottom-2 right-2 bg-purple-900/90 backdrop-blur-sm text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
                                                 {getMediaType(mediaBlog) === 'video' ? <Video className="h-3 w-3" /> : <ImageIcon className="h-3 w-3" />}
                                             </div>
                                         </div>
-                                        <h4 className="font-bold text-gray-900 dark:text-white leading-snug group-hover:text-primary transition-colors line-clamp-2 mb-1">
+                                        <h4 className="font-bold text-gray-900 leading-snug group-hover:text-purple-900 transition-colors line-clamp-2 mb-1">
                                             {mediaBlog.title}
                                         </h4>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                                        <p className="text-sm text-gray-500">
                                             {formatDateSafe(mediaBlog.publishedAt)}
                                         </p>
                                     </div>
@@ -648,16 +649,19 @@ const BlogDetailModal = ({
                     {/* Sidebar */}
                     <aside className="space-y-8">
                       {/* Search */}
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Search</CardTitle>
+                      <Card className="border-2 border-purple-100 rounded-xl">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-purple-900 flex items-center gap-2">
+                            <Search className="h-5 w-5" />
+                            Search
+                          </CardTitle>
                         </CardHeader>
                         <CardContent>
                           <div className="relative">
-                            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Search className="absolute left-2 top-2.5 h-4 w-4 text-purple-700" />
                             <Input
                               placeholder="Search posts..."
-                              className="pl-8"
+                              className="pl-8 border-2 border-purple-100 focus:border-purple-900 focus:ring-2 focus:ring-purple-200 rounded-xl"
                               value={searchQuery}
                               onChange={(e) => setSearchQuery(e.target.value)}
                             />
@@ -666,9 +670,12 @@ const BlogDetailModal = ({
                       </Card>
 
                       {/* Categories */}
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Category</CardTitle>
+                      <Card className="border-2 border-purple-100 rounded-xl">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-purple-900 flex items-center gap-2">
+                            <Tag className="h-5 w-5" />
+                            Category
+                          </CardTitle>
                         </CardHeader>
                         <CardContent>
                           <ScrollArea className="h-[300px] pr-4">
@@ -677,13 +684,15 @@ const BlogDetailModal = ({
                                 <Button
                                   key={category.name}
                                   variant="ghost"
-                                  className="w-full justify-between font-normal"
+                                  className="w-full justify-between font-normal hover:bg-purple-50 hover:text-purple-900 rounded-xl"
                                   onClick={() => {
                                     // Optional: Handle category click if needed
                                   }}
                                 >
                                   {category.name}
-                                  <span className="text-muted-foreground">({category.count})</span>
+                                  <Badge variant="outline" className="border-purple-200 text-purple-700">
+                                    {category.count}
+                                  </Badge>
                                 </Button>
                               ))}
                             </div>
@@ -692,9 +701,12 @@ const BlogDetailModal = ({
                       </Card>
 
                       {/* Recent Posts */}
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Recent Posts</CardTitle>
+                      <Card className="border-2 border-purple-100 rounded-xl">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-purple-900 flex items-center gap-2">
+                            <Clock className="h-5 w-5" />
+                            Recent Posts
+                          </CardTitle>
                         </CardHeader>
                         <CardContent>
                           <div className="space-y-4">
@@ -704,15 +716,18 @@ const BlogDetailModal = ({
                                 className="flex gap-4 cursor-pointer group"
                                 onClick={() => onSelectBlog(post)}
                               >
-                                <div className="relative w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden">
+                                <div className="relative w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden border-2 border-purple-100 group-hover:border-purple-300 transition-colors">
                                   <BlogMediaPreview blog={post} heightClass="h-full" showPlayIcon={false} showMediaBadge={false} />
                                 </div>
                                 <div className="space-y-1">
-                                  <div className="text-sm font-medium text-muted-foreground">{post.category}</div>
-                                  <h4 className="line-clamp-2 text-sm font-medium group-hover:text-primary transition-colors">
+                                  <div className="text-sm font-medium text-purple-900">{post.category}</div>
+                                  <h4 className="line-clamp-2 text-sm font-medium text-gray-700 group-hover:text-purple-900 transition-colors">
                                     {post.title}
                                   </h4>
-                                  <div className="text-xs text-muted-foreground">{formatDateSafe(post.publishedAt)}</div>
+                                  <div className="text-xs text-gray-500 flex items-center gap-1">
+                                    <CalendarDays className="w-3 h-3 text-purple-700" />
+                                    {formatDateSafe(post.publishedAt)}
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -721,9 +736,12 @@ const BlogDetailModal = ({
                       </Card>
 
                       {/* Tags */}
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Tags</CardTitle>
+                      <Card className="border-2 border-purple-100 rounded-xl">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-purple-900 flex items-center gap-2">
+                            <Tag className="h-5 w-5" />
+                            Tags
+                          </CardTitle>
                         </CardHeader>
                         <CardContent>
                           <div className="flex flex-wrap gap-2">
@@ -731,7 +749,7 @@ const BlogDetailModal = ({
                               <Badge
                                 key={tag}
                                 variant="secondary"
-                                className="cursor-pointer hover:bg-secondary/80"
+                                className="cursor-pointer bg-purple-100 text-purple-900 hover:bg-purple-200 rounded-full px-3 py-1"
                               >
                                 {tag}
                               </Badge>
@@ -741,11 +759,12 @@ const BlogDetailModal = ({
                       </Card>
 
                       {/* Advertisement */}
-                      <Card className="border-2 border-dashed">
+                      <Card className="border-2 border-dashed border-purple-200 rounded-xl bg-gradient-to-br from-purple-50/50 to-white">
                         <CardContent className="flex items-center justify-center p-6">
                           <div className="text-center">
-                            <Command className="mx-auto h-10 w-10 text-muted-foreground" />
-                            <p className="mt-2 text-sm text-muted-foreground">Advertisement Space</p>
+                            <Command className="mx-auto h-10 w-10 text-purple-400" />
+                            <p className="mt-2 text-sm text-purple-900 font-medium">Advertisement Space</p>
+                            <p className="text-xs text-gray-500 mt-1">Reach our audience</p>
                           </div>
                         </CardContent>
                       </Card>
@@ -755,17 +774,17 @@ const BlogDetailModal = ({
               </div>
 
               {/* Footer Actions */}
-              <div className="sticky bottom-0 z-10 bg-white/90 dark:bg-gray-950/90 backdrop-blur-lg border-t border-gray-200 dark:border-gray-800 p-4 md:p-6">
+              <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur-lg border-t border-purple-100 p-4 md:p-6">
                   <div className="max-w-4xl mx-auto flex flex-col sm:flex-row gap-4">
                       <button
                           onClick={onClose}
-                          className="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                          className="flex-1 px-6 py-3 border-2 border-purple-200 text-purple-900 font-bold rounded-xl hover:bg-purple-50 transition-colors"
                       >
                           Close
                       </button>
                       <button 
                           onClick={() => setIsFullScreen(!isFullScreen)}
-                          className="flex-1 px-6 py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-colors shadow-lg shadow-primary/25 flex items-center justify-center gap-2"
+                          className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-800 to-purple-900 text-white font-bold rounded-xl hover:from-purple-900 hover:to-purple-950 transition-colors shadow-lg shadow-purple-900/25 flex items-center justify-center gap-2"
                       >
                           {isFullScreen ? <><X className="w-4 h-4"/> Exit Full Screen</> : <><Maximize2 className="w-4 h-4"/> Full Screen Mode</>}
                       </button>
@@ -837,15 +856,23 @@ export function BlogSection() {
         initial={{ opacity: 0, y: 50 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, ease: "easeOut" }}
-        className="py-24 bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-800"
+        className="py-24 bg-gradient-to-b from-white to-purple-50/30"
       >
         <div className="container px-4 mx-auto sm:px-6 lg:px-8">
           <div className="text-center mb-16">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.1 }}
+              className="inline-block p-3 bg-purple-100 rounded-full mb-4"
+            >
+              <Command className="w-8 h-8 text-purple-900" />
+            </motion.div>
             <motion.h2
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2, duration: 0.6 }}
-              className="text-5xl font-extrabold text-gray-900 dark:text-white sm:text-6xl lg:text-7xl"
+              className="text-5xl font-extrabold bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent sm:text-6xl lg:text-7xl"
             >
               Latest from Our Blog
             </motion.h2>
@@ -853,7 +880,7 @@ export function BlogSection() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4, duration: 0.6 }}
-              className="mt-4 text-xl text-gray-600 dark:text-gray-300"
+              className="mt-4 text-xl text-gray-600"
             >
               Discover stories, recipes, and insights from Ethiopian cuisine
             </motion.p>
@@ -861,7 +888,7 @@ export function BlogSection() {
 
           {/* Latest Posts Section - All blog types */}
           <div className="mt-16">
-            <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">
+            <h3 className="text-3xl font-bold text-purple-900 mb-8">
               Latest Posts
             </h3>
             <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
@@ -887,14 +914,14 @@ export function BlogSection() {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -20 }}
                         transition={{ duration: 0.5, delay: index * 0.1 }}
-                        className="group relative flex flex-col h-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1 dark:border-gray-800 dark:bg-gray-950"
+                        className="group relative flex flex-col h-full overflow-hidden rounded-2xl border-2 border-purple-100 bg-white shadow-lg transition-all duration-300 hover:shadow-xl hover:-translate-y-1"
                       >
                         {/* Media Section */}
                         <div className="relative aspect-video overflow-hidden cursor-pointer" onClick={() => handleViewDetails(post)}>
                           <BlogMediaPreview blog={post} heightClass="h-full" />
                           {getStatusBadge(post)}
                           <div className="absolute top-4 left-4">
-                             <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-white/90 text-black backdrop-blur-sm shadow-sm dark:bg-black/90 dark:text-white">
+                             <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-900/90 text-white backdrop-blur-sm shadow-sm">
                                 {post.category}
                              </span>
                           </div>
@@ -902,22 +929,22 @@ export function BlogSection() {
 
                         {/* Content Section */}
                         <div className="flex flex-col flex-grow p-6">
-                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-3">
-                            <CalendarDays className="w-3.5 h-3.5" />
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                            <CalendarDays className="w-3.5 h-3.5 text-purple-700" />
                             <span>{formatDateSafe(post.publishedAt)}</span>
-                            <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
-                            <Clock className="w-3.5 h-3.5" />
+                            <span className="w-1 h-1 rounded-full bg-purple-300" />
+                            <Clock className="w-3.5 h-3.5 text-purple-700" />
                             <span>5 min read</span>
                           </div>
 
                           <h3 
-                            className="text-xl font-bold text-gray-900 dark:text-white mb-3 line-clamp-2 group-hover:text-primary transition-colors cursor-pointer"
+                            className="text-xl font-bold text-gray-900 mb-3 line-clamp-2 group-hover:text-purple-900 transition-colors cursor-pointer"
                             onClick={() => handleViewDetails(post)}
                           >
                             {post.title}
                           </h3>
                           
-                          <p className="text-gray-600 dark:text-gray-300 text-sm line-clamp-3 mb-4 flex-grow">
+                          <p className="text-gray-600 text-sm line-clamp-3 mb-4 flex-grow">
                             {getContentPreview(post.content)}
                           </p>
                           
@@ -927,13 +954,13 @@ export function BlogSection() {
                               {post.tags.slice(0, 3).map((tag) => (
                                 <span
                                   key={tag}
-                                  className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-600 text-xs font-medium dark:bg-gray-800 dark:text-gray-300"
+                                  className="inline-flex items-center px-2 py-1 rounded-md bg-purple-100 text-purple-900 text-xs font-medium"
                                 >
                                   #{tag}
                                 </span>
                               ))}
                               {post.tags.length > 3 && (
-                                <span className="text-xs text-gray-500 px-2 py-1 dark:text-gray-400">
+                                <span className="text-xs text-purple-700 px-2 py-1">
                                   +{post.tags.length - 3} more
                                 </span>
                               )}
@@ -941,11 +968,11 @@ export function BlogSection() {
                           )}
 
                           {/* Actions */}
-                          <div className="pt-4 mt-auto border-t border-gray-100 dark:border-gray-800">
+                          <div className="pt-4 mt-auto border-t border-purple-100">
                             <div className="grid grid-cols-2 gap-3">
                               <button
                                 onClick={() => handleViewDetails(post)}
-                                className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:text-primary transition-colors dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-700"
+                                className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-purple-900 bg-white border-2 border-purple-200 rounded-lg hover:bg-purple-50 hover:border-purple-300 transition-colors"
                                 disabled={post.uploadStatus === "failed" || post.uploadStatus === "uploading" || post.uploadStatus === "processing"}
                               >
                                 {post.uploadStatus === "failed" ? (
@@ -965,7 +992,7 @@ export function BlogSection() {
                             
                               <button
                                 onClick={() => router.push(`/blogs/${post._id}`)}
-                                className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-black rounded-lg hover:bg-gray-800 transition-colors dark:bg-white dark:text-black dark:hover:bg-gray-200"
+                                className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-purple-800 to-purple-900 rounded-lg hover:from-purple-900 hover:to-purple-950 transition-colors"
                                 disabled={post.uploadStatus === "failed" || post.uploadStatus === "uploading" || post.uploadStatus === "processing"}
                               >
                                 <span className="truncate">Read Article</span>
@@ -976,13 +1003,13 @@ export function BlogSection() {
                             {/* Upload progress indicator */}
                             {(post.uploadStatus === "uploading" || post.uploadStatus === "processing") && post.uploadProgress && (
                               <div className="mt-3">
-                                <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                                <div className="w-full bg-purple-100 rounded-full h-1.5 overflow-hidden">
                                   <div 
-                                    className="bg-primary h-full rounded-full transition-all duration-300"
+                                    className="bg-gradient-to-r from-purple-800 to-purple-900 h-full rounded-full transition-all duration-300"
                                     style={{ width: `${post.uploadProgress}%` }}
                                   ></div>
                                 </div>
-                                <p className="text-[10px] text-gray-500 dark:text-gray-400 text-center mt-1">
+                                <p className="text-[10px] text-purple-700 text-center mt-1">
                                   {post.uploadStatus === "uploading" ? "Uploading..." : "Processing..."} {post.uploadProgress}%
                                 </p>
                               </div>
@@ -1002,11 +1029,11 @@ export function BlogSection() {
               animate={{ opacity: 1 }}
               className="text-center py-12"
             >
-              <div className="mx-auto w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
-                <EyeOff className="h-12 w-12 text-gray-400" />
+              <div className="mx-auto w-24 h-24 bg-purple-100 rounded-full flex items-center justify-center mb-4">
+                <EyeOff className="h-12 w-12 text-purple-900" />
               </div>
-              <h3 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">No blog posts available</h3>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">
+              <h3 className="text-xl font-semibold mb-2 text-purple-900">No blog posts available</h3>
+              <p className="text-gray-600 mb-4">
                 Check back later for new content or contact the administrator.
               </p>
             </motion.div>

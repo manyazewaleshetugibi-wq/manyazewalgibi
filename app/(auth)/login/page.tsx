@@ -38,7 +38,7 @@ export default function LoginPageWrapper() {
     <Suspense
       fallback={
         <div className="flex h-screen w-full items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin" />
+          <Loader2 className="h-8 w-8 animate-spin text-purple-900" />
         </div>
       }
     >
@@ -224,10 +224,10 @@ function LoginPage() {
       initial="hidden"
       animate="visible"
       variants={formVariants}
-      className="flex min-h-screen items-center justify-center p-4 bg-gradient-to-b from-background to-muted/20"
+      className="flex min-h-screen items-center justify-center p-4 bg-gradient-to-b from-background to-purple-50 dark:to-purple-950/20"
     >
       <div className={cn("flex flex-col gap-6 w-full max-w-[900px]")}>
-        <Card className="overflow-hidden border-2 shadow-lg">
+        <Card className="overflow-hidden border-2 border-purple-200 dark:border-purple-900 shadow-lg hover:shadow-purple-100 dark:hover:shadow-purple-900/20 transition-shadow duration-300">
           <CardContent className="grid p-0 md:grid-cols-2">
             <motion.form 
               variants={itemVariants} 
@@ -246,17 +246,17 @@ function LoginPage() {
                     className="w-16 h-16 flex items-center justify-center mb-4"
                   >
                     <img
-                      src="/man_logo.png"
+                      src="/man_logo.jpg"
                       alt="Logo"
                       className="w-30 h-15"
                     />
                   </motion.div>
-                  <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
+                  <h1 className="text-2xl font-bold tracking-tight text-purple-900 dark:text-purple-400">Welcome back</h1>
                   <p className="text-muted-foreground">Login to your account</p>
                 </motion.div>
 
                 <motion.div variants={itemVariants} className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email" className="text-purple-900 dark:text-purple-400 font-medium">Email</Label>
                   <div className="relative">
                     <Input
                       id="email"
@@ -266,8 +266,8 @@ function LoginPage() {
                       value={formData.email}
                       onChange={handleInputChange}
                       className={cn(
-                        "pr-10",
-                        errors.email ? "border-destructive focus:ring-destructive" : ""
+                        "pr-10 border-2 focus:border-purple-900 focus:ring-purple-900 transition-all duration-300",
+                        errors.email ? "border-destructive focus:ring-destructive" : "border-purple-200 dark:border-purple-800"
                       )}
                       required
                     />
@@ -296,7 +296,7 @@ function LoginPage() {
                 </motion.div>
 
                 <motion.div variants={itemVariants} className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password" className="text-purple-900 dark:text-purple-400 font-medium">Password</Label>
                   <div className="relative">
                     <Input
                       id="password"
@@ -305,15 +305,15 @@ function LoginPage() {
                       value={formData.password}
                       onChange={handleInputChange}
                       className={cn(
-                        "pr-10",
-                        errors.password ? "border-destructive focus:ring-destructive" : ""
+                        "pr-10 border-2 focus:border-purple-900 focus:ring-purple-900 transition-all duration-300",
+                        errors.password ? "border-destructive focus:ring-destructive" : "border-purple-200 dark:border-purple-800"
                       )}
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-purple-400 hover:text-purple-900 transition-colors"
                     >
                       {showPassword ? (
                         <EyeOff className="h-5 w-5" />
@@ -338,10 +338,11 @@ function LoginPage() {
                     id="remember"
                     checked={rememberMe}
                     onCheckedChange={(checked) => setRememberMe(checked as boolean)}
+                    className="border-2 border-purple-300 data-[state=checked]:bg-purple-900 data-[state=checked]:border-purple-900"
                   />
                   <label
                     htmlFor="remember"
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-purple-800 dark:text-purple-300"
                   >
                     Remember me
                   </label>
@@ -350,7 +351,7 @@ function LoginPage() {
                 <motion.div variants={itemVariants}>
                   <Button
                     type="submit"
-                    className="w-full relative overflow-hidden"
+                    className="w-full relative overflow-hidden bg-purple-900 hover:bg-purple-800 text-white transition-all duration-300 hover:shadow-lg hover:shadow-purple-900/25"
                     disabled={isLoading || isBlocked}
                   >
                     <AnimatePresence mode="wait">
@@ -360,9 +361,9 @@ function LoginPage() {
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
-                          className="absolute inset-0 flex items-center justify-center bg-primary"
+                          className="absolute inset-0 flex items-center justify-center bg-purple-800"
                         >
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <Loader2 className="h-4 w-4 animate-spin text-white" />
                         </motion.div>
                       ) : null}
                     </AnimatePresence>
@@ -382,11 +383,19 @@ function LoginPage() {
                   </motion.div>
                 )}
 
-                <motion.div variants={itemVariants} className="text-center text-sm">
-                
+                <motion.div variants={itemVariants} className="text-center text-sm space-y-2">
+                  <p className="text-gray-600 dark:text-gray-400">
+                    Don't have an account?{" "}
+                    <a 
+                      className="text-purple-900 dark:text-purple-400 font-semibold hover:text-purple-700 dark:hover:text-purple-300 hover:underline decoration-2 underline-offset-2 transition-all duration-300 hover:text-lg inline-block" 
+                      href="/Register"
+                    >
+                      Register
+                    </a>
+                  </p>
                   <motion.a
                     href="/"
-                    className="text-primary underline-offset-4 hover:underline decoration-non"
+                    className="text-purple-600 dark:text-purple-400 underline-offset-4 hover:text-purple-900 dark:hover:text-purple-300 hover:underline decoration-2 transition-all duration-300 inline-block"
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
@@ -396,7 +405,7 @@ function LoginPage() {
               </div>
             </motion.form>
 
-            <div className="relative hidden md:block overflow-hidden">
+            <div className="relative hidden md:block overflow-hidden bg-gradient-to-br from-purple-900 to-purple-700">
               <motion.div
                 initial={{ scale: 1.1, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -406,9 +415,29 @@ function LoginPage() {
                 <img
                   src="/stock1.jpg"
                   alt="Authentication"
-                  className="absolute inset-0 h-full w-full object-cover transition-all duration-500 hover:scale-105 dark:brightness-[0.2] dark:grayscale"
+                  className="absolute inset-0 h-full w-full object-cover transition-all duration-700 hover:scale-110 mix-blend-overlay opacity-80"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-background/20" />
+                <div className="absolute inset-0 bg-gradient-to-t from-purple-900/90 via-purple-900/50 to-transparent" />
+                
+                {/* Decorative Elements */}
+                <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
+                  <motion.h3 
+                    initial={{ y: 20, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.5 }}
+                    className="text-2xl font-bold mb-2"
+                  >
+                    Welcome Back!
+                  </motion.h3>
+                  <motion.p
+                    initial={{ y: 20, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.7 }}
+                    className="text-purple-100"
+                  >
+                    Sign in to access your account and continue your journey with us.
+                  </motion.p>
+                </div>
               </motion.div>
             </div>
           </CardContent>
@@ -416,11 +445,12 @@ function LoginPage() {
 
         <motion.div
           variants={itemVariants}
-          className="text-center text-xs text-muted-foreground [&_a]:underline hover:[&_a]:text-primary"
+          className="text-center text-xs text-muted-foreground [&_a]:underline hover:[&_a]:text-purple-900"
         >
           By clicking continue, you agree to our{" "}
           <motion.a
             href="#"
+            className="text-purple-600 dark:text-purple-400 hover:text-purple-900 dark:hover:text-purple-300"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
@@ -429,6 +459,7 @@ function LoginPage() {
           and{" "}
           <motion.a
             href="#"
+            className="text-purple-600 dark:text-purple-400 hover:text-purple-900 dark:hover:text-purple-300"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >

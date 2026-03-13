@@ -19,7 +19,8 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  AlertCircle
+  AlertCircle,
+  Info
 } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
@@ -54,6 +55,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 interface DailyCashEntry {
   _id: string
@@ -83,6 +85,8 @@ export default function DailyCash() {
   const [searchTerm, setSearchTerm] = useState<string>("")
   const [currentPage, setCurrentPage] = useState<number>(1)
   const [entriesPerPage] = useState<number>(10)
+  const [existingDates, setExistingDates] = useState<Set<string>>(new Set())
+  const [duplicateError, setDuplicateError] = useState<string | null>(null)
   
   // Dialog state
   const [showDeleteDialog, setShowDeleteDialog] = useState<boolean>(false)
@@ -100,6 +104,12 @@ export default function DailyCash() {
   useEffect(() => {
     fetchEntries()
   }, [])
+
+  // Update existing dates when entries change
+  useEffect(() => {
+    const dates = new Set(entries.map(entry => entry.date))
+    setExistingDates(dates)
+  }, [entries])
 
   // Filter entries based on search term
   useEffect(() => {
@@ -142,8 +152,13 @@ export default function DailyCash() {
     }
   }
 
+  const checkExistingEntry = (date: string): boolean => {
+    return existingDates.has(date)
+  }
+
   const handleSubmit = async (e: React.FormEvent, isEdit: boolean = false) => {
     e.preventDefault()
+    setDuplicateError(null)
     
     // Validate inputs
     if (!cashAmount || parseFloat(cashAmount) < 0) {
@@ -164,13 +179,25 @@ export default function DailyCash() {
       return
     }
 
+    const dateStr = format(selectedDate, 'yyyy-MM-dd')
+    
+    // Check for duplicate date (only for new entries)
+    if (!isEdit && checkExistingEntry(dateStr)) {
+      setDuplicateError(dateStr)
+      toast({
+        title: "Duplicate Entry",
+        description: "You've already added daily cash for this date. You can edit or delete the existing entry instead.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsSaving(true)
 
     try {
       const cashValue = parseFloat(cashAmount) || 0
       const bankValue = parseFloat(bankAmount) || 0
       const totalValue = cashValue + bankValue
-      const dateStr = format(selectedDate, 'yyyy-MM-dd')
 
       const entryData = {
         date: dateStr,
@@ -221,7 +248,16 @@ export default function DailyCash() {
         // Reset form
         resetForm()
       } else {
-        throw new Error(data.error || "Failed to save")
+        if (response.status === 409) {
+          setDuplicateError(dateStr)
+          toast({
+            title: "Duplicate Entry",
+            description: "This date already has an entry. Please edit the existing one.",
+            variant: "destructive",
+          })
+        } else {
+          throw new Error(data.error || "Failed to save")
+        }
       }
     } catch (error) {
       console.error("Error saving daily cash:", error)
@@ -273,6 +309,7 @@ export default function DailyCash() {
     setCashAmount(entry.cashAmount.toString())
     setBankAmount(entry.bankAmount.toString())
     setNotes(entry.notes || "")
+    setDuplicateError(null)
     setShowEditDialog(true)
   }
 
@@ -281,12 +318,19 @@ export default function DailyCash() {
     setShowViewDialog(true)
   }
 
+  const handleAddNew = () => {
+    resetForm()
+    setDuplicateError(null)
+    setShowAddDialog(true)
+  }
+
   const resetForm = () => {
     setCashAmount("")
     setBankAmount("")
     setNotes("")
     setSelectedDate(new Date())
     setSelectedEntryId(null)
+    setDuplicateError(null)
   }
 
   const formatCurrency = (value: number) => {
@@ -304,6 +348,12 @@ export default function DailyCash() {
   const totalPages = Math.ceil(filteredEntries.length / entriesPerPage)
 
   const paginate = (pageNumber: number) => setCurrentPage(pageNumber)
+
+  // Check if a date is disabled (already has an entry)
+  const isDateDisabled = (date: Date) => {
+    const dateStr = format(date, 'yyyy-MM-dd')
+    return existingDates.has(dateStr)
+  }
 
   if (isLoading) {
     return (
@@ -331,11 +381,22 @@ export default function DailyCash() {
               <CalendarIcon className="h-5 w-5 text-blue-600" />
               <span>{formattedToday}</span>
             </div>
-            <Button onClick={() => { resetForm(); setShowAddDialog(true); }} size="sm">
+            <Button onClick={handleAddNew} size="sm">
               <Plus className="mr-2 h-4 w-4" />
               New Entry
             </Button>
           </div>
+
+          {/* Check if today's entry exists */}
+          {checkExistingEntry(today) && (
+            <Alert className="bg-amber-50 border-amber-200">
+              <Info className="h-4 w-4 text-amber-600" />
+              <AlertTitle className="text-amber-800">Daily Cash Already Added!</AlertTitle>
+              <AlertDescription className="text-amber-700">
+                You've already added daily cash for today. You can edit or delete the existing entry in the "View All Entries" tab.
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* Today's Entry Form Card */}
           <Card className="border-2 border-blue-200">
@@ -430,12 +491,23 @@ export default function DailyCash() {
                   />
                 </div>
 
+                {/* Duplicate Warning */}
+                {checkExistingEntry(today) && (
+                  <Alert variant="destructive" className="bg-red-50 border-red-200">
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                    <AlertTitle className="text-red-800">Cannot Add Duplicate!</AlertTitle>
+                    <AlertDescription className="text-red-700">
+                      You already have an entry for today. Please go to the "View All Entries" tab to edit or delete the existing entry.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 {/* Action Buttons */}
                 <div className="flex gap-3">
                   <Button 
                     type="submit" 
                     className="flex-1 bg-blue-600 hover:bg-blue-700"
-                    disabled={isSaving}
+                    disabled={isSaving || checkExistingEntry(today)}
                   >
                     <Save className="mr-2 h-4 w-4" />
                     {isSaving ? "Saving..." : "Save Today's Entry"}
@@ -481,7 +553,7 @@ export default function DailyCash() {
                       </Button>
                     )}
                   </div>
-                  <Button onClick={() => { resetForm(); setShowAddDialog(true); }} size="sm">
+                  <Button onClick={handleAddNew} size="sm">
                     <Plus className="mr-2 h-4 w-4" />
                     New Entry
                   </Button>
@@ -621,11 +693,22 @@ export default function DailyCash() {
                     <Calendar
                       mode="single"
                       selected={selectedDate}
-                      onSelect={(date) => date && setSelectedDate(date)}
+                      onSelect={(date) => {
+                        if (date) {
+                          setSelectedDate(date)
+                          setDuplicateError(null)
+                        }
+                      }}
+                      disabled={isDateDisabled}
                       initialFocus
                     />
                   </PopoverContent>
                 </Popover>
+                {duplicateError && (
+                  <p className="text-sm text-red-500 mt-1">
+                    Entry for {format(parseISO(duplicateError), 'PPP')} already exists. Please edit or delete the existing entry.
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -675,7 +758,7 @@ export default function DailyCash() {
               <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSaving}>
+              <Button type="submit" disabled={isSaving || (selectedDate && isDateDisabled(selectedDate))}>
                 {isSaving ? "Saving..." : "Save Entry"}
               </Button>
             </DialogFooter>

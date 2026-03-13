@@ -1383,17 +1383,76 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// Helper for Cloudinary upload on the server
+async function uploadToCloudinary(file: File): Promise<string> {
+  const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
+  const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+    {
+      method: 'POST',
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    debugError("Cloudinary upload failed", { status: response.status, body: errorBody });
+    throw new Error('Failed to upload payment screenshot');
+  }
+
+  const data = await response.json();
+  return data.secure_url;
+}
+
 // POST endpoint - Create new order
 export async function POST(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
-    const body = await req.json();
+    
+    const contentType = req.headers.get('content-type') || '';
+    let body;
+
+    try {
+      if (contentType.includes('application/json')) {
+        body = await req.json();
+      } else if (contentType.includes('multipart/form-data')) {
+        const formData = await req.formData();
+        const orderDataString = formData.get('orderData') as string;
+        if (!orderDataString) {
+          return NextResponse.json({ success: false, error: "Missing 'orderData' in form data" }, { status: 400 });
+        }
+        body = JSON.parse(orderDataString);
+
+        const paymentScreenshotFile = formData.get('paymentScreenshot') as File;
+        if (paymentScreenshotFile) {
+          debugLog("Uploading payment screenshot to Cloudinary from FormData...");
+          const screenshotUrl = await uploadToCloudinary(paymentScreenshotFile);
+          body.paymentScreenshotUrl = screenshotUrl;
+          debugLog("Payment screenshot uploaded from FormData:", { url: screenshotUrl });
+        }
+      } else {
+        const textBody = await req.text();
+        if (!textBody) {
+          return NextResponse.json({ success: false, error: 'Request body is empty' }, { status: 400 });
+        }
+        body = JSON.parse(textBody);
+      }
+    } catch (error: any) {
+      debugError("Error parsing request body:", error);
+      return NextResponse.json({ success: false, error: "Invalid request body.", details: error.message }, { status: 400 });
+    }
 
     debugLog("POST request received:", { body });
 
     // Validation
-    if (!body.items || !Array.isArray(body.items) || body.items.length === 0) {
+    if (!body || !body.items || !Array.isArray(body.items) || body.items.length === 0) {
       return NextResponse.json(
         { success: false, error: "At least one item is required" },
         { status: 400 }

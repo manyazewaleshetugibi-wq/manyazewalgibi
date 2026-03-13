@@ -22,15 +22,55 @@ export async function GET(request: Request) {
       .sort({ createdAt: -1 })
       .toArray();
     
-    const formattedExpenses = expenses.map(expense => ({
-      ...expense,
-      _id: expense._id.toString(),
-      // Convert dates to ISO strings for consistent handling
-      startDate: expense.startDate?.toISOString(),
-      endDate: expense.endDate?.toISOString(),
-      createdAt: expense.createdAt?.toISOString(),
-      updatedAt: expense.updatedAt?.toISOString()
-    }));
+    const formattedExpenses = expenses.map(expense => {
+      // Helper function to safely convert to ISO string
+      const safeToISOString = (dateValue: any): string | null => {
+        if (!dateValue) return null;
+        
+        // If it's already a Date object
+        if (dateValue instanceof Date) {
+          return dateValue.toISOString();
+        }
+        
+        // If it's a string, try to convert to Date first
+        if (typeof dateValue === 'string') {
+          try {
+            const date = new Date(dateValue);
+            // Check if the date is valid
+            if (!isNaN(date.getTime())) {
+              return date.toISOString();
+            }
+          } catch (e) {
+            console.warn('Invalid date string:', dateValue);
+          }
+        }
+        
+        // If it's a number (timestamp), convert to Date
+        if (typeof dateValue === 'number') {
+          try {
+            const date = new Date(dateValue);
+            if (!isNaN(date.getTime())) {
+              return date.toISOString();
+            }
+          } catch (e) {
+            console.warn('Invalid timestamp:', dateValue);
+          }
+        }
+        
+        // Return as string if all else fails, or null
+        return String(dateValue) || null;
+      };
+
+      return {
+        ...expense,
+        _id: expense._id.toString(),
+        // Safely convert dates to ISO strings
+        startDate: safeToISOString(expense.startDate),
+        endDate: safeToISOString(expense.endDate),
+        createdAt: safeToISOString(expense.createdAt),
+        updatedAt: safeToISOString(expense.updatedAt)
+      };
+    });
     
     return NextResponse.json({ success: true, data: formattedExpenses });
   } catch (error: any) {
@@ -86,13 +126,32 @@ export async function POST(request: Request) {
 
     const result = await db.collection('commonExpenses').insertOne(newExpense);
     
+    // Helper function for date conversion
+    const safeToISOString = (dateValue: any): string | null => {
+      if (!dateValue) return null;
+      if (dateValue instanceof Date) {
+        return dateValue.toISOString();
+      }
+      if (typeof dateValue === 'string' || typeof dateValue === 'number') {
+        try {
+          const date = new Date(dateValue);
+          if (!isNaN(date.getTime())) {
+            return date.toISOString();
+          }
+        } catch (e) {
+          console.warn('Invalid date:', dateValue);
+        }
+      }
+      return String(dateValue) || null;
+    };
+    
     const insertedExpense = {
       ...newExpense,
       _id: result.insertedId.toString(),
-      startDate: newExpense.startDate.toISOString(),
-      endDate: newExpense.endDate?.toISOString() || null,
-      createdAt: newExpense.createdAt.toISOString(),
-      updatedAt: newExpense.updatedAt.toISOString()
+      startDate: safeToISOString(newExpense.startDate),
+      endDate: safeToISOString(newExpense.endDate),
+      createdAt: safeToISOString(newExpense.createdAt),
+      updatedAt: safeToISOString(newExpense.updatedAt)
     };
     
     return NextResponse.json({ success: true, data: insertedExpense }, { status: 201 });
@@ -173,15 +232,34 @@ export async function PUT(request: Request) {
 
     const updatedExpense = result.value;
     
+    // Helper function for date conversion
+    const safeToISOString = (dateValue: any): string | null => {
+      if (!dateValue) return null;
+      if (dateValue instanceof Date) {
+        return dateValue.toISOString();
+      }
+      if (typeof dateValue === 'string' || typeof dateValue === 'number') {
+        try {
+          const date = new Date(dateValue);
+          if (!isNaN(date.getTime())) {
+            return date.toISOString();
+          }
+        } catch (e) {
+          console.warn('Invalid date:', dateValue);
+        }
+      }
+      return String(dateValue) || null;
+    };
+    
     return NextResponse.json({ 
       success: true, 
       data: { 
         ...updatedExpense, 
         _id: updatedExpense._id.toString(),
-        startDate: updatedExpense.startDate?.toISOString(),
-        endDate: updatedExpense.endDate?.toISOString(),
-        createdAt: updatedExpense.createdAt?.toISOString(),
-        updatedAt: updatedExpense.updatedAt?.toISOString()
+        startDate: safeToISOString(updatedExpense.startDate),
+        endDate: safeToISOString(updatedExpense.endDate),
+        createdAt: safeToISOString(updatedExpense.createdAt),
+        updatedAt: safeToISOString(updatedExpense.updatedAt)
       } 
     });
   } catch (error: any) {
@@ -307,15 +385,34 @@ export async function PATCH(request: Request) {
 
     const updatedExpense = result.value;
     
+    // Helper function for date conversion
+    const safeToISOString = (dateValue: any): string | null => {
+      if (!dateValue) return null;
+      if (dateValue instanceof Date) {
+        return dateValue.toISOString();
+      }
+      if (typeof dateValue === 'string' || typeof dateValue === 'number') {
+        try {
+          const date = new Date(dateValue);
+          if (!isNaN(date.getTime())) {
+            return date.toISOString();
+          }
+        } catch (e) {
+          console.warn('Invalid date:', dateValue);
+        }
+      }
+      return String(dateValue) || null;
+    };
+    
     return NextResponse.json({ 
       success: true, 
       data: { 
         ...updatedExpense, 
         _id: updatedExpense._id.toString(),
-        startDate: updatedExpense.startDate?.toISOString(),
-        endDate: updatedExpense.endDate?.toISOString(),
-        createdAt: updatedExpense.createdAt?.toISOString(),
-        updatedAt: updatedExpense.updatedAt?.toISOString()
+        startDate: safeToISOString(updatedExpense.startDate),
+        endDate: safeToISOString(updatedExpense.endDate),
+        createdAt: safeToISOString(updatedExpense.createdAt),
+        updatedAt: safeToISOString(updatedExpense.updatedAt)
       } 
     });
   } catch (error: any) {

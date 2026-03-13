@@ -80,6 +80,8 @@ import {
   PhoneCall,
   Map,
   ShoppingBag,
+  Compass,
+  ExternalLink,
 } from "lucide-react"
 
 // Updated Delivery Status based on backend API
@@ -131,6 +133,11 @@ type DeliveryOrder = {
     name?: string
     email?: string
     phone?: string
+    address?: string
+    location?: {
+      type: string
+      coordinates: [number, number] // [lng, lat] format from MongoDB
+    }
   }
   itemsDetails?: Array<{
     _id: string
@@ -171,6 +178,50 @@ const paymentMethodIcons: Record<string, React.ReactNode> = {
   MOBILE_BANKING: <Phone className="h-4 w-4" />,
   ONLINE: <Navigation className="h-4 w-4" />,
   "MOBILE MONEY": <Phone className="h-4 w-4" />,
+}
+
+// Restaurant location constant - Manyazewal Eshetu Gibi Restaurant
+const RESTAURANT_LOCATION = {
+  lat: 8.99410,
+  lng: 38.79260,
+  name: "Manyazewal Eshetu Gibi Restaurant",
+  address: "Bole Road, Addis Ababa, Ethiopia"
+}
+
+// Helper function to open Google Maps route from restaurant to customer
+const openRouteFromRestaurant = (destination: { lat: number; lng: number } | string) => {
+  const origin = `${RESTAURANT_LOCATION.lat},${RESTAURANT_LOCATION.lng}`
+  
+  if (typeof destination === 'string') {
+    // If destination is an address string
+    window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${encodeURIComponent(destination)}`, '_blank')
+  } else {
+    // If destination is coordinates
+    window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination.lat},${destination.lng}`, '_blank')
+  }
+}
+
+// Helper function to just view location on map (no routing)
+const viewLocationOnMap = (location: { lat: number; lng: number } | string) => {
+  if (typeof location === 'string') {
+    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`, '_blank')
+  } else {
+    window.open(`https://www.google.com/maps?q=${location.lat},${location.lng}`, '_blank')
+  }
+}
+
+// Calculate distance between restaurant and customer
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371 // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+  const distance = R * c
+  return Math.round(distance * 10) / 10
 }
 
 const DeleteDeliveryDialog = ({ orderId, onDelete }: { orderId: string; onDelete: () => Promise<void> }) => {
@@ -222,7 +273,7 @@ export default function DeliveryManagement() {
   const [deliveryOrders, setDeliveryOrders] = useState<DeliveryOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState<DeliveryStatus | "all" | "notConfirmed">("notConfirmed") // Default to notConfirmed
+  const [statusFilter, setStatusFilter] = useState<DeliveryStatus | "all" | "notConfirmed">("notConfirmed")
   const [paymentFilter, setPaymentFilter] = useState<string | null>(null)
   const [dateFilter, setDateFilter] = useState<Date | null>(null)
   const [sortField, setSortField] = useState<keyof DeliveryOrder>("createdAt")
@@ -235,7 +286,6 @@ export default function DeliveryManagement() {
   const fetchDeliveryOrders = useCallback(async () => {
     setLoading(true)
     try {
-      // Build query parameters
       const params = new URLSearchParams()
       if (statusFilter && statusFilter !== "all") {
         params.append("status", statusFilter)
@@ -249,7 +299,6 @@ export default function DeliveryManagement() {
       
       const data = await response.json()
       
-      // Handle the response format from the updated API
       const orders = data.orders || data.data || []
       setDeliveryOrders(orders)
       setTotalPages(Math.ceil(orders.length / itemsPerPage))
@@ -302,11 +351,9 @@ export default function DeliveryManagement() {
       
       toast.success(data.message || "Delivery status updated successfully")
       
-      // Use the flag from the backend to decide whether to remove the order
       if (data.shouldRemove && (statusFilter === "PENDING" || statusFilter === "notConfirmed")) {
         setDeliveryOrders(prev => prev.filter(order => order._id !== orderId))
       } else {
-        // For other statuses, update the order in place so it stays visible
         setDeliveryOrders(prev => prev.map(order => 
           order._id === orderId ? (data.order || { ...order, status: newStatus }) : order
         ))
@@ -321,7 +368,9 @@ export default function DeliveryManagement() {
     const matchesSearch =
       order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (order.deliveryInfo?.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (order.deliveryInfo?.phoneNumber || "").includes(searchTerm)
+      (order.deliveryInfo?.phoneNumber || "").includes(searchTerm) ||
+      (order.userDetails?.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (order.userDetails?.phone || "").includes(searchTerm)
     const matchesStatus = statusFilter === "all" || 
       (statusFilter === "notConfirmed" && order.status !== "CONFIRMED") || 
       order.status === statusFilter
@@ -354,21 +403,108 @@ export default function DeliveryManagement() {
 
   const DeliveryDetailModal = ({ order }: { order: DeliveryOrder }) => {
     const handleCallCustomer = () => {
-      if (order.deliveryInfo?.phoneNumber) {
-        window.open(`tel:${order.deliveryInfo.phoneNumber}`, '_blank')
+      const phoneNumber = order.deliveryInfo?.phoneNumber || order.userDetails?.phone
+      if (phoneNumber) {
+        window.open(`tel:${phoneNumber}`, '_blank')
       }
     }
 
     const handleMessageCustomer = () => {
-      if (order.deliveryInfo?.phoneNumber) {
-        window.open(`https://wa.me/${order.deliveryInfo.phoneNumber}?text=Hello ${order.deliveryInfo?.fullName || "Customer"}, regarding your delivery order #${order.orderNumber}`, '_blank')
+      const phoneNumber = order.deliveryInfo?.phoneNumber || order.userDetails?.phone
+      if (phoneNumber) {
+        const cleanPhone = phoneNumber.replace(/\D/g, '')
+        const customerName = order.deliveryInfo?.fullName || order.userDetails?.name || "Customer"
+        window.open(`https://wa.me/${cleanPhone}?text=Hello ${customerName}, regarding your delivery order #${order.orderNumber}`, '_blank')
       }
     }
 
-    const handleOpenMaps = () => {
-      if (order.deliveryInfo?.address) {
-        const address = encodeURIComponent(`${order.deliveryInfo.address}, ${order.deliveryInfo.city || ""}`)
-        window.open(`https://www.google.com/maps/dir/?api=1&destination=${address}`, '_blank')
+    // Get coordinates from userDetails (MongoDB GeoJSON format: [lng, lat])
+    const getCoordinates = (): { lat: number; lng: number } | null => {
+      if (order.userDetails?.location?.coordinates && 
+          order.userDetails.location.coordinates.length === 2) {
+        const [lng, lat] = order.userDetails.location.coordinates
+        return { lat, lng }
+      }
+      return null
+    }
+
+    const coordinates = getCoordinates()
+    const hasValidCoordinates = coordinates !== null && 
+                               coordinates.lat >= -90 && coordinates.lat <= 90 && 
+                               coordinates.lng >= -180 && coordinates.lng <= 180
+
+    // Get the best available address
+    const getAddress = () => {
+      return order.deliveryInfo?.address || 
+             order.deliveryAddress || 
+             order.userDetails?.address || 
+             "No address provided"
+    }
+
+    // Get the best available city
+    const getCity = () => {
+      return order.deliveryInfo?.city || ""
+    }
+
+    // Get the best available customer name
+    const getCustomerName = () => {
+      return order.deliveryInfo?.fullName || order.userDetails?.name || "Unknown Customer"
+    }
+
+    // Get the best available phone number
+    const getPhoneNumber = () => {
+      return order.deliveryInfo?.phoneNumber || order.userDetails?.phone || "No Phone"
+    }
+
+    // Get the best available email
+    const getEmail = () => {
+      return order.deliveryInfo?.email || order.userDetails?.email
+    }
+
+    // Calculate distance from restaurant to customer
+    const getDistance = (): number | null => {
+      if (hasValidCoordinates) {
+        return calculateDistance(
+          RESTAURANT_LOCATION.lat,
+          RESTAURANT_LOCATION.lng,
+          coordinates.lat,
+          coordinates.lng
+        )
+      }
+      return null
+    }
+
+    const distance = getDistance()
+
+    const handleViewLocation = () => {
+      if (hasValidCoordinates) {
+        viewLocationOnMap(coordinates)
+        toast.success("Showing customer location on map")
+      } else {
+        const address = getAddress()
+        if (address !== "No address provided") {
+          const fullAddress = getCity() ? `${address}, ${getCity()}` : address
+          viewLocationOnMap(fullAddress)
+          toast.success("Showing address on map")
+        } else {
+          toast.error("No location or address available for this order")
+        }
+      }
+    }
+
+    const handleGetDirections = () => {
+      if (hasValidCoordinates) {
+        openRouteFromRestaurant(coordinates)
+        toast.success("Getting directions from restaurant to customer")
+      } else {
+        const address = getAddress()
+        if (address !== "No address provided") {
+          const fullAddress = getCity() ? `${address}, ${getCity()}` : address
+          openRouteFromRestaurant(fullAddress)
+          toast.success("Getting directions from restaurant to address")
+        } else {
+          toast.error("No location or address available for this order")
+        }
       }
     }
 
@@ -403,10 +539,10 @@ export default function DeliveryManagement() {
                   <CardContent className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-lg">{order.deliveryInfo?.fullName || "Unknown Customer"}</p>
-                        <p className="text-sm text-muted-foreground">{order.deliveryInfo?.phoneNumber || "No Phone"}</p>
-                        {order.deliveryInfo?.email && (
-                          <p className="text-sm text-muted-foreground">{order.deliveryInfo.email}</p>
+                        <p className="font-semibold text-lg">{getCustomerName()}</p>
+                        <p className="text-sm text-muted-foreground">{getPhoneNumber()}</p>
+                        {getEmail() && (
+                          <p className="text-sm text-muted-foreground">{getEmail()}</p>
                         )}
                       </div>
                       <div className="flex gap-2">
@@ -414,7 +550,8 @@ export default function DeliveryManagement() {
                           size="icon" 
                           variant="outline" 
                           onClick={handleCallCustomer}
-                          disabled={!order.deliveryInfo?.phoneNumber}
+                          disabled={getPhoneNumber() === "No Phone"}
+                          title="Call customer"
                         >
                           <PhoneCall className="h-4 w-4" />
                         </Button>
@@ -422,7 +559,8 @@ export default function DeliveryManagement() {
                           size="icon" 
                           variant="outline" 
                           onClick={handleMessageCustomer}
-                          disabled={!order.deliveryInfo?.phoneNumber}
+                          disabled={getPhoneNumber() === "No Phone"}
+                          title="WhatsApp customer"
                         >
                           <MessageSquare className="h-4 w-4" />
                         </Button>
@@ -431,41 +569,136 @@ export default function DeliveryManagement() {
                   </CardContent>
                 </Card>
 
-                {/* Delivery Information */}
+                {/* Delivery Information - UPDATED with restaurant as starting point */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-lg font-semibold flex items-center">
                       <MapPin className="mr-2 h-5 w-5" />
-                      Delivery Information
+                      Delivery Location
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <Home className="mr-2 h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">Address</span>
-                        </div>
-                        <Button 
-                          size="sm" 
-                          variant="ghost" 
-                          onClick={handleOpenMaps}
-                          disabled={!order.deliveryInfo?.address}
-                        >
-                          <Map className="h-4 w-4 mr-1" /> Open Map
-                        </Button>
+                    {/* Restaurant Info - Starting Point */}
+                    <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+                      <div className="flex items-center mb-2">
+                        <Home className="h-4 w-4 text-primary mr-2" />
+                        <span className="font-medium text-primary">Starting Point:</span>
                       </div>
-                      <p className="text-sm pl-6">{order.deliveryInfo?.address || "No address"}</p>
-                      <p className="text-sm pl-6 text-muted-foreground">{order.deliveryInfo?.city || ""}</p>
+                      <p className="text-sm font-medium">{RESTAURANT_LOCATION.name}</p>
+                      <p className="text-xs text-muted-foreground">{RESTAURANT_LOCATION.address}</p>
+                    </div>
+
+                    {/* Customer Location - Destination */}
+                    <div className="space-y-3">
+                      {/* Coordinates Display - PRIORITY 1 */}
+                      {hasValidCoordinates && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center">
+                              <Navigation className="h-4 w-4 text-blue-600 mr-2" />
+                              <span className="font-medium text-blue-700">Customer GPS Coordinates</span>
+                            </div>
+                            <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
+                              Precise Location
+                            </Badge>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div>
+                              <span className="text-muted-foreground">Latitude:</span>
+                              <span className="ml-2 font-mono">{coordinates.lat.toFixed(6)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Longitude:</span>
+                              <span className="ml-2 font-mono">{coordinates.lng.toFixed(6)}</span>
+                            </div>
+                          </div>
+                          {distance && (
+                            <p className="text-xs text-blue-600 mt-2 flex items-center">
+                              <Truck className="h-3 w-3 mr-1" />
+                              Distance from restaurant: {distance} km
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Address Display */}
+                      <div className="flex items-start">
+                        <MapPin className="mr-2 h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium">Delivery Address</p>
+                          <p className="text-sm">{getAddress()}</p>
+                          {getCity() && (
+                            <p className="text-sm text-muted-foreground">{getCity()}</p>
+                          )}
+                        </div>
+                      </div>
+                      
                       {order.deliveryInfo?.landmark && (
-                        <p className="text-sm pl-6 text-muted-foreground">
-                          <span className="font-medium">Landmark:</span> {order.deliveryInfo.landmark}
-                        </p>
+                        <div className="flex items-start pl-6">
+                          <span className="text-sm font-medium mr-2">Landmark:</span>
+                          <span className="text-sm">{order.deliveryInfo.landmark}</span>
+                        </div>
                       )}
                     </div>
+
+                    {/* Map Action Buttons */}
+                    <div className="grid grid-cols-2 gap-2 pt-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={handleViewLocation}
+                        className="w-full"
+                        title="View customer location on map"
+                      >
+                        <Map className="h-4 w-4 mr-2" />
+                        View Location
+                      </Button>
+                      <Button 
+                        variant="default" 
+                        size="sm"
+                        onClick={handleGetDirections}
+                        className="w-full"
+                        title="Get directions from restaurant to customer"
+                      >
+                        <Compass className="h-4 w-4 mr-2" />
+                        Get Directions
+                      </Button>
+                    </div>
+
+                    {/* External Maps Links */}
+                    {hasValidCoordinates && (
+                      <div className="flex justify-between text-xs border-t pt-2">
+                        <a 
+                          href={`https://www.google.com/maps/dir/?api=1&origin=${RESTAURANT_LOCATION.lat},${RESTAURANT_LOCATION.lng}&destination=${coordinates.lat},${coordinates.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline flex items-center"
+                        >
+                          Google Maps <ExternalLink className="h-3 w-3 ml-1" />
+                        </a>
+                        <a 
+                          href={`https://maps.apple.com/?daddr=${coordinates.lat},${coordinates.lng}&saddr=${RESTAURANT_LOCATION.lat},${RESTAURANT_LOCATION.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline flex items-center"
+                        >
+                          Apple Maps <ExternalLink className="h-3 w-3 ml-1" />
+                        </a>
+                        <a 
+                          href={`https://www.waze.com/ul?ll=${coordinates.lat},${coordinates.lng}&navigate=yes&from=${RESTAURANT_LOCATION.lat},${RESTAURANT_LOCATION.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline flex items-center"
+                        >
+                          Waze <ExternalLink className="h-3 w-3 ml-1" />
+                        </a>
+                      </div>
+                    )}
+                    
+                    {/* Delivery Instructions */}
                     {order.deliveryInfo?.deliveryInstructions && (
                       <div className="pt-2 border-t">
-                        <p className="text-sm font-medium">Delivery Instructions:</p>
+                        <p className="text-sm font-medium mb-1">Delivery Instructions:</p>
                         <p className="text-sm text-muted-foreground">{order.deliveryInfo.deliveryInstructions}</p>
                       </div>
                     )}
@@ -602,14 +835,70 @@ export default function DeliveryManagement() {
   const DeliveryCard = ({ order }: { order: DeliveryOrder }) => {
     const customerName = order.deliveryInfo?.fullName || order.userDetails?.name || "Unknown Customer"
     const customerPhone = order.deliveryInfo?.phoneNumber || order.userDetails?.phone || "No Phone"
-    const address = order.deliveryInfo?.address || order.deliveryAddress || "No address"
+    const address = order.deliveryInfo?.address || order.deliveryAddress || order.userDetails?.address || "No address"
     const city = order.deliveryInfo?.city || ""
+    
+    // Get coordinates from userDetails
+    const getCoordinates = (): { lat: number; lng: number } | null => {
+      if (order.userDetails?.location?.coordinates && 
+          order.userDetails.location.coordinates.length === 2) {
+        const [lng, lat] = order.userDetails.location.coordinates
+        return { lat, lng }
+      }
+      return null
+    }
+
+    const coordinates = getCoordinates()
+    const hasValidCoordinates = coordinates !== null && 
+                               coordinates.lat >= -90 && coordinates.lat <= 90 && 
+                               coordinates.lng >= -180 && coordinates.lng <= 180
+
+    const handleViewLocation = () => {
+      if (hasValidCoordinates) {
+        viewLocationOnMap(coordinates)
+        toast.success("Showing customer location")
+      } else if (address !== "No address") {
+        const fullAddress = city ? `${address}, ${city}` : address
+        viewLocationOnMap(fullAddress)
+        toast.success("Showing address on map")
+      } else {
+        toast.error("No location available")
+      }
+    }
+
+    const handleGetDirections = () => {
+      if (hasValidCoordinates) {
+        openRouteFromRestaurant(coordinates)
+        toast.success("Getting directions from restaurant")
+      } else if (address !== "No address") {
+        const fullAddress = city ? `${address}, ${city}` : address
+        openRouteFromRestaurant(fullAddress)
+        toast.success("Getting directions from restaurant")
+      } else {
+        toast.error("No location available")
+      }
+    }
+
+    // Calculate distance for display
+    const getDistance = (): number | null => {
+      if (hasValidCoordinates) {
+        return calculateDistance(
+          RESTAURANT_LOCATION.lat,
+          RESTAURANT_LOCATION.lng,
+          coordinates.lat,
+          coordinates.lng
+        )
+      }
+      return null
+    }
+
+    const distance = getDistance()
 
     return (
       <Card className="hover:shadow-lg transition-shadow duration-300 border-l-4 border-l-primary">
         <CardHeader>
           <CardTitle className="flex justify-between items-center">
-            <span className="text-lg font-bold">Delivery #{order.orderNumber}</span>
+            <span className="text-lg font-bold truncate">Delivery #{order.orderNumber}</span>
             <Badge variant="outline" className={statusColors[order.status]}>
               {statusIcons[order.status]} {order.status.replace("_", " ")}
             </Badge>
@@ -633,33 +922,80 @@ export default function DeliveryManagement() {
                 size="icon" 
                 onClick={() => customerPhone !== "No Phone" && window.open(`tel:${customerPhone}`, '_blank')} 
                 disabled={customerPhone === "No Phone"}
+                title="Call customer"
               >
                 <Phone className="h-4 w-4" />
               </Button>
             </div>
           </div>
 
-          {/* Address */}
+          {/* Address with GPS Badge - UPDATED */}
           <div className="flex items-start space-x-2">
-            <MapPin className="h-4 w-4 text-muted-foreground mt-1" />
+            <MapPin className="h-4 w-4 text-muted-foreground mt-1 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm truncate">{address}</p>
-              <p className="text-xs text-muted-foreground">{city}</p>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                {city && <p className="text-xs text-muted-foreground">{city}</p>}
+                {hasValidCoordinates ? (
+                  <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                    <Navigation className="h-3 w-3 mr-1" />
+                    GPS Available
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">
+                    <MapPin className="h-3 w-3 mr-1" />
+                    Address Only
+                  </Badge>
+                )}
+              </div>
+              {hasValidCoordinates && (
+                <p className="text-xs text-green-600 mt-1">
+                  {coordinates.lat.toFixed(4)}, {coordinates.lng.toFixed(4)}
+                </p>
+              )}
+              {distance && (
+                <p className="text-xs text-blue-600 mt-1">
+                  <Truck className="h-3 w-3 inline mr-1" />
+                  {distance} km from restaurant
+                </p>
+              )}
+            </div>
+            <div className="flex gap-1">
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={handleViewLocation}
+                disabled={address === "No address" && !hasValidCoordinates}
+                title="View on map"
+                className="h-8 w-8"
+              >
+                <Map className="h-4 w-4" />
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={handleGetDirections}
+                disabled={address === "No address" && !hasValidCoordinates}
+                title="Get directions from restaurant"
+                className="h-8 w-8 text-primary"
+              >
+                <Compass className="h-4 w-4" />
+              </Button>
             </div>
           </div>
 
           {/* Order Summary */}
           <div className="grid grid-cols-2 gap-2 text-sm pt-2 border-t">
             <div className="flex items-center">
-              <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
+              <Clock className="mr-2 h-4 w-4 text-muted-foreground flex-shrink-0" />
               <span className="truncate">{new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
             <div className="flex items-center">
-              <DollarSign className="mr-2 h-4 w-4 text-muted-foreground" />
+              <DollarSign className="mr-2 h-4 w-4 text-muted-foreground flex-shrink-0" />
               <span className="font-semibold">{order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
             </div>
             <div className="flex items-center col-span-2">
-              {paymentMethodIcons[order.paymentMethod] || <CreditCard className="mr-2 h-4 w-4 text-muted-foreground" />}
+              {paymentMethodIcons[order.paymentMethod] || <CreditCard className="mr-2 h-4 w-4 text-muted-foreground flex-shrink-0" />}
               <span className="text-sm text-muted-foreground truncate">{order.paymentMethod}</span>
             </div>
           </div>
@@ -723,7 +1059,7 @@ export default function DeliveryManagement() {
           <h1 className="text-3xl font-bold">Delivery Orders</h1>
           <p className="text-muted-foreground">Manage all delivery orders and track their status</p>
         </div>
-        <Button onClick={fetchDeliveryOrders} variant="outline" size="icon">
+        <Button onClick={fetchDeliveryOrders} variant="outline" size="icon" title="Refresh orders">
           <RefreshCcw className="h-4 w-4" />
         </Button>
       </div>
@@ -858,6 +1194,7 @@ export default function DeliveryManagement() {
                 size="icon"
                 onClick={() => setViewMode("list")}
                 className={viewMode === "list" ? "bg-primary text-primary-foreground" : ""}
+                title="List view"
               >
                 <List className="h-4 w-4" />
               </Button>
@@ -866,6 +1203,7 @@ export default function DeliveryManagement() {
                 size="icon"
                 onClick={() => setViewMode("grid")}
                 className={viewMode === "grid" ? "bg-primary text-primary-foreground" : ""}
+                title="Grid view"
               >
                 <Grid className="h-4 w-4" />
               </Button>
@@ -924,8 +1262,9 @@ export default function DeliveryManagement() {
               {paginatedOrders.map((order) => {
                 const customerName = order.deliveryInfo?.fullName || order.userDetails?.name || "Unknown Customer"
                 const customerPhone = order.deliveryInfo?.phoneNumber || order.userDetails?.phone || "No Phone"
-                const address = order.deliveryInfo?.address || order.deliveryAddress || "No address"
+                const address = order.deliveryInfo?.address || order.deliveryAddress || order.userDetails?.address || "No address"
                 const city = order.deliveryInfo?.city || ""
+                const hasCoordinates = order.userDetails?.location?.coordinates != null
 
                 return (
                   <TableRow key={order._id}>
@@ -937,8 +1276,21 @@ export default function DeliveryManagement() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="max-w-[200px] truncate" title={`${address}, ${city}`}>
-                        {address}, {city}
+                      <div className="max-w-[200px]">
+                        <div className="truncate" title={`${address}, ${city}`}>
+                          {address}, {city}
+                        </div>
+                        {hasCoordinates ? (
+                          <Badge variant="outline" className="mt-1 text-xs bg-green-50 text-green-700 border-green-200">
+                            <Navigation className="h-3 w-3 mr-1" />
+                            GPS
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="mt-1 text-xs bg-yellow-50 text-yellow-700 border-yellow-200">
+                            <MapPin className="h-3 w-3 mr-1" />
+                            Address
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>

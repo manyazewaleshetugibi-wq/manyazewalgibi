@@ -328,13 +328,14 @@ export default function RestaurantMenuManagement() {
   const [itemsPerPage] = useState(8)
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
-  const [priceRange, setPriceRange] = useState<[number, number]>([0, 1000])
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, 10000])
   const [isLoading, setIsLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
+  const [isImageRemoved, setIsImageRemoved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [retryCount, setRetryCount] = useState(0)
@@ -535,6 +536,7 @@ export default function RestaurantMenuManagement() {
     }
 
     setSelectedImage(file)
+    setIsImageRemoved(false) // User is adding a new image, so not removed
     
     // Create preview
     const reader = new FileReader()
@@ -552,6 +554,7 @@ export default function RestaurantMenuManagement() {
     setSelectedImage(null)
     setImagePreview(null)
     setValue("imageUrl", null)
+    setIsImageRemoved(true) // Mark that image was removed
     // Clear any image errors
     setFieldErrors(prev => {
       const newErrors = { ...prev }
@@ -617,7 +620,7 @@ export default function RestaurantMenuManagement() {
       formData.append("name", data.name || "")
       formData.append("description", data.description || "")
       formData.append("categoryId", data.categoryId || "")
-      formData.append("price", data.price?.toString() || "0") // Use toString() to preserve full precision
+      formData.append("price", data.price?.toString() || "0")
       formData.append("preparationTime", data.preparationTime?.toString() || "10")
       formData.append("isActive", (data.isActive ?? true).toString())
       formData.append("isFeatured", (data.isFeatured ?? false).toString())
@@ -641,17 +644,37 @@ export default function RestaurantMenuManagement() {
         }))
       formData.append("requiredStock", JSON.stringify(validRequiredStock))
       
-      // Handle image logic
-      if (selectedImage) {
-        formData.append('image', selectedImage);
-      } else if (data.imageUrl && typeof data.imageUrl === 'string') {
-        formData.append('imageUrl', data.imageUrl);
-      } else if (selectedItem && selectedItem.imageUrl && !selectedImage) {
-        // Keep existing image
-        formData.append('imageUrl', selectedItem.imageUrl);
-      } else if (selectedItem && selectedItem.imageUrl && !data.imageUrl) {
-        // This means an existing image was removed
-        formData.append("removeImage", "true")
+      // 🔥 FIXED IMAGE HANDLING FOR EDIT MODE 🔥
+      if (selectedItem && selectedItem._id) {
+        // EDIT MODE
+        formData.append("_id", selectedItem._id)
+        
+        if (selectedImage) {
+          // Case 1: User selected a new image - upload it to Cloudinary
+          console.log("📸 Uploading new image for edit...")
+          formData.append('image', selectedImage);
+          // Don't send old imageUrl - let backend handle it
+        } else if (isImageRemoved) {
+          // Case 2: User removed the image
+          console.log("🗑️ Image removed during edit")
+          formData.append("removeImage", "true")
+        } else if (data.imageUrl && data.imageUrl.startsWith('http')) {
+          // Case 3: Keep existing Cloudinary image (URL, not base64)
+          console.log("🖼️ Keeping existing Cloudinary image")
+          formData.append("imageUrl", data.imageUrl)
+        } else if (selectedItem.cloudinaryData?.url) {
+          // Case 4: Use cloudinaryData.url from existing item
+          console.log("🖼️ Using cloudinaryData.url from existing item")
+          formData.append("imageUrl", selectedItem.cloudinaryData.url)
+        }
+        // If none of the above, no image field is sent - backend should keep existing
+      } else {
+        // CREATE MODE
+        if (selectedImage) {
+          formData.append('image', selectedImage);
+        } else if (data.imageUrl && typeof data.imageUrl === 'string') {
+          formData.append('imageUrl', data.imageUrl);
+        }
       }
       
       console.log("Sending data to API...")
@@ -704,6 +727,7 @@ export default function RestaurantMenuManagement() {
         reset()
         setSelectedImage(null)
         setImagePreview(null)
+        setIsImageRemoved(false)
         setSelectedItem(null)
         setIsDialogOpen(false)
         setFieldErrors({})
@@ -841,8 +865,10 @@ export default function RestaurantMenuManagement() {
 
   const handleEdit = (item: MenuItem) => {
     setSelectedItem(item)
-    setImagePreview(item.imageUrl || null)
+    // Use cloudinaryData.url if available, otherwise fallback to imageUrl
+    setImagePreview(item.cloudinaryData?.url || item.imageUrl || null)
     setSelectedImage(null)
+    setIsImageRemoved(false)
     setFieldErrors({})
     setError(null)
     
@@ -855,6 +881,8 @@ export default function RestaurantMenuManagement() {
       isActive: getSafeValue(item.isActive, true),
       isFeatured: getSafeValue(item.isFeatured, false),
       price: getSafeValue(item.price, 0),
+      // Use cloudinaryData.url for imageUrl in the form
+      imageUrl: item.cloudinaryData?.url || item.imageUrl,
     }
     reset(itemToEdit)
     setIsDialogOpen(true)
@@ -869,6 +897,7 @@ export default function RestaurantMenuManagement() {
     setSelectedItem(null)
     setImagePreview(null)
     setSelectedImage(null)
+    setIsImageRemoved(false)
     setFieldErrors({})
     setError(null)
     reset({
@@ -886,7 +915,8 @@ export default function RestaurantMenuManagement() {
   }
 
   const getItemImage = (item: MenuItem) => {
-    return item.imageUrl || "/placeholder.svg"
+    // Prefer cloudinaryData.url over imageUrl
+    return item.cloudinaryData?.url || item.imageUrl || "/placeholder.svg"
   }
 
   // Helper function to get nutritional info safely
@@ -1204,6 +1234,7 @@ export default function RestaurantMenuManagement() {
         if (!open) {
           setSelectedImage(null)
           setImagePreview(null)
+          setIsImageRemoved(false)
           setUploadProgress(0)
           setFieldErrors({})
           setError(null)
@@ -1377,7 +1408,7 @@ export default function RestaurantMenuManagement() {
                           <Label className="text-sm font-medium mb-2 block">Image Preview</Label>
                           <div className="relative w-full max-w-xs">
                             <img
-                              src={imagePreview || selectedItem?.imageUrl}
+                              src={imagePreview || selectedItem?.cloudinaryData?.url || selectedItem?.imageUrl}
                               alt="Preview"
                               className="w-full h-48 object-cover rounded-md border"
                             />

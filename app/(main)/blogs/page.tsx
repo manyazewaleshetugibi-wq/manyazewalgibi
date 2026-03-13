@@ -4,7 +4,11 @@ import * as React from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { Search, Calendar, Clock, User, Tag, Video, ImageIcon, Play, Loader2, Maximize2, FileText, AlertTriangle } from "lucide-react"
+import { 
+  Search, Calendar, Clock, User, Tag, Video, ImageIcon, 
+  Play, Loader2, Maximize2, FileText, AlertTriangle, 
+  ChevronDown, Filter, Eye, BookOpen
+} from "lucide-react"
 
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -15,6 +19,8 @@ import { NavBar } from "@/components/NavBar"
 import { Pagination } from "@/components/Pagination"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { motion } from "framer-motion"
+import { Separator } from "@/components/ui/separator"
 
 export interface Blog {
   _id: string
@@ -109,24 +115,29 @@ const BlogMediaPreview = ({
   if (isVideo) {
     if (embedUrl) {
       return (
-        <div className={`relative ${heightClass} w-full bg-black`}>
-          <iframe src={embedUrl} className="w-full h-full pointer-events-none" title={blog.title} frameBorder="0" />
+        <div className={`relative ${heightClass} w-full bg-purple-950`}>
+          <iframe 
+            src={embedUrl} 
+            className="w-full h-full pointer-events-none" 
+            title={blog.title} 
+            frameBorder="0" 
+          />
           <div className="absolute inset-0 bg-transparent" /> {/* Overlay to prevent interaction in preview */}
-          <div className="absolute bottom-2 left-2 bg-black/70 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
+          <div className="absolute bottom-2 left-2 bg-purple-900/90 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1 backdrop-blur-sm">
             <Video className="h-3 w-3" /> Video
           </div>
         </div>
       )
     }
     return (
-      <div className={`relative ${heightClass} w-full group bg-black`}>
+      <div className={`relative ${heightClass} w-full group bg-purple-950`}>
         <video src={videoSource} className={`w-full h-full object-${objectFit}`} muted playsInline preload="metadata" />
-        <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+        <div className="absolute inset-0 bg-purple-900/30 flex items-center justify-center group-hover:bg-purple-900/40 transition-colors">
           <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
             <Play className="w-6 h-6 text-white" />
           </div>
         </div>
-        <div className="absolute bottom-2 left-2 bg-black/70 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1">
+        <div className="absolute bottom-2 left-2 bg-purple-900/90 text-white px-2 py-1 rounded text-xs font-medium flex items-center gap-1 backdrop-blur-sm">
           <Video className="h-3 w-3" /> Video
         </div>
       </div>
@@ -135,17 +146,24 @@ const BlogMediaPreview = ({
   
   if (isImage && imageSource) {
     return (
-      <div className={`relative ${heightClass} w-full`}>
-        <Image src={imageSource} alt={blog.title} layout="fill" objectFit={objectFit} className="transition-transform duration-300 hover:scale-105" />
+      <div className={`relative ${heightClass} w-full overflow-hidden`}>
+        <Image 
+          src={imageSource} 
+          alt={blog.title} 
+          layout="fill" 
+          objectFit={objectFit} 
+          className="transition-transform duration-500 hover:scale-110" 
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-purple-900/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
     )
   }
   
   return (
-    <div className={`relative ${heightClass} w-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center`}>
-      <div className="text-gray-400 text-center">
+    <div className={`relative ${heightClass} w-full bg-gradient-to-br from-purple-100 to-purple-50 dark:from-purple-900/20 dark:to-purple-800/20 flex items-center justify-center`}>
+      <div className="text-purple-300 text-center">
         <FileText className="h-12 w-12 mx-auto mb-2" />
-        <p className="text-xs">No media</p>
+        <p className="text-xs text-purple-400">No media</p>
       </div>
     </div>
   )
@@ -268,36 +286,81 @@ export default function BlogLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-secondary/10">
+    <div className="min-h-screen bg-gradient-to-b from-white to-purple-50/30">
       <NavBar />
       <div className="container px-4 py-8 mx-auto">
         <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
           <main className="space-y-8">
-            <div className="flex items-center justify-between">
-              <h1 className="text-4xl font-bold tracking-tight">Blog</h1>
+            {/* Header with Purple-900 */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent">
+                  Our Blog
+                </h1>
+                <p className="text-gray-600 mt-2">
+                  Discover stories, recipes, and insights from Manyazewal
+                </p>
+              </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline">Sort by: {sortBy === "date" ? "Date" : "Popularity"}</Button>
+                  <Button 
+                    variant="outline" 
+                    className="border-2 border-purple-200 hover:border-purple-900 hover:bg-purple-50 rounded-xl"
+                  >
+                    <Filter className="mr-2 h-4 w-4 text-purple-900" />
+                    Sort by: {sortBy === "date" ? "Date" : "Popularity"}
+                    <ChevronDown className="ml-2 h-4 w-4" />
+                  </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem onClick={() => setSortBy("date")}>Date</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortBy("popularity")}>Popularity</DropdownMenuItem>
+                <DropdownMenuContent className="rounded-xl border-purple-200">
+                  <DropdownMenuItem 
+                    onClick={() => setSortBy("date")}
+                    className="hover:bg-purple-50 hover:text-purple-900"
+                  >
+                    <Calendar className="mr-2 h-4 w-4" />
+                    Date
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={() => setSortBy("popularity")}
+                    className="hover:bg-purple-50 hover:text-purple-900"
+                  >
+                    <Eye className="mr-2 h-4 w-4" />
+                    Popularity
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+
+            {/* Active Filters */}
             <ActiveFilters
               selectedCategory={selectedCategory}
               selectedTag={selectedTag}
               setSelectedCategory={setSelectedCategory}
               setSelectedTag={setSelectedTag}
             />
+
+            {/* Blog Posts */}
             {paginatedPosts.length === 0 ? (
               <NoPostsFound />
             ) : (
               <>
-                {paginatedPosts.map((post) => (
-                  <BlogPostCard key={post._id} post={post} onRedirect={handleRedirectToPost} />
-                ))}
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="space-y-8"
+                >
+                  {paginatedPosts.map((post, index) => (
+                    <motion.div
+                      key={post._id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                    >
+                      <BlogPostCard post={post} onRedirect={handleRedirectToPost} />
+                    </motion.div>
+                  ))}
+                </motion.div>
+
                 <Pagination
                   currentPage={currentPage}
                   totalItems={filteredPosts.length}
@@ -308,6 +371,7 @@ export default function BlogLayout() {
             )}
           </main>
 
+          {/* Sidebar with Purple-900 */}
           <aside className="space-y-8">
             <SearchCard searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
             <CategoriesCard
@@ -327,41 +391,73 @@ export default function BlogLayout() {
 }
 
 const BlogPostCard: React.FC<{ post: Blog; onRedirect: (id: string) => void }> = ({ post, onRedirect }) => (
-  <article className="group overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md">
+  <article className="group overflow-hidden rounded-2xl border-2 border-purple-100 bg-white hover:shadow-xl transition-all duration-300 hover:border-purple-300">
     <div 
-      className="aspect-video overflow-hidden cursor-pointer"
+      className="aspect-video overflow-hidden cursor-pointer relative"
       onClick={() => onRedirect(post._id)}
     >
       <BlogMediaPreview blog={post} heightClass="h-full" />
     </div>
     <div className="p-6 space-y-4">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Badge>{post.category}</Badge>
-        <span className="flex items-center gap-1">
-          <Calendar className="w-4 h-4" />
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <Badge className="bg-purple-100 text-purple-900 hover:bg-purple-200 border-0 rounded-full px-3 py-1">
+          {post.category}
+        </Badge>
+        <span className="flex items-center gap-1 text-gray-600">
+          <Calendar className="w-4 h-4 text-purple-700" />
           {new Date(post.publishedAt).toLocaleDateString()}
         </span>
-        <span className="flex items-center gap-1">
-          <Clock className="w-4 h-4" />
+        <span className="flex items-center gap-1 text-gray-600">
+          <Clock className="w-4 h-4 text-purple-700" />
           {post.readTime || 5} min read
         </span>
       </div>
-      <h2 className="text-2xl font-bold tracking-tight group-hover:text-primary transition-colors">{post.title}</h2>
-      <div className="flex items-center gap-2 text-sm">
-        <User className="w-4 h-4" />
-        <span>{post.author || "Admin"}</span>
+      
+      <h2 
+        className="text-2xl font-bold text-gray-800 group-hover:text-purple-900 transition-colors cursor-pointer"
+        onClick={() => onRedirect(post._id)}
+      >
+        {post.title}
+      </h2>
+      
+      <div className="flex items-center gap-2 text-sm text-gray-600">
+        <div className="p-1.5 bg-purple-100 rounded-full">
+          <User className="w-3 h-3 text-purple-900" />
+        </div>
+        <span className="font-medium">{post.author || "Admin"}</span>
       </div>
-      <div className="text-muted-foreground line-clamp-3" dangerouslySetInnerHTML={{ __html: post.content }} />
-      <div className="flex items-center justify-between pt-4">
+      
+      <div 
+        className="text-gray-600 line-clamp-3 prose prose-purple"
+        dangerouslySetInnerHTML={{ __html: post.content }}
+      />
+      
+      <div className="flex flex-wrap items-center justify-between gap-4 pt-4">
         <div className="flex flex-wrap gap-2">
-          {post.tags && post.tags.map((tag) => (
-            <Badge key={tag} variant="outline" className="flex items-center gap-1">
-              <Tag className="w-3 h-3" />
+          {post.tags && post.tags.slice(0, 3).map((tag) => (
+            <Badge 
+              key={tag} 
+              variant="outline" 
+              className="border-purple-200 text-purple-700 hover:bg-purple-50 rounded-full"
+            >
+              <Tag className="w-3 h-3 mr-1" />
               {tag}
             </Badge>
           ))}
+          {post.tags && post.tags.length > 3 && (
+            <Badge variant="outline" className="border-purple-200 text-purple-700 rounded-full">
+              +{post.tags.length - 3}
+            </Badge>
+          )}
         </div>
-        <Button onClick={() => onRedirect(post._id)}>Read More</Button>
+        
+        <Button 
+          onClick={() => onRedirect(post._id)}
+          className="rounded-full bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border-0 shadow-md hover:shadow-lg px-6"
+        >
+          <BookOpen className="mr-2 h-4 w-4" />
+          Read More
+        </Button>
       </div>
     </div>
   </article>
@@ -372,25 +468,41 @@ const ActiveFilters: React.FC<{
   selectedTag: string | null
   setSelectedCategory: (category: string | null) => void
   setSelectedTag: (tag: string | null) => void
-}> = ({ selectedCategory, selectedTag, setSelectedCategory, setSelectedTag }) => (
-  <div className="flex flex-wrap items-center gap-2">
-    {selectedCategory && (
-      <Badge variant="secondary" className="cursor-pointer" onClick={() => setSelectedCategory(null)}>
-        Category: {selectedCategory} ×
-      </Badge>
-    )}
-    {selectedTag && (
-      <Badge variant="secondary" className="cursor-pointer" onClick={() => setSelectedTag(null)}>
-        Tag: {selectedTag} ×
-      </Badge>
-    )}
-  </div>
-)
+}> = ({ selectedCategory, selectedTag, setSelectedCategory, setSelectedTag }) => {
+  if (!selectedCategory && !selectedTag) return null
+  
+  return (
+    <div className="flex flex-wrap items-center gap-2 p-3 bg-purple-50/50 rounded-xl border border-purple-100">
+      <span className="text-sm text-purple-900 font-medium">Active filters:</span>
+      {selectedCategory && (
+        <Badge 
+          variant="secondary" 
+          className="cursor-pointer bg-purple-100 text-purple-900 hover:bg-purple-200 rounded-full px-3 py-1"
+          onClick={() => setSelectedCategory(null)}
+        >
+          Category: {selectedCategory} ×
+        </Badge>
+      )}
+      {selectedTag && (
+        <Badge 
+          variant="secondary" 
+          className="cursor-pointer bg-purple-100 text-purple-900 hover:bg-purple-200 rounded-full px-3 py-1"
+          onClick={() => setSelectedTag(null)}
+        >
+          Tag: {selectedTag} ×
+        </Badge>
+      )}
+    </div>
+  )
+}
 
 const NoPostsFound: React.FC = () => (
-  <div className="text-center py-12">
-    <h2 className="text-xl font-semibold">No posts found</h2>
-    <p className="text-muted-foreground mt-2">Try adjusting your search or filters</p>
+  <div className="text-center py-16 bg-white rounded-2xl border-2 border-purple-100">
+    <div className="w-20 h-20 mx-auto bg-purple-100 rounded-full flex items-center justify-center mb-4">
+      <FileText className="h-10 w-10 text-purple-900" />
+    </div>
+    <h2 className="text-2xl font-bold text-purple-900 mb-2">No posts found</h2>
+    <p className="text-gray-600">Try adjusting your search or filters</p>
   </div>
 )
 
@@ -398,16 +510,19 @@ const SearchCard: React.FC<{ searchQuery: string; setSearchQuery: (query: string
   searchQuery,
   setSearchQuery,
 }) => (
-  <Card>
-    <CardHeader>
-      <CardTitle>Search</CardTitle>
+  <Card className="border-2 border-purple-100 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
+    <CardHeader className="pb-3">
+      <CardTitle className="text-purple-900 flex items-center gap-2">
+        <Search className="h-5 w-5" />
+        Search
+      </CardTitle>
     </CardHeader>
     <CardContent>
       <div className="relative">
-        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Search className="absolute left-3 top-3 h-4 w-4 text-purple-700" />
         <Input
           placeholder="Search posts..."
-          className="pl-8"
+          className="pl-10 border-2 border-purple-100 focus:border-purple-900 focus:ring-2 focus:ring-purple-200 rounded-xl"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
@@ -421,9 +536,12 @@ const CategoriesCard: React.FC<{
   selectedCategory: string | null
   handleCategoryClick: (category: string) => void
 }> = ({ categories, selectedCategory, handleCategoryClick }) => (
-  <Card>
-    <CardHeader>
-      <CardTitle>Categories</CardTitle>
+  <Card className="border-2 border-purple-100 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
+    <CardHeader className="pb-3">
+      <CardTitle className="text-purple-900 flex items-center gap-2">
+        <Tag className="h-5 w-5" />
+        Categories
+      </CardTitle>
     </CardHeader>
     <CardContent>
       <ScrollArea className="h-[300px] pr-4">
@@ -432,11 +550,17 @@ const CategoriesCard: React.FC<{
             <Button
               key={category.name}
               variant={selectedCategory === category.name ? "secondary" : "ghost"}
-              className="w-full justify-between font-normal"
+              className={`w-full justify-between font-normal rounded-xl ${
+                selectedCategory === category.name 
+                  ? 'bg-purple-100 text-purple-900 hover:bg-purple-200' 
+                  : 'hover:bg-purple-50 hover:text-purple-900'
+              }`}
               onClick={() => handleCategoryClick(category.name)}
             >
               {category.name}
-              <span className="text-muted-foreground">({category.count})</span>
+              <Badge variant="outline" className="ml-2 border-purple-200 text-purple-700">
+                {category.count}
+              </Badge>
             </Button>
           ))}
         </div>
@@ -446,23 +570,34 @@ const CategoriesCard: React.FC<{
 )
 
 const RecentPostsCard: React.FC<{ recentPosts: Blog[] }> = ({ recentPosts }) => (
-  <Card>
-    <CardHeader>
-      <CardTitle>Recent Posts</CardTitle>
+  <Card className="border-2 border-purple-100 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
+    <CardHeader className="pb-3">
+      <CardTitle className="text-purple-900 flex items-center gap-2">
+        <Clock className="h-5 w-5" />
+        Recent Posts
+      </CardTitle>
     </CardHeader>
     <CardContent>
       <div className="space-y-4">
         {recentPosts.map((post) => (
-          <div key={post._id} className="flex gap-4">
-            <div className="w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden">
+          <div key={post._id} className="flex gap-4 group">
+            <div className="w-20 h-20 flex-shrink-0 rounded-xl overflow-hidden border-2 border-purple-100 group-hover:border-purple-300 transition-colors">
               <BlogMediaPreview blog={post} heightClass="h-full" />
             </div>
-            <div className="space-y-1">
-              <div className="text-sm font-medium text-muted-foreground">{post.category}</div>
-              <Link href={`/blog/${post._id}`} className="line-clamp-2 text-sm font-medium hover:text-primary">
+            <div className="space-y-1 flex-1">
+              <Badge variant="outline" className="border-purple-200 text-purple-700 text-xs px-2 py-0">
+                {post.category}
+              </Badge>
+              <Link 
+                href={`/blog/${post._id}`} 
+                className="line-clamp-2 text-sm font-medium text-gray-700 hover:text-purple-900 transition-colors"
+              >
                 {post.title}
               </Link>
-              <div className="text-xs text-muted-foreground">{new Date(post.publishedAt).toLocaleDateString()}</div>
+              <div className="text-xs text-gray-500 flex items-center gap-1">
+                <Calendar className="w-3 h-3 text-purple-700" />
+                {new Date(post.publishedAt).toLocaleDateString()}
+              </div>
             </div>
           </div>
         ))}
@@ -476,9 +611,12 @@ const TagsCard: React.FC<{
   selectedTag: string | null
   handleTagClick: (tag: string) => void
 }> = ({ allTags, selectedTag, handleTagClick }) => (
-  <Card>
-    <CardHeader>
-      <CardTitle>Tags</CardTitle>
+  <Card className="border-2 border-purple-100 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
+    <CardHeader className="pb-3">
+      <CardTitle className="text-purple-900 flex items-center gap-2">
+        <Tag className="h-5 w-5" />
+        Tags
+      </CardTitle>
     </CardHeader>
     <CardContent>
       <div className="flex flex-wrap gap-2">
@@ -486,7 +624,11 @@ const TagsCard: React.FC<{
           <Badge
             key={tag}
             variant={selectedTag === tag ? "default" : "secondary"}
-            className="cursor-pointer hover:bg-secondary-hover"
+            className={`cursor-pointer transition-all rounded-full px-3 py-1 ${
+              selectedTag === tag 
+                ? 'bg-purple-900 text-white hover:bg-purple-800' 
+                : 'bg-purple-100 text-purple-900 hover:bg-purple-200'
+            }`}
             onClick={() => handleTagClick(tag)}
           >
             {tag}
@@ -498,45 +640,63 @@ const TagsCard: React.FC<{
 )
 
 const NewsletterCard: React.FC = () => (
-  <Card>
-    <CardHeader>
-      <CardTitle>Subscribe to Newsletter</CardTitle>
+  <Card className="border-2 border-purple-100 rounded-2xl shadow-lg hover:shadow-xl transition-shadow bg-gradient-to-br from-purple-50 to-white">
+    <CardHeader className="pb-3">
+      <CardTitle className="text-purple-900 flex items-center gap-2">
+        <BookOpen className="h-5 w-5" />
+        Subscribe to Newsletter
+      </CardTitle>
     </CardHeader>
     <CardContent>
-      <form onSubmit={(e) => e.preventDefault()} className="space-y-2">
-        <Input placeholder="Enter your email" type="email" />
-        <Button className="w-full">Subscribe</Button>
+      <form onSubmit={(e) => e.preventDefault()} className="space-y-3">
+        <Input 
+          placeholder="Enter your email" 
+          type="email" 
+          className="border-2 border-purple-200 focus:border-purple-900 focus:ring-2 focus:ring-purple-200 rounded-xl"
+        />
+        <Button 
+          className="w-full bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border-0 rounded-xl"
+        >
+          Subscribe
+        </Button>
+        <p className="text-xs text-gray-500 text-center mt-2">
+          Get the latest posts delivered to your inbox
+        </p>
       </form>
     </CardContent>
   </Card>
 )
 
 const AdvertisementCard: React.FC = () => (
-  <Card className="border-2 border-dashed">
-    <CardContent className="flex items-center justify-center p-6">
+  <Card className="border-2 border-dashed border-purple-200 rounded-2xl bg-gradient-to-br from-purple-50/50 to-white">
+    <CardContent className="flex items-center justify-center p-8">
       <div className="text-center">
-        <p className="mt-2 text-sm text-muted-foreground">Advertisement Space</p>
+        <div className="w-16 h-16 mx-auto bg-purple-100 rounded-full flex items-center justify-center mb-3">
+          <Maximize2 className="h-8 w-8 text-purple-900" />
+        </div>
+        <p className="text-sm font-medium text-purple-900">Advertisement Space</p>
+        <p className="text-xs text-gray-500 mt-1">Reach our audience</p>
       </div>
     </CardContent>
   </Card>
 )
 
 const BlogSkeleton: React.FC = () => (
-  <div className="min-h-screen bg-gradient-to-b from-background to-secondary/10">
+  <div className="min-h-screen bg-gradient-to-b from-white to-purple-50/30">
     <div className="container px-4 py-8 mx-auto">
       <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
         <main className="space-y-8">
           {[...Array(5)].map((_, i) => (
             <div key={i} className="space-y-4">
-              <Skeleton className="h-64 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-64 w-full rounded-2xl" />
+              <Skeleton className="h-6 w-3/4 rounded-lg" />
+              <Skeleton className="h-4 w-1/2 rounded-lg" />
             </div>
           ))}
         </main>
         <aside className="space-y-8">
           {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-64 w-full" />
+            <Skeleton key={i} className="h-64 w-full rounded-2xl" />
           ))}
         </aside>
       </div>
@@ -545,14 +705,22 @@ const BlogSkeleton: React.FC = () => (
 )
 
 const ErrorMessage: React.FC<{ message: string }> = ({ message }) => (
-  <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-background to-secondary/10">
-    <Card className="w-full max-w-md">
+  <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-white to-purple-50/30">
+    <Card className="w-full max-w-md border-2 border-red-200 rounded-2xl">
       <CardHeader>
-        <CardTitle className="text-center text-red-500">Error</CardTitle>
+        <div className="flex justify-center mb-4">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+            <AlertTriangle className="h-8 w-8 text-red-600" />
+          </div>
+        </div>
+        <CardTitle className="text-center text-red-600">Error</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="text-center">{message}</p>
-        <Button className="w-full mt-4" onClick={() => window.location.reload()}>
+        <p className="text-center text-gray-600 mb-6">{message}</p>
+        <Button 
+          className="w-full bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border-0 rounded-xl"
+          onClick={() => window.location.reload()}
+        >
           Try Again
         </Button>
       </CardContent>

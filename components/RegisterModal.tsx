@@ -159,7 +159,7 @@ export function RegisterModal({ isOpen, onClose, onRegister }: RegisterModalProp
           <motion.div variants={contentVariants} initial="hidden" animate="visible">
             <motion.div variants={itemVariants} className="flex justify-center mb-6">
               <Image
-                src="/man_logo.png"
+                src="/man_logo.jpg"
                 alt="Company Logo"
                 width={80}
                 height={80}
