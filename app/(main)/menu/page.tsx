@@ -4,9 +4,9 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Search, X, ChevronDown, ChevronUp, Clock, DollarSign, Tag, Utensils, 
-  Grid, List, ShoppingCart, Plus, Minus, ChefHat, Sparkles, ArrowLeft, 
+import {
+  Search, X, ChevronDown, ChevronUp, Clock, DollarSign, Tag, Utensils,
+  Grid, List, ShoppingCart, Plus, Minus, ChefHat, Sparkles, ArrowLeft,
   MapPin, Home, Users, Info, RefreshCw, LogIn, AlertCircle, Loader2,
   Navigation, WifiOff, Truck, Star, Heart, Share2, Eye,
   Filter, SortAsc, SortDesc, Layers, Coffee, Pizza, Salad, ChefHat as Chef
@@ -50,8 +50,8 @@ import { LoginPromptDialog } from '@/components/auth/LoginPromptDialog'
 import { EnhancedDeliveryCalculator, DeliveryError } from '@/utils/enhancedDeliveryCalculator'
 
 // Types
-import { 
-  Category, Item, Waiter, UserData, PaginationInfo, 
+import {
+  Category, Item, Waiter, UserData, PaginationInfo,
   DeliveryFeeDetails, PaymentScreenshot, OrderData,
   OrderItem
 } from '@/types'
@@ -126,15 +126,15 @@ const preloadImages = (urls: string[]) => {
 }
 
 // Enhanced Item Card Component with Purple-900 UI
-const ItemCard = ({ 
-  item, 
-  categoryName, 
-  onAddToCart, 
+const ItemCard = ({
+  item,
+  categoryName,
+  onAddToCart,
   onViewDetails,
   isUserLoggedIn,
   onLoginRequired,
   index = 0
-}: { 
+}: {
   item: Item
   categoryName: string
   onAddToCart: (item: Item) => void
@@ -145,7 +145,7 @@ const ItemCard = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false)
   const [isImageLoaded, setIsImageLoaded] = useState(false)
-  
+
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (!isUserLoggedIn) {
@@ -179,33 +179,32 @@ const ItemCard = ({
       <Card className="group relative overflow-hidden border-0 bg-white/90 backdrop-blur-sm shadow-xl hover:shadow-2xl transition-all duration-500 rounded-3xl">
         {/* Gradient overlay on hover - purple-900 */}
         <div className="absolute inset-0 bg-gradient-to-t from-purple-900/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 z-10 rounded-3xl" />
-        
+
         {/* Image container with purple effect */}
         <div className="relative h-56 overflow-hidden rounded-t-3xl">
           <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent z-10 mix-blend-overlay" />
-          
+
           {/* Skeleton loader with purple shimmer */}
           {!isImageLoaded && (
             <Skeleton className="absolute inset-0 bg-gradient-to-r from-gray-200 via-purple-100 to-gray-200 animate-shimmer" />
           )}
-          
+
           <img
             src={getImageSrc(item.imageUrl)}
             alt={item.name}
-            className={`object-cover w-full h-full transition-all duration-700 ${
-              isHovered ? 'scale-110 rotate-1' : 'scale-100'
-            } ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
+            className={`object-cover w-full h-full transition-all duration-700 ${isHovered ? 'scale-110 rotate-1' : 'scale-100'
+              } ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
             onLoad={() => setIsImageLoaded(true)}
             onError={(e) => {
               (e.target as HTMLImageElement).src = '/placeholder.svg'
               setIsImageLoaded(true)
             }}
           />
-          
+
           {/* Decorative elements - purple-900 */}
           <div className="absolute top-0 left-0 w-32 h-32 bg-gradient-to-br from-purple-900/20 to-transparent rounded-full -translate-x-16 -translate-y-16 blur-2xl" />
           <div className="absolute bottom-0 right-0 w-40 h-40 bg-gradient-to-tl from-purple-900/20 to-transparent rounded-full translate-x-20 translate-y-20 blur-2xl" />
-          
+
           {/* Price tag with purple style */}
           <div className="absolute top-4 right-4 z-20">
             <div className="bg-white/95 backdrop-blur-sm text-purple-900 font-bold px-4 py-2 rounded-full shadow-lg border border-purple-200 flex items-center gap-1">
@@ -213,7 +212,7 @@ const ItemCard = ({
               <span>{Number(item.price).toLocaleString()} ETB</span>
             </div>
           </div>
-          
+
           {/* Featured badge - purple gradient */}
           {item.isFeatured && (
             <div className="absolute top-4 left-4 z-20">
@@ -223,11 +222,10 @@ const ItemCard = ({
               </div>
             </div>
           )}
-          
+
           {/* Quick view overlay */}
-          <div className={`absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center gap-3 transition-all duration-300 z-30 ${
-            isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}>
+          <div className={`absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center gap-3 transition-all duration-300 z-30 ${isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -248,7 +246,7 @@ const ItemCard = ({
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            
+
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -269,7 +267,7 @@ const ItemCard = ({
             </TooltipProvider>
           </div>
         </div>
-        
+
         <CardContent className="p-5 relative z-10">
           <div className="flex items-start justify-between mb-3">
             <div>
@@ -281,7 +279,7 @@ const ItemCard = ({
               </p>
             </div>
           </div>
-          
+
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <Badge variant="secondary" className="bg-purple-50 text-purple-900 border-purple-200 rounded-full px-3 py-1 text-xs font-medium">
               {getCategoryIcon(categoryName, "h-3 w-3 mr-1")}
@@ -292,9 +290,9 @@ const ItemCard = ({
               {Number(item.preparationTime) || 0} min
             </Badge>
           </div>
-          
+
           <Separator className="my-3 bg-gradient-to-r from-transparent via-purple-200 to-transparent" />
-          
+
           <div className="flex items-center justify-between pt-2">
             <div className="flex items-center gap-1">
               <Star className="h-4 w-4 fill-purple-900 text-purple-900" />
@@ -304,24 +302,23 @@ const ItemCard = ({
               <Star className="h-4 w-4 fill-purple-300 text-purple-300" />
               <span className="text-xs text-gray-500 ml-1">(24)</span>
             </div>
-            
+
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.95 }}
               onClick={handleAddToCart}
               disabled={item.isActive === false}
-              className={`relative overflow-hidden group/btn rounded-full p-2.5 transition-all ${
-                item.isActive === false 
-                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+              className={`relative overflow-hidden group/btn rounded-full p-2.5 transition-all ${item.isActive === false
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   : 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg hover:shadow-xl'
-              }`}
+                }`}
             >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-1000" />
               <Plus className="h-5 w-5" />
             </motion.button>
           </div>
         </CardContent>
-        
+
         {/* Decorative corner - purple-900 */}
         <div className="absolute bottom-0 right-0 w-16 h-16 bg-gradient-to-tl from-purple-900/20 to-transparent rounded-tl-full" />
       </Card>
@@ -330,15 +327,15 @@ const ItemCard = ({
 }
 
 // Enhanced List View Item Component with Purple-900
-const ListViewItem = ({ 
-  item, 
-  categoryName, 
-  onAddToCart, 
+const ListViewItem = ({
+  item,
+  categoryName,
+  onAddToCart,
   onViewDetails,
   isUserLoggedIn,
   onLoginRequired,
   index = 0
-}: { 
+}: {
   item: Item
   categoryName: string
   onAddToCart: (item: Item) => void
@@ -348,7 +345,7 @@ const ListViewItem = ({
   index?: number
 }) => {
   const [isHovered, setIsHovered] = useState(false)
-  
+
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (!isUserLoggedIn) {
@@ -379,9 +376,8 @@ const ListViewItem = ({
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
     >
-      <Card className={`relative overflow-hidden border-0 bg-white/90 backdrop-blur-sm shadow-md hover:shadow-xl transition-all duration-500 rounded-2xl ${
-        isHovered ? 'border-l-4 border-l-purple-900' : ''
-      }`}>
+      <Card className={`relative overflow-hidden border-0 bg-white/90 backdrop-blur-sm shadow-md hover:shadow-xl transition-all duration-500 rounded-2xl ${isHovered ? 'border-l-4 border-l-purple-900' : ''
+        }`}>
         <div className="flex flex-col md:flex-row">
           {/* Image section */}
           <div className="relative md:w-48 h-48 md:h-auto overflow-hidden">
@@ -394,7 +390,7 @@ const ListViewItem = ({
                 (e.target as HTMLImageElement).src = '/placeholder.svg'
               }}
             />
-            
+
             {/* Featured badge for list view - purple gradient */}
             {item.isFeatured && (
               <div className="absolute top-3 left-3 z-20">
@@ -405,7 +401,7 @@ const ListViewItem = ({
               </div>
             )}
           </div>
-          
+
           {/* Content section */}
           <div className="flex-1 p-6">
             <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
@@ -420,11 +416,11 @@ const ListViewItem = ({
                     </Badge>
                   )}
                 </div>
-                
+
                 <p className="text-gray-600 mb-4 line-clamp-2">
                   {item.description || 'No description available'}
                 </p>
-                
+
                 <div className="flex flex-wrap items-center gap-3 mb-4">
                   <Badge variant="secondary" className="bg-purple-50 text-purple-900 border-purple-200 rounded-full px-3 py-1.5">
                     {getCategoryIcon(categoryName, "h-3.5 w-3.5 mr-1")}
@@ -439,7 +435,7 @@ const ListViewItem = ({
                     4.5 (24 reviews)
                   </Badge>
                 </div>
-                
+
                 {/* Nutritional info pills */}
                 <div className="flex flex-wrap gap-2">
                   <div className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
@@ -453,12 +449,12 @@ const ListViewItem = ({
                   </div>
                 </div>
               </div>
-              
+
               <div className="flex flex-row md:flex-col items-center md:items-end gap-4 md:gap-3">
                 <div className="text-3xl font-bold text-purple-900">
                   {Number(item.price).toLocaleString()} <span className="text-sm font-normal text-gray-500">ETB</span>
                 </div>
-                
+
                 <div className="flex gap-2">
                   <TooltipProvider>
                     <Tooltip>
@@ -477,7 +473,7 @@ const ListViewItem = ({
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                  
+
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -485,11 +481,10 @@ const ListViewItem = ({
                           size="icon"
                           onClick={handleAddToCart}
                           disabled={item.isActive === false}
-                          className={`rounded-full ${
-                            item.isActive === false
+                          className={`rounded-full ${item.isActive === false
                               ? 'bg-gray-200 text-gray-400'
                               : 'bg-gradient-to-r from-purple-800 to-purple-900 text-white hover:from-purple-900 hover:to-purple-950 shadow-md hover:shadow-lg'
-                          }`}
+                            }`}
                         >
                           <ShoppingCart className="h-4 w-4" />
                         </Button>
@@ -504,26 +499,25 @@ const ListViewItem = ({
             </div>
           </div>
         </div>
-        
+
         {/* Hover effect overlay - purple-900 */}
-        <div className={`absolute inset-0 bg-gradient-to-r from-purple-900/5 to-transparent pointer-events-none transition-opacity duration-500 ${
-          isHovered ? 'opacity-100' : 'opacity-0'
-        }`} />
+        <div className={`absolute inset-0 bg-gradient-to-r from-purple-900/5 to-transparent pointer-events-none transition-opacity duration-500 ${isHovered ? 'opacity-100' : 'opacity-0'
+          }`} />
       </Card>
     </motion.div>
   )
 }
 
 // Item Detail Dialog with Purple-900 UI
-const ItemDetailDialog = ({ 
-  item, 
+const ItemDetailDialog = ({
+  item,
   categoryName,
   isOpen,
   onOpenChange,
   onAddToCart,
   isUserLoggedIn,
   onLoginRequired
-}: { 
+}: {
   item: Item
   categoryName: string
   isOpen: boolean
@@ -532,13 +526,13 @@ const ItemDetailDialog = ({
   isUserLoggedIn: boolean
   onLoginRequired: (message: string) => void
 }) => {
-  const nutritionalInfo = item.nutritionalInfo || { 
-    calories: 0, 
-    protein: 0, 
-    carbohydrates: 0, 
-    fat: 0 
+  const nutritionalInfo = item.nutritionalInfo || {
+    calories: 0,
+    protein: 0,
+    carbohydrates: 0,
+    fat: 0
   }
-  
+
   const handleAddToCartClick = () => {
     if (!isUserLoggedIn) {
       onLoginRequired('Please login to add items to your cart')
@@ -555,14 +549,14 @@ const ItemDetailDialog = ({
       },
     })
   }
-  
+
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto p-0 bg-gradient-to-br from-white to-purple-50/30 border-0 shadow-2xl rounded-3xl">
         <div className="relative">
           {/* Decorative header gradient - purple-900 */}
           <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-purple-900/20 to-transparent rounded-t-3xl" />
-          
+
           <DialogHeader className="p-6 pb-0 relative">
             <DialogTitle className="text-3xl font-bold flex items-center gap-3 text-gray-800">
               <div className="p-3 bg-gradient-to-br from-purple-800 to-purple-900 rounded-2xl shadow-lg">
@@ -571,7 +565,7 @@ const ItemDetailDialog = ({
               {item.name}
             </DialogTitle>
           </DialogHeader>
-          
+
           <div className="p-6 space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="relative group">
@@ -587,7 +581,7 @@ const ItemDetailDialog = ({
                   />
                 </div>
               </div>
-              
+
               <div className="space-y-6">
                 <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-purple-100">
                   <h3 className="text-xl font-semibold mb-3 flex items-center gap-2 text-gray-800">
@@ -598,7 +592,7 @@ const ItemDetailDialog = ({
                     {item.description || 'No description available'}
                   </p>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-gradient-to-br from-purple-50 to-white p-5 rounded-xl shadow-md border border-purple-100">
                     <div className="flex items-center gap-2 text-purple-900 mb-2">
@@ -609,7 +603,7 @@ const ItemDetailDialog = ({
                       {Number(item.price).toFixed(2)} <span className="text-sm font-normal text-gray-500">ETB</span>
                     </p>
                   </div>
-                  
+
                   <div className="bg-gradient-to-br from-blue-50 to-white p-5 rounded-xl shadow-md border border-blue-100">
                     <div className="flex items-center gap-2 text-blue-700 mb-2">
                       <Clock className="h-5 w-5" />
@@ -620,7 +614,7 @@ const ItemDetailDialog = ({
                     </p>
                   </div>
                 </div>
-                
+
                 <div className="bg-gradient-to-br from-purple-50 to-white p-5 rounded-xl shadow-md border border-purple-100">
                   <h4 className="font-medium text-purple-900 mb-3 flex items-center gap-2">
                     <Tag className="h-4 w-4" />
@@ -635,7 +629,7 @@ const ItemDetailDialog = ({
                 </div>
               </div>
             </div>
-            
+
             <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-purple-100">
               <h3 className="text-xl font-semibold mb-6 flex items-center gap-2 text-gray-800">
                 <Sparkles className="h-5 w-5 text-purple-900" />
@@ -669,17 +663,17 @@ const ItemDetailDialog = ({
               </div>
             </div>
           </div>
-          
+
           <DialogFooter className="p-6 pt-0 gap-3">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => onOpenChange(false)}
               className="rounded-full px-6 border-2 border-gray-200 hover:border-purple-300 hover:bg-purple-50"
             >
               Close
             </Button>
-            <Button 
-              onClick={handleAddToCartClick} 
+            <Button
+              onClick={handleAddToCartClick}
               className="rounded-full px-8 bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border-0 shadow-lg hover:shadow-xl transition-all"
             >
               <ShoppingCart className="mr-2 h-5 w-5" />
@@ -706,7 +700,7 @@ export default function MenuPage() {
     tax,
     totalItems
   } = useCart()
-  
+
   // State
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<Item[]>([])
@@ -720,23 +714,23 @@ export default function MenuPage() {
   const [loadingTimeout, setLoadingTimeout] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [imagesPreloaded, setImagesPreloaded] = useState(false)
-  
+
   const [showLoginPrompt, setShowLoginPrompt] = useState(false)
   const [loginPromptMessage, setLoginPromptMessage] = useState('Please login to continue')
-  
+
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
   const [showItemDetail, setShowItemDetail] = useState(false)
-  
+
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [orderProgress, setOrderProgress] = useState(0)
   const [orderNumber, setOrderNumber] = useState(`ORD-${Date.now().toString().slice(-6)}`)
-  
+
   const [orderType, setOrderType] = useState<'table' | 'delivery' | ''>('')
   const [tableNumber, setTableNumber] = useState('')
   const [selectedWaiter, setSelectedWaiter] = useState('')
   const [numberOfGuests, setNumberOfGuests] = useState(1)
   const [specialRequirements, setSpecialRequirements] = useState('')
-  
+
   const [paymentScreenshot, setPaymentScreenshot] = useState<PaymentScreenshot>({
     file: null,
     previewUrl: '',
@@ -745,13 +739,13 @@ export default function MenuPage() {
   const [transactionId, setTransactionId] = useState('')
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
   const [showPaymentUpload, setShowPaymentUpload] = useState(false)
-  
+
   // Enhanced Delivery States - REMOVED PROMO CODE
   const [deliveryFee, setDeliveryFee] = useState<DeliveryFeeDetails | null>(null)
   const [isCalculatingDelivery, setIsCalculatingDelivery] = useState(false)
-  
+
   const deliveryCalculator = useMemo(() => new EnhancedDeliveryCalculator(), [])
-  
+
   const abortControllerRef = useRef<AbortController | null>(null)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -762,11 +756,11 @@ export default function MenuPage() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
-    
+
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
     }
-    
+
     const controller = new AbortController()
     abortControllerRef.current = controller
 
@@ -789,21 +783,21 @@ export default function MenuPage() {
       setLoading(true)
       setLoadingTimeout(false)
 
-      const timeoutPromise = (ms: number) => new Promise((_, reject) => 
+      const timeoutPromise = (ms: number) => new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Request timeout')), ms)
       )
 
-      const categoriesPromise = api.get('/item-category', { 
+      const categoriesPromise = api.get('/item-category', {
         signal: controller.signal,
         timeout: 30000
       })
-      
-      const itemsPromise = api.get('/items', { 
+
+      const itemsPromise = api.get('/items', {
         signal: controller.signal,
         timeout: 30000
       })
-      
-      const waitersPromise = api.get('/waitress', { 
+
+      const waitersPromise = api.get('/waitress', {
         signal: controller.signal,
         timeout: 30000
       }).catch(() => ({ data: [] }))
@@ -823,24 +817,24 @@ export default function MenuPage() {
         const response = categoriesRes.value as AxiosResponse<ApiResponse<Category[]>>
         let categoriesData: Category[] = []
         const catData = response.data as any
-        
+
         if (Array.isArray(catData)) categoriesData = catData
         else if (catData?.data && Array.isArray(catData.data)) categoriesData = catData.data
         else if (catData?.categories && Array.isArray(catData.categories)) categoriesData = catData.categories
-        
+
         setCategories(categoriesData)
       }
 
       if (itemsRes.status === 'fulfilled') {
         const response = itemsRes.value as AxiosResponse<ApiResponse<any[]>>
-        
+
         let itemsData: any[] = []
         const itemData = response.data as any
-        
+
         if (Array.isArray(itemData)) itemsData = itemData
         else if (itemData?.data && Array.isArray(itemData.data)) itemsData = itemData.data
         else if (itemData?.items && Array.isArray(itemData.items)) itemsData = itemData.items
-        
+
         const normalizedItems: Item[] = itemsData.map((item: any) => ({
           _id: item._id || item.id || '',
           name: item.name || 'Unnamed Item',
@@ -861,7 +855,7 @@ export default function MenuPage() {
           createdAt: item.createdAt || '',
           updatedAt: item.updatedAt || ''
         }))
-        
+
         setItems(normalizedItems)
         setFilteredItems(normalizedItems)
       }
@@ -870,10 +864,10 @@ export default function MenuPage() {
         const response = waitersRes.value as AxiosResponse<ApiResponse<Waiter[]>>
         let waitersData: Waiter[] = []
         const waiterData = response.data as any
-        
+
         if (Array.isArray(waiterData)) waitersData = waiterData
         else if (waiterData?.data && Array.isArray(waiterData.data)) waitersData = waiterData.data
-        
+
         setWaiters(waitersData)
       }
 
@@ -882,11 +876,11 @@ export default function MenuPage() {
         console.log('🛑 Request aborted')
         return
       }
-      
+
       console.error('❌ Fetch error:', err)
-      
+
       if (err.message === 'Request timeout') {
-        toast.error('Connection timeout. Please try again.', { 
+        toast.error('Connection timeout. Please try again.', {
           duration: 3000,
           style: {
             borderRadius: '10px',
@@ -910,7 +904,7 @@ export default function MenuPage() {
       const imageUrls = items
         .map(item => getImageSrc(item.imageUrl))
         .filter(url => url && url !== '/placeholder.svg')
-      
+
       preloadImages(imageUrls)
       setImagesPreloaded(true)
 
@@ -932,7 +926,7 @@ export default function MenuPage() {
   // Filter and sort items
   useEffect(() => {
     if (items.length === 0) return
-    
+
     let result = [...items]
 
     if (selectedCategory) {
@@ -949,7 +943,7 @@ export default function MenuPage() {
 
     result.sort((a, b) => {
       if (sortField === 'name') {
-        return sortDirection === 'asc' 
+        return sortDirection === 'asc'
           ? a.name.localeCompare(b.name)
           : b.name.localeCompare(a.name)
       } else {
@@ -967,36 +961,36 @@ export default function MenuPage() {
     const calculateDeliveryFee = async () => {
       if (orderType === 'delivery' && userData && subtotal > 0) {
         setIsCalculatingDelivery(true)
-        
+
         try {
           let feeDetails: DeliveryFeeDetails
-          
-          if (userData.location?.coordinates && 
-              Array.isArray(userData.location.coordinates) && 
-              userData.location.coordinates.length === 2) {
-            
+
+          if (userData.location?.coordinates &&
+            Array.isArray(userData.location.coordinates) &&
+            userData.location.coordinates.length === 2) {
+
             const [lng, lat] = userData.location.coordinates
-            
+
             if (lat < 3 || lat > 15 || lng < 33 || lng > 48) {
               throw new DeliveryError(
                 'Invalid coordinates outside Ethiopia',
                 'INVALID_COORDINATES'
               )
             }
-            
+
             feeDetails = await deliveryCalculator.calculateDeliveryFeeFromCoordinates(
-              lat, 
-              lng, 
+              lat,
+              lng,
               subtotal,
               new Date().getHours()
               // REMOVED PROMO CODE PARAMETER
             )
-            
+
           } else if (userData.address) {
             const area = deliveryCalculator.extractAreaFromAddress(userData.address)
             feeDetails = deliveryCalculator.calculateEstimatedDeliveryFee(
-              'Addis Ababa', 
-              area, 
+              'Addis Ababa',
+              area,
               subtotal
               // REMOVED PROMO CODE PARAMETER
             )
@@ -1005,9 +999,9 @@ export default function MenuPage() {
             setIsCalculatingDelivery(false)
             return
           }
-          
+
           setDeliveryFee(feeDetails)
-          
+
           if (feeDetails.fee === 0) {
             toast.success('🎉 Free delivery eligible!', {
               style: {
@@ -1017,10 +1011,10 @@ export default function MenuPage() {
               },
             })
           }
-          
+
         } catch (error: unknown) {
           console.error('❌ Delivery calculation error:', error)
-          
+
           if (error instanceof DeliveryError) {
             switch (error.code) {
               case 'OUT_OF_RANGE':
@@ -1040,7 +1034,7 @@ export default function MenuPage() {
           } else {
             toast.error('Unable to calculate delivery fee')
           }
-          
+
           setDeliveryFee(null)
         } finally {
           setIsCalculatingDelivery(false)
@@ -1049,7 +1043,7 @@ export default function MenuPage() {
         setDeliveryFee(null)
       }
     }
-    
+
     calculateDeliveryFee()
   }, [orderType, userData, subtotal, deliveryCalculator])
 
@@ -1131,12 +1125,12 @@ export default function MenuPage() {
         toast.error('Please upload an image file')
         return
       }
-      
+
       if (file.size > 5 * 1024 * 1024) {
         toast.error('File size must be less than 5MB')
         return
       }
-      
+
       const previewUrl = URL.createObjectURL(file)
       setPaymentScreenshot({
         file,
@@ -1258,14 +1252,14 @@ export default function MenuPage() {
       // REMOVED PROMO CODE STATE RESET
       setShowPaymentUpload(false)
       setIsCartOpen(false)
-      
+
       toast.success(
-        orderType === 'delivery' 
-          ? 'Your order has been placed and will be delivered soon!' 
+        orderType === 'delivery'
+          ? 'Your order has been placed and will be delivered soon!'
           : 'Your order has been placed and is being prepared!',
         { id: orderToast, duration: 5000 }
       )
-      
+
       let progress = 0
       const interval = setInterval(() => {
         progress += 10
@@ -1275,7 +1269,7 @@ export default function MenuPage() {
           setTimeout(() => setOrderProgress(0), 2000)
         }
       }, 300)
-      
+
     } catch (error: any) {
       toast.error(error.message || 'Failed to place order. Please try again.', { id: orderToast })
     } finally {
@@ -1312,7 +1306,7 @@ export default function MenuPage() {
               </Alert>
             </motion.div>
           )}
-          
+
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
               <Skeleton className="h-12 w-12 rounded-full" />
@@ -1320,7 +1314,7 @@ export default function MenuPage() {
             </div>
             <Skeleton className="h-12 w-32 rounded-xl" />
           </div>
-          
+
           <div className="space-y-6 mb-10">
             <Skeleton className="h-14 w-full rounded-2xl" />
             <div className="flex gap-3">
@@ -1329,7 +1323,7 @@ export default function MenuPage() {
               <Skeleton className="h-12 w-28 rounded-xl" />
             </div>
           </div>
-          
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {[...Array(8)].map((_, i) => (
               <Card key={i} className="overflow-hidden rounded-3xl border-0 shadow-xl">
@@ -1354,97 +1348,18 @@ export default function MenuPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30">
       <NavBar />
-      
-      <main className="container mx-auto px-4 py-8">
+
+      <main className="container mx-auto px-4 py-6">
         {/* Header with Purple-900 UI */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="sticky top-0 z-20 bg-gradient-to-b from-purple-50/80 via-white/80 to-transparent backdrop-blur-xl pt-4 pb-6 -mt-4"
+          className="sticky top-0 z-20 bg-gradient-to-b from-purple-50/80 via-white/80 to-transparent backdrop-blur-xl pt-2 pb-1 mt-3"
         >
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <motion.div
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => router.back()}
-                  className="rounded-full border-2 border-purple-200 hover:border-purple-900 hover:bg-purple-50 bg-white/80 backdrop-blur-sm shadow-lg"
-                >
-                  <ArrowLeft className="w-5 h-5 text-purple-900" />
-                </Button>
-              </motion.div>
-              <h1 className="text-5xl font-bold bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent">
-                Our Menu
-              </h1>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
-                <SheetTrigger asChild>
-                  <motion.div
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Button 
-                      variant="default" 
-                      className="relative shadow-xl bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border-0 rounded-full px-6 py-6 text-lg"
-                    >
-                      <ShoppingCart className="mr-2 h-5 w-5" />
-                      Cart
-                      {totalItems > 0 && (
-                        <motion.span 
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-6 w-6 flex items-center justify-center shadow-lg"
-                        >
-                          {totalItems}
-                        </motion.span>
-                      )}
-                    </Button>
-                  </motion.div>
-                </SheetTrigger>
-                <SheetContent side="right" className="w-full sm:max-w-lg p-0 bg-gradient-to-br from-white to-purple-50/30 border-l-0 shadow-2xl">
-                  <CartPanel
-                    cart={cart}
-                    onClose={() => setIsCartOpen(false)}
-                    onRemoveItem={removeFromCart}
-                    onUpdateQuantity={updateQuantity}
-                    orderType={orderType}
-                    onOrderTypeChange={setOrderType}
-                    tableNumber={tableNumber}
-                    onTableNumberChange={setTableNumber}
-                    waiters={waiters}
-                    selectedWaiter={selectedWaiter}
-                    onWaiterChange={setSelectedWaiter}
-                    numberOfGuests={numberOfGuests}
-                    onGuestsChange={setNumberOfGuests}
-                    specialRequirements={specialRequirements}
-                    onSpecialRequirementsChange={setSpecialRequirements}
-                    subtotal={subtotal}
-                    tax={tax}
-                    deliveryFee={deliveryFee}
-                    total={finalTotal}
-                    orderNumber={orderNumber}
-                    onPlaceOrder={handlePlaceOrder}
-                    isPlacingOrder={isPlacingOrder}
-                    isUserLoggedIn={isLoggedIn}
-                    onLoginRequired={handleLoginRequired}
-                    userData={userData as UserData | null}
-                    onNavigateToProfile={handleNavigateToProfile}
-                    // Enhanced delivery props - REMOVED PROMO CODE
-                    isCalculatingDelivery={isCalculatingDelivery}
-                  />
-                </SheetContent>
-              </Sheet>
-            </div>
-          </div>
-          
+
+
           {/* Search and Filter with Purple-900 UI */}
-          <div className="space-y-4">
+          <div className="space-y-1">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="relative flex-grow">
                 <Search className="absolute left-4 top-4 text-purple-700" size={20} />
@@ -1456,9 +1371,9 @@ export default function MenuPage() {
                   className="pl-12 pr-4 py-6 text-lg bg-white/90 backdrop-blur-sm border-2 border-purple-200 rounded-2xl focus:border-purple-900 focus:ring-4 focus:ring-purple-200 transition-all shadow-lg"
                 />
               </div>
-              
-              <Select 
-                value={selectedCategory || 'all'} 
+
+              <Select
+                value={selectedCategory || 'all'}
                 onValueChange={(value) => setSelectedCategory(value === 'all' ? null : value)}
               >
                 <SelectTrigger className="w-full md:w-[280px] bg-white/90 backdrop-blur-sm border-2 border-purple-200 rounded-2xl px-4 py-6 text-lg focus:border-purple-900 focus:ring-4 focus:ring-purple-200 shadow-lg">
@@ -1487,18 +1402,17 @@ export default function MenuPage() {
                 </SelectContent>
               </Select>
             </div>
-            
+
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex gap-2 bg-white/80 backdrop-blur-sm p-2 rounded-2xl border border-purple-200 shadow-md">
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => handleSort('name')}
-                  className={`rounded-xl px-4 py-2 transition-all ${
-                    sortField === 'name' 
-                      ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg' 
+                  className={`rounded-xl px-4 py-2 transition-all ${sortField === 'name'
+                      ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg'
                       : 'hover:bg-purple-50 text-gray-600'
-                  }`}
+                    }`}
                 >
                   <span className="flex items-center gap-1">
                     Name
@@ -1511,11 +1425,10 @@ export default function MenuPage() {
                   variant="ghost"
                   size="sm"
                   onClick={() => handleSort('price')}
-                  className={`rounded-xl px-4 py-2 transition-all ${
-                    sortField === 'price' 
-                      ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg' 
+                  className={`rounded-xl px-4 py-2 transition-all ${sortField === 'price'
+                      ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg'
                       : 'hover:bg-purple-50 text-gray-600'
-                  }`}
+                    }`}
                 >
                   <span className="flex items-center gap-1">
                     Price
@@ -1528,11 +1441,10 @@ export default function MenuPage() {
                   variant="ghost"
                   size="sm"
                   onClick={() => handleSort('preparationTime')}
-                  className={`rounded-xl px-4 py-2 transition-all ${
-                    sortField === 'preparationTime' 
-                      ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg' 
+                  className={`rounded-xl px-4 py-2 transition-all ${sortField === 'preparationTime'
+                      ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg'
                       : 'hover:bg-purple-50 text-gray-600'
-                  }`}
+                    }`}
                 >
                   <span className="flex items-center gap-1">
                     Prep Time
@@ -1542,7 +1454,7 @@ export default function MenuPage() {
                   </span>
                 </Button>
               </div>
-              
+
               <div className="ml-auto flex gap-2 bg-white/80 backdrop-blur-sm p-2 rounded-2xl border border-purple-200 shadow-md">
                 <TooltipProvider>
                   <Tooltip>
@@ -1551,11 +1463,10 @@ export default function MenuPage() {
                         variant={viewMode === 'grid' ? 'default' : 'ghost'}
                         size="icon"
                         onClick={() => setViewMode('grid')}
-                        className={`rounded-xl h-10 w-10 transition-all ${
-                          viewMode === 'grid' 
-                            ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg' 
+                        className={`rounded-xl h-10 w-10 transition-all ${viewMode === 'grid'
+                            ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg'
                             : 'hover:bg-purple-50 text-gray-600'
-                        }`}
+                          }`}
                       >
                         <Grid size={18} />
                       </Button>
@@ -1565,7 +1476,7 @@ export default function MenuPage() {
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-                
+
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1573,11 +1484,10 @@ export default function MenuPage() {
                         variant={viewMode === 'list' ? 'default' : 'ghost'}
                         size="icon"
                         onClick={() => setViewMode('list')}
-                        className={`rounded-xl h-10 w-10 transition-all ${
-                          viewMode === 'list' 
-                            ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg' 
+                        className={`rounded-xl h-10 w-10 transition-all ${viewMode === 'list'
+                            ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-lg'
                             : 'hover:bg-purple-50 text-gray-600'
-                        }`}
+                          }`}
                       >
                         <List size={18} />
                       </Button>
@@ -1588,6 +1498,71 @@ export default function MenuPage() {
                   </Tooltip>
                 </TooltipProvider>
               </div>
+
+
+
+
+              <div className="flex items-center justify-between mb-6 mt-4 ml-5 mr-5">
+                <div className="flex items-center gap-4">
+                  <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
+                    <SheetTrigger asChild>
+                      <motion.div
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Button
+                          variant="default"
+                          className="relative shadow-xl bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border border-2xl border-purple-200 rounded-full px-6 py-7 mt-3 text-lg"
+                        >
+                          <ShoppingCart className="mr-2 h-5 w-5" />
+                          Cart
+                          {totalItems > 0 && (
+                            <motion.span
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-6 w-6 flex items-center justify-center shadow-lg"
+                            >
+                              {totalItems}
+                            </motion.span>
+                          )}
+                        </Button>
+                      </motion.div>
+                    </SheetTrigger>
+                    <SheetContent side="right" className="w-full sm:max-w-lg p-0 bg-gradient-to-br from-white to-purple-50/30 border-l-0 shadow-2xl">
+                      <CartPanel
+                        cart={cart}
+                        onClose={() => setIsCartOpen(false)}
+                        onRemoveItem={removeFromCart}
+                        onUpdateQuantity={updateQuantity}
+                        orderType={orderType}
+                        onOrderTypeChange={setOrderType}
+                        tableNumber={tableNumber}
+                        onTableNumberChange={setTableNumber}
+                        waiters={waiters}
+                        selectedWaiter={selectedWaiter}
+                        onWaiterChange={setSelectedWaiter}
+                        numberOfGuests={numberOfGuests}
+                        onGuestsChange={setNumberOfGuests}
+                        specialRequirements={specialRequirements}
+                        onSpecialRequirementsChange={setSpecialRequirements}
+                        subtotal={subtotal}
+                        tax={tax}
+                        deliveryFee={deliveryFee}
+                        total={finalTotal}
+                        orderNumber={orderNumber}
+                        onPlaceOrder={handlePlaceOrder}
+                        isPlacingOrder={isPlacingOrder}
+                        isUserLoggedIn={isLoggedIn}
+                        onLoginRequired={handleLoginRequired}
+                        userData={userData as UserData | null}
+                        onNavigateToProfile={handleNavigateToProfile}
+                        // Enhanced delivery props - REMOVED PROMO CODE
+                        isCalculatingDelivery={isCalculatingDelivery}
+                      />
+                    </SheetContent>
+                  </Sheet>
+                </div>
+              </div>
             </div>
           </div>
         </motion.div>
@@ -1595,7 +1570,7 @@ export default function MenuPage() {
         {/* Menu Items with Purple-900 UI */}
         <AnimatePresence mode="wait">
           {filteredItems.length === 0 ? (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
@@ -1607,17 +1582,17 @@ export default function MenuPage() {
               </div>
               <h3 className="text-3xl font-bold text-gray-800 mb-3">No items found</h3>
               <p className="text-gray-600 text-lg mb-8 max-w-md mx-auto">
-                {searchTerm 
-                  ? `No items matching "${searchTerm}"` 
+                {searchTerm
+                  ? `No items matching "${searchTerm}"`
                   : selectedCategory
-                  ? 'No items in this category'
-                  : items.length === 0 
-                  ? 'No items available. Please check back later.'
-                  : 'No items match your filters'}
+                    ? 'No items in this category'
+                    : items.length === 0
+                      ? 'No items available. Please check back later.'
+                      : 'No items match your filters'}
               </p>
               {(searchTerm || selectedCategory) && (
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={() => {
                     setSearchTerm('')
                     setSelectedCategory(null)
@@ -1628,8 +1603,8 @@ export default function MenuPage() {
                 </Button>
               )}
               {items.length === 0 && !searchTerm && !selectedCategory && (
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={fetchMenuData}
                   className="rounded-full px-8 py-6 text-lg border-2 border-purple-200 hover:border-purple-900 hover:bg-purple-50"
                 >
@@ -1640,20 +1615,19 @@ export default function MenuPage() {
             </motion.div>
           ) : (
             <>
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className={`grid gap-6 ${
-                  viewMode === 'grid' 
-                    ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' 
+                className={`grid gap-6 ${viewMode === 'grid'
+                    ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
                     : 'grid-cols-1'
-                }`}
+                  }`}
               >
                 {filteredItems.map((item, index) => {
                   const category = categories.find(c => c._id === item.categoryId)
                   const categoryName = category?.name || 'Uncategorized'
-                  
+
                   return viewMode === 'grid' ? (
                     <ItemCard
                       key={item._id}
@@ -1680,7 +1654,7 @@ export default function MenuPage() {
                 })}
               </motion.div>
 
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.5 }}
@@ -1697,7 +1671,7 @@ export default function MenuPage() {
       </main>
 
       {/* Dialogs */}
-      <LoginPromptDialog 
+      <LoginPromptDialog
         open={showLoginPrompt}
         onOpenChange={setShowLoginPrompt}
         onLogin={handleLogin}
@@ -1705,7 +1679,7 @@ export default function MenuPage() {
       />
 
       {selectedItem && (
-        <ItemDetailDialog 
+        <ItemDetailDialog
           item={selectedItem}
           categoryName={categories.find(c => c._id === selectedItem.categoryId)?.name || 'Uncategorized'}
           isOpen={showItemDetail}
@@ -1716,7 +1690,7 @@ export default function MenuPage() {
         />
       )}
 
-      <PaymentUploadDialog 
+      <PaymentUploadDialog
         open={showPaymentUpload}
         onOpenChange={setShowPaymentUpload}
         paymentScreenshot={paymentScreenshot}
@@ -1731,7 +1705,7 @@ export default function MenuPage() {
         total={finalTotal}
         onFinalizeOrder={handleFinalizeOrder}
         isPlacingOrder={isPlacingOrder}
-        // REMOVED appliedPromotion
+      // REMOVED appliedPromotion
       />
 
       {/* Order Progress with Purple-900 UI */}
@@ -1758,8 +1732,8 @@ export default function MenuPage() {
               <Progress value={orderProgress} className="h-2.5 bg-purple-100 [&>div]:bg-gradient-to-r [&>div]:from-purple-800 [&>div]:to-purple-900" />
               <p className="text-sm text-gray-500 mt-3 flex items-center gap-2">
                 <Clock className="h-4 w-4 animate-pulse text-purple-900" />
-                {orderType === 'delivery' 
-                  ? 'Your order is being prepared for delivery...' 
+                {orderType === 'delivery'
+                  ? 'Your order is being prepared for delivery...'
                   : 'Your order is being prepared...'}
               </p>
             </div>

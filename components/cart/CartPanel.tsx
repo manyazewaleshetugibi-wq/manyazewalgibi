@@ -106,8 +106,8 @@ export const CartPanel = memo(({
 
   return (
     <div className="flex flex-col h-full bg-gradient-to-br from-white to-purple-50/30">
-      {/* Header with Purple-900 */}
-      <div className="flex items-center justify-between p-5 border-b border-purple-100 bg-white/80 backdrop-blur-sm">
+      {/* Header with Purple-900 - Fixed at top */}
+      <div className="flex items-center justify-between p-5 border-b border-purple-100 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
         <motion.h3 
           initial={{ x: -20, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
@@ -140,8 +140,9 @@ export const CartPanel = memo(({
 
       {cart.length > 0 ? (
         <>
-          <ScrollArea className="flex-1">
-            <div className="p-5 space-y-6">
+          {/* Scrollable Content Area */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-5 space-y-6 pb-32">
               {/* Cart Items with Purple-900 styling */}
               <AnimatePresence>
                 <div className="space-y-3">
@@ -441,7 +442,7 @@ export const CartPanel = memo(({
                           {/* REMOVED PROMOTIONS SECTION */}
 
                           {/* Delivery Fee Status with Purple-900 */}
-                          {isCalculatingDelivery ? (
+                          {/* {isCalculatingDelivery ? (
                             <div className="flex items-center justify-center py-6 bg-purple-50 rounded-xl border-2 border-purple-200">
                               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-900 mr-3"></div>
                               <span className="text-sm text-purple-900 font-medium">Calculating delivery fee...</span>
@@ -487,7 +488,7 @@ export const CartPanel = memo(({
                                 )}
                               </div>
                             </motion.div>
-                          )}
+                          )} */}
 
                           {/* REMOVED APPLIED PROMOTION SECTION */}
                         </>
@@ -513,10 +514,10 @@ export const CartPanel = memo(({
                 </div>
               </div>
             </div>
-          </ScrollArea>
+          </div>
 
-          {/* Order Summary with Purple-900 */}
-          <div className="border-t-2 border-purple-100 p-5 space-y-4 bg-gradient-to-b from-white to-purple-50/50">
+          {/* Fixed Bottom Order Summary with Proceed to Pay Button */}
+          <div className="sticky bottom-0 border-t-2 border-purple-100 p-5 space-y-4 bg-gradient-to-b from-white/95 to-purple-50/95 backdrop-blur-md shadow-lg">
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Subtotal:</span>
