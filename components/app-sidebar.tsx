@@ -45,6 +45,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { title } from "process";
 
 // Define role-based navigation configurations
 const roleBasedNavigation = {
@@ -85,6 +86,7 @@ const roleBasedNavigation = {
         items: [
           { title: "Blogs", url: "/blog" },
           { title: "Contents", url: "/contents" },
+          { title: "Applications", url: "/applications" },
         ],
       },
       {
