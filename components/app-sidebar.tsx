@@ -245,7 +245,7 @@ const data = {
   user: {
     name: "Manyazewal Gibi",
     email: "Manyazewl Eshetu Gibi",
-    avatar: "/avatars/restaurant.jpg",
+    avatar: "/man_logo.jpg",
   },
   teams: [
     {

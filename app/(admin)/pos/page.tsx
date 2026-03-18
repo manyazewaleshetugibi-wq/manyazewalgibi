@@ -147,7 +147,7 @@ const MenuItemComponent = lazy(() => {
           item: MenuItem
           addToCart: (item: MenuItem) => void
         }) => (
-          <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/30 group">
+          <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/30 group min-w-0">
             <div className="relative aspect-square sm:aspect-[4/3] overflow-hidden rounded-t-lg">
               <Image
                 src={item.imageUrl || "/placeholder.svg"}
@@ -161,7 +161,7 @@ const MenuItemComponent = lazy(() => {
               <div className="absolute top-2 right-2 bg-black/75 text-white text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm">
                 {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
               </div>
-              
+
               {/* Bestseller badge */}
               {item.tags?.includes('bestseller') && (
                 <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-[9px] font-medium px-1.5 py-0.5 rounded-md backdrop-blur-sm flex items-center gap-1">
@@ -169,7 +169,7 @@ const MenuItemComponent = lazy(() => {
                   Best
                 </div>
               )}
-              
+
               {/* Quick add overlay */}
               <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
                 <Button
@@ -178,11 +178,11 @@ const MenuItemComponent = lazy(() => {
                   onClick={(e) => {
                     e.stopPropagation();
                     const button = e.currentTarget;
-                    
+
                     // Add ripple effect
                     button.classList.add("animate-pulse");
                     setTimeout(() => button.classList.remove("animate-pulse"), 300);
-                    
+
                     // Add to cart with feedback
                     addToCart(item);
                   }}
@@ -193,7 +193,7 @@ const MenuItemComponent = lazy(() => {
                 </Button>
               </div>
             </div>
-            
+
             <CardContent className="p-2 sm:p-3 flex flex-col gap-1 sm:gap-2 h-full">
               <div className="space-y-0.5 flex-grow">
                 <h3 className="font-medium text-xs sm:text-sm line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
@@ -211,30 +211,30 @@ const MenuItemComponent = lazy(() => {
                     {item.calories}cal
                   </Badge>
                 </div>
-                
+
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    
+
                     // Add ripple effect
                     const circle = document.createElement("span");
                     const diameter = Math.max(e.currentTarget.clientWidth, e.currentTarget.clientHeight);
                     const radius = diameter / 2;
-                    
+
                     circle.style.width = circle.style.height = `${diameter}px`;
                     circle.style.left = `${e.clientX - e.currentTarget.offsetLeft - radius}px`;
                     circle.style.top = `${e.clientY - e.currentTarget.offsetTop - radius}px`;
                     circle.classList.add("ripple");
-                    
+
                     const ripple = e.currentTarget.getElementsByClassName("ripple")[0];
                     if (ripple) {
                       ripple.remove();
                     }
-                    
+
                     e.currentTarget.appendChild(circle);
-                    
+
                     // Add to cart
                     addToCart(item);
                   }}
@@ -284,23 +284,10 @@ export default function OrderPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [orderProgress, setOrderProgress] = useState(0)
   const [isCartOpen, setIsCartOpen] = useState(false)
-  const [isTablet, setIsTablet] = useState(false)
   const [activeView, setActiveView] = useState<'grid' | 'list'>('grid')
 
   // Use debounce hook for search
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-
-  // Detect tablet/mobile devices
-  useEffect(() => {
-    const checkDevice = () => {
-      setIsTablet(window.innerWidth < 1024);
-    };
-    
-    checkDevice();
-    window.addEventListener('resize', checkDevice);
-    
-    return () => window.removeEventListener('resize', checkDevice);
-  }, []);
 
   // Add global styles for ripple effect and animations
   useEffect(() => {
@@ -354,7 +341,7 @@ export default function OrderPage() {
       }
     `;
     document.head.appendChild(style);
-    
+
     return () => {
       document.head.removeChild(style);
     };
@@ -404,7 +391,7 @@ export default function OrderPage() {
   const addToCart = useCallback((item: MenuItem) => {
     // Check for insufficient stock (simulated check)
     const insufficientStock = Math.random() < 0.1; // 10% chance of insufficient stock for demo
-    
+
     if (insufficientStock) {
       toast.error(`Sorry, ${item.name} is out of stock!`, {
         icon: "❌",
@@ -416,11 +403,11 @@ export default function OrderPage() {
         },
         duration: 3000,
       });
-      
+
       setInsufficientStockItem(item.name);
       return;
     }
-    
+
     // Add item to cart with animation
     setCart((prev) => {
       const existing = prev.find((i) => i._id === item._id)
@@ -429,12 +416,7 @@ export default function OrderPage() {
       }
       return [...prev, { ...item, quantity: 1 }]
     })
-    
-    // Open cart on small screens
-    if (isTablet) {
-      setIsCartOpen(true);
-    }
-    
+
     // Show success toast
     toast.success(`Added ${item.name} to cart`, {
       icon: "🛒",
@@ -446,7 +428,7 @@ export default function OrderPage() {
       },
       duration: 2000,
     })
-  }, [isTablet])
+  }, [])
 
   const removeFromCart = useCallback((itemId: string) => {
     setCart((prev) => prev.filter((item) => item._id !== itemId))
@@ -578,23 +560,8 @@ export default function OrderPage() {
         {/* Header */}
         <header className="border-b bg-background/80 backdrop-blur-sm p-2 sm:p-3 sticky top-0 z-10">
           <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2 w-full">
-            <div className="flex items-center gap-2 sm:gap-3">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => router.back()}
-                className="rounded-full shrink-0 h-8 w-8"
-            >
-                <ArrowLeft className="w-4 h-4" />
-                <span className="sr-only">Go back</span>
-            </Button>
-              
-            <div>
-                <h1 className="text-base sm:text-lg font-bold">POS System</h1>
-                <p className="text-[10px] sm:text-xs text-muted-foreground">Create and manage orders</p>
-            </div>
-          </div>
-            
+     
+
             <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap order-3 sm:order-2 w-full sm:w-auto mt-2 sm:mt-0">
               <Select value={tableNumber} onValueChange={setTableNumber}>
                 <SelectTrigger className="w-[90px] sm:w-[100px] lg:w-[110px] bg-background/70 text-xs h-8">
@@ -606,32 +573,32 @@ export default function OrderPage() {
                   ))}
                 </SelectContent>
               </Select>
-              
-            <Select value={selectedWaiter} onValueChange={setSelectedWaiter}>
+
+              <Select value={selectedWaiter} onValueChange={setSelectedWaiter}>
                 <SelectTrigger className="w-[calc(100%-80px-8px)] sm:w-[130px] lg:w-[150px] bg-background/70 text-xs h-8">
                   <SelectValue placeholder="Select Server" />
-              </SelectTrigger>
-              <SelectContent>
-                {waiters.map((waiter) => (
-                  <SelectItem key={waiter._id} value={waiter._id}>
-                    <div className="flex items-center gap-2">
+                </SelectTrigger>
+                <SelectContent>
+                  {waiters.map((waiter) => (
+                    <SelectItem key={waiter._id} value={waiter._id}>
+                      <div className="flex items-center gap-2">
                         <Avatar className="h-5 w-5">
-                        <AvatarImage src={waiter.avatar} alt={waiter.name} />
-                        <AvatarFallback>{getInitials(waiter.name)}</AvatarFallback>
-                      </Avatar>
+                          <AvatarImage src={waiter.avatar} alt={waiter.name} />
+                          <AvatarFallback>{getInitials(waiter.name)}</AvatarFallback>
+                        </Avatar>
                         <span className="truncate text-xs">{waiter.name}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-            
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="flex items-center gap-2 order-2 sm:order-3">
               <div className="hidden md:flex items-center mr-1">
-                <Button 
-                  variant={activeView === 'grid' ? 'default' : 'outline'} 
-                  size="icon" 
+                <Button
+                  variant={activeView === 'grid' ? 'default' : 'outline'}
+                  size="icon"
                   className="h-7 w-7 rounded-l-md rounded-r-none"
                   onClick={() => setActiveView('grid')}
                 >
@@ -640,11 +607,11 @@ export default function OrderPage() {
                     <div className="w-1 h-1 rounded-sm bg-current"></div>
                     <div className="w-1 h-1 rounded-sm bg-current"></div>
                     <div className="w-1 h-1 rounded-sm bg-current"></div>
-            </div>
+                  </div>
                 </Button>
-                <Button 
-                  variant={activeView === 'list' ? 'default' : 'outline'} 
-                  size="icon" 
+                <Button
+                  variant={activeView === 'list' ? 'default' : 'outline'}
+                  size="icon"
                   className="h-7 w-7 rounded-l-none rounded-r-md"
                   onClick={() => setActiveView('list')}
                 >
@@ -655,7 +622,7 @@ export default function OrderPage() {
                   </div>
                 </Button>
               </div>
-              
+
               <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
                 <SheetTrigger asChild>
                   <Button variant="default" size="icon" className="relative shrink-0 h-8 w-8">
@@ -669,7 +636,7 @@ export default function OrderPage() {
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col h-full border-l">
-                  <CartPanel 
+                  <CartPanel
                     cart={cart}
                     updateQuantity={updateQuantity}
                     removeFromCart={removeFromCart}
@@ -692,20 +659,20 @@ export default function OrderPage() {
             </div>
           </div>
         </header>
-        
+
         {/* Search & Categories */}
         <div className="border-b bg-background/60 p-2 sm:p-3">
           <div className="max-w-6xl mx-auto space-y-2 sm:space-y-3 w-full">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-                placeholder="Search menu items..." 
-              value={searchQuery}
-              onChange={handleSearchChange}
+              <Input
+                placeholder="Search menu items..."
+                value={searchQuery}
+                onChange={handleSearchChange}
                 className="pl-8 bg-background pr-3 border-input h-8 text-xs sm:text-sm"
-            />
-          </div>
-            
+              />
+            </div>
+
             <div className="flex w-full overflow-x-auto pb-1 hide-scrollbar">
               <div className="flex space-x-1.5 pb-1 w-max">
                 <Button
@@ -716,7 +683,7 @@ export default function OrderPage() {
                 >
                   All
                 </Button>
-                
+
                 {categories.map((category) => (
                   <Button
                     key={category._id}
@@ -731,25 +698,25 @@ export default function OrderPage() {
                     </span>
                   </Button>
                 ))}
-          </div>
+              </div>
             </div>
           </div>
         </div>
-        
+
         {/* Menu Items */}
         <div className="flex-1 p-2 sm:p-3 overflow-auto">
           <div className="max-w-6xl mx-auto">
             {filteredItems.length > 0 ? (
               <div className={
                 activeView === 'grid'
-                  ? "grid grid-cols-2 xs:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 pb-16 md:pb-4"
+                  ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 pb-16 md:pb-4 min-w-[320px]"
                   : "flex flex-col gap-1.5 sm:gap-2 pb-16 md:pb-4"
               }>
                 <AnimatePresence mode="popLayout">
                   {filteredItems.map((item, index) => (
-                <motion.div
-                  key={item._id}
-                  layout
+                    <motion.div
+                      key={item._id}
+                      layout
                       initial="initial"
                       animate="animate"
                       exit="exit"
@@ -757,18 +724,18 @@ export default function OrderPage() {
                       transition={{ duration: 0.25, delay: index * 0.02 }}
                     >
                       {activeView === 'grid' ? (
-                  <Suspense fallback={<MenuItemFallback />}>
+                        <Suspense fallback={<MenuItemFallback />}>
                           <MenuItemComponent item={item} addToCart={addToCart} />
-                  </Suspense>
+                        </Suspense>
                       ) : (
                         <ListViewItem item={item} addToCart={addToCart} />
                       )}
                     </motion.div>
                   ))}
-          </AnimatePresence>
-        </div>
+                </AnimatePresence>
+              </div>
             ) : (
-      <motion.div
+              <motion.div
                 className="flex flex-col items-center justify-center h-[50vh] text-center p-4"
                 variants={fadeInUp}
                 initial="initial"
@@ -776,26 +743,26 @@ export default function OrderPage() {
               >
                 <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-3">
                   <Search className="h-6 w-6 text-muted-foreground" />
-          </div>
+                </div>
                 <h3 className="text-lg font-medium mb-1">No items found</h3>
                 <p className="text-sm text-muted-foreground max-w-md">
-                  We couldn't find any menu items matching your search criteria. 
+                  We couldn't find any menu items matching your search criteria.
                   Try adjusting your search or selecting a different category.
                 </p>
-                
+
                 {searchQuery && (
-                    <Button
-                      variant="outline"
+                  <Button
+                    variant="outline"
                     className="mt-3"
                     onClick={() => setSearchQuery('')}
-                    >
+                  >
                     Clear Search
-                    </Button>
+                  </Button>
                 )}
               </motion.div>
             )}
-            </div>
-            </div>
+          </div>
+        </div>
       </main>
 
       {/* Insufficient Stock Dialog - FIXED */}
@@ -818,14 +785,14 @@ export default function OrderPage() {
               </p>
             </div>
           </div>
-          
+
           <DialogFooter className="sm:justify-end">
-            <Button 
+            <Button
               onClick={() => setInsufficientStockItem(null)}
               className="w-full sm:w-auto rounded-xl text-sm"
               variant="default"
             >
-              <Check className="mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" /> 
+              <Check className="mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" />
               Understood
             </Button>
           </DialogFooter>
@@ -868,19 +835,12 @@ export default function OrderPage() {
           display: none; /* Chrome, Safari, Opera */
         }
         
-        /* Prevent horizontal overflow */
+        /* Allow horizontal overflow/scroll if needed */
         html, body {
           max-width: 100vw;
-          overflow-x: hidden;
+          overflow-x: auto;
           margin: 0;
           padding: 0;
-        }
-        
-        /* Add responsive grid breakpoint */
-        @media (min-width: 480px) and (max-width: 639px) {
-          .xs\\:grid-cols-3 {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-          }
         }
         
         /* Improve touch interactions */
@@ -918,11 +878,11 @@ function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: M
             Best
           </div>
         )}
-        
+
         {/* Overlay on hover */}
         <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity"></div>
       </div>
-      
+
       <div className="flex-1 p-1.5 sm:p-2 flex flex-col">
         <div className="flex items-start justify-between">
           <div>
@@ -945,7 +905,7 @@ function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: M
             </div>
           </div>
         </div>
-        
+
         <div className="mt-auto pt-0.5 flex justify-end">
           <Button
             variant="ghost"
@@ -956,19 +916,19 @@ function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: M
               const circle = document.createElement("span");
               const diameter = Math.max(e.currentTarget.clientWidth, e.currentTarget.clientHeight);
               const radius = diameter / 2;
-              
+
               circle.style.width = circle.style.height = `${diameter}px`;
               circle.style.left = `${e.clientX - e.currentTarget.offsetLeft - radius}px`;
               circle.style.top = `${e.clientY - e.currentTarget.offsetTop - radius}px`;
               circle.classList.add("ripple");
-              
+
               const ripple = e.currentTarget.getElementsByClassName("ripple")[0];
               if (ripple) {
                 ripple.remove();
               }
-              
+
               e.currentTarget.appendChild(circle);
-              
+
               // Add to cart
               addToCart(item);
             }}
@@ -1050,7 +1010,7 @@ function CartPanel({
                       className="object-cover"
                     />
                   </div>
-                  
+
                   <div className="flex-1 p-2 flex flex-col">
                     <div className="flex items-start justify-between">
                       <div>
@@ -1069,7 +1029,7 @@ function CartPanel({
                         <span className="sr-only">Remove</span>
                       </Button>
                     </div>
-                    
+
                     <div className="mt-auto pt-1 flex justify-between items-center">
                       <div className="flex items-center border rounded-md">
                         <Button
@@ -1092,7 +1052,7 @@ function CartPanel({
                           <span className="sr-only">Increase</span>
                         </Button>
                       </div>
-                      
+
                       <span className="text-xs font-medium">
                         {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price * item.quantity)}
                       </span>
@@ -1102,7 +1062,7 @@ function CartPanel({
               ))}
             </div>
           </ScrollArea>
-          
+
           <div className="border-t p-3 space-y-3">
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
@@ -1125,9 +1085,9 @@ function CartPanel({
                 <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(total)}</span>
               </div>
             </div>
-            
+
             <div className="space-y-3 pt-1">
-              
+
               <div className="flex items-center gap-2">
                 <Label htmlFor="guests" className="text-xs whitespace-nowrap">Guests:</Label>
                 <Select value={numberOfGuests.toString()} onValueChange={(v) => setNumberOfGuests(parseInt(v))}>
@@ -1143,7 +1103,7 @@ function CartPanel({
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="space-y-1.5">
                 <Label htmlFor="special-requirements" className="text-xs">Special Requirements</Label>
                 <Textarea
@@ -1154,11 +1114,11 @@ function CartPanel({
                   onChange={(e) => setSpecialRequirements(e.target.value)}
                 />
               </div>
-              
+
               <div className="pt-1">
                 <p className="text-xs text-muted-foreground mb-1.5">Order #: <span className="font-mono">{orderNumber}</span></p>
-                <Button 
-                  onClick={handlePlaceOrder} 
+                <Button
+                  onClick={handlePlaceOrder}
                   className="w-full rounded-lg h-10"
                   disabled={cart.length === 0}
                 >
