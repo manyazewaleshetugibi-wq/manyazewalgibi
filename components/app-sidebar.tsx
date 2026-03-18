@@ -223,6 +223,7 @@ const roleBasedNavigation = {
         items: [
           { title: "POs", url: "/pos"  },
            { title: "edit", url: "/orders/edit"  },
+           { title: "myorders", url: "/orders/myorders"  },
         ],
       },
     ],

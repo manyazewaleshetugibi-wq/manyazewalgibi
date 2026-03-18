@@ -17,12 +17,13 @@ import {
   Utensils,
   Filter,
   TrendingUp,
+  Users,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, LineChart, Line, Bar } from "recharts"
+import { ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, LineChart, Line, Bar, BarChart as ReBarChart } from "recharts"
 import * as XLSX from "xlsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -38,6 +39,7 @@ type Order = {
   orderNumber: string
   tableNumber: string
   waiterId: string
+  waiterName?: string
   numberOfGuests: number
   items: Array<{
     itemId: string
@@ -98,10 +100,20 @@ type SalesData = {
   totalDiscounts: number
   dailySales: Record<string, number>
   orders: Order[]
+  waitressSales?: Record<string, { name: string; sales: number; orders: number }>
 }
 
-async function fetchSalesData(): Promise<SalesData> {
-  const response = await fetch("/api/order/report")
+async function fetchSalesData(waiterId?: string): Promise<SalesData> {
+  const url = waiterId && waiterId !== 'all' 
+    ? `/api/order/report?waiterId=${waiterId}`
+    : "/api/order/report"
+  const response = await fetch(url)
+  const data = await response.json()
+  return data
+}
+
+async function fetchWaitresses(): Promise<Waitress[]> {
+  const response = await fetch("/api/waitress")
   const data = await response.json()
   return data
 }
@@ -167,7 +179,7 @@ function SalesChart({ data, type = "line" }: { data: Record<string, number>, typ
           />
         </LineChart>
       ) : (
-        <BarChart data={chartData}>
+        <ReBarChart data={chartData}>
           <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
           <YAxis
             stroke="#888888"
@@ -184,7 +196,7 @@ function SalesChart({ data, type = "line" }: { data: Record<string, number>, typ
           />
           <Legend />
           <Bar dataKey="total" fill="#adfa1d" radius={[4, 4, 0, 0]} name="Sales" />
-        </BarChart>
+        </ReBarChart>
       )}
     </ResponsiveContainer>
   )
@@ -225,6 +237,8 @@ function getDateRange(type: 'today' | 'week' | 'month' | 'year' | 'custom') {
 
 export default function DashboardPage() {
   const [salesData, setSalesData] = useState<SalesData | null>(null)
+  const [waitresses, setWaitresses] = useState<Waitress[]>([])
+  const [selectedWaiter, setSelectedWaiter] = useState<string>('all')
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([])
   const [filteredOverviewOrders, setFilteredOverviewOrders] = useState<Order[]>([])
   const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null })
@@ -238,19 +252,66 @@ export default function DashboardPage() {
   const [chartType, setChartType] = useState<"line" | "bar">("line")
 
   useEffect(() => {
-    const loadData = async () => {
+    const loadInitialData = async () => {
       setIsLoading(true)
-      const data = await fetchSalesData()
-      setSalesData(data)
-      const { start, end } = getDateRange('today')
-      setDateRange({ start, end })
-      const filtered = filterOrdersByDate(data.orders || [], start, end)
-      setFilteredOrders(filtered)
-      setFilteredOverviewOrders(filtered)
-      setIsLoading(false)
+      try {
+        // Fetch waitresses first
+        const waitressesData = await fetchWaitresses()
+        setWaitresses(waitressesData)
+        
+        // Fetch sales data
+        const data = await fetchSalesData()
+        setSalesData(data)
+        const { start, end } = getDateRange('today')
+        setDateRange({ start, end })
+        
+        // Enrich orders with waiter names
+        const enrichedOrders = enrichOrdersWithWaiterNames(data.orders || [], waitressesData)
+        const filtered = filterOrdersByDate(enrichedOrders, start, end)
+        setFilteredOrders(filtered)
+        setFilteredOverviewOrders(filtered)
+      } catch (error) {
+        console.error('Error loading data:', error)
+      } finally {
+        setIsLoading(false)
+      }
     }
-    loadData()
+    loadInitialData()
   }, [])
+
+  // Fetch data when waiter selection changes
+  useEffect(() => {
+    if (!isLoading) {
+      const loadDataForWaiter = async () => {
+        setIsLoading(true)
+        try {
+          const data = await fetchSalesData(selectedWaiter)
+          setSalesData(data)
+          if (dateRange.start && dateRange.end) {
+            const enrichedOrders = enrichOrdersWithWaiterNames(data.orders || [], waitresses)
+            const filtered = filterOrdersByDate(enrichedOrders, dateRange.start, dateRange.end)
+            setFilteredOrders(filtered)
+            setFilteredOverviewOrders(filtered)
+          }
+        } catch (error) {
+          console.error('Error loading waiter data:', error)
+        } finally {
+          setIsLoading(false)
+        }
+      }
+      loadDataForWaiter()
+    }
+  }, [selectedWaiter])
+
+  const enrichOrdersWithWaiterNames = (orders: Order[], waitressesList: Waitress[]) => {
+    return orders.map(order => {
+      const waiter = waitressesList.find(w => w._id === order.waiterId)
+      return {
+        ...order,
+        waiterName: waiter?.name || 'Unknown'
+      }
+    })
+  }
 
   const filterOrdersByDate = (orders: Order[], start: Date | null, end: Date | null) => {
     if (!start || !end) return orders
@@ -260,7 +321,11 @@ export default function DashboardPage() {
     })
   }
 
-  const handleFilterChange = (type: 'today' | 'week' | 'month' | 'year' | 'custom', customStart?: Date, customEnd?: Date) => {
+  const handleWaiterChange = (waiterId: string) => {
+    setSelectedWaiter(waiterId)
+  }
+
+  const handleFilterChange = (type: 'today' | 'week' | 'month' | 'year' | 'custom', customStart?: Date | null, customEnd?: Date | null) => {
     setFilterType(type)
     let start: Date | null = null
     let end: Date | null = null
@@ -277,7 +342,8 @@ export default function DashboardPage() {
     if (start && end) {
       setDateRange({ start, end })
       if (salesData) {
-        const filtered = filterOrdersByDate(salesData.orders, start, end)
+        const enrichedOrders = enrichOrdersWithWaiterNames(salesData.orders || [], waitresses)
+        const filtered = filterOrdersByDate(enrichedOrders, start, end)
         setFilteredOrders(filtered)
         setFilteredOverviewOrders(filtered)
       }
@@ -307,13 +373,37 @@ export default function DashboardPage() {
     return dailySales
   }
 
+  const getSalesByWaiter = (orders: Order[]) => {
+    const waiterSales: Record<string, { name: string; sales: number; orders: number }> = {}
+    
+    orders.forEach(order => {
+      const waiterId = order.waiterId
+      const waiterName = order.waiterName || 'Unknown'
+      
+      if (!waiterSales[waiterId]) {
+        waiterSales[waiterId] = { name: waiterName, sales: 0, orders: 0 }
+      }
+      
+      waiterSales[waiterId].sales += order.finalAmount
+      waiterSales[waiterId].orders += 1
+    })
+    
+    return Object.values(waiterSales).sort((a, b) => b.sales - a.sales)
+  }
+
   const handleSort = (field: keyof Order) => {
     const order = field === sortBy && sortOrder === "asc" ? "desc" : "asc"
     setSortBy(field)
     setSortOrder(order)
     const sorted = [...filteredOrders].sort((a, b) => {
-      if (a[field] < b[field]) return order === "asc" ? -1 : 1
-      if (a[field] > b[field]) return order === "asc" ? 1 : -1
+      const aValue = a[field]
+      const bValue = b[field]
+
+      if (aValue === bValue) return 0
+      if (aValue === undefined || aValue === null) return 1
+      if (bValue === undefined || bValue === null) return -1
+      if (aValue < bValue) return order === "asc" ? -1 : 1
+      if (aValue > bValue) return order === "asc" ? 1 : -1
       return 0
     })
     setFilteredOrders(sorted)
@@ -321,11 +411,14 @@ export default function DashboardPage() {
 
   const handleExport = (section: 'overview' | 'analytics') => {
     const data = section === 'overview' ? filteredOverviewOrders : filteredOrders
-    const filename = section === 'overview' ? 'overview_sales_report' : 'analytics_sales_report'
+    const filename = section === 'overview' 
+      ? `overview_sales_report_${selectedWaiter}_${new Date().toISOString().split('T')[0]}`
+      : `analytics_sales_report_${selectedWaiter}_${new Date().toISOString().split('T')[0]}`
     
     const exportData = data.map(order => ({
       'Order Number': order.orderNumber,
       'Table Number': order.tableNumber,
+      'Waiter': order.waiterName || 'Unknown',
       'Total Amount': order.totalAmount,
       'Discount': order.discount,
       'Tax': order.tax,
@@ -353,6 +446,7 @@ export default function DashboardPage() {
   const columns = [
     { accessorKey: "orderNumber", header: "Order Number" },
     { accessorKey: "tableNumber", header: "Table" },
+    { accessorKey: "waiterName", header: "Waiter" },
     {
       accessorKey: "totalAmount",
       header: "Total",
@@ -436,6 +530,7 @@ export default function DashboardPage() {
 
   const overviewMetrics = useMemo(() => calculateMetrics(filteredOverviewOrders), [filteredOverviewOrders])
   const dailySalesData = useMemo(() => getDailySalesData(filteredOverviewOrders), [filteredOverviewOrders])
+  const waiterSales = useMemo(() => getSalesByWaiter(filteredOverviewOrders), [filteredOverviewOrders])
 
   if (isLoading)
     return (
@@ -458,12 +553,65 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between space-y-2">
           <h2 className="text-3xl font-bold tracking-tight">Sales Dashboard</h2>
           <div className="flex items-center space-x-2">
+            <Select value={selectedWaiter} onValueChange={handleWaiterChange}>
+              <SelectTrigger className="w-[200px]">
+                <Users className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Filter by Waiter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Waiters</SelectItem>
+                {waitresses.map((waiter) => (
+                  <SelectItem key={waiter._id} value={waiter._id}>
+                    {waiter.name} - {waiter.shift} Shift
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button variant="outline" className="flex items-center gap-2">
               <Filter className="h-4 w-4" />
               Filter by Date
             </Button>
           </div>
         </div>
+
+        {/* Waiter Performance Summary */}
+        {selectedWaiter === 'all' && waiterSales.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Waiter Performance
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {waiterSales.slice(0, 3).map((waiter, index) => (
+                  <div key={waiter.name} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                        index === 0 ? 'bg-yellow-100' : index === 1 ? 'bg-gray-100' : 'bg-orange-100'
+                      }`}>
+                        <span className={`text-sm font-bold ${
+                          index === 0 ? 'text-yellow-600' : index === 1 ? 'text-gray-600' : 'text-orange-600'
+                        }`}>
+                          #{index + 1}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="font-medium">{waiter.name}</p>
+                        <p className="text-xs text-muted-foreground">{waiter.orders} orders</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold">{waiter.sales.toFixed(2)} ETB</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Tabs defaultValue="overview" className="space-y-4">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -645,7 +793,7 @@ export default function DashboardPage() {
                           <div>
                             <p className="text-sm font-medium leading-none">{order.orderNumber}</p>
                             <p className="text-sm text-muted-foreground">
-                              Table {order.tableNumber} • {new Date(order.createdAt).toLocaleTimeString()}
+                              Table {order.tableNumber} • {order.waiterName || 'Unknown'} • {new Date(order.createdAt).toLocaleTimeString()}
                             </p>
                           </div>
                           <div className="text-right">
@@ -678,6 +826,7 @@ export default function DashboardPage() {
                       <TableRow>
                         <TableHead>Order Number</TableHead>
                         <TableHead>Table</TableHead>
+                        <TableHead>Waiter</TableHead>
                         <TableHead>Total Amount</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Date</TableHead>
@@ -689,6 +838,7 @@ export default function DashboardPage() {
                         <TableRow key={order._id}>
                           <TableCell className="font-medium">{order.orderNumber}</TableCell>
                           <TableCell>{order.tableNumber}</TableCell>
+                          <TableCell>{order.waiterName || 'Unknown'}</TableCell>
                           <TableCell>{order.finalAmount.toFixed(2)} ETB</TableCell>
                           <TableCell>
                             <Badge variant={
@@ -819,6 +969,7 @@ export default function DashboardPage() {
                       <SelectItem value="finalAmount">Amount</SelectItem>
                       <SelectItem value="orderNumber">Order Number</SelectItem>
                       <SelectItem value="tableNumber">Table Number</SelectItem>
+                      <SelectItem value="waiterName">Waiter Name</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button onClick={() => handleExport('analytics')} variant="outline">

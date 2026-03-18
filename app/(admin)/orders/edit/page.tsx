@@ -618,12 +618,12 @@ export default function OrderEditPage() {
     }
   }, [selectedOrder, menuItems]);
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async (showLoading = true) => {
     if (!session?.user?.id) return;
 
     try {
-      setIsLoading(true);
-      setApiError(null);
+      if (showLoading) setIsLoading(true);
+      if (showLoading) setApiError(null);
       
       const response = await fetch(`/api/order/waitress/${session.user.id}`);
       const data = await response.json();
@@ -640,19 +640,22 @@ export default function OrderEditPage() {
     } catch (error) {
       console.error('Error fetching orders:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to fetch orders';
-      setApiError(errorMessage);
       
-      toast({
-        title: 'Error',
-        description: errorMessage,
-        variant: 'destructive',
-      });
+      if (showLoading) {
+        setApiError(errorMessage);
+        
+        toast({
+          title: 'Error',
+          description: errorMessage,
+          variant: 'destructive',
+        });
+      }
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
-  };
+  }, [session]);
 
-  const fetchMenuData = async () => {
+  const fetchMenuData = useCallback(async () => {
     try {
       setIsMenuLoading(true);
       const [itemsRes, categoriesRes] = await Promise.all([
@@ -675,7 +678,18 @@ export default function OrderEditPage() {
     } finally {
       setIsMenuLoading(false);
     }
-  };
+  }, []);
+
+  // Poll for new orders
+  useEffect(() => {
+    if (status === 'authenticated' && session?.user?.id) {
+      const intervalId = setInterval(() => {
+        fetchOrders(false); // Background fetch
+      }, 10000); // Poll every 10 seconds
+
+      return () => clearInterval(intervalId);
+    }
+  }, [status, session, fetchOrders]);
 
   const initializeCartFromOrder = (order: Order) => {
     const cartItems: CartItem[] = [];
@@ -1055,7 +1069,7 @@ export default function OrderEditPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={fetchOrders} variant="outline" size="sm" disabled={isLoading}>
+          <Button onClick={() => fetchOrders(true)} variant="outline" size="sm" disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh Orders
           </Button>

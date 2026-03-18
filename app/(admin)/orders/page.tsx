@@ -76,6 +76,8 @@ import {
   Loader2,
   Phone,
   User,
+  FileText,
+  MessageSquare,
 } from "lucide-react"
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "PICKUP" | "SERVED" | "COMPLETED" | "CANCELLED"
@@ -112,6 +114,9 @@ type Order = {
     city: string
   }
   paymentScreenshotUrl?: string
+  specialRequirements?: string
+  notes?: string
+  customerName?: string
 }
 
 type Waitress = {
@@ -215,8 +220,8 @@ export default function OrderManagement() {
   const [viewMode, setViewMode] = useState<"list" | "grid">("grid")
   const itemsPerPage = 12
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true)
+  const fetchOrders = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true)
     try {
       const response = await fetch("/api/order")
       if (!response.ok) throw new Error("Failed to fetch orders")
@@ -227,7 +232,7 @@ export default function OrderManagement() {
       console.error("Error fetching orders:", error)
       toast.error("Failed to fetch orders")
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }, [])
 
@@ -236,7 +241,7 @@ export default function OrderManagement() {
       const response = await fetch("/api/waitress")
       if (!response.ok) throw new Error("Failed to fetch waitresses")
       const data = await response.json()
-      setWaitresses(data.waitresses || [])
+      setWaitresses(data || [])
     } catch (error) {
       console.error("Error fetching waitresses:", error)
       toast.error("Failed to fetch waitresses")
@@ -244,8 +249,14 @@ export default function OrderManagement() {
   }, [])
 
   useEffect(() => {
-    fetchOrders()
+    fetchOrders(true)
     fetchWaitresses()
+
+    const intervalId = setInterval(() => {
+      fetchOrders(false) // Background refresh
+    }, 10000) // Poll every 10 seconds
+
+    return () => clearInterval(intervalId)
   }, [fetchOrders, fetchWaitresses])
 
   const handleDeleteOrder = async (orderId: string) => {
@@ -283,7 +294,9 @@ export default function OrderManagement() {
   const filteredOrders = orders.filter((order) => {
     const matchesSearch =
       order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.tableNumber.toLowerCase().includes(searchTerm.toLowerCase())
+      order.tableNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (order.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
+      (order.specialRequirements?.toLowerCase().includes(searchTerm.toLowerCase()) || false)
     const matchesStatus = !statusFilter || order.status === statusFilter
     const matchesWaitress = !waitressFilter || order.waiterId === waitressFilter
     const matchesDate = !dateFilter || new Date(order.createdAt).toDateString() === dateFilter.toDateString()
@@ -402,6 +415,12 @@ export default function OrderManagement() {
                       <CreditCard className="mr-2 h-4 w-4 text-muted-foreground" />
                       <span>Payment Method: {order.paymentMethod}</span>
                     </div>
+                    {order.customerName && (
+                      <div className="flex items-center">
+                        <User className="mr-2 h-4 w-4 text-muted-foreground" />
+                        <span>Customer: {order.customerName}</span>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
                 <Card>
@@ -472,6 +491,24 @@ export default function OrderManagement() {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* Special Requirements Section */}
+              {(order.specialRequirements || order.notes) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg font-semibold flex items-center">
+                      <MessageSquare className="mr-2 h-5 w-5" />
+                      Special Requirements
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="bg-muted/30 p-4 rounded-lg">
+                      <p className="text-sm whitespace-pre-wrap">{order.specialRequirements || order.notes}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg font-semibold flex items-center">
@@ -560,6 +597,7 @@ export default function OrderManagement() {
 
   const OrderCard = ({ order }: { order: Order }) => {
     const waitress = waitresses.find((w) => w._id === order.waiterId)
+    const hasSpecialRequirements = !!(order.specialRequirements || order.notes)
 
     return (
       <Card className="hover:shadow-lg transition-shadow duration-300">
@@ -570,6 +608,9 @@ export default function OrderManagement() {
               {statusIcons[order.status]} {order.status}
             </Badge>
           </CardTitle>
+          {order.customerName && (
+            <p className="text-sm text-muted-foreground mt-1">Customer: {order.customerName}</p>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           {order.delivery ? (
@@ -583,17 +624,41 @@ export default function OrderManagement() {
               </div>
             </div>
           ) : (
-            <div className="flex items-center space-x-4">
-              <Avatar>
-                <AvatarImage src="/placeholder-avatar.jpg" />
-                <AvatarFallback>{waitress?.name.charAt(0) || "W"}</AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="font-medium">{waitress?.name || "Unknown Waitress"}</p>
-                <p className="text-sm text-muted-foreground">{waitress?.shift || "Unknown"} Shift</p>
+            <div className="space-y-2">
+              <div className="flex items-center space-x-4">
+                <Avatar>
+                  <AvatarImage src="/placeholder-avatar.jpg" />
+                  <AvatarFallback>{waitress?.name.charAt(0) || "W"}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-medium">{waitress?.name || "Unknown Waitress"}</p>
+                  <p className="text-sm text-muted-foreground">{waitress?.shift || "Unknown"} Shift</p>
+                </div>
+              </div>
+              {waitress?.phone && (
+                <div className="flex items-center text-sm">
+                  <Phone className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>{waitress.phone}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Special Requirements Badge */}
+          {hasSpecialRequirements && (
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <MessageSquare className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-xs font-medium text-yellow-800 dark:text-yellow-400 mb-1">Special Requirements</p>
+                  <p className="text-xs text-yellow-700 dark:text-yellow-500 line-clamp-2">
+                    {order.specialRequirements || order.notes}
+                  </p>
+                </div>
               </div>
             </div>
           )}
+
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="flex items-center">
               <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -657,7 +722,7 @@ export default function OrderManagement() {
               <div className="relative">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search orders..."
+                  placeholder="Search orders, customer, or special requirements..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-8"
@@ -758,12 +823,13 @@ export default function OrderManagement() {
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => (
-            <Card key={i} className="w-full h-[200px]">
+            <Card key={i} className="w-full h-[250px]">
               <CardHeader className="animate-pulse bg-gray-200 h-8 w-3/4 rounded" />
               <CardContent className="space-y-2">
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-3/4" />
                 <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-4 w-full" />
               </CardContent>
             </Card>
           ))}
@@ -778,6 +844,7 @@ export default function OrderManagement() {
                     Order #
                   </Button>
                 </TableHead>
+                <TableHead>Customer</TableHead>
                 <TableHead>Waitress</TableHead>
                 <TableHead>
                   <Button variant="ghost" onClick={() => handleSort("tableNumber")}>
@@ -799,15 +866,18 @@ export default function OrderManagement() {
                     Date
                   </Button>
                 </TableHead>
+                <TableHead>Special Req.</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {paginatedOrders.map((order) => {
                 const waitress = waitresses.find((w) => w._id === order.waiterId)
+                const hasSpecialRequirements = !!(order.specialRequirements || order.notes)
                 return (
                   <TableRow key={order._id}>
                     <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                    <TableCell>{order.customerName || "Walk-in"}</TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-2">
                         <Avatar className="h-8 w-8">
@@ -827,6 +897,18 @@ export default function OrderManagement() {
                       {order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
                     </TableCell>
                     <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      {hasSpecialRequirements ? (
+                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                          <MessageSquare className="h-3 w-3 mr-1" />
+                          Yes
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-gray-50 text-gray-400">
+                          No
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
