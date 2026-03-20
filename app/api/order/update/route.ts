@@ -429,7 +429,6 @@ export async function DELETE(req: NextRequest) {
     // If not deleted with string ID, try ObjectId
     if (result.deletedCount === 0) {
       try {
-        const { ObjectId } = await import('mongodb');
         result = await db.collection("orders").deleteOne({
           _id: new ObjectId(orderId),
           waiterId: waitressDbId
@@ -451,7 +450,15 @@ export async function DELETE(req: NextRequest) {
       message: 'Order deleted successfully'
     });
     
+  } catch (error) {
+    debugError('Error in DELETE order:', error);
+    return NextResponse.json(
+      { 
+        success: false,
+        error: 'Failed to delete order',
         message: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     );
+  }
+}
