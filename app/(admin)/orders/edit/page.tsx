@@ -330,23 +330,13 @@ const CartPanel = ({
         <Button variant="outline" size="icon" onClick={onRefreshCart} title="Refresh Prices" className="h-8 w-8">
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
-        <Select value={orderStatus} onValueChange={setOrderStatus}>
-          <SelectTrigger className={`h-8 w-[110px] text-xs border-0 ring-1 ring-inset ${
-            orderStatus === 'COMPLETED' ? 'bg-green-50 text-green-700 ring-green-600/20' :
-            orderStatus === 'PENDING' ? 'bg-yellow-50 text-yellow-700 ring-yellow-600/20' :
-            'bg-gray-50 text-gray-700 ring-gray-600/20'
-          }`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="PENDING">Pending</SelectItem>
-            <SelectItem value="PREPARING">Preparing</SelectItem>
-            <SelectItem value="READY">Ready</SelectItem>
-            <SelectItem value="SERVED">Served</SelectItem>
-            <SelectItem value="COMPLETED">Completed</SelectItem>
-            <SelectItem value="CANCELLED">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
+        <Badge variant="outline" className={`h-8 px-3 flex items-center justify-center border-0 ring-1 ring-inset ${
+          orderStatus === 'COMPLETED' ? 'bg-green-50 text-green-700 ring-green-600/20' :
+          orderStatus === 'PENDING' ? 'bg-yellow-50 text-yellow-700 ring-yellow-600/20' :
+          'bg-gray-50 text-gray-700 ring-gray-600/20'
+        }`}>
+          {orderStatus}
+        </Badge>
       </div>
     </div>
 
@@ -955,80 +945,6 @@ export default function OrderEditPage() {
     }
   };
 
-  const handleDeleteOrder = async () => {
-    if (!selectedOrder || !session?.user?.id) return;
-
-    if (!confirm('Are you sure you want to delete this order?')) return;
-
-    try {
-      const response = await fetch(`/api/order/waitress/${session.user.id}?orderId=${selectedOrder.id}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          toast({
-            title: 'Order Deleted',
-            description: 'Order has been deleted successfully',
-          });
-          
-          setOrders(prev => prev.filter(order => order.id !== selectedOrder.id));
-          setSelectedOrder(null);
-          setCart([]);
-          setIsCartOpen(false);
-        }
-      }
-    } catch (error) {
-      console.error('Error deleting order:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to delete order',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
-    try {
-      const response = await fetch(`/api/order/waitress/${session?.user?.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          orderId,
-          status: newStatus
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          setOrders(prev => prev.map(order => 
-            order.id === orderId ? { ...order, status: newStatus } : order
-          ));
-          
-          if (selectedOrder?.id === orderId) {
-            setSelectedOrder(prev => prev ? { ...prev, status: newStatus } : null);
-          }
-          
-          toast({
-            title: 'Status Updated',
-            description: `Order status changed to ${newStatus}`,
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error updating status:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to update order status',
-        variant: 'destructive',
-      });
-    }
-  };
-
   const filteredMenuItems = useMemo(() => {
     return menuItems.filter((item) => {
       const matchesCategory = selectedCategory === "all" || item.categoryId === selectedCategory;
@@ -1183,15 +1099,6 @@ export default function OrderEditPage() {
                     <div className="flex gap-2">
                       <Button 
                         variant="outline" 
-                        size="sm"
-                        onClick={handleDeleteOrder}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                      </Button>
-                      <Button 
-                        variant="outline" 
                         size="sm" 
                         onClick={() => setIsCartOpen(true)}
                       >
@@ -1254,22 +1161,9 @@ export default function OrderEditPage() {
                     </div>
                     <div className="space-y-2">
                       <Label>Status</Label>
-                      <Select 
-                        value={orderStatus} 
-                        onValueChange={(value) => handleUpdateOrderStatus(selectedOrder.id, value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="PENDING">Pending</SelectItem>
-                          <SelectItem value="PREPARING">Preparing</SelectItem>
-                          <SelectItem value="READY">Ready</SelectItem>
-                          <SelectItem value="SERVED">Served</SelectItem>
-                          <SelectItem value="COMPLETED">Completed</SelectItem>
-                          <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <div className="flex items-center h-10 px-3 border rounded-md bg-muted/50 text-sm">
+                        {orderStatus}
+                      </div>
                     </div>
                   </div>
 

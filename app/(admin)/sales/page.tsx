@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -18,6 +18,8 @@ import {
   Filter,
   TrendingUp,
   Users,
+  RefreshCw,
+  Loader2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,7 +34,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import { Label } from "@/components/ui/label"
-
+import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns"
 
 type Order = {
   _id: string
@@ -47,6 +49,7 @@ type Order = {
     unitPrice: number
     subtotal: number
     status: string
+    name?: string
   }>
   totalAmount: number
   discount: number
@@ -103,10 +106,67 @@ type SalesData = {
   waitressSales?: Record<string, { name: string; sales: number; orders: number }>
 }
 
+// Enhanced response type for waiterreport API
+type WaiterReportResponse = {
+  success: boolean
+  orders: Order[]
+  summary: {
+    totalOrders: number
+    totalSales: number
+    totalTax: number
+    totalDiscount: number
+    totalItems: number
+    totalGuests: number
+    averageOrderValue: number
+  }
+  breakdown: {
+    byStatus: Record<string, { count: number; total: number }>
+    byPayment: Record<string, { count: number; total: number }>
+  }
+  topItems: Array<{
+    id: string
+    name: string
+    quantity: number
+    revenue: number
+  }>
+  dailySales: Array<{
+    date: string
+    total: number
+    orders: number
+    averageOrderValue: number
+  }>
+}
+
+// Original API function - kept for backward compatibility
 async function fetchSalesData(waiterId?: string): Promise<SalesData> {
-  const url = waiterId && waiterId !== 'all' 
-    ? `/api/order/report?waiterId=${waiterId}`
-    : "/api/order/report"
+  const params = new URLSearchParams()
+  if (waiterId && waiterId !== 'all') {
+    params.append('waiterId', waiterId)
+  }
+  const url = `/api/order/report${params.toString() ? `?${params.toString()}` : ''}`
+  const response = await fetch(url)
+  const data = await response.json()
+  return data
+}
+
+// NEW: Enhanced API function using waiterreport endpoint
+async function fetchWaiterReport(waiterId?: string, startDate?: string, endDate?: string): Promise<WaiterReportResponse> {
+  const params = new URLSearchParams()
+
+  // Add date parameters if provided
+  if (startDate) {
+    params.append('startDate', startDate)
+  }
+  if (endDate) {
+    params.append('endDate', endDate)
+  }
+
+  // Add waiter filter - if 'all' or no waiterId, don't add parameter (API will handle as 'all')
+  if (waiterId && waiterId !== 'all') {
+    params.append('waiterId', waiterId)
+  }
+
+  const url = `/api/order/waiterreport${params.toString() ? `?${params.toString()}` : ''}`
   const response = await fetch(url)
   const data = await response.json()
   return data
@@ -127,10 +187,15 @@ async function fetchWaitress(id: string): Promise<Waitress> {
 async function fetchItems(itemIds: string[]): Promise<Record<string, Item>> {
   const items: Record<string, Item> = {}
   for (const id of itemIds) {
-    const response = await fetch(`/api/items/${id}`)
-    const data = await response.json()
-    if (data.success && data.items.length > 0) {
-      items[id] = data.items[0]
+    if (!id) continue; // Skip empty IDs
+    try {
+      const response = await fetch(`/api/items/${id}`)
+      const data = await response.json()
+      if (data.success && data.items && data.items.length > 0) {
+        items[id] = data.items[0]
+      }
+    } catch (error) {
+      console.error(`Error fetching item ${id}:`, error)
     }
   }
   return items
@@ -144,7 +209,7 @@ function exportToExcel(data: any[], filename: string) {
 }
 
 function SalesChart({ data, type = "line" }: { data: Record<string, number>, type?: "line" | "bar" }) {
-  const chartData = Object.entries(data).map(([date, amount]) => ({
+  const chartData = Object.entries(data).map(([date, amount], index) => ({
     name: new Date(date).toLocaleDateString(),
     total: amount,
     date: date,
@@ -213,7 +278,7 @@ function getDateRange(type: 'today' | 'week' | 'month' | 'year' | 'custom') {
       end.setHours(23, 59, 59, 999);
       break;
     case 'week':
-      start.setDate(now.getDate() - now.getDay());
+      start.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1));
       start.setHours(0, 0, 0, 0);
       end.setDate(start.getDate() + 6);
       end.setHours(23, 59, 59, 999);
@@ -237,6 +302,7 @@ function getDateRange(type: 'today' | 'week' | 'month' | 'year' | 'custom') {
 
 export default function DashboardPage() {
   const [salesData, setSalesData] = useState<SalesData | null>(null)
+  const [waiterReportData, setWaiterReportData] = useState<WaiterReportResponse | null>(null)
   const [waitresses, setWaitresses] = useState<Waitress[]>([])
   const [selectedWaiter, setSelectedWaiter] = useState<string>('all')
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([])
@@ -249,59 +315,170 @@ export default function DashboardPage() {
   const [selectedWaitress, setSelectedWaitress] = useState<Waitress | null>(null)
   const [selectedItems, setSelectedItems] = useState<Record<string, Item>>({})
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [chartType, setChartType] = useState<"line" | "bar">("line")
+  const [useEnhancedAPI, setUseEnhancedAPI] = useState<boolean>(true) // Toggle to use enhanced API
 
+  // Use refs to prevent multiple initial fetches
+  const initialFetchDone = useRef(false)
+  const waitressesFetched = useRef(false)
+
+  // 🛠️ DIAGNOSTIC: Check for duplicate or undefined keys
   useEffect(() => {
-    const loadInitialData = async () => {
-      setIsLoading(true)
-      try {
-        // Fetch waitresses first
-        const waitressesData = await fetchWaitresses()
-        setWaitresses(waitressesData)
-        
-        // Fetch sales data
-        const data = await fetchSalesData()
-        setSalesData(data)
-        const { start, end } = getDateRange('today')
-        setDateRange({ start, end })
-        
-        // Enrich orders with waiter names
-        const enrichedOrders = enrichOrdersWithWaiterNames(data.orders || [], waitressesData)
-        const filtered = filterOrdersByDate(enrichedOrders, start, end)
-        setFilteredOrders(filtered)
-        setFilteredOverviewOrders(filtered)
-      } catch (error) {
-        console.error('Error loading data:', error)
-      } finally {
-        setIsLoading(false)
+    if (filteredOverviewOrders.length > 0) {
+      const ids = filteredOverviewOrders.map(o => o._id);
+      const undefinedIds = ids.filter(id => id === undefined || id === null);
+      const duplicateIds = ids.filter((id, index) => ids.indexOf(id) !== index);
+
+      if (undefinedIds.length > 0) {
+        console.warn(`⚠️ Found ${undefinedIds.length} orders with undefined _id. These will cause key errors.`);
+      }
+      if (duplicateIds.length > 0) {
+        console.warn(`⚠️ Found duplicate order _id values:`, [...new Set(duplicateIds)]);
       }
     }
-    loadInitialData()
+  }, [filteredOverviewOrders]);
+
+  // Fetch waitresses first - only once
+  useEffect(() => {
+    if (!waitressesFetched.current) {
+      waitressesFetched.current = true
+      loadWaitresses()
+    }
   }, [])
 
-  // Fetch data when waiter selection changes
+  // Fetch initial data after waitresses are loaded
   useEffect(() => {
-    if (!isLoading) {
-      const loadDataForWaiter = async () => {
-        setIsLoading(true)
-        try {
-          const data = await fetchSalesData(selectedWaiter)
-          setSalesData(data)
-          if (dateRange.start && dateRange.end) {
-            const enrichedOrders = enrichOrdersWithWaiterNames(data.orders || [], waitresses)
-            const filtered = filterOrdersByDate(enrichedOrders, dateRange.start, dateRange.end)
-            setFilteredOrders(filtered)
-            setFilteredOverviewOrders(filtered)
+    if (waitresses.length > 0 && !initialFetchDone.current) {
+      initialFetchDone.current = true
+      loadData('all')
+    }
+  }, [waitresses])
+
+  const loadWaitresses = async () => {
+    try {
+      const data = await fetchWaitresses()
+      setWaitresses(data)
+    } catch (error) {
+      console.error('Error loading waitresses:', error)
+    }
+  }
+
+  const loadData = async (waiterId: string) => {
+    setIsLoading(true)
+    try {
+      const { start, end } = getDateRange(filterType)
+      const startDateStr = format(start, 'yyyy-MM-dd')
+      const endDateStr = format(end, 'yyyy-MM-dd')
+
+      if (useEnhancedAPI) {
+        // Use the enhanced waiterreport API
+        const reportData = await fetchWaiterReport(waiterId, startDateStr, endDateStr)
+        setWaiterReportData(reportData)
+
+        if (reportData.success) {
+          // Enrich orders with waiter names
+          const enrichedOrders = enrichOrdersWithWaiterNames(reportData.orders || [], waitresses)
+          setFilteredOrders(enrichedOrders)
+          setFilteredOverviewOrders(enrichedOrders)
+        }
+      } else {
+        // Use original API for backward compatibility
+        const data = await fetchSalesData(waiterId)
+        setSalesData(data)
+
+        // Enrich orders with waiter names
+        const enrichedOrders = enrichOrdersWithWaiterNames(data.orders || [], waitresses)
+
+        // Apply date filter
+        const dateFiltered = filterOrdersByDate(enrichedOrders, start, end)
+
+        setFilteredOrders(dateFiltered)
+        setFilteredOverviewOrders(dateFiltered)
+      }
+
+      setDateRange({ start, end })
+    } catch (error) {
+      console.error('Error loading data:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Handle waiter selection change
+  const handleWaiterChange = async (waiterId: string) => {
+    setSelectedWaiter(waiterId)
+    setIsRefreshing(true)
+    try {
+      const { start, end } = dateRange
+      if (start && end) {
+        const startDateStr = format(start, 'yyyy-MM-dd')
+        const endDateStr = format(end, 'yyyy-MM-dd')
+
+        if (useEnhancedAPI) {
+          // Use enhanced API
+          const reportData = await fetchWaiterReport(waiterId, startDateStr, endDateStr)
+          setWaiterReportData(reportData)
+
+          if (reportData.success) {
+            const enrichedOrders = enrichOrdersWithWaiterNames(reportData.orders || [], waitresses)
+            setFilteredOrders(enrichedOrders)
+            setFilteredOverviewOrders(enrichedOrders)
           }
-        } catch (error) {
-          console.error('Error loading waiter data:', error)
-        } finally {
-          setIsLoading(false)
+        } else {
+          // Use original API
+          const data = await fetchSalesData(waiterId)
+          setSalesData(data)
+
+          const enrichedOrders = enrichOrdersWithWaiterNames(data.orders || [], waitresses)
+          const filtered = filterOrdersByDate(enrichedOrders, start, end)
+          setFilteredOrders(filtered)
+          setFilteredOverviewOrders(filtered)
         }
       }
-      loadDataForWaiter()
+    } catch (error) {
+      console.error('Error loading waiter data:', error)
+    } finally {
+      setIsRefreshing(false)
     }
-  }, [selectedWaiter])
+  }
+
+  // Handle refresh
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    try {
+      const { start, end } = dateRange
+      if (start && end) {
+        const startDateStr = format(start, 'yyyy-MM-dd')
+        const endDateStr = format(end, 'yyyy-MM-dd')
+
+        if (useEnhancedAPI) {
+          // Use enhanced API
+          const reportData = await fetchWaiterReport(selectedWaiter, startDateStr, endDateStr)
+          setWaiterReportData(reportData)
+
+          if (reportData.success) {
+            const enrichedOrders = enrichOrdersWithWaiterNames(reportData.orders || [], waitresses)
+            setFilteredOrders(enrichedOrders)
+            setFilteredOverviewOrders(enrichedOrders)
+          }
+        } else {
+          // Use original API
+          const data = await fetchSalesData(selectedWaiter)
+          setSalesData(data)
+
+          const enrichedOrders = enrichOrdersWithWaiterNames(data.orders || [], waitresses)
+          const filtered = filterOrdersByDate(enrichedOrders, start, end)
+          setFilteredOrders(filtered)
+          setFilteredOverviewOrders(filtered)
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing data:', error)
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
 
   const enrichOrdersWithWaiterNames = (orders: Order[], waitressesList: Waitress[]) => {
     return orders.map(order => {
@@ -321,10 +498,6 @@ export default function DashboardPage() {
     })
   }
 
-  const handleWaiterChange = (waiterId: string) => {
-    setSelectedWaiter(waiterId)
-  }
-
   const handleFilterChange = (type: 'today' | 'week' | 'month' | 'year' | 'custom', customStart?: Date | null, customEnd?: Date | null) => {
     setFilterType(type)
     let start: Date | null = null
@@ -341,20 +514,46 @@ export default function DashboardPage() {
 
     if (start && end) {
       setDateRange({ start, end })
-      if (salesData) {
-        const enrichedOrders = enrichOrdersWithWaiterNames(salesData.orders || [], waitresses)
-        const filtered = filterOrdersByDate(enrichedOrders, start, end)
-        setFilteredOrders(filtered)
-        setFilteredOverviewOrders(filtered)
+
+      // Refetch data with new date range
+      const fetchWithNewDateRange = async () => {
+        const startDateStr = format(start, 'yyyy-MM-dd')
+        const endDateStr = format(end, 'yyyy-MM-dd')
+
+        if (useEnhancedAPI) {
+          try {
+            const reportData = await fetchWaiterReport(selectedWaiter, startDateStr, endDateStr)
+            setWaiterReportData(reportData)
+
+            if (reportData.success) {
+              const enrichedOrders = enrichOrdersWithWaiterNames(reportData.orders || [], waitresses)
+              setFilteredOrders(enrichedOrders)
+              setFilteredOverviewOrders(enrichedOrders)
+            }
+          } catch (error) {
+            console.error('Error fetching with new date range:', error)
+          }
+        } else {
+          // For original API, we need to filter client-side
+          if (salesData) {
+            const enrichedOrders = enrichOrdersWithWaiterNames(salesData.orders || [], waitresses)
+            const filtered = filterOrdersByDate(enrichedOrders, start, end)
+            setFilteredOrders(filtered)
+            setFilteredOverviewOrders(filtered)
+          }
+        }
       }
+
+      fetchWithNewDateRange()
     }
   }
 
+  // Calculate metrics based on filtered orders (which already include waiter filter)
   const calculateMetrics = (orders: Order[]) => {
     const totalSales = orders.reduce((sum, order) => sum + order.finalAmount, 0)
     const totalTax = orders.reduce((sum, order) => sum + order.tax, 0)
     const totalDiscounts = orders.reduce((sum, order) => sum + order.discount, 0)
-    
+
     return {
       totalSales,
       orderCount: orders.length,
@@ -375,19 +574,19 @@ export default function DashboardPage() {
 
   const getSalesByWaiter = (orders: Order[]) => {
     const waiterSales: Record<string, { name: string; sales: number; orders: number }> = {}
-    
+
     orders.forEach(order => {
       const waiterId = order.waiterId
       const waiterName = order.waiterName || 'Unknown'
-      
+
       if (!waiterSales[waiterId]) {
         waiterSales[waiterId] = { name: waiterName, sales: 0, orders: 0 }
       }
-      
+
       waiterSales[waiterId].sales += order.finalAmount
       waiterSales[waiterId].orders += 1
     })
-    
+
     return Object.values(waiterSales).sort((a, b) => b.sales - a.sales)
   }
 
@@ -411,14 +610,18 @@ export default function DashboardPage() {
 
   const handleExport = (section: 'overview' | 'analytics') => {
     const data = section === 'overview' ? filteredOverviewOrders : filteredOrders
-    const filename = section === 'overview' 
-      ? `overview_sales_report_${selectedWaiter}_${new Date().toISOString().split('T')[0]}`
-      : `analytics_sales_report_${selectedWaiter}_${new Date().toISOString().split('T')[0]}`
-    
+    const waiterName = selectedWaiter === 'all'
+      ? 'all_waiters'
+      : waitresses.find(w => w._id === selectedWaiter)?.name || 'selected_waiter'
+    const filename = section === 'overview'
+      ? `overview_sales_report_${waiterName}_${new Date().toISOString().split('T')[0]}`
+      : `analytics_sales_report_${waiterName}_${new Date().toISOString().split('T')[0]}`
+
     const exportData = data.map(order => ({
       'Order Number': order.orderNumber,
       'Table Number': order.tableNumber,
       'Waiter': order.waiterName || 'Unknown',
+      'Waiter ID': order.waiterId,
       'Total Amount': order.totalAmount,
       'Discount': order.discount,
       'Tax': order.tax,
@@ -429,114 +632,50 @@ export default function DashboardPage() {
       'Created Date': new Date(order.createdAt).toLocaleDateString(),
       'Created Time': new Date(order.createdAt).toLocaleTimeString(),
     }))
-    
+
     exportToExcel(exportData, filename)
   }
 
+  // Fixed handleViewDetails function with safe item access
   const handleViewDetails = async (order: Order) => {
     setSelectedOrder(order)
-    const waitress = await fetchWaitress(order.waiterId)
-    setSelectedWaitress(waitress)
+    try {
+      const waitress = await fetchWaitress(order.waiterId)
+      setSelectedWaitress(waitress)
 
-    const itemIds = order.items.map((item) => item.itemId)
-    const items = await fetchItems(itemIds)
-    setSelectedItems(items)
+      // Safely handle items - check if items exists and is an array
+      const itemIds = order.items && Array.isArray(order.items) 
+        ? order.items.map((item) => item.itemId).filter(id => id) // Filter out empty IDs
+        : []
+      
+      const items = await fetchItems(itemIds)
+      setSelectedItems(items)
+    } catch (error) {
+      console.error('Error fetching order details:', error)
+    }
   }
 
-  const columns = [
-    { accessorKey: "orderNumber", header: "Order Number" },
-    { accessorKey: "tableNumber", header: "Table" },
-    { accessorKey: "waiterName", header: "Waiter" },
-    {
-      accessorKey: "totalAmount",
-      header: "Total",
-      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
-        const amount = Number.parseFloat(row.getValue("totalAmount"))
-        const formatted = new Intl.NumberFormat("en-US", {
-          style: "currency",
-          currency: "ETB",
-        }).format(amount)
-        return <div className="font-medium">{formatted}</div>
-      },
-    },
-    {
-      accessorKey: "discount",
-      header: "Discount",
-      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
-        const amount = Number.parseFloat(row.getValue("discount"))
-        const formatted = new Intl.NumberFormat("en-US", {
-          style: "currency",
-          currency: "ETB",
-        }).format(amount)
-        return <div className="text-right font-medium">{formatted}</div>
-      },
-    },
-    {
-      accessorKey: "tax",
-      header: "Tax",
-      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
-        const amount = Number.parseFloat(row.getValue("tax"))
-        const formatted = new Intl.NumberFormat("en-US", {
-          style: "currency",
-          currency: "ETB",
-        }).format(amount)
-        return <div className="text-right font-medium">{formatted}</div>
-      },
-    },
-    {
-      accessorKey: "finalAmount",
-      header: "Final Amount",
-      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
-        const amount = Number.parseFloat(row.getValue("finalAmount"))
-        const formatted = new Intl.NumberFormat("en-US", {
-          style: "currency",
-          currency: "ETB",
-        }).format(amount)
-        return <div className="text-right font-medium">{formatted}</div>
-      },
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
-        const status = row.getValue("status") as string
-        return (
-          <Badge variant={status === "COMPLETED" ? "default" : status === "PENDING" ? "secondary" : "destructive"}>
-            {status}
-          </Badge>
-        )
-      },
-    },
-    {
-      accessorKey: "createdAt",
-      header: "Date",
-      cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
-        return new Date(row.getValue("createdAt")).toLocaleString()
-      },
-    },
-    {
-      id: "actions",
-      cell: ({ row }: { row: { original: Order } }) => {
-        const order = row.original
-        return (
-          <Button variant="ghost" onClick={() => handleViewDetails(order)}>
-            <Eye className="h-4 w-4 mr-2" />
-            View
-          </Button>
-        )
-      },
-    },
-  ]
-
+  // Use filteredOverviewOrders for metrics (already filtered by waiter and date)
   const overviewMetrics = useMemo(() => calculateMetrics(filteredOverviewOrders), [filteredOverviewOrders])
   const dailySalesData = useMemo(() => getDailySalesData(filteredOverviewOrders), [filteredOverviewOrders])
   const waiterSales = useMemo(() => getSalesByWaiter(filteredOverviewOrders), [filteredOverviewOrders])
 
-  if (isLoading)
+  // Get current waiter name for display
+  const currentWaiterName = selectedWaiter === 'all'
+    ? 'All Waiters'
+    : waitresses.find(w => w._id === selectedWaiter)?.name || 'Selected Waiter'
+
+  // Get summary from enhanced API if available
+  const enhancedSummary = waiterReportData?.summary
+
+  if (isLoading && !salesData && !waiterReportData) {
     return (
       <div className="flex-col md:flex">
         <div className="flex-1 space-y-4 p-8 pt-6">
-          <Skeleton className="w-[250px] h-[36px]" />
+          <div className="flex items-center justify-between">
+            <Skeleton className="w-[250px] h-[36px]" />
+            <Skeleton className="w-[200px] h-[40px]" />
+          </div>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {[...Array(4)].map((_, i) => (
               <Skeleton key={i} className="h-[125px] w-full" />
@@ -546,15 +685,22 @@ export default function DashboardPage() {
         </div>
       </div>
     )
+  }
 
   return (
     <div className="flex-col md:flex">
       <div className="flex-1 space-y-4 p-8 pt-6">
         <div className="flex items-center justify-between space-y-2">
-          <h2 className="text-3xl font-bold tracking-tight">Sales Dashboard</h2>
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">Sales Dashboard</h2>
+            <p className="text-muted-foreground">
+              {currentWaiterName} • {filteredOverviewOrders.length} orders in selected period
+              {useEnhancedAPI && " • Using Enhanced Reports"}
+            </p>
+          </div>
           <div className="flex items-center space-x-2">
             <Select value={selectedWaiter} onValueChange={handleWaiterChange}>
-              <SelectTrigger className="w-[200px]">
+              <SelectTrigger className="w-[250px]">
                 <Users className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Filter by Waiter" />
               </SelectTrigger>
@@ -567,33 +713,80 @@ export default function DashboardPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="outline" className="flex items-center gap-2">
-              <Filter className="h-4 w-4" />
-              Filter by Date
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button
+              variant={useEnhancedAPI ? "default" : "outline"}
+              size="sm"
+              onClick={() => setUseEnhancedAPI(!useEnhancedAPI)}
+              className="ml-2"
+            >
+              {useEnhancedAPI ? "Enhanced API" : "Standard API"}
             </Button>
           </div>
         </div>
 
-        {/* Waiter Performance Summary */}
+        {/* Enhanced Summary Cards - Only show when using enhanced API and data is available */}
+        {useEnhancedAPI && enhancedSummary && (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4">
+            <Card className="bg-primary/5 border-primary/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Enhanced Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>Total Items: {enhancedSummary.totalItems}</p>
+                  <p>Total Guests: {enhancedSummary.totalGuests}</p>
+                  <p>Avg Order: {enhancedSummary.averageOrderValue.toFixed(2)} ETB</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Status Breakdown */}
+            {waiterReportData?.breakdown?.byStatus && (
+              <Card className="col-span-3">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Status Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-4 gap-2">
+                    {Object.entries(waiterReportData.breakdown.byStatus).map(([status, data]) => (
+                      <div key={status} className="text-xs">
+                        <Badge variant="outline" className="mb-1">{status}</Badge>
+                        <p>{data.count} orders • {data.total.toFixed(2)} ETB</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* Waiter Performance Summary - Only show when all waiters selected */}
         {selectedWaiter === 'all' && waiterSales.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-5 w-5" />
-                Waiter Performance
+                Top Performing Waiters
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {waiterSales.slice(0, 3).map((waiter, index) => (
-                  <div key={waiter.name} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div key={`waiter-${waiter.name}-${index}`} className="flex items-center justify-between p-3 border rounded-lg">
                     <div className="flex items-center gap-3">
-                      <div className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                        index === 0 ? 'bg-yellow-100' : index === 1 ? 'bg-gray-100' : 'bg-orange-100'
-                      }`}>
-                        <span className={`text-sm font-bold ${
-                          index === 0 ? 'text-yellow-600' : index === 1 ? 'text-gray-600' : 'text-orange-600'
+                      <div className={`h-8 w-8 rounded-full flex items-center justify-center ${index === 0 ? 'bg-yellow-100' : index === 1 ? 'bg-gray-100' : 'bg-orange-100'
                         }`}>
+                        <span className={`text-sm font-bold ${index === 0 ? 'text-yellow-600' : index === 1 ? 'text-gray-600' : 'text-orange-600'
+                          }`}>
                           #{index + 1}
                         </span>
                       </div>
@@ -612,11 +805,40 @@ export default function DashboardPage() {
           </Card>
         )}
 
+        {/* Show selected waiter summary when specific waiter is selected */}
+        {selectedWaiter !== 'all' && filteredOverviewOrders.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                {currentWaiterName} - Performance Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-3 border rounded-lg">
+                  <p className="text-sm text-muted-foreground">Total Sales</p>
+                  <p className="text-2xl font-bold">{overviewMetrics.totalSales.toFixed(2)} ETB</p>
+                </div>
+                <div className="p-3 border rounded-lg">
+                  <p className="text-sm text-muted-foreground">Orders Taken</p>
+                  <p className="text-2xl font-bold">{overviewMetrics.orderCount}</p>
+                </div>
+                <div className="p-3 border rounded-lg">
+                  <p className="text-sm text-muted-foreground">Average Order Value</p>
+                  <p className="text-2xl font-bold">{overviewMetrics.averageOrderValue.toFixed(2)} ETB</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Tabs defaultValue="overview" className="space-y-4">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
           </TabsList>
+
           <TabsContent value="overview" className="space-y-4">
             {/* Date Filter for Overview */}
             <Card>
@@ -660,7 +882,7 @@ export default function DashboardPage() {
                       Custom Range
                     </Button>
                   </div>
-                  
+
                   <div className="flex-1 flex items-center gap-2">
                     <span className="text-sm font-medium">Date Range:</span>
                     <span className="text-sm text-muted-foreground">
@@ -669,8 +891,13 @@ export default function DashboardPage() {
                         : 'Select a date range'}
                     </span>
                   </div>
-                  
-                  <Button onClick={() => handleExport('overview')} variant="outline" size="sm">
+
+                  <Button
+                    onClick={() => handleExport('overview')}
+                    variant="outline"
+                    size="sm"
+                    disabled={filteredOverviewOrders.length === 0}
+                  >
                     <Download className="mr-2 h-4 w-4" />
                     Export Overview
                   </Button>
@@ -705,7 +932,7 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Metrics Cards */}
+            {/* Metrics Cards - Now showing filtered data */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -714,7 +941,14 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{overviewMetrics.totalSales.toFixed(2)} ETB</div>
-                  <p className="text-xs text-muted-foreground">{filteredOverviewOrders.length} orders</p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedWaiter === 'all' ? 'All waiters' : currentWaiterName} • {filteredOverviewOrders.length} orders
+                  </p>
+                  {useEnhancedAPI && enhancedSummary && (
+                    <p className="text-xs text-primary mt-1">
+                      Items: {enhancedSummary.totalItems} | Guests: {enhancedSummary.totalGuests}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
               <Card>
@@ -725,7 +959,7 @@ export default function DashboardPage() {
                 <CardContent>
                   <div className="text-2xl font-bold">{overviewMetrics.orderCount}</div>
                   <p className="text-xs text-muted-foreground">
-                    Avg: {(overviewMetrics.averageOrderValue || 0).toFixed(2)} ETB
+                    Avg: {(overviewMetrics.averageOrderValue || 0).toFixed(2)} ETB per order
                   </p>
                 </CardContent>
               </Card>
@@ -755,11 +989,11 @@ export default function DashboardPage() {
               </Card>
             </div>
 
-            {/* Chart Section */}
+            {/* Chart Section - Now showing filtered data */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
               <Card className="col-span-4">
                 <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Sales Overview</CardTitle>
+                  <CardTitle>Sales Overview - {currentWaiterName}</CardTitle>
                   <div className="flex items-center gap-2">
                     <Button
                       variant={chartType === "line" ? "default" : "outline"}
@@ -778,42 +1012,55 @@ export default function DashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="pl-2">
-                  <SalesChart data={dailySalesData} type={chartType} />
+                  {Object.keys(dailySalesData).length > 0 ? (
+                    <SalesChart data={dailySalesData} type={chartType} />
+                  ) : (
+                    <div className="h-[350px] flex items-center justify-center">
+                      <p className="text-muted-foreground">No sales data available for {currentWaiterName}</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
               <Card className="col-span-3">
                 <CardHeader>
-                  <CardTitle>Recent Sales</CardTitle>
+                  <CardTitle>Recent Sales - {currentWaiterName}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ScrollArea className="h-[300px]">
                     <div className="space-y-4">
-                      {filteredOverviewOrders.slice(0, 10).map((order: Order) => (
-                        <div className="flex items-center justify-between" key={order._id}>
-                          <div>
-                            <p className="text-sm font-medium leading-none">{order.orderNumber}</p>
-                            <p className="text-sm text-muted-foreground">
-                              Table {order.tableNumber} • {order.waiterName || 'Unknown'} • {new Date(order.createdAt).toLocaleTimeString()}
-                            </p>
+                      {filteredOverviewOrders.slice(0, 10).map((order: Order, index) => {
+                        // Create a truly unique key: use _id if available, otherwise a composite key
+                        const uniqueKey = order._id 
+                          ? `recent-${order._id}` 
+                          : `recent-fallback-${index}-${order.orderNumber}-${order.createdAt}`;
+                        
+                        return (
+                          <div className="flex items-center justify-between" key={uniqueKey}>
+                            <div>
+                              <p className="text-sm font-medium leading-none">{order.orderNumber}</p>
+                              <p className="text-sm text-muted-foreground">
+                                Table {order.tableNumber} • {order.waiterName || 'Unknown'} • {new Date(order.createdAt).toLocaleTimeString()}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-medium">+{order.finalAmount.toFixed(2)} ETB</div>
+                              <Badge variant="secondary" className="text-xs">
+                                {order.status}
+                              </Badge>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <div className="font-medium">+{order.finalAmount.toFixed(2)} ETB</div>
-                            <Badge variant="secondary" className="text-xs">
-                              {order.status}
-                            </Badge>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </ScrollArea>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Orders Table in Overview */}
+            {/* Orders Table in Overview - Now showing filtered data */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Recent Orders</CardTitle>
+                <CardTitle>Recent Orders - {currentWaiterName}</CardTitle>
                 <Button variant="outline" size="sm" onClick={() => handleExport('overview')}>
                   <Download className="mr-2 h-4 w-4" />
                   Export
@@ -834,36 +1081,43 @@ export default function DashboardPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredOverviewOrders.slice(0, 10).map((order) => (
-                        <TableRow key={order._id}>
-                          <TableCell className="font-medium">{order.orderNumber}</TableCell>
-                          <TableCell>{order.tableNumber}</TableCell>
-                          <TableCell>{order.waiterName || 'Unknown'}</TableCell>
-                          <TableCell>{order.finalAmount.toFixed(2)} ETB</TableCell>
-                          <TableCell>
-                            <Badge variant={
-                              order.status === "COMPLETED" ? "default" : 
-                              order.status === "PENDING" ? "secondary" : 
-                              "destructive"
-                            }>
-                              {order.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{new Date(order.createdAt).toLocaleString()}</TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="sm" onClick={() => handleViewDetails(order)}>
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {filteredOverviewOrders.slice(0, 10).map((order, index) => {
+                        // Create a truly unique key for table rows
+                        const uniqueKey = order._id 
+                          ? `table-${order._id}` 
+                          : `table-fallback-${index}-${order.orderNumber}-${order.createdAt}`;
+                        
+                        return (
+                          <TableRow key={uniqueKey}>
+                            <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                            <TableCell>{order.tableNumber}</TableCell>
+                            <TableCell>{order.waiterName || 'Unknown'}</TableCell>
+                            <TableCell>{order.finalAmount.toFixed(2)} ETB</TableCell>
+                            <TableCell>
+                              <Badge variant={
+                                order.status === "COMPLETED" ? "default" :
+                                  order.status === "PENDING" ? "secondary" :
+                                    "destructive"
+                              }>
+                                {order.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{new Date(order.createdAt).toLocaleString()}</TableCell>
+                            <TableCell>
+                              <Button variant="ghost" size="sm" onClick={() => handleViewDetails(order)}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
-          
+
           <TabsContent value="analytics" className="space-y-4">
             {/* Date Filter for Analytics */}
             <Card>
@@ -907,7 +1161,7 @@ export default function DashboardPage() {
                       Custom Range
                     </Button>
                   </div>
-                  
+
                   <div className="flex-1 flex items-center gap-2">
                     <span className="text-sm font-medium">Date Range:</span>
                     <span className="text-sm text-muted-foreground">
@@ -916,11 +1170,16 @@ export default function DashboardPage() {
                         : 'Select a date range'}
                     </span>
                     <span className="text-sm text-muted-foreground ml-2">
-                      • Showing {filteredOrders.length} orders
+                      • Showing {filteredOrders.length} orders for {currentWaiterName}
                     </span>
                   </div>
-                  
-                  <Button onClick={() => handleExport('analytics')} variant="outline" size="sm">
+
+                  <Button
+                    onClick={() => handleExport('analytics')}
+                    variant="outline"
+                    size="sm"
+                    disabled={filteredOrders.length === 0}
+                  >
                     <Download className="mr-2 h-4 w-4" />
                     Export Analytics
                   </Button>
@@ -955,10 +1214,10 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Analytics Table */}
+            {/* Analytics Table - Now showing filtered data */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Detailed Analytics</CardTitle>
+                <CardTitle>Detailed Orders - {currentWaiterName}</CardTitle>
                 <div className="flex items-center gap-2">
                   <Select onValueChange={(value) => handleSort(value as keyof Order)}>
                     <SelectTrigger className="w-[180px]">
@@ -983,36 +1242,105 @@ export default function DashboardPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        {columns.map((column) => (
-                          <TableHead 
-                            key={column.accessorKey || column.id}
-                            className="cursor-pointer hover:bg-gray-100"
-                            onClick={() => column.accessorKey && handleSort(column.accessorKey as keyof Order)}
-                          >
-                            {column.header}
-                            {column.accessorKey === sortBy && (
-                              <span className="ml-1">
-                                {sortOrder === 'asc' ? '↑' : '↓'}
-                              </span>
-                            )}
-                          </TableHead>
-                        ))}
+                        <TableHead
+                          className="cursor-pointer hover:bg-gray-100"
+                          onClick={() => handleSort("orderNumber")}
+                        >
+                          Order Number {sortBy === "orderNumber" && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead
+                          className="cursor-pointer hover:bg-gray-100"
+                          onClick={() => handleSort("tableNumber")}
+                        >
+                          Table {sortBy === "tableNumber" && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead
+                          className="cursor-pointer hover:bg-gray-100"
+                          onClick={() => handleSort("waiterName")}
+                        >
+                          Waiter {sortBy === "waiterName" && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead
+                          className="cursor-pointer hover:bg-gray-100"
+                          onClick={() => handleSort("totalAmount")}
+                        >
+                          Total {sortBy === "totalAmount" && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead
+                          className="cursor-pointer hover:bg-gray-100"
+                          onClick={() => handleSort("discount")}
+                        >
+                          Discount {sortBy === "discount" && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead
+                          className="cursor-pointer hover:bg-gray-100"
+                          onClick={() => handleSort("tax")}
+                        >
+                          Tax {sortBy === "tax" && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead
+                          className="cursor-pointer hover:bg-gray-100"
+                          onClick={() => handleSort("finalAmount")}
+                        >
+                          Final Amount {sortBy === "finalAmount" && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead
+                          className="cursor-pointer hover:bg-gray-100"
+                          onClick={() => handleSort("status")}
+                        >
+                          Status {sortBy === "status" && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead
+                          className="cursor-pointer hover:bg-gray-100"
+                          onClick={() => handleSort("createdAt")}
+                        >
+                          Date {sortBy === "createdAt" && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredOrders.map((order) => (
-                        <TableRow key={order._id}>
-                          {columns.map((column) => (
-                            <TableCell key={`${order._id}-${column.accessorKey || column.id}`}>
-                              {column.cell
-                                ? column.cell({
-                                    row: { getValue: (key: string) => order[key as keyof Order], original: order },
-                                  } as any)
-                                : (order[column.accessorKey as keyof Order] as any)}
-                            </TableCell>
-                          ))}
+                      {filteredOrders.length > 0 ? (
+                        filteredOrders.map((order, index) => {
+                          // Create a truly unique key for analytics table rows
+                          const uniqueKey = order._id 
+                            ? `analytics-${order._id}` 
+                            : `analytics-fallback-${index}-${order.orderNumber}-${order.createdAt}`;
+                          
+                          return (
+                            <TableRow key={uniqueKey}>
+                              <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                              <TableCell>{order.tableNumber}</TableCell>
+                              <TableCell>{order.waiterName || 'Unknown'}</TableCell>
+                              <TableCell>{order.totalAmount.toFixed(2)} ETB</TableCell>
+                              <TableCell>{order.discount.toFixed(2)} ETB</TableCell>
+                              <TableCell>{order.tax.toFixed(2)} ETB</TableCell>
+                              <TableCell className="font-semibold">{order.finalAmount.toFixed(2)} ETB</TableCell>
+                              <TableCell>
+                                <Badge variant={
+                                  order.status === "COMPLETED" ? "default" :
+                                    order.status === "PENDING" ? "secondary" :
+                                      "destructive"
+                                }>
+                                  {order.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{new Date(order.createdAt).toLocaleString()}</TableCell>
+                              <TableCell>
+                                <Button variant="ghost" size="sm" onClick={() => handleViewDetails(order)}>
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={10} className="text-center py-8">
+                            <p className="text-muted-foreground">No orders found for {currentWaiterName} in the selected date range</p>
+                          </TableCell>
                         </TableRow>
-                      ))}
+                      )}
                     </TableBody>
                   </Table>
                 </div>
@@ -1021,9 +1349,9 @@ export default function DashboardPage() {
           </TabsContent>
         </Tabs>
       </div>
-      
+
       <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
-        <DialogContent className="sm:max-w-[700px]">
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold">Order Details</DialogTitle>
             <DialogDescription>Full details for order {selectedOrder?.orderNumber}</DialogDescription>
@@ -1037,9 +1365,9 @@ export default function DashboardPage() {
                     <AvatarFallback>
                       {selectedWaitress?.name
                         ? selectedWaitress.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")
                         : "W"}
                     </AvatarFallback>
                   </Avatar>
@@ -1084,24 +1412,33 @@ export default function DashboardPage() {
                     <Utensils className="mr-2 h-4 w-4" /> Items
                   </h4>
                   <div className="grid gap-2">
-                    {selectedOrder.items.map((item, index) => {
-                      const itemDetails = selectedItems[item.itemId]
-                      return (
-                        <div key={index} className="flex items-center justify-between bg-secondary p-2 rounded-md">
-                          <div className="flex items-center space-x-2">
-                            <Avatar className="h-10 w-10">
-                              <AvatarImage src={itemDetails?.imageUrl || ""} alt={itemDetails?.name || ""} />
-                              <AvatarFallback>{itemDetails?.name?.charAt(0) || "I"}</AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <p className="font-medium">{itemDetails?.name || "Unknown Item"}</p>
-                              <p className="text-sm text-muted-foreground">Qty: {item.quantity}</p>
+                    {selectedOrder.items && Array.isArray(selectedOrder.items) && selectedOrder.items.length > 0 ? (
+                      selectedOrder.items.map((item, index) => {
+                        const itemDetails = selectedItems[item.itemId]
+                        // Create a unique key for items in the dialog
+                        const itemKey = item.itemId 
+                          ? `dialog-item-${item.itemId}-${index}` 
+                          : `dialog-item-fallback-${index}`;
+                        
+                        return (
+                          <div key={itemKey} className="flex items-center justify-between bg-secondary p-2 rounded-md">
+                            <div className="flex items-center space-x-2">
+                              <Avatar className="h-10 w-10">
+                                <AvatarImage src={itemDetails?.imageUrl || ""} alt={itemDetails?.name || ""} />
+                                <AvatarFallback>{itemDetails?.name?.charAt(0) || item.name?.charAt(0) || "I"}</AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="font-medium">{itemDetails?.name || item.name || "Unknown Item"}</p>
+                                <p className="text-sm text-muted-foreground">Qty: {item.quantity || 0}</p>
+                              </div>
                             </div>
+                            <p className="font-medium">{(item.subtotal || 0).toFixed(2)} ETB</p>
                           </div>
-                          <p className="font-medium">{item.subtotal.toFixed(2)} ETB</p>
-                        </div>
-                      )
-                    })}
+                        )
+                      })
+                    ) : (
+                      <p className="text-sm text-muted-foreground text-center py-4">No items found for this order</p>
+                    )}
                   </div>
                 </div>
                 <Separator />

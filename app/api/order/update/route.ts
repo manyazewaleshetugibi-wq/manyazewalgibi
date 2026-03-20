@@ -451,15 +451,7 @@ export async function DELETE(req: NextRequest) {
       message: 'Order deleted successfully'
     });
     
-  } catch (error) {
-    debugError('Error deleting order:', error);
-    return NextResponse.json(
-      { 
-        success: false,
-        error: 'Failed to delete order',
         message: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     );
-  }
-}

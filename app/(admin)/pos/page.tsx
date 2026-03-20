@@ -568,7 +568,7 @@ export default function OrderPage() {
                   <SelectValue placeholder="Table #" />
                 </SelectTrigger>
                 <SelectContent>
-                  {Array.from({ length: 20 }, (_, i) => (
+                  {Array.from({ length: 40 }, (_, i) => (
                     <SelectItem key={i} value={`T${i + 1}`}>Table {i + 1}</SelectItem>
                   ))}
                 </SelectContent>

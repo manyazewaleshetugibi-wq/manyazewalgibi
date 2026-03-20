@@ -18,7 +18,7 @@ function debugError(message: string, error: any) {
   console.error(`[ERROR] ${message}`, error);
 }
 
-// GET: Fetch orders for reports with filtering by date and waiter
+// GET: Fetch COMPLETED orders for reports with filtering by date and waiter
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -34,11 +34,12 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const waiterId = searchParams.get('waiterId');
-    const status = searchParams.get('status'); // Optional: filter by specific status
+    const status = searchParams.get('status'); // Optional: filter by specific status (overrides default)
     const paymentMethod = searchParams.get('paymentMethod'); // Optional: filter by payment method
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
     const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1;
     const pageSize = 50; // Items per page
+    const includeAllStatuses = searchParams.get('includeAllStatuses') === 'true'; // Optional: override to include all statuses
 
     // Validate required parameters
     if (!startDate || !endDate) {
@@ -81,9 +82,21 @@ export async function GET(req: NextRequest) {
       query.waiterId = targetWaiterId;
     }
 
-    // Add status filter if specified
-    if (status && status !== 'all') {
-      query.status = status.toLowerCase();
+    // Set status filter - default to COMPLETED only unless includeAllStatuses is true
+    if (includeAllStatuses) {
+      // Include all statuses, but still apply specific status filter if provided
+      if (status && status !== 'all') {
+        query.status = status.toLowerCase();
+      }
+    } else {
+      // Default: only show COMPLETED orders
+      if (status && status !== 'all') {
+        // If specific status is requested, use that instead of default
+        query.status = status.toLowerCase();
+      } else {
+        // Default to COMPLETED only
+        query.status = 'COMPLETED';
+      }
     }
 
     // Add payment method filter if specified
@@ -351,6 +364,11 @@ export async function GET(req: NextRequest) {
         start: startDate,
         end: endDate,
       },
+      // Add info about what status filter was applied
+      filterInfo: {
+        statusFilter: includeAllStatuses ? (status || 'all') : 'COMPLETED',
+        includeAllStatuses
+      }
     });
 
   } catch (error) {

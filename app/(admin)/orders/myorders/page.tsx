@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -26,19 +26,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import {
   Pagination,
   PaginationContent,
   PaginationItem,
@@ -55,15 +42,11 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
   LineChart,
   Line,
 } from 'recharts';
 import * as XLSX from "xlsx";
 import {
-  Calendar as CalendarIcon,
   Download,
   TrendingUp,
   DollarSign,
@@ -74,24 +57,18 @@ import {
   RefreshCw,
   Loader2,
   AlertCircle,
-  ChevronDown,
-  ChevronUp,
   Eye,
   User,
   CreditCard,
   ArrowDownIcon,
   Utensils,
   CalendarDays,
-  Award,
   Star,
-  TrendingDown,
   X,
   MoreHorizontal,
   Grid,
   List,
   Search,
-  RefreshCcw,
-  Trash2,
   CheckCircle,
   XCircle,
   Coffee,
@@ -101,23 +78,19 @@ import {
   Phone,
   MapPin,
   Receipt,
-  AlertTriangle,
+  Smartphone,
 } from 'lucide-react';
-import { format, subDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 
-// Types
+// Types (keep all your existing types here)
 interface OrderItem {
   id?: string;
-  itemId?: string;
   menuItemId: string;
   name: string;
   price: number;
   quantity: number;
   specialInstructions?: string;
   total: number;
-  unitPrice?: number;
-  subtotal?: number;
-  status?: string;
 }
 
 interface Order {
@@ -148,7 +121,6 @@ interface Order {
     shift?: string;
     phone?: string;
   };
-  inTable?: boolean;
   delivery?: boolean;
   deliveryInfo?: {
     fullName: string;
@@ -174,7 +146,6 @@ interface Item {
   price: number;
   imageUrl: string;
   categoryId: string;
-  preparationTime?: number;
 }
 
 interface ReportSummary {
@@ -187,18 +158,18 @@ interface ReportSummary {
   averageOrderValue: number;
 }
 
-interface DailySales {
-  date: string;
-  total: number;
-  orders: number;
-  averageOrderValue: number;
-}
-
 interface TopItem {
   id: string;
   name: string;
   quantity: number;
   revenue: number;
+}
+
+interface DailySales {
+  date: string;
+  total: number;
+  orders: number;
+  averageOrderValue: number;
 }
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "PICKUP" | "SERVED" | "COMPLETED" | "CANCELLED";
@@ -215,7 +186,7 @@ const statusIcons: Record<OrderStatus, React.ReactNode> = {
   CANCELLED: <XCircle className="h-4 w-4" />,
 };
 
-// Helper functions
+// Helper functions (keep all your existing helper functions)
 const getStatusColor = (status: string) => {
   switch (status?.toUpperCase()) {
     case 'COMPLETED':
@@ -228,8 +199,6 @@ const getStatusColor = (status: string) => {
       return 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400';
     case 'PREPARING':
       return 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400';
-    case 'READY':
-      return 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400';
     case 'SERVED':
       return 'bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400';
     case 'PICKUP':
@@ -266,8 +235,6 @@ const formatNumber = (num: number) => {
   return new Intl.NumberFormat('en-US').format(num);
 };
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FF6B6B', '#4ECDC4'];
-
 // Export to Excel function
 function exportToExcel(data: any[], filename: string) {
   const worksheet = XLSX.utils.json_to_sheet(data);
@@ -279,8 +246,8 @@ function exportToExcel(data: any[], filename: string) {
 // Date range helper
 function getDateRange(type: 'today' | 'yesterday' | 'week' | 'month' | 'custom') {
   const now = new Date();
-  const start = new Date();
-  const end = new Date();
+  let start = new Date();
+  let end = new Date();
 
   switch (type) {
     case 'today':
@@ -289,71 +256,20 @@ function getDateRange(type: 'today' | 'yesterday' | 'week' | 'month' | 'custom')
       break;
     case 'yesterday':
       const yesterday = subDays(now, 1);
-      start.setTime(yesterday.setHours(0, 0, 0, 0));
-      end.setTime(yesterday.setHours(23, 59, 59, 999));
+      start = new Date(yesterday.setHours(0, 0, 0, 0));
+      end = new Date(yesterday.setHours(23, 59, 59, 999));
       break;
     case 'week':
-      start.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1));
-      start.setHours(0, 0, 0, 0);
-      end.setDate(start.getDate() + 6);
-      end.setHours(23, 59, 59, 999);
+      start = startOfWeek(now, { weekStartsOn: 1 });
+      end = endOfWeek(now, { weekStartsOn: 1 });
       break;
     case 'month':
-      start.setDate(1);
-      start.setHours(0, 0, 0, 0);
-      end.setMonth(now.getMonth() + 1, 0);
-      end.setHours(23, 59, 59, 999);
+      start = startOfMonth(now);
+      end = endOfMonth(now);
       break;
   }
 
   return { start, end };
-}
-
-// Delete Order Dialog Component
-const DeleteOrderDialog = ({ orderId, onDelete }: { orderId: string; onDelete: () => Promise<void> }) => {
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  const handleDelete = async () => {
-    setIsDeleting(true)
-    await onDelete()
-    setIsDeleting(false)
-  }
-
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive hover:bg-destructive/10">
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This action cannot be undone. This will permanently delete the order and remove all associated data from our
-            servers.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleDelete}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            disabled={isDeleting}
-          >
-            {isDeleting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Deleting...
-              </>
-            ) : (
-              "Delete Order"
-            )}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
 }
 
 // Order Card Component
@@ -361,24 +277,25 @@ const OrderCard = ({
   order, 
   waitress,
   onViewDetails,
-  onDelete,
-  onStatusUpdate 
 }: { 
   order: Order; 
   waitress?: Waitress;
   onViewDetails: () => void;
-  onDelete: () => Promise<void>;
-  onStatusUpdate: (status: OrderStatus) => Promise<void>;
 }) => {
   return (
     <Card className="hover:shadow-lg transition-shadow duration-300">
       <CardHeader className="pb-2">
-        <CardTitle className="flex justify-between items-center">
-          <span className="text-lg font-bold">Order #{order.orderNumber}</span>
+        <div className="flex justify-between items-start">
+          <div>
+            <CardTitle className="text-lg font-bold">Order #{order.orderNumber}</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {new Date(order.createdAt).toLocaleDateString()} • {new Date(order.createdAt).toLocaleTimeString()}
+            </p>
+          </div>
           <Badge className={getStatusColor(order.status)}>
             {statusIcons[order.status as OrderStatus]} {order.status}
           </Badge>
-        </CardTitle>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {order.delivery ? (
@@ -413,10 +330,6 @@ const OrderCard = ({
         )}
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div className="flex items-center">
-            <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
-            <span>{new Date(order.createdAt).toLocaleTimeString()}</span>
-          </div>
-          <div className="flex items-center">
             <MapPin className="mr-2 h-4 w-4 text-muted-foreground" />
             <span>Table {order.tableNumber || 'N/A'}</span>
           </div>
@@ -425,12 +338,16 @@ const OrderCard = ({
             <span>{order.numberOfGuests || 1} guests</span>
           </div>
           <div className="flex items-center">
+            <ShoppingBag className="mr-2 h-4 w-4 text-muted-foreground" />
+            <span>{(order.orderItems || []).length} items</span>
+          </div>
+          <div className="flex items-center">
             <DollarSign className="mr-2 h-4 w-4 text-muted-foreground" />
-            <span>{formatCurrency(order.finalAmount || 0)}</span>
+            <span className="font-semibold">{formatCurrency(order.finalAmount || 0)}</span>
           </div>
         </div>
       </CardContent>
-      <CardFooter className="justify-between pt-2">
+      <CardFooter className="justify-between pt-2 border-t">
         <Button variant="ghost" size="sm" onClick={onViewDetails}>
           <Eye className="h-4 w-4 mr-2" />
           View
@@ -448,15 +365,6 @@ const OrderCard = ({
               <Eye className="h-4 w-4 mr-2" />
               View Details
             </DropdownMenuItem>
-            <DeleteOrderDialog orderId={order._id} onDelete={onDelete} />
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Change Status</DropdownMenuLabel>
-            {statusOptions.map((status) => (
-              <DropdownMenuItem key={status} onClick={() => onStatusUpdate(status)}>
-                {statusIcons[status]}
-                <span className="ml-2">{status}</span>
-              </DropdownMenuItem>
-            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </CardFooter>
@@ -465,11 +373,11 @@ const OrderCard = ({
 };
 
 // Sales Chart Component
-const SalesChart = ({ data, type = "line" }: { data: Record<string, number>, type?: "line" | "bar" }) => {
-  const chartData = Object.entries(data).map(([date, amount]) => ({
-    name: new Date(date).toLocaleDateString(),
-    total: amount,
-    date: date,
+const SalesChart = ({ data, type = "line" }: { data: DailySales[], type?: "line" | "bar" }) => {
+  const chartData = data.map(day => ({
+    name: new Date(day.date).toLocaleDateString(),
+    total: day.total,
+    date: day.date,
   }));
 
   return (
@@ -527,11 +435,13 @@ const SalesChart = ({ data, type = "line" }: { data: Record<string, number>, typ
 export default function WaiterReportPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const initialFetchDone = useRef(false);
+  const waitressFetched = useRef(false);
 
   // State
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
-  const [waitresses, setWaitresses] = useState<Waitress[]>([]);
+  const [currentWaitress, setCurrentWaitress] = useState<Waitress | null>(null);
   const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
   const [filterType, setFilterType] = useState<'today' | 'yesterday' | 'week' | 'month' | 'custom'>('today');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -539,7 +449,6 @@ export default function WaiterReportPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
   const [isLoading, setIsLoading] = useState(true);
-  const [isExporting, setIsExporting] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [chartType, setChartType] = useState<"line" | "bar">("line");
@@ -550,10 +459,9 @@ export default function WaiterReportPage() {
   
   // Detail view state
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [selectedWaitress, setSelectedWaitress] = useState<Waitress | null>(null);
   const [selectedItems, setSelectedItems] = useState<Record<string, Item>>({});
   
-  // Summary stats
+  // Summary stats from API
   const [summary, setSummary] = useState<ReportSummary>({
     totalOrders: 0,
     totalSales: 0,
@@ -569,39 +477,63 @@ export default function WaiterReportPage() {
   const [topItems, setTopItems] = useState<TopItem[]>([]);
   const [dailySales, setDailySales] = useState<DailySales[]>([]);
 
-  // Fetch waitresses
-  const fetchWaitresses = useCallback(async () => {
+  // Fetch current waitress - only once
+  useEffect(() => {
+    if (status === 'authenticated' && session?.user?.email && !waitressFetched.current) {
+      waitressFetched.current = true;
+      fetchCurrentWaitress();
+    }
+  }, [status, session]);
+
+  const fetchCurrentWaitress = useCallback(async () => {
+    if (!session?.user?.email) return null;
+    
     try {
       const response = await fetch("/api/waitress");
       if (!response.ok) throw new Error("Failed to fetch waitresses");
       const data = await response.json();
-      setWaitresses(data || []);
+      
+      // Find the waitress that matches the logged-in user's email
+      const waitress = (data || []).find((w: Waitress) => 
+        w.email?.toLowerCase() === session.user?.email?.toLowerCase()
+      );
+      
+      setCurrentWaitress(waitress || null);
+      
+      if (!waitress) {
+        console.warn("No waitress profile found for user:", session.user?.email);
+        setIsLoading(false);
+      }
+      
+      return waitress;
     } catch (error) {
-      console.error("Error fetching waitresses:", error);
+      console.error("Error fetching current waitress:", error);
+      setIsLoading(false);
+      return null;
     }
-  }, []);
+  }, [session?.user?.email]);
 
-  // Fetch data on mount and when filters change
+  // Fetch reports - only when filterType changes and we have waitress
   useEffect(() => {
-    if (status === 'authenticated' && session?.user?.email) {
-      fetchReports();
-      fetchWaitresses();
+    if (currentWaitress?._id && !initialFetchDone.current) {
+      initialFetchDone.current = true;
+      fetchReports(currentWaitress._id);
     }
-  }, [session, status, filterType, selectedStatus, selectedPaymentMethod]);
+  }, [currentWaitress]);
 
-  // Apply client-side filtering when date range changes
+  // Separate effect for filterType changes
   useEffect(() => {
-    if (orders.length > 0 && dateRange.start && dateRange.end) {
-      applyFilters();
+    if (currentWaitress?._id && initialFetchDone.current) {
+      fetchReports(currentWaitress._id);
     }
-  }, [orders, dateRange, selectedStatus, selectedPaymentMethod, searchTerm]);
+  }, [filterType]);
 
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async (waiterId: string) => {
     try {
       setIsLoading(true);
       setApiError(null);
 
-      // Build query params - only filter by current user's email
+      // Build query params
       const params = new URLSearchParams();
       
       // Set date range based on selection
@@ -625,8 +557,8 @@ export default function WaiterReportPage() {
         params.append('endDate', format(monthEnd, 'yyyy-MM-dd'));
       }
 
-      // Add user email to filter by current user only
-      params.append('userEmail', session?.user?.email || '');
+      // Add waiterId filter
+      params.append('waiterId', waiterId);
 
       // Fetch reports from the waiterreport endpoint
       const response = await fetch(`/api/order/waiterreport?${params.toString()}`);
@@ -665,27 +597,38 @@ export default function WaiterReportPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [filterType]);
 
-  const applyFilters = () => {
+  // Apply client-side filtering - use debounce for search
+  useEffect(() => {
+    if (orders.length > 0) {
+      const timer = setTimeout(() => {
+        applyFilters();
+      }, 300); // Debounce search
+      
+      return () => clearTimeout(timer);
+    }
+  }, [orders, dateRange, selectedStatus, selectedPaymentMethod, searchTerm, sortBy, sortOrder]);
+
+  const applyFilters = useCallback(() => {
     let filtered = [...orders];
 
-    // Filter by date range
-    if (dateRange.start && dateRange.end) {
+    // Filter by date range (client-side for custom ranges)
+    if (dateRange.start && dateRange.end && filterType === 'custom') {
       filtered = filtered.filter(order => {
         const orderDate = new Date(order.createdAt);
         return orderDate >= dateRange.start! && orderDate <= dateRange.end!;
       });
     }
 
-    // Filter by status
+    // Filter by status (client-side in addition to server filter)
     if (selectedStatus !== 'all') {
       filtered = filtered.filter(order => 
         order.status?.toUpperCase() === selectedStatus.toUpperCase()
       );
     }
 
-    // Filter by payment method
+    // Filter by payment method (client-side in addition to server filter)
     if (selectedPaymentMethod !== 'all') {
       filtered = filtered.filter(order => 
         order.paymentMethod?.toUpperCase() === selectedPaymentMethod.toUpperCase()
@@ -716,12 +659,19 @@ export default function WaiterReportPage() {
         return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
       }
       
+      // Handle date comparison
+      if (sortBy === 'createdAt' || sortBy === 'updatedAt') {
+        const aDate = new Date(a[sortBy] as string).getTime();
+        const bDate = new Date(b[sortBy] as string).getTime();
+        return sortOrder === 'asc' ? aDate - bDate : bDate - aDate;
+      }
+      
       return 0;
     });
 
     setFilteredOrders(filtered);
     setCurrentPage(1);
-  };
+  }, [orders, dateRange, filterType, selectedStatus, selectedPaymentMethod, searchTerm, sortBy, sortOrder]);
 
   const handleFilterChange = (type: 'today' | 'yesterday' | 'week' | 'month' | 'custom', customStart?: Date, customEnd?: Date) => {
     setFilterType(type);
@@ -738,81 +688,6 @@ export default function WaiterReportPage() {
     const order = field === sortBy && sortOrder === "asc" ? "desc" : "asc";
     setSortBy(field);
     setSortOrder(order);
-    
-    const sorted = [...filteredOrders].sort((a, b) => {
-      const aVal = a[field];
-      const bVal = b[field];
-      
-      if (typeof aVal === 'string' && typeof bVal === 'string') {
-        return order === 'asc' 
-          ? aVal.localeCompare(bVal)
-          : bVal.localeCompare(aVal);
-      }
-      
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return order === 'asc' ? aVal - bVal : bVal - aVal;
-      }
-      
-      return 0;
-    });
-    
-    setFilteredOrders(sorted);
-  };
-
-  const handleDeleteOrder = async (orderId: string) => {
-    try {
-      const response = await fetch(`/api/order/${orderId}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) throw new Error("Failed to delete order");
-      
-      // Show success message
-      const toast = (await import('@/hooks/use-toast')).toast;
-      toast({
-        title: "Success",
-        description: "Order deleted successfully",
-      });
-      
-      fetchReports(); // Refresh data
-    } catch (error) {
-      console.error("Error deleting order:", error);
-      const toast = (await import('@/hooks/use-toast')).toast;
-      toast({
-        title: "Error",
-        description: "Failed to delete order",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleStatusUpdate = async (orderId: string, newStatus: OrderStatus) => {
-    try {
-      const response = await fetch(`/api/order/${orderId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      if (!response.ok) throw new Error("Failed to update order status");
-      
-      // Show success message
-      const toast = (await import('@/hooks/use-toast')).toast;
-      toast({
-        title: "Success",
-        description: `Order status updated to ${newStatus}`,
-      });
-      
-      fetchReports(); // Refresh data
-    } catch (error) {
-      console.error("Error updating order status:", error);
-      const toast = (await import('@/hooks/use-toast')).toast;
-      toast({
-        title: "Error",
-        description: "Failed to update order status",
-        variant: "destructive",
-      });
-    }
   };
 
   const handleExport = (section: 'overview' | 'analytics') => {
@@ -843,62 +718,38 @@ export default function WaiterReportPage() {
   const handleViewDetails = async (order: Order) => {
     setSelectedOrder(order);
     
-    // Fetch waitress details
-    if (order.waiterId) {
-      try {
-        const response = await fetch(`/api/waitress/${order.waiterId}`);
-        const data = await response.json();
-        setSelectedWaitress(data);
-      } catch (error) {
-        console.error('Error fetching waitress:', error);
-      }
-    }
-
-    // Fetch item details - improved version
+    // Fetch item details
     const items = order.orderItems || order.items || [];
     const itemDetails: Record<string, Item> = {};
     
     for (const item of items) {
-      // Get the item ID (could be menuItemId or itemId)
-      const itemId = item.menuItemId || item.itemId || item.id;
+      const itemId = item.menuItemId || item.id;
       
       if (itemId) {
         try {
-          // First try to get from items API
           const response = await fetch(`/api/items/${itemId}`);
           const data = await response.json();
           
-          if (data.success) {
-            // Handle different response structures
-            if (data.item) {
-              itemDetails[itemId] = data.item;
-            } else if (data.items && data.items.length > 0) {
-              itemDetails[itemId] = data.items[0];
-            } else if (data.data) {
-              itemDetails[itemId] = data.data;
-            }
-          }
-          
-          // If we already have the item name from the order, use it as fallback
-          if (!itemDetails[itemId] && item.name) {
+          if (data.success && data.item) {
+            itemDetails[itemId] = data.item;
+          } else if (item.name) {
             itemDetails[itemId] = {
               _id: itemId,
               name: item.name,
               description: '',
-              price: item.price || item.unitPrice || 0,
+              price: item.price || 0,
               imageUrl: '',
               categoryId: '',
             } as Item;
           }
         } catch (error) {
           console.error(`Error fetching item ${itemId}:`, error);
-          // If fetch fails but we have item name from order, use it
           if (item.name) {
             itemDetails[itemId] = {
               _id: itemId,
               name: item.name,
               description: '',
-              price: item.price || item.unitPrice || 0,
+              price: item.price || 0,
               imageUrl: '',
               categoryId: '',
             } as Item;
@@ -910,37 +761,6 @@ export default function WaiterReportPage() {
     setSelectedItems(itemDetails);
   };
 
-  const calculateMetrics = (orders: Order[]) => {
-    const totalSales = orders.reduce((sum, order) => sum + (order.finalAmount || 0), 0);
-    const totalTax = orders.reduce((sum, order) => sum + (order.tax || 0), 0);
-    const totalDiscounts = orders.reduce((sum, order) => sum + (order.discount || 0), 0);
-    
-    return {
-      totalSales,
-      orderCount: orders.length,
-      totalTax,
-      totalDiscounts,
-      averageOrderValue: orders.length > 0 ? totalSales / orders.length : 0
-    };
-  };
-
-  const getDailySalesData = (orders: Order[]) => {
-    const dailySales: Record<string, number> = {};
-    orders.forEach(order => {
-      const date = new Date(order.createdAt).toLocaleDateString();
-      dailySales[date] = (dailySales[date] || 0) + (order.finalAmount || 0);
-    });
-    return dailySales;
-  };
-
-  const overviewMetrics = useMemo(() => calculateMetrics(filteredOrders), [filteredOrders]);
-  const dailySalesData = useMemo(() => getDailySalesData(filteredOrders), [filteredOrders]);
-  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
-  const paginatedOrders = filteredOrders.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
-
   const clearFilters = () => {
     setSearchTerm("");
     setSelectedStatus("all");
@@ -948,6 +768,12 @@ export default function WaiterReportPage() {
     setFilterType("today");
     const { start, end } = getDateRange("today");
     setDateRange({ start, end });
+  };
+
+  const handleRefresh = () => {
+    if (currentWaitress?._id) {
+      fetchReports(currentWaitress._id);
+    }
   };
 
   if (status === 'loading') {
@@ -966,6 +792,12 @@ export default function WaiterReportPage() {
     return null;
   }
 
+  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
+  const paginatedOrders = filteredOrders.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
   return (
     <div className="flex-col md:flex">
       <div className="flex-1 space-y-4 p-8 pt-6">
@@ -974,11 +806,16 @@ export default function WaiterReportPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">My Orders</h1>
             <p className="text-muted-foreground">
-              {session.user?.name} • {session.user?.email}
+              {currentWaitress?.name || session.user?.name || 'Waitress'} • {session.user?.email}
             </p>
+            {currentWaitress && (
+              <p className="text-sm text-muted-foreground mt-1">
+                Waitress ID: {currentWaitress._id} • {currentWaitress.shift} Shift • {currentWaitress.phone || 'No phone'}
+              </p>
+            )}
           </div>
           <Button 
-            onClick={fetchReports} 
+            onClick={handleRefresh} 
             variant="outline" 
             size="sm" 
             disabled={isLoading}
@@ -988,6 +825,15 @@ export default function WaiterReportPage() {
             Refresh
           </Button>
         </div>
+
+        {!currentWaitress && !isLoading && (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              No waitress profile found for your account. Please contact an administrator.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {apiError && (
           <Alert variant="destructive">
@@ -1004,7 +850,7 @@ export default function WaiterReportPage() {
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-4">
-            {/* Date Filter for Overview */}
+            {/* Date Filter */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1105,7 +951,7 @@ export default function WaiterReportPage() {
                       <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                       <Input
                         id="search"
-                        placeholder="Order #, Table, Customer..."
+                        placeholder="Order #, Table..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="pl-8"
@@ -1203,8 +1049,8 @@ export default function WaiterReportPage() {
                       <DollarSign className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold">{overviewMetrics.totalSales.toFixed(2)} BIRR</div>
-                      <p className="text-xs text-muted-foreground">{filteredOrders.length} orders</p>
+                      <div className="text-2xl font-bold">{formatCurrency(summary.totalSales)}</div>
+                      <p className="text-xs text-muted-foreground">{summary.totalOrders} orders</p>
                     </CardContent>
                   </Card>
                   <Card>
@@ -1213,7 +1059,7 @@ export default function WaiterReportPage() {
                       <TrendingUp className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold">{overviewMetrics.averageOrderValue.toFixed(2)} BIRR</div>
+                      <div className="text-2xl font-bold">{formatCurrency(summary.averageOrderValue)}</div>
                       <p className="text-xs text-muted-foreground">per transaction</p>
                     </CardContent>
                   </Card>
@@ -1223,7 +1069,7 @@ export default function WaiterReportPage() {
                       <ShoppingBag className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold">{summary.totalItems}</div>
+                      <div className="text-2xl font-bold">{formatNumber(summary.totalItems)}</div>
                       <p className="text-xs text-muted-foreground">items sold</p>
                     </CardContent>
                   </Card>
@@ -1233,7 +1079,7 @@ export default function WaiterReportPage() {
                       <Users className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold">{summary.totalGuests}</div>
+                      <div className="text-2xl font-bold">{formatNumber(summary.totalGuests)}</div>
                       <p className="text-xs text-muted-foreground">customers served</p>
                     </CardContent>
                   </Card>
@@ -1246,10 +1092,8 @@ export default function WaiterReportPage() {
                       <OrderCard
                         key={order._id || order.id}
                         order={order}
-                        waitress={waitresses.find(w => w._id === order.waiterId)}
+                        waitress={currentWaitress || undefined}
                         onViewDetails={() => handleViewDetails(order)}
-                        onDelete={() => handleDeleteOrder(order._id)}
-                        onStatusUpdate={(status) => handleStatusUpdate(order._id, status)}
                       />
                     ))}
                   </div>
@@ -1259,7 +1103,7 @@ export default function WaiterReportPage() {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead className="w-[100px] cursor-pointer" onClick={() => handleSort("orderNumber")}>
+                            <TableHead className="cursor-pointer" onClick={() => handleSort("orderNumber")}>
                               Order #
                               {sortBy === "orderNumber" && (sortOrder === "asc" ? " ↑" : " ↓")}
                             </TableHead>
@@ -1267,7 +1111,6 @@ export default function WaiterReportPage() {
                               Table
                               {sortBy === "tableNumber" && (sortOrder === "asc" ? " ↑" : " ↓")}
                             </TableHead>
-                            <TableHead>Waitress</TableHead>
                             <TableHead className="cursor-pointer" onClick={() => handleSort("finalAmount")}>
                               Amount
                               {sortBy === "finalAmount" && (sortOrder === "asc" ? " ↑" : " ↓")}
@@ -1286,68 +1129,48 @@ export default function WaiterReportPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {paginatedOrders.map((order) => {
-                            const waitress = waitresses.find(w => w._id === order.waiterId);
-                            return (
-                              <TableRow key={order._id || order.id}>
-                                <TableCell className="font-medium">{order.orderNumber}</TableCell>
-                                <TableCell>{order.tableNumber || 'N/A'}</TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-2">
-                                    <Avatar className="h-6 w-6">
-                                      <AvatarFallback>{waitress?.name?.charAt(0) || 'W'}</AvatarFallback>
-                                    </Avatar>
-                                    <span className="truncate max-w-[100px]">{waitress?.name || 'Unknown'}</span>
-                                  </div>
-                                </TableCell>
-                                <TableCell>{formatCurrency(order.finalAmount || 0)}</TableCell>
-                                <TableCell>
-                                  <Badge className={getStatusColor(order.status)}>
-                                    {statusIcons[order.status as OrderStatus]} {order.status}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-1">
-                                    {getPaymentMethodIcon(order.paymentMethod || 'CASH')}
-                                    <span>{order.paymentMethod || 'CASH'}</span>
-                                  </div>
-                                </TableCell>
-                                <TableCell>{order.orderItems?.length || 0}</TableCell>
-                                <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end gap-1">
-                                    <Button variant="ghost" size="icon" onClick={() => handleViewDetails(order)}>
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="icon">
-                                          <MoreHorizontal className="h-4 w-4" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end">
-                                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem onSelect={() => handleViewDetails(order)}>
-                                          <Eye className="h-4 w-4 mr-2" />
-                                          View Details
-                                        </DropdownMenuItem>
-                                        <DeleteOrderDialog orderId={order._id} onDelete={() => handleDeleteOrder(order._id)} />
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuLabel>Change Status</DropdownMenuLabel>
-                                        {statusOptions.map((status) => (
-                                          <DropdownMenuItem key={status} onClick={() => handleStatusUpdate(order._id, status)}>
-                                            {statusIcons[status]}
-                                            <span className="ml-2">{status}</span>
-                                          </DropdownMenuItem>
-                                        ))}
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
+                          {paginatedOrders.map((order) => (
+                            <TableRow key={order._id || order.id}>
+                              <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                              <TableCell>{order.tableNumber || 'N/A'}</TableCell>
+                              <TableCell>{formatCurrency(order.finalAmount || 0)}</TableCell>
+                              <TableCell>
+                                <Badge className={getStatusColor(order.status)}>
+                                  {statusIcons[order.status as OrderStatus]} {order.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1">
+                                  {getPaymentMethodIcon(order.paymentMethod || 'CASH')}
+                                  <span>{order.paymentMethod || 'CASH'}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>{order.orderItems?.length || 0}</TableCell>
+                              <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-1">
+                                  <Button variant="ghost" size="icon" onClick={() => handleViewDetails(order)}>
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button variant="ghost" size="icon">
+                                        <MoreHorizontal className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem onSelect={() => handleViewDetails(order)}>
+                                        <Eye className="h-4 w-4 mr-2" />
+                                        View Details
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
                         </TableBody>
                       </Table>
                     </CardContent>
@@ -1456,8 +1279,8 @@ export default function WaiterReportPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="pl-2">
-                  {Object.keys(dailySalesData).length > 0 ? (
-                    <SalesChart data={dailySalesData} type={chartType} />
+                  {dailySales.length > 0 ? (
+                    <SalesChart data={dailySales} type={chartType} />
                   ) : (
                     <div className="h-[350px] flex items-center justify-center">
                       <p className="text-muted-foreground">No sales data available</p>
@@ -1640,14 +1463,14 @@ export default function WaiterReportPage() {
           <ScrollArea className="max-h-[70vh] pr-4">
             {selectedOrder && (
               <div className="space-y-6">
-                {selectedWaitress && (
+                {currentWaitress && (
                   <>
                     <div className="flex items-center space-x-4">
                       <Avatar className="h-16 w-16">
-                        <AvatarImage src="/placeholder-user.jpg" alt={selectedWaitress?.name || "Waitress"} />
+                        <AvatarImage src="/placeholder-user.jpg" alt={currentWaitress?.name || "Waitress"} />
                         <AvatarFallback>
-                          {selectedWaitress?.name
-                            ? selectedWaitress.name
+                          {currentWaitress?.name
+                            ? currentWaitress.name
                                 .split(" ")
                                 .map((n) => n[0])
                                 .join("")
@@ -1655,10 +1478,10 @@ export default function WaiterReportPage() {
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <h3 className="text-lg font-semibold">{selectedWaitress?.name || "Unknown"}</h3>
-                        <p className="text-sm text-muted-foreground">{selectedWaitress?.phone || "No phone number"}</p>
+                        <h3 className="text-lg font-semibold">{currentWaitress?.name || "Unknown"}</h3>
+                        <p className="text-sm text-muted-foreground">{currentWaitress?.phone || "No phone number"}</p>
                         <Badge variant="outline" className="mt-1">
-                          {selectedWaitress?.shift || "Unknown"} Shift
+                          {currentWaitress?.shift || "Unknown"} Shift
                         </Badge>
                       </div>
                     </div>
@@ -1711,10 +1534,10 @@ export default function WaiterReportPage() {
                       </TableHeader>
                       <TableBody>
                         {(selectedOrder.orderItems || selectedOrder.items || []).map((item, index) => {
-                          const itemDetails = selectedItems[item.menuItemId || item.itemId || item.id || ''];
+                          const itemDetails = selectedItems[item.menuItemId || item.id || ''];
                           const itemName = itemDetails?.name || item.name || 'Unknown Item';
-                          const unitPrice = item.price || item.unitPrice || 0;
-                          const subtotal = item.subtotal || item.total || (unitPrice * item.quantity);
+                          const unitPrice = item.price || 0;
+                          const subtotal = item.total || (unitPrice * item.quantity);
                           
                           return (
                             <TableRow key={index}>
