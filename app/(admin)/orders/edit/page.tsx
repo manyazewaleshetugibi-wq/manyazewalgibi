@@ -1,3 +1,4 @@
+// app/waitress/orders/[id]/edit/page.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -58,6 +59,7 @@ import {
   ShoppingBag,
   ArrowRight,
   Search,
+  ArrowRightLeft,
   X,
   Users,
   Utensils,
@@ -69,6 +71,8 @@ import {
   Package,
   CheckCircle,
   Clock3,
+  Send,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
@@ -93,6 +97,15 @@ interface Category {
   imageUrl: string;
 }
 
+interface Waiter {
+  _id: string;
+  name: string;
+  email: string;
+  role: string;
+  shift?: string;
+  avatar?: string;
+}
+
 interface CartItem extends MenuItem {
   quantity: number;
   specialInstructions?: string;
@@ -101,13 +114,28 @@ interface CartItem extends MenuItem {
 }
 
 interface OrderItem {
-  id: string;
-  menuItemId: string;
+  id?: string;
+  menuItemId?: string;
+  itemId?: string;
   name: string;
+  description?: string;
   price: number;
   quantity: number;
   specialInstructions?: string;
-  total: number;
+  total?: number;
+  subtotal?: number;
+}
+
+interface EditRequest {
+  requestedWaiterId: string;
+  requestedWaiterName?: string;
+  status: 'pending' | 'accepted' | 'cancelled';
+  requestedBy: string;
+  requestedByName?: string;
+  requestedAt: string;
+  reason: string;
+  originalWaiterId: string;
+  originalWaiterName?: string;
 }
 
 interface Order {
@@ -124,7 +152,8 @@ interface Order {
   notes: string;
   createdAt: string;
   updatedAt: string;
-  orderItems: OrderItem[];
+  orderItems?: OrderItem[];
+  items?: OrderItem[];
   paymentStatus: string;
   paymentMethod: string;
   waiterId: string;
@@ -133,6 +162,7 @@ interface Order {
     name: string;
     role: string;
   };
+  editRequest?: EditRequest;
   _id?: string;
 }
 
@@ -182,6 +212,17 @@ const fadeInUp = {
   initial: { opacity: 0, y: 20 },
   animate: { opacity: 1, y: 0 },
   exit: { opacity: 0, y: -20 },
+};
+
+// Helper function to get order items array (handles both items and orderItems)
+const getOrderItemsArray = (order: Order): OrderItem[] => {
+  if (order.items && Array.isArray(order.items) && order.items.length > 0) {
+    return order.items;
+  }
+  if (order.orderItems && Array.isArray(order.orderItems) && order.orderItems.length > 0) {
+    return order.orderItems;
+  }
+  return [];
 };
 
 // Menu Item Component
@@ -286,34 +327,7 @@ const CartPanel = ({
   onAddItems,
   onRefreshCart,
   isSaving
-}: {
-  cart: CartItem[];
-  updateQuantity: (cartId: string, quantity: number) => void;
-  removeFromCart: (cartId: string) => void;
-  subtotal: number;
-  tax: number;
-  discount: number;
-  total: number;
-  applyDiscount: boolean;
-  setApplyDiscount: (value: boolean) => void;
-  numberOfGuests: number;
-  setNumberOfGuests: (value: number) => void;
-  specialRequirements: string;
-  setSpecialRequirements: (value: string) => void;
-  orderNumber: string;
-  handleSaveOrder: () => Promise<void>;
-  editingOrder: Order | null;
-  cancelEdit: () => void;
-  orderStatus: string;
-  setOrderStatus: (status: string) => void;
-  customerName: string;
-  setCustomerName: (name: string) => void;
-  tableNumber: string;
-  setTableNumber: (table: string) => void;
-  onAddItems: () => void;
-  onRefreshCart: () => void;
-  isSaving: boolean;
-}) => (
+}: any) => (
   <div className="flex flex-col h-full bg-gray-50/50 dark:bg-gray-900/50">
     <div className="flex items-center justify-between px-4 py-3 border-b bg-background sticky top-0 z-20">
       <div className="flex flex-col">
@@ -346,7 +360,7 @@ const CartPanel = ({
           <div className="p-4 space-y-6">
             {/* Cart Items */}
             <div className="space-y-3">
-              {cart.map((item) => (
+              {cart.map((item: any) => (
                 <div key={item.cartId} className="group flex gap-3 bg-card p-2.5 rounded-xl border shadow-sm hover:shadow-md transition-all duration-200">
                   <div className="relative h-20 w-20 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
                     <Image
@@ -567,6 +581,158 @@ const CartPanel = ({
   </div>
 );
 
+// Transfer Request Dialog Component
+function TransferRequestDialog({
+  open,
+  onOpenChange,
+  waiters,
+  currentWaiterId,
+  order,
+  onSubmit,
+  cooldownRemaining = 0
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  waiters: Waiter[];
+  currentWaiterId: string;
+  order: Order | null;
+  onSubmit: (targetWaiterId: string, reason: string) => Promise<void>;
+  cooldownRemaining?: number;
+}) {
+  const [selectedWaiter, setSelectedWaiter] = useState('');
+  const [reason, setReason] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!selectedWaiter || !reason.trim()) {
+      toast({
+        title: "Missing Information",
+        description: "Please select a waiter and provide a reason for transfer.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await onSubmit(selectedWaiter, reason);
+      onOpenChange(false);
+      setSelectedWaiter('');
+      setReason('');
+    } catch (error) {
+      console.error('Error submitting transfer request:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const availableWaiters = waiters.filter(w => w._id !== currentWaiterId);
+  const hasCooldown = cooldownRemaining > 0;
+  const cooldownMinutes = Math.floor(cooldownRemaining / 60000);
+  const cooldownSeconds = Math.ceil((cooldownRemaining % 60000) / 1000);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ArrowRightLeft className="h-5 w-5" />
+            Transfer Order
+          </DialogTitle>
+          <DialogDescription>
+            Request to transfer order #{order?.orderNumber} to another waiter.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          {hasCooldown && (
+            <Alert className="bg-yellow-50 border-yellow-200">
+              <Clock3 className="h-4 w-4 text-yellow-600" />
+              <AlertDescription className="text-yellow-800 text-xs">
+                Please wait {cooldownMinutes > 0 ? `${cooldownMinutes} minute${cooldownMinutes !== 1 ? 's' : ''}` : ''}
+                {cooldownMinutes > 0 && cooldownSeconds > 0 ? ' and ' : ''}
+                {cooldownSeconds > 0 ? `${cooldownSeconds} second${cooldownSeconds !== 1 ? 's' : ''}` : ''}
+                before requesting another transfer.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label>Current Waiter</Label>
+            <div className="p-2 bg-muted/30 rounded-md text-sm">
+              {waiters.find(w => w._id === currentWaiterId)?.name || 'Current Waiter'}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Transfer To *</Label>
+            <Select value={selectedWaiter} onValueChange={setSelectedWaiter} disabled={hasCooldown}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select waiter to transfer to" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableWaiters.map((waiter) => (
+                  <SelectItem key={waiter._id} value={waiter._id}>
+                    <div className="flex items-center gap-2">
+                      <UserIcon className="h-4 w-4" />
+                      {waiter.name}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Reason for Transfer *</Label>
+            <Textarea
+              placeholder="Why do you need to transfer this order? (e.g., customer moved to another table, shift change, etc.)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              disabled={hasCooldown}
+            />
+          </div>
+
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              The requested waiter will receive a notification and must accept the transfer before it takes effect.
+              {order?.editRequest?.status === 'cancelled' && (
+                <span className="block mt-1 text-yellow-600">
+                  Note: A previous transfer request was cancelled. Please wait 10 minutes before requesting again.
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSubmit} 
+            disabled={isSubmitting || hasCooldown || !selectedWaiter || !reason.trim()}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Sending Request...
+              </>
+            ) : (
+              <>
+                <Send className="mr-2 h-4 w-4" />
+                Send Transfer Request
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function OrderEditPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -575,6 +741,7 @@ export default function OrderEditPage() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [waiters, setWaiters] = useState<Waiter[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderStatus, setOrderStatus] = useState('PENDING');
   const [notes, setNotes] = useState('');
@@ -592,12 +759,27 @@ export default function OrderEditPage() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('orders');
   const [insufficientStockItem, setInsufficientStockItem] = useState<string | null>(null);
+  const [showTransferDialog, setShowTransferDialog] = useState(false);
+  const [hasPendingRequest, setHasPendingRequest] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+
+  // Cooldown timer effect
+  useEffect(() => {
+    if (cooldownRemaining > 0) {
+      const timer = setInterval(() => {
+        setCooldownRemaining(prev => Math.max(0, prev - 1000));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [cooldownRemaining]);
 
   // Fetch user orders and menu data
   useEffect(() => {
     if (status === 'authenticated' && session?.user?.id) {
       fetchOrders();
       fetchMenuData();
+      fetchWaiters();
     }
   }, [session, status]);
 
@@ -605,8 +787,19 @@ export default function OrderEditPage() {
   useEffect(() => {
     if (selectedOrder && menuItems.length > 0) {
       initializeCartFromOrder(selectedOrder);
+      setHasPendingRequest(selectedOrder.editRequest?.status === 'pending');
     }
   }, [selectedOrder, menuItems]);
+
+  const fetchWaiters = useCallback(async () => {
+    try {
+      const response = await fetch("/api/waitress");
+      const data = await response.json();
+      setWaiters(data || []);
+    } catch (error) {
+      console.error("Error fetching waiters:", error);
+    }
+  }, []);
 
   const fetchOrders = useCallback(async (showLoading = true) => {
     if (!session?.user?.id) return;
@@ -674,21 +867,49 @@ export default function OrderEditPage() {
   useEffect(() => {
     if (status === 'authenticated' && session?.user?.id) {
       const intervalId = setInterval(() => {
-        fetchOrders(false); // Background fetch
-      }, 10000); // Poll every 10 seconds
+        fetchOrders(false);
+      }, 10000);
 
       return () => clearInterval(intervalId);
     }
   }, [status, session, fetchOrders]);
 
-  const initializeCartFromOrder = (order: Order) => {
+  // Initialize cart from order
+  const initializeCartFromOrder = useCallback((order: Order) => {
     const cartItems: CartItem[] = [];
+    const orderItemsArray = getOrderItemsArray(order);
     
-    order.orderItems.forEach((orderItem, index) => {
-      const menuItem = menuItems.find(m => m._id === orderItem.menuItemId);
+    console.log("Initializing cart from order:", {
+      orderNumber: order.orderNumber,
+      orderKeys: Object.keys(order),
+      hasItems: !!order.items,
+      hasOrderItems: !!order.orderItems,
+      itemsCount: orderItemsArray.length,
+      items: orderItemsArray
+    });
+    
+    if (!orderItemsArray || orderItemsArray.length === 0) {
+      setCart([]);
+      setOrderStatus(order.status);
+      setNotes(order.notes || '');
+      setTableNumber(order.tableNumber || '');
+      setCustomerName(order.customerName || '');
+      setNumberOfGuests(order.numberOfGuests || 1);
+      setApplyDiscount(order.discount > 0);
+      return;
+    }
+    
+    orderItemsArray.forEach((orderItem, index) => {
+      const itemId = orderItem.menuItemId || orderItem.itemId;
+      
+      if (!itemId) {
+        console.warn("Order item has no ID:", orderItem);
+        return;
+      }
+      
+      const menuItem = menuItems.find(m => m._id === itemId);
       
       if (menuItem) {
-        // Use menu item data for consistency
         cartItems.push({
           ...menuItem,
           quantity: orderItem.quantity,
@@ -697,11 +918,10 @@ export default function OrderEditPage() {
           orderItemId: orderItem.id
         });
       } else {
-        // If menu item not found, use order item data
         cartItems.push({
-          _id: orderItem.menuItemId,
+          _id: itemId,
           name: orderItem.name,
-          description: 'Item not found in current menu',
+          description: orderItem.description || 'Item not found in current menu',
           price: orderItem.price,
           imageUrl: '/placeholder.svg',
           categoryId: '',
@@ -723,15 +943,51 @@ export default function OrderEditPage() {
     setCustomerName(order.customerName || '');
     setNumberOfGuests(order.numberOfGuests || 1);
     setApplyDiscount(order.discount > 0);
-  };
+  }, [menuItems]);
 
   const handleSelectOrder = (order: Order) => {
+    if (order.status === 'COMPLETED') {
+      toast({
+        title: "Cannot Edit",
+        description: "This order is already completed and cannot be edited.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSelectedOrder(order);
     setShowSuccessMessage(false);
+    
+    if (order.editRequest?.status === 'pending') {
+      setHasPendingRequest(true);
+      toast({
+        title: "Transfer Request Pending",
+        description: `This order has a pending transfer request to ${order.editRequest.requestedWaiterName}. Please wait for approval.`,
+        variant: "default",
+      });
+    } else {
+      setHasPendingRequest(false);
+    }
   };
 
   const addToCart = useCallback((item: MenuItem) => {
-    // Check stock availability
+    if (selectedOrder?.status === 'COMPLETED') {
+      toast({
+        title: "Cannot Edit",
+        description: "This order is completed and cannot be modified.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (hasPendingRequest) {
+      toast({
+        title: "Cannot Edit",
+        description: "This order has a pending transfer request. Please wait for approval.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (item.stock !== undefined && item.stock <= 0) {
       toast({
         title: "Out of Stock",
@@ -762,7 +1018,7 @@ export default function OrderEditPage() {
       title: "Added to Cart",
       description: `${item.name} added to order.`,
     });
-  }, []);
+  }, [selectedOrder, hasPendingRequest]);
 
   const removeFromCart = useCallback((cartId: string) => {
     setCart((prev) => prev.filter((item) => item.cartId !== cartId));
@@ -843,20 +1099,35 @@ export default function OrderEditPage() {
       return;
     }
 
+    if (selectedOrder.status === 'COMPLETED') {
+      toast({
+        title: "Cannot Edit",
+        description: "This order is completed and cannot be modified.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (hasPendingRequest) {
+      toast({
+        title: "Cannot Edit",
+        description: "This order has a pending transfer request. Please wait for approval.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setIsSaving(true);
       setApiError(null);
 
-      // Create order items array with proper item IDs
       const processedOrderItems = cart.map(item => {
         const menuItem = menuItems.find(m => m._id === item._id);
-        
-        // Use the menu item price if available, otherwise use cart item price
         const finalPrice = menuItem ? menuItem.price : item.price;
         const finalName = menuItem ? menuItem.name : item.name;
         
         return {
-          menuItemId: item._id, // Use the item ID from cart
+          menuItemId: item._id,
           name: finalName,
           price: finalPrice,
           quantity: item.quantity,
@@ -865,13 +1136,11 @@ export default function OrderEditPage() {
         };
       });
 
-      // Recalculate totals based on processed items
       const newSubtotal = processedOrderItems.reduce((sum, item) => sum + item.total, 0);
       const newTax = newSubtotal * 0.15;
       const newDiscount = applyDiscount ? newSubtotal * 0.1 : 0;
       const newTotal = newSubtotal + newTax - newDiscount;
 
-      // Prepare order data for API
       const orderData = {
         orderId: selectedOrder.id || selectedOrder._id,
         orderItems: processedOrderItems,
@@ -886,8 +1155,6 @@ export default function OrderEditPage() {
         finalAmount: newTotal,
         waiterId: session.user.id
       };
-
-      console.log('Sending order update:', orderData);
 
       const response = await fetch(`/api/order/waitress/${session.user.id}`, {
         method: 'PUT',
@@ -915,13 +1182,10 @@ export default function OrderEditPage() {
           description: 'Order updated successfully!',
         });
 
-        // Refresh orders to get updated data
         await fetchOrders();
 
-        // Update selected order with new data
         if (result.order) {
           setSelectedOrder(result.order);
-          // Re-initialize cart with updated order data
           initializeCartFromOrder(result.order);
         }
 
@@ -942,6 +1206,73 @@ export default function OrderEditPage() {
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleTransferRequest = async (targetWaiterId: string, reason: string) => {
+    if (!selectedOrder) return;
+    
+    setIsTransferring(true);
+
+    try {
+      const response = await fetch('/api/order/request-transfer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          orderId: selectedOrder.id || selectedOrder._id,
+          targetWaiterId,
+          reason,
+          currentWaiterId: session?.user?.id,
+          orderNumber: selectedOrder.orderNumber,
+          tableNumber: selectedOrder.tableNumber
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Handle cooldown error specially
+        if (data.error && data.error.includes('Please wait')) {
+          if (data.cooldownRemaining) {
+            setCooldownRemaining(data.cooldownRemaining);
+          }
+          toast({
+            title: "Cooldown Period",
+            description: data.error,
+            variant: "default",
+            duration: 5000,
+          });
+        } else {
+          throw new Error(data.error || data.message || 'Failed to send transfer request');
+        }
+        return;
+      }
+
+      toast({
+        title: 'Transfer Request Sent',
+        description: `Request sent to ${waiters.find(w => w._id === targetWaiterId)?.name}. They will need to accept the transfer.`,
+      });
+
+      // Refresh orders to show pending request status
+      await fetchOrders();
+      
+      // Update selected order
+      if (data.order) {
+        setSelectedOrder(data.order);
+        setHasPendingRequest(true);
+      }
+
+    } catch (error) {
+      console.error('Error sending transfer request:', error);
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to send transfer request',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsTransferring(false);
     }
   };
 
@@ -1033,45 +1364,53 @@ export default function OrderEditPage() {
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-[500px] overflow-y-auto pr-4">
-                    {orders.map(order => (
-                      <Card
-                        key={order.id}
-                        className={`cursor-pointer transition-all hover:shadow-md ${
-                          selectedOrder?.id === order.id ? 'border-primary ring-2 ring-primary/20' : ''
-                        }`}
-                        onClick={() => handleSelectOrder(order)}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex justify-between items-start">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <h3 className="font-semibold">#{order.orderNumber}</h3>
-                                <Badge 
-                                  className={`${getStatusColor(order.status)} text-xs flex items-center gap-1`}
-                                >
-                                  {getStatusIcon(order.status)}
-                                  {order.status}
-                                </Badge>
+                    {orders.map(order => {
+                      const itemsCount = getOrderItemsArray(order).length;
+                      return (
+                        <Card
+                          key={order.id}
+                          className={`cursor-pointer transition-all hover:shadow-md ${
+                            selectedOrder?.id === order.id ? 'border-primary ring-2 ring-primary/20' : ''
+                          }`}
+                          onClick={() => handleSelectOrder(order)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex justify-between items-start">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <h3 className="font-semibold">#{order.orderNumber}</h3>
+                                  <Badge 
+                                    className={`${getStatusColor(order.status)} text-xs flex items-center gap-1`}
+                                  >
+                                    {getStatusIcon(order.status)}
+                                    {order.status}
+                                  </Badge>
+                                  {order.editRequest?.status === 'pending' && (
+                                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 text-xs">
+                                      Transfer Pending
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                  {order.tableNumber || 'No table'}
+                                </p>
+                                <p className="text-sm font-medium">
+                                  ${(order.finalAmount || order.totalAmount).toFixed(2)}
+                                </p>
                               </div>
-                              <p className="text-sm text-muted-foreground">
-                                {order.tableNumber || 'No table'}
-                              </p>
-                              <p className="text-sm font-medium">
-                                ${order.finalAmount.toFixed(2)}
-                              </p>
+                              <div className="text-right space-y-1">
+                                <p className="text-xs text-muted-foreground">
+                                  {new Date(order.createdAt).toLocaleDateString()}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {itemsCount} item{itemsCount !== 1 ? 's' : ''}
+                                </p>
+                              </div>
                             </div>
-                            <div className="text-right space-y-1">
-                              <p className="text-xs text-muted-foreground">
-                                {new Date(order.createdAt).toLocaleDateString()}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {order.orderItems.length} item{order.orderItems.length !== 1 ? 's' : ''}
-                              </p>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -1087,16 +1426,30 @@ export default function OrderEditPage() {
                     </CardTitle>
                     <CardDescription>
                       {selectedOrder && (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span>Status: {selectedOrder.status}</span>
                           <span>• Table: {selectedOrder.tableNumber || 'N/A'}</span>
                           <span>• Customer: {selectedOrder.customerName || 'N/A'}</span>
+                          {selectedOrder.editRequest?.status === 'pending' && (
+                            <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+                              Transfer Request Pending
+                            </Badge>
+                          )}
                         </div>
                       )}
                     </CardDescription>
                   </div>
-                  {selectedOrder && (
+                  {selectedOrder && selectedOrder.status !== 'COMPLETED' && !hasPendingRequest && (
                     <div className="flex gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => setShowTransferDialog(true)}
+                        disabled={isTransferring}
+                      >
+                        <ArrowRightLeft className="h-4 w-4 mr-2" />
+                        Transfer Order
+                      </Button>
                       <Button 
                         variant="outline" 
                         size="sm" 
@@ -1107,11 +1460,44 @@ export default function OrderEditPage() {
                       </Button>
                     </div>
                   )}
+                  {selectedOrder && selectedOrder.status !== 'COMPLETED' && hasPendingRequest && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      disabled
+                      className="bg-yellow-50"
+                    >
+                      <Clock3 className="h-4 w-4 mr-2" />
+                      Transfer Pending
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
 
               {selectedOrder ? (
                 <CardContent className="space-y-6">
+                  {selectedOrder.status === 'COMPLETED' && (
+                    <Alert variant="destructive" className="mb-4">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        This order is completed and cannot be edited. View only mode.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {hasPendingRequest && selectedOrder.editRequest && (
+                    <Alert className="bg-yellow-50 border-yellow-200">
+                      <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                      <AlertDescription className="text-yellow-800">
+                        A transfer request has been sent to {selectedOrder.editRequest.requestedWaiterName}. 
+                        This order cannot be edited until the request is processed.
+                        <div className="mt-2 text-sm">
+                          <strong>Reason:</strong> {selectedOrder.editRequest.reason}
+                        </div>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
                   {/* Quick Actions */}
                   <Card>
                     <CardHeader>
@@ -1125,6 +1511,7 @@ export default function OrderEditPage() {
                         }}
                         className="w-full gap-2"
                         variant="default"
+                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
                       >
                         <ShoppingBag className="h-4 w-4" />
                         Add More Items
@@ -1142,6 +1529,7 @@ export default function OrderEditPage() {
                         value={tableNumber}
                         onChange={(e) => setTableNumber(e.target.value)}
                         placeholder="e.g., T-5, Takeaway"
+                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
                       />
                     </div>
                     <div className="space-y-2">
@@ -1151,6 +1539,7 @@ export default function OrderEditPage() {
                         value={customerName}
                         onChange={(e) => setCustomerName(e.target.value)}
                         placeholder="Walk-in Customer"
+                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
                       />
                     </div>
                     <div className="space-y-2">
@@ -1177,16 +1566,18 @@ export default function OrderEditPage() {
                       <div className="text-center py-8 border-2 border-dashed rounded-lg">
                         <ShoppingCart className="h-12 w-12 mx-auto text-muted-foreground" />
                         <p className="mt-2 text-muted-foreground">No items in this order</p>
-                        <Button 
-                          onClick={() => {
-                            setActiveTab('menu');
-                            setIsCartOpen(true);
-                          }} 
-                          className="mt-4"
-                        >
-                          <ShoppingBag className="h-4 w-4 mr-2" />
-                          Add Items from Menu
-                        </Button>
+                        {selectedOrder.status !== 'COMPLETED' && !hasPendingRequest && (
+                          <Button 
+                            onClick={() => {
+                              setActiveTab('menu');
+                              setIsCartOpen(true);
+                            }} 
+                            className="mt-4"
+                          >
+                            <ShoppingBag className="h-4 w-4 mr-2" />
+                            Add Items from Menu
+                          </Button>
+                        )}
                       </div>
                     ) : (
                       <div className="border rounded-lg overflow-hidden">
@@ -1223,6 +1614,7 @@ export default function OrderEditPage() {
                                       variant="outline"
                                       className="h-6 w-6 p-0"
                                       onClick={() => updateQuantity(item.cartId, item.quantity - 1)}
+                                      disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
                                     >
                                       -
                                     </Button>
@@ -1232,6 +1624,7 @@ export default function OrderEditPage() {
                                       variant="outline"
                                       className="h-6 w-6 p-0"
                                       onClick={() => updateQuantity(item.cartId, item.quantity + 1)}
+                                      disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
                                     >
                                       +
                                     </Button>
@@ -1246,6 +1639,7 @@ export default function OrderEditPage() {
                                     variant="ghost"
                                     className="h-8 w-8 p-0 text-destructive"
                                     onClick={() => removeFromCart(item.cartId)}
+                                    disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
@@ -1267,6 +1661,7 @@ export default function OrderEditPage() {
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       rows={3}
+                      disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
                     />
                   </div>
 
@@ -1298,32 +1693,34 @@ export default function OrderEditPage() {
                         </div>
                       </div>
                     </CardContent>
-                    <CardFooter className="flex gap-3 border-t pt-6">
-                      <Button 
-                        variant="outline" 
-                        className="flex-1"
-                        onClick={() => setSelectedOrder(null)}
-                      >
-                        Cancel
-                      </Button>
-                      <Button 
-                        className="flex-1"
-                        onClick={handleSaveOrder}
-                        disabled={isSaving || cart.length === 0}
-                      >
-                        {isSaving ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Updating...
-                          </>
-                        ) : (
-                          <>
-                            <Save className="mr-2 h-4 w-4" />
-                            Update Order
-                          </>
-                        )}
-                      </Button>
-                    </CardFooter>
+                    {selectedOrder.status !== 'COMPLETED' && !hasPendingRequest && (
+                      <CardFooter className="flex gap-3 border-t pt-6">
+                        <Button 
+                          variant="outline" 
+                          className="flex-1"
+                          onClick={() => setSelectedOrder(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button 
+                          className="flex-1"
+                          onClick={handleSaveOrder}
+                          disabled={isSaving || cart.length === 0}
+                        >
+                          {isSaving ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Updating...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="mr-2 h-4 w-4" />
+                              Update Order
+                            </>
+                          )}
+                        </Button>
+                      </CardFooter>
+                    )}
                   </Card>
                 </CardContent>
               ) : (
@@ -1488,6 +1885,17 @@ export default function OrderEditPage() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Transfer Request Dialog */}
+      <TransferRequestDialog
+        open={showTransferDialog}
+        onOpenChange={setShowTransferDialog}
+        waiters={waiters}
+        currentWaiterId={session.user.id}
+        order={selectedOrder}
+        onSubmit={handleTransferRequest}
+        cooldownRemaining={cooldownRemaining}
+      />
 
       {/* Insufficient Stock Dialog */}
       <Dialog open={!!insufficientStockItem} onOpenChange={() => setInsufficientStockItem(null)}>

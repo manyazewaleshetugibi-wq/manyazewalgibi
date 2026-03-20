@@ -1,4 +1,5 @@
-"use client"
+// app/pos/page.tsx
+"use client";
 
 import { useState, useEffect, useCallback, useMemo, Suspense, lazy, useRef } from "react"
 import { useRouter } from "next/navigation"
@@ -23,20 +24,21 @@ import {
   Sparkles,
   Loader2,
   Receipt,
-  CreditCard,
   Check,
-  Tag,
-  MapPin,
-  Phone,
   User as UserIcon,
+  ArrowRightLeft,
+  RefreshCw,
+  Package,
+  Bell,
+  BellRing,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardFooter } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
@@ -50,11 +52,10 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
+// Types
 interface MenuItem {
   _id: string
   name: string
@@ -65,6 +66,7 @@ interface MenuItem {
   preparationTime: number
   calories: number
   tags: string[]
+  stock?: number
 }
 
 interface Category {
@@ -82,51 +84,110 @@ interface CartItem extends MenuItem {
 interface Waiter {
   _id: string
   name: string
-  shift: string
-  avatar: string
+  shift?: string
+  avatar?: string
+  email?: string
+  role?: string
 }
 
-// Custom debounce function implementation
+interface OrderItem {
+  id: string
+  menuItemId: string
+  name: string
+  price: number
+  quantity: number
+  specialInstructions?: string
+  total: number
+}
+
+interface EditRequest {
+  requestedWaiterId: string
+  requestedWaiterName?: string
+  status: 'pending' | 'accepted' | 'cancelled'
+  requestedBy: string
+  requestedByName?: string
+  requestedAt: string
+  reason: string
+  originalWaiterId: string
+  originalWaiterName?: string
+}
+
+interface Order {
+  id: string
+  orderNumber: string
+  status: string
+  totalAmount: number
+  finalAmount: number
+  tax: number
+  discount: number
+  numberOfGuests: number
+  tableNumber: string
+  customerName: string
+  notes: string
+  createdAt: string
+  updatedAt: string
+  orderItems: OrderItem[]
+  paymentStatus: string
+  paymentMethod: string
+  waiterId: string
+  waiterInfo?: {
+    id: string
+    name: string
+    role: string
+  }
+  editRequest?: EditRequest
+  _id?: string
+}
+
+// Custom debounce function
 const useDebounce = <T,>(value: T, delay: number): T => {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debouncedValue;
+};
+
+// Sound notification hook
+const useNotificationSound = () => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isEnabled, setIsEnabled] = useState(true);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
+    if (typeof window !== 'undefined') {
+      audioRef.current = new Audio('/sounds/notification.mp3');
+      const enableSound = () => {
+        setIsEnabled(true);
+        document.removeEventListener('click', enableSound);
+      };
+      document.addEventListener('click', enableSound);
+      return () => document.removeEventListener('click', enableSound);
+    }
+  }, []);
 
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [value, delay]);
+  const play = useCallback(() => {
+    if (audioRef.current && isEnabled) {
+      audioRef.current.play().catch(err => console.log('Audio play failed:', err));
+    }
+  }, [isEnabled]);
 
-  return debouncedValue;
+  return { play, isEnabled, setIsEnabled };
 };
 
 const getCategoryIcon = (type: string) => {
   switch (type.toLowerCase()) {
-    case "food":
-      return <Utensils className="h-5 w-5" />
-    case "drink":
-      return <Coffee className="h-5 w-5" />
-    case "pizza":
-      return <Pizza className="h-5 w-5" />
-    case "burger":
-      return <Hamburger className="h-5 w-5" />
-    case "dessert":
-      return <IceCream className="h-5 w-5" />
-    default:
-      return <Utensils className="h-5 w-5" />
+    case "food": return <Utensils className="h-4 w-4 sm:h-5 sm:w-5" />
+    case "drink": return <Coffee className="h-4 w-4 sm:h-5 sm:w-5" />
+    case "pizza": return <Pizza className="h-4 w-4 sm:h-5 sm:w-5" />
+    case "burger": return <Hamburger className="h-4 w-4 sm:h-5 sm:w-5" />
+    case "dessert": return <IceCream className="h-4 w-4 sm:h-5 sm:w-5" />
+    default: return <Utensils className="h-4 w-4 sm:h-5 sm:w-5" />
   }
 }
 
 const getInitials = (name: string) => {
-  return name
-    .split(" ")
-    .map((word) => word[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2)
+  return name.split(" ").map(word => word[0]).join("").toUpperCase().slice(0, 2)
 }
 
 const fadeInUp = {
@@ -135,18 +196,12 @@ const fadeInUp = {
   exit: { opacity: 0, y: -20 },
 }
 
-// Lazily loaded components
+// Menu Item Component
 const MenuItemComponent = lazy(() => {
   return new Promise<{ default: React.ComponentType<any> }>((resolve) => {
     setTimeout(() => {
       resolve({
-        default: ({
-          item,
-          addToCart,
-        }: {
-          item: MenuItem
-          addToCart: (item: MenuItem) => void
-        }) => (
+        default: ({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) => (
           <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/30 group min-w-0">
             <div className="relative aspect-square sm:aspect-[4/3] overflow-hidden rounded-t-lg">
               <Image
@@ -157,91 +212,50 @@ const MenuItemComponent = lazy(() => {
                 className="object-cover transition-transform duration-500 group-hover:scale-110"
                 loading="lazy"
               />
-              {/* Price badge */}
-              <div className="absolute top-2 right-2 bg-black/75 text-white text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm">
+              <div className="absolute top-2 right-2 bg-black/75 text-white text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm">
                 {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
               </div>
-
-              {/* Bestseller badge */}
               {item.tags?.includes('bestseller') && (
-                <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-[9px] font-medium px-1.5 py-0.5 rounded-md backdrop-blur-sm flex items-center gap-1">
-                  <Sparkles className="h-2.5 w-2.5" />
+                <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-[8px] sm:text-[9px] font-medium px-1.5 py-0.5 rounded-md backdrop-blur-sm flex items-center gap-1">
+                  <Sparkles className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
                   Best
                 </div>
               )}
-
-              {/* Quick add overlay */}
               <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const button = e.currentTarget;
-
-                    // Add ripple effect
-                    button.classList.add("animate-pulse");
-                    setTimeout(() => button.classList.remove("animate-pulse"), 300);
-
-                    // Add to cart with feedback
-                    addToCart(item);
-                  }}
-                  className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm"
+                  onClick={(e) => { e.stopPropagation(); addToCart(item); }}
+                  className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm text-xs sm:text-sm px-2 sm:px-3"
                 >
-                  <Plus className="mr-1 h-3.5 w-3.5" />
-                  Add to cart
+                  <Plus className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                  Add
                 </Button>
               </div>
             </div>
-
             <CardContent className="p-2 sm:p-3 flex flex-col gap-1 sm:gap-2 h-full">
               <div className="space-y-0.5 flex-grow">
                 <h3 className="font-medium text-xs sm:text-sm line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
-                <p className="text-[10px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2">{item.description}</p>
+                <p className="text-[9px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2">{item.description}</p>
               </div>
-
               <div className="flex items-center justify-between mt-auto pt-1">
-                <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
-                  <Badge variant="outline" className="h-4 px-1 text-[8px] font-normal flex items-center gap-0.5">
-                    <Clock className="h-2 w-2" />
+                <div className="flex items-center gap-1 text-[8px] sm:text-[9px] text-muted-foreground">
+                  <Badge variant="outline" className="h-3.5 px-1 text-[7px] sm:text-[8px] font-normal flex items-center gap-0.5">
+                    <Clock className="h-1.5 w-1.5 sm:h-2 sm:w-2" />
                     {item.preparationTime}m
                   </Badge>
-                  <Badge variant="outline" className="h-4 px-1 text-[8px] font-normal flex items-center gap-0.5">
-                    <Utensils className="h-2 w-2" />
+                  <Badge variant="outline" className="h-3.5 px-1 text-[7px] sm:text-[8px] font-normal flex items-center gap-0.5">
+                    <Utensils className="h-1.5 w-1.5 sm:h-2 sm:w-2" />
                     {item.calories}cal
                   </Badge>
                 </div>
-
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-
-                    // Add ripple effect
-                    const circle = document.createElement("span");
-                    const diameter = Math.max(e.currentTarget.clientWidth, e.currentTarget.clientHeight);
-                    const radius = diameter / 2;
-
-                    circle.style.width = circle.style.height = `${diameter}px`;
-                    circle.style.left = `${e.clientX - e.currentTarget.offsetLeft - radius}px`;
-                    circle.style.top = `${e.clientY - e.currentTarget.offsetTop - radius}px`;
-                    circle.classList.add("ripple");
-
-                    const ripple = e.currentTarget.getElementsByClassName("ripple")[0];
-                    if (ripple) {
-                      ripple.remove();
-                    }
-
-                    e.currentTarget.appendChild(circle);
-
-                    // Add to cart
-                    addToCart(item);
-                  }}
-                  className="h-6 w-6 sm:h-7 sm:w-7 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0 relative overflow-hidden transition-transform hover:scale-110"
+                  onClick={(e) => { e.stopPropagation(); addToCart(item); }}
+                  className="h-5 w-5 sm:h-6 sm:w-6 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0 relative overflow-hidden transition-transform hover:scale-110"
                 >
-                  <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                  <span className="sr-only">Add to cart</span>
+                  <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                 </Button>
               </div>
             </CardContent>
@@ -266,7 +280,369 @@ const MenuItemFallback = () => (
   </div>
 )
 
-export default function OrderPage() {
+// Pending Transfer Requests Component
+function PendingTransferRequests({ 
+  requests, 
+  onAccept, 
+  onCancel,
+  isLoading,
+  onNewRequest
+}: { 
+  requests: Order[]; 
+  onAccept: (orderId: string) => Promise<void>;
+  onCancel: (orderId: string) => Promise<void>;
+  isLoading: boolean;
+  onNewRequest: (request: Order) => void;
+}) {
+  const previousRequestsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    const currentRequestIds = requests.map(r => r.id);
+    const newRequests = currentRequestIds.filter(id => !previousRequestsRef.current.includes(id));
+    
+    if (newRequests.length > 0) {
+      const newRequest = requests.find(r => r.id === newRequests[0]);
+      if (newRequest) {
+        onNewRequest(newRequest);
+      }
+    }
+    
+    previousRequestsRef.current = currentRequestIds;
+  }, [requests, onNewRequest]);
+
+  if (requests.length === 0) {
+    return (
+      <div className="text-center py-8 sm:py-12">
+        <div className="h-12 w-12 sm:h-16 sm:w-16 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-3 sm:mb-4">
+          <Bell className="h-6 w-6 sm:h-8 sm:w-8 text-muted-foreground/50" />
+        </div>
+        <h3 className="text-base sm:text-lg font-medium mb-1 sm:mb-2">No Pending Transfer Requests</h3>
+        <p className="text-xs sm:text-sm text-muted-foreground px-4">
+          When waiters request to transfer orders to you, they'll appear here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 sm:space-y-4">
+      {requests.map((order, index) => (
+        <motion.div
+          key={order.id}
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: index * 0.1 }}
+        >
+          <Card className="border-2 border-yellow-200 bg-yellow-50/30 hover:shadow-lg transition-shadow">
+            <CardContent className="p-3 sm:p-6">
+              <div className="flex flex-col gap-3 sm:gap-4">
+                {/* Header */}
+                <div className="flex items-start justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <BellRing className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-600 animate-pulse" />
+                    <h3 className="font-semibold text-sm sm:text-base">Order #{order.orderNumber}</h3>
+                    <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs">
+                      Transfer Request
+                    </Badge>
+                    <Badge variant="outline" className="bg-blue-50 text-[10px] sm:text-xs">
+                      Table {order.tableNumber}
+                    </Badge>
+                  </div>
+                  <div className="text-xs sm:text-sm font-semibold text-green-600">
+                    {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(order.finalAmount)}
+                  </div>
+                </div>
+
+                {/* Details Grid */}
+                <div className="grid grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <UserIcon className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+                    <span className="truncate">Customer: {order.customerName || 'Walk-in'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <Users className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+                    <span>Guests: {order.numberOfGuests}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 sm:gap-2 col-span-2 sm:col-span-1">
+                    <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+                    <span className="text-[10px] sm:text-xs">{new Date(order.createdAt).toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <Package className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+                    <span>{order.orderItems?.length || 0} items</span>
+                  </div>
+                </div>
+
+                {/* Transfer Details */}
+                {order.editRequest && (
+                  <div className="bg-white/70 rounded-lg p-2 sm:p-3 space-y-1">
+                    <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
+                      <ArrowRightLeft className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
+                      <span className="font-medium">Transfer Details:</span>
+                    </div>
+                    <div className="text-[10px] sm:text-xs space-y-0.5 sm:space-y-1 pl-4 sm:pl-6">
+                      <p>
+                        <span className="text-muted-foreground">From:</span>{' '}
+                        {order.editRequest.requestedByName || 'Unknown'}
+                      </p>
+                      <p>
+                        <span className="text-muted-foreground">Reason:</span>{' '}
+                        {order.editRequest.reason}
+                      </p>
+                      <p className="text-[9px] sm:text-[10px] text-muted-foreground">
+                        Requested: {new Date(order.editRequest.requestedAt).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-2 sm:gap-3 mt-2">
+                  <Button
+                    onClick={() => onAccept(order.id)}
+                    disabled={isLoading}
+                    className="flex-1 gap-1.5 sm:gap-2 bg-green-600 hover:bg-green-700 text-xs sm:text-sm h-8 sm:h-10"
+                  >
+                    <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    Accept Transfer
+                  </Button>
+                  <Button
+                    onClick={() => onCancel(order.id)}
+                    disabled={isLoading}
+                    variant="outline"
+                    className="flex-1 gap-1.5 sm:gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-10"
+                  >
+                    <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      ))}
+    </div>
+  );
+}
+
+// Cart Panel Component
+function CartPanel({
+  cart,
+  updateQuantity,
+  removeFromCart,
+  subtotal,
+  tax,
+  discount,
+  total,
+  applyDiscount,
+  setApplyDiscount,
+  numberOfGuests,
+  setNumberOfGuests,
+  specialRequirements,
+  setSpecialRequirements,
+  orderNumber,
+  handlePlaceOrder,
+  closeCart
+}: any) {
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between p-3 sm:p-4 border-b sticky top-0 bg-background z-10">
+        <h3 className="font-semibold flex items-center gap-2 text-sm sm:text-base">
+          <ShoppingCart className="h-4 w-4 sm:h-5 sm:w-5" />
+          Current Order
+          <Badge variant="outline" className="ml-1 text-xs">
+            {cart.length} {cart.length === 1 ? 'item' : 'items'}
+          </Badge>
+        </h3>
+        <Button variant="ghost" size="icon" onClick={closeCart} className="h-7 w-7 sm:h-8 sm:w-8 rounded-full">
+          <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+        </Button>
+      </div>
+
+      {cart.length > 0 ? (
+        <>
+          <ScrollArea className="flex-1 p-2 sm:p-3">
+            <div className="space-y-2 sm:space-y-3">
+              {cart.map((item: any) => (
+                <div key={item._id} className="flex border rounded-lg overflow-hidden bg-background/50">
+                  <div className="relative h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0">
+                    <Image src={item.imageUrl || "/placeholder.svg"} alt={item.name} fill sizes="56px" className="object-cover" />
+                  </div>
+                  <div className="flex-1 p-1.5 sm:p-2 flex flex-col">
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-xs sm:text-sm truncate">{item.name}</h4>
+                        <p className="text-[9px] sm:text-[10px] text-muted-foreground">
+                          {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeFromCart(item._id)}
+                        className="h-5 w-5 sm:h-6 sm:w-6 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <X className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                      </Button>
+                    </div>
+                    <div className="mt-1 pt-0.5 flex justify-between items-center">
+                      <div className="flex items-center border rounded-md">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => updateQuantity(item._id, item.quantity - 1)}
+                          className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-l-md p-0"
+                        >
+                          <Minus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                        </Button>
+                        <span className="w-5 sm:w-6 text-center text-[10px] sm:text-xs font-medium">{item.quantity}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => updateQuantity(item._id, item.quantity + 1)}
+                          className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-r-md p-0"
+                        >
+                          <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                        </Button>
+                      </div>
+                      <span className="text-[10px] sm:text-xs font-medium">
+                        {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price * item.quantity)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+
+          <div className="border-t p-3 sm:p-4 space-y-2 sm:space-y-3">
+            <div className="space-y-1 sm:space-y-2">
+              <div className="flex items-center justify-between text-[10px] sm:text-xs">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(subtotal)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] sm:text-xs">
+                <span className="text-muted-foreground">Tax (15%)</span>
+                <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(tax)}</span>
+              </div>
+              {discount > 0 && (
+                <div className="flex items-center justify-between text-[10px] sm:text-xs text-primary">
+                  <span>Discount (10%)</span>
+                  <span>-{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(discount)}</span>
+                </div>
+              )}
+              <Separator />
+              <div className="flex items-center justify-between font-semibold text-xs sm:text-sm">
+                <span>Total</span>
+                <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(total)}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2 sm:space-y-3 pt-1">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="guests" className="text-[10px] sm:text-xs whitespace-nowrap">Guests:</Label>
+                <Select value={numberOfGuests.toString()} onValueChange={(v) => setNumberOfGuests(parseInt(v))}>
+                  <SelectTrigger id="guests" className="h-7 sm:h-8 text-[10px] sm:text-xs flex-1">
+                    <SelectValue placeholder="Number" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 10 }, (_, i) => (
+                      <SelectItem key={i} value={(i + 1).toString()}>
+                        {i + 1} {i === 0 ? 'guest' : 'guests'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="special-requirements" className="text-[10px] sm:text-xs">Special Notes</Label>
+                <Textarea
+                  id="special-requirements"
+                  placeholder="Add notes..."
+                  className="min-h-[50px] sm:min-h-[60px] text-[10px] sm:text-xs"
+                  value={specialRequirements}
+                  onChange={(e) => setSpecialRequirements(e.target.value)}
+                />
+              </div>
+
+              <Button
+                onClick={handlePlaceOrder}
+                className="w-full rounded-lg h-8 sm:h-10 text-xs sm:text-sm"
+                disabled={cart.length === 0}
+              >
+                <Receipt className="mr-1.5 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                Place Order
+              </Button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
+          <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-muted flex items-center justify-center mb-2 sm:mb-3">
+            <ShoppingCart className="h-5 w-5 sm:h-6 sm:w-6 text-muted-foreground" />
+          </div>
+          <h3 className="text-sm sm:text-base font-medium mb-1">Your cart is empty</h3>
+          <p className="text-[10px] sm:text-xs text-muted-foreground max-w-md mb-3 sm:mb-4">
+            Add items from the menu to get started.
+          </p>
+          <Button variant="outline" onClick={closeCart} className="rounded-lg text-xs sm:text-sm">
+            Browse Menu
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// List View Item Component
+function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) {
+  return (
+    <div className="flex border border-border/40 rounded-lg overflow-hidden hover:border-primary/30 transition-all bg-background hover:bg-background/95 hover:shadow-sm group">
+      <div className="relative h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0 overflow-hidden">
+        <Image src={item.imageUrl || "/placeholder.svg"} alt={item.name} fill sizes="56px" className="object-cover" />
+        {item.tags?.includes('bestseller') && (
+          <div className="absolute top-0.5 left-0.5 bg-primary/90 text-primary-foreground text-[6px] sm:text-[7px] font-medium px-1 py-0.5 rounded">
+            Best
+          </div>
+        )}
+      </div>
+      <div className="flex-1 p-1.5 sm:p-2 flex flex-col">
+        <div className="flex items-start justify-between gap-1">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-medium text-[10px] sm:text-xs line-clamp-1">{item.name}</h3>
+            <p className="text-[8px] sm:text-[9px] text-muted-foreground line-clamp-1">{item.description}</p>
+          </div>
+          <div className="flex flex-col items-end">
+            <span className="text-[9px] sm:text-[10px] font-medium text-primary">
+              {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
+            </span>
+            <div className="flex gap-0.5 sm:gap-1 mt-0.5">
+              <Badge variant="outline" className="h-3 px-0.5 sm:px-1 text-[6px] sm:text-[7px] font-normal">
+                {item.preparationTime}m
+              </Badge>
+              <Badge variant="outline" className="h-3 px-0.5 sm:px-1 text-[6px] sm:text-[7px] font-normal">
+                {item.calories}cal
+              </Badge>
+            </div>
+          </div>
+        </div>
+        <div className="mt-0.5 pt-0.5 flex justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); addToCart(item); }}
+            className="h-5 w-5 sm:h-6 sm:w-6 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0"
+          >
+            <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function POSPage() {
   const router = useRouter()
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
@@ -285,73 +661,123 @@ export default function OrderPage() {
   const [orderProgress, setOrderProgress] = useState(0)
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [activeView, setActiveView] = useState<'grid' | 'list'>('grid')
-
-  // Use debounce hook for search
+  const [pendingTransfers, setPendingTransfers] = useState<Order[]>([])
+  const [isProcessingTransfer, setIsProcessingTransfer] = useState(false)
+  const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string; email: string } | null>(null)
+  const [showNotification, setShowNotification] = useState(false)
+  
+  const { play: playNotificationSound } = useNotificationSound()
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
-  // Add global styles for ripple effect and animations
+  // Add global styles
   useEffect(() => {
     const style = document.createElement('style');
     style.textContent = `
-      .ripple {
-        position: absolute;
-        background: rgba(255, 255, 255, 0.3);
-        border-radius: 50%;
-        transform: scale(0);
-        animation: ripple 0.6s linear;
-        pointer-events: none;
-      }
-      
-      @keyframes ripple {
-        to {
-          transform: scale(2);
-          opacity: 0;
-        }
-      }
-      
-      .scale-in {
-        animation: scaleIn 0.2s ease forwards;
-      }
-      
-      @keyframes scaleIn {
-        from {
-          transform: scale(0.9);
-          opacity: 0;
-        }
-        to {
-          transform: scale(1);
-          opacity: 1;
-        }
-      }
-      
-      .pop {
-        animation: pop 0.3s ease forwards;
-      }
-      
-      @keyframes pop {
-        0% {
-          transform: scale(1);
-        }
-        50% {
-          transform: scale(1.1);
-        }
-        100% {
-          transform: scale(1);
-        }
-      }
+      .ripple { position: absolute; background: rgba(255,255,255,0.3); border-radius: 50%; transform: scale(0); animation: ripple 0.6s linear; pointer-events: none; }
+      @keyframes ripple { to { transform: scale(2); opacity: 0; } }
+      .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      .hide-scrollbar::-webkit-scrollbar { display: none; }
     `;
     document.head.appendChild(style);
-
-    return () => {
-      document.head.removeChild(style);
-    };
+    return () => { document.head.removeChild(style); };
   }, []);
 
-  // Handle search input change
+  // Fetch current user info and waiter ID
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        const sessionRes = await fetch('/api/auth/session');
+        const sessionData = await sessionRes.json();
+        
+        console.log("Session data:", sessionData);
+        
+        if (sessionData?.user) {
+          // Fetch all waiters to find matching email
+          const waitersRes = await fetch('/api/waitress');
+          const waitersData = await waitersRes.json();
+          
+          console.log("All waiters:", waitersData);
+          
+          const matchingWaiter = (waitersData || []).find(
+            (w: any) => w.email === sessionData.user.email
+          );
+          
+          if (matchingWaiter && matchingWaiter._id) {
+            setCurrentUser({
+              id: matchingWaiter._id,
+              name: matchingWaiter.name,
+              role: matchingWaiter.role || sessionData.user.role,
+              email: matchingWaiter.email
+            });
+            console.log("Found matching waiter:", matchingWaiter.name, "ID:", matchingWaiter._id);
+          } else {
+            setCurrentUser({
+              id: sessionData.user.id,
+              name: sessionData.user.name,
+              role: sessionData.user.role,
+              email: sessionData.user.email
+            });
+            console.log("No matching waiter found, using session ID:", sessionData.user.id);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching user:', error);
+      }
+    };
+    fetchCurrentUser();
+  }, []);
+
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value)
   }
 
+  // Fetch pending transfer requests - ONLY for the current waiter
+  const fetchPendingTransfers = useCallback(async () => {
+    if (!currentUser?.id) return;
+    
+    try {
+      console.log("Fetching pending transfers for waiter:", currentUser.id);
+      
+      const response = await fetch(`/api/order/pending-requests?waiterId=${currentUser.id}`);
+      const data = await response.json();
+      
+      console.log("Pending transfers response:", data);
+      
+      if (data.success) {
+        const newRequests = data.requests || [];
+        
+        // Check for new requests and play sound
+        if (newRequests.length > pendingTransfers.length && newRequests.length > 0) {
+          const newRequest = newRequests.find((r: Order) => !pendingTransfers.some(p => p.id === r.id));
+          if (newRequest) {
+            playNotificationSound();
+            setShowNotification(true);
+            setTimeout(() => setShowNotification(false), 3000);
+            
+            toast.custom((t) => (
+              <div className={`bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded shadow-lg ${t.visible ? 'animate-in slide-in-from-top-2' : 'animate-out slide-out-to-top-2'}`}>
+                <div className="flex items-center gap-2">
+                  <BellRing className="h-4 w-4 text-yellow-600" />
+                  <div>
+                    <p className="font-medium text-sm">New Transfer Request!</p>
+                    <p className="text-xs text-muted-foreground">
+                      Order #{newRequest.orderNumber} from {newRequest.editRequest?.requestedByName}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ), { duration: 4000 });
+          }
+        }
+        
+        setPendingTransfers(newRequests);
+      }
+    } catch (error) {
+      console.error('Error fetching pending transfers:', error);
+    }
+  }, [currentUser, pendingTransfers, playNotificationSound]);
+
+  // Initial data fetch
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -379,7 +805,20 @@ export default function OrderPage() {
     fetchData()
   }, [])
 
-  // Use memoized filtered items for better performance
+  // Fetch pending transfers when user is loaded
+  useEffect(() => {
+    if (currentUser?.id) {
+      fetchPendingTransfers();
+      const interval = setInterval(fetchPendingTransfers, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [currentUser, fetchPendingTransfers]);
+
+  // Handle new request for sound
+  const handleNewRequest = (request: Order) => {
+    playNotificationSound();
+  };
+
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       const matchesCategory = selectedCategory === "all" || item.categoryId === selectedCategory
@@ -389,26 +828,12 @@ export default function OrderPage() {
   }, [items, selectedCategory, debouncedSearchQuery])
 
   const addToCart = useCallback((item: MenuItem) => {
-    // Check for insufficient stock (simulated check)
-    const insufficientStock = Math.random() < 0.1; // 10% chance of insufficient stock for demo
-
-    if (insufficientStock) {
-      toast.error(`Sorry, ${item.name} is out of stock!`, {
-        icon: "❌",
-        style: {
-          borderRadius: "10px",
-          background: "#333",
-          color: "#fff",
-          border: "1px solid rgba(220, 38, 38, 0.2)",
-        },
-        duration: 3000,
-      });
-
+    if (item.stock !== undefined && item.stock <= 0) {
+      toast.error(`Sorry, ${item.name} is out of stock!`);
       setInsufficientStockItem(item.name);
       return;
     }
 
-    // Add item to cart with animation
     setCart((prev) => {
       const existing = prev.find((i) => i._id === item._id)
       if (existing) {
@@ -417,46 +842,78 @@ export default function OrderPage() {
       return [...prev, { ...item, quantity: 1 }]
     })
 
-    // Show success toast
-    toast.success(`Added ${item.name} to cart`, {
-      icon: "🛒",
-      style: {
-        borderRadius: "10px",
-        background: "#333",
-        color: "#fff",
-        border: "1px solid rgba(34, 197, 94, 0.2)",
-      },
-      duration: 2000,
-    })
+    toast.success(`Added ${item.name} to cart`);
   }, [])
 
   const removeFromCart = useCallback((itemId: string) => {
     setCart((prev) => prev.filter((item) => item._id !== itemId))
-    toast.success("Item removed from cart", {
-      icon: "🗑️",
-      style: {
-        borderRadius: "10px",
-        background: "#333",
-        color: "#fff",
-      },
-    })
+    toast.success("Item removed from cart")
   }, [])
 
-  const updateQuantity = useCallback(
-    (itemId: string, newQuantity: number) => {
-      if (newQuantity < 1) {
-        removeFromCart(itemId)
-        return
-      }
-      setCart((prev) => prev.map((item) => (item._id === itemId ? { ...item, quantity: newQuantity } : item)))
-    },
-    [removeFromCart],
-  )
+  const updateQuantity = useCallback((itemId: string, newQuantity: number) => {
+    if (newQuantity < 1) {
+      removeFromCart(itemId)
+      return
+    }
+    setCart((prev) => prev.map((item) => (item._id === itemId ? { ...item, quantity: newQuantity } : item)))
+  }, [removeFromCart])
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const tax = subtotal * 0.15
   const discount = applyDiscount ? subtotal * 0.1 : 0
   const total = subtotal + tax - discount
+
+  // Handle accept transfer
+  const handleAcceptTransfer = async (orderId: string) => {
+    setIsProcessingTransfer(true);
+    try {
+      const response = await fetch('/api/order/handle-transfer', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, action: 'accept', waiterId: currentUser?.id }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast.success('Transfer accepted! Order assigned to you.');
+        await fetchPendingTransfers();
+        // Refresh orders list
+        window.location.reload();
+      } else {
+        throw new Error(data.error || 'Failed to accept transfer');
+      }
+    } catch (error) {
+      console.error('Error accepting transfer:', error);
+      toast.error('Failed to accept transfer');
+    } finally {
+      setIsProcessingTransfer(false);
+    }
+  };
+
+  // Handle cancel transfer
+  const handleCancelTransfer = async (orderId: string) => {
+    setIsProcessingTransfer(true);
+    try {
+      const response = await fetch('/api/order/handle-transfer', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, action: 'cancel', waiterId: currentUser?.id }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast('Transfer request cancelled.', { icon: 'ℹ️' });
+        await fetchPendingTransfers();
+      } else {
+        throw new Error(data.error || 'Failed to cancel transfer');
+      }
+    } catch (error) {
+      console.error('Error cancelling transfer:', error);
+      toast.error('Failed to cancel transfer');
+    } finally {
+      setIsProcessingTransfer(false);
+    }
+  };
 
   const handlePlaceOrder = async () => {
     if (!selectedWaiter || !tableNumber || cart.length === 0) {
@@ -488,9 +945,7 @@ export default function OrderPage() {
     try {
       const response = await fetch("/api/order", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(orderData),
       })
 
@@ -503,7 +958,7 @@ export default function OrderPage() {
         router.refresh()
 
         let progress = 0
-        const interval = setInterval(() => { // This logic seems to be for UI feedback and is fine.
+        const interval = setInterval(() => {
           progress += 10
           setOrderProgress(progress)
           if (progress >= 100) {
@@ -512,14 +967,7 @@ export default function OrderPage() {
           }
         }, 1000)
       } else {
-        const errorMessage = responseData.message || "An unknown error occurred";
-        if (errorMessage.includes("Insufficient stock")) {
-          const itemName = responseData.itemName || "the selected item";
-          setInsufficientStockItem(itemName);
-          toast.error(`Insufficient stock for ${itemName}`, { id: orderToast });
-        } else {
-          throw new Error(errorMessage);
-        }
+        throw new Error(responseData.message || "Failed to place order");
       }
     } catch (error) {
       console.error("Error placing order:", error)
@@ -531,62 +979,84 @@ export default function OrderPage() {
     return (
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-primary/5 via-background to-background/80">
         <motion.div
-          className="text-center space-y-4 w-full max-w-xs sm:max-w-sm px-4"
+          className="text-center space-y-3 sm:space-y-4 w-full max-w-xs px-4"
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
         >
-          <div className="relative w-20 h-20 mx-auto">
-            <div className="absolute inset-0 bg-primary/20 rounded-full animate-ping" style={{ animationDuration: '2s' }}></div>
+          <div className="relative w-16 h-16 sm:w-20 sm:h-20 mx-auto">
+            <div className="absolute inset-0 bg-primary/20 rounded-full animate-ping"></div>
             <div className="relative flex items-center justify-center w-full h-full bg-background rounded-full border-2 border-primary/40">
-              <ChefHat className="h-10 w-10 text-primary" />
+              <ChefHat className="h-8 w-8 sm:h-10 sm:w-10 text-primary" />
             </div>
-
           </div>
-          <h2 className="text-xl sm:text-2xl font-semibold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-            Preparing your gourmet experience...
+          <h2 className="text-lg sm:text-xl font-semibold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+            Loading Menu...
           </h2>
-          <Progress value={33} className="w-full mx-auto h-2" />
-          <p className="text-sm text-muted-foreground">Loading menu items and categories</p>
+          <Progress value={33} className="w-full mx-auto h-1.5 sm:h-2" />
+          <p className="text-xs sm:text-sm text-muted-foreground">Preparing your experience</p>
         </motion.div>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-screen bg-background/95 overflow-hidden max-w-full">
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden max-w-full">
+    <div className="flex flex-col h-screen bg-background/95 overflow-hidden">
+      {/* Notification Toast */}
+      {showNotification && (
+        <motion.div
+          initial={{ opacity: 0, y: -50 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -50 }}
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded-lg shadow-lg"
+        >
+          <div className="flex items-center gap-2">
+            <BellRing className="h-4 w-4 text-yellow-600 animate-pulse" />
+            <div>
+              <p className="font-medium text-sm">New Transfer Request!</p>
+              <p className="text-xs text-muted-foreground">Check pending requests below</p>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Header */}
         <header className="border-b bg-background/80 backdrop-blur-sm p-2 sm:p-3 sticky top-0 z-10">
-          <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2 w-full">
-     
+          <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Button variant="ghost" size="icon" onClick={() => router.push('/dashboard')} className="h-7 w-7 sm:h-8 sm:w-8">
+                <ArrowLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              </Button>
+              <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+                POS System
+              </h1>
+            </div>
 
-            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap order-3 sm:order-2 w-full sm:w-auto mt-2 sm:mt-0">
+            <div className="flex items-center gap-1 sm:gap-2">
               <Select value={tableNumber} onValueChange={setTableNumber}>
-                <SelectTrigger className="w-[90px] sm:w-[100px] lg:w-[110px] bg-background/70 text-xs h-8">
-                  <SelectValue placeholder="Table #" />
+                <SelectTrigger className="w-[70px] sm:w-[90px] lg:w-[110px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
+                  <SelectValue placeholder="Table" />
                 </SelectTrigger>
                 <SelectContent>
                   {Array.from({ length: 40 }, (_, i) => (
-                    <SelectItem key={i} value={`T${i + 1}`}>Table {i + 1}</SelectItem>
+                    <SelectItem key={i} value={`T${i + 1}`}>T{i + 1}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
 
               <Select value={selectedWaiter} onValueChange={setSelectedWaiter}>
-                <SelectTrigger className="w-[calc(100%-80px-8px)] sm:w-[130px] lg:w-[150px] bg-background/70 text-xs h-8">
-                  <SelectValue placeholder="Select Server" />
+                <SelectTrigger className="w-[90px] sm:w-[130px] lg:w-[150px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
+                  <SelectValue placeholder="Server" />
                 </SelectTrigger>
                 <SelectContent>
                   {waiters.map((waiter) => (
                     <SelectItem key={waiter._id} value={waiter._id}>
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-5 w-5">
-                          <AvatarImage src={waiter.avatar} alt={waiter.name} />
-                          <AvatarFallback>{getInitials(waiter.name)}</AvatarFallback>
+                      <div className="flex items-center gap-1 sm:gap-2">
+                        <Avatar className="h-4 w-4 sm:h-5 sm:w-5">
+                          <AvatarFallback className="text-[8px] sm:text-[10px]">{getInitials(waiter.name)}</AvatarFallback>
                         </Avatar>
-                        <span className="truncate text-xs">{waiter.name}</span>
+                        <span className="truncate text-[10px] sm:text-xs">{waiter.name}</span>
                       </div>
                     </SelectItem>
                   ))}
@@ -594,45 +1064,34 @@ export default function OrderPage() {
               </Select>
             </div>
 
-            <div className="flex items-center gap-2 order-2 sm:order-3">
-              <div className="hidden md:flex items-center mr-1">
-                <Button
-                  variant={activeView === 'grid' ? 'default' : 'outline'}
-                  size="icon"
-                  className="h-7 w-7 rounded-l-md rounded-r-none"
-                  onClick={() => setActiveView('grid')}
-                >
+            <div className="flex items-center gap-1 sm:gap-2">
+              <div className="hidden sm:flex items-center mr-1">
+                <Button variant={activeView === 'grid' ? 'default' : 'outline'} size="icon" className="h-6 w-6 sm:h-7 sm:w-7 rounded-l-md rounded-r-none" onClick={() => setActiveView('grid')}>
                   <div className="grid grid-cols-2 gap-0.5">
-                    <div className="w-1 h-1 rounded-sm bg-current"></div>
-                    <div className="w-1 h-1 rounded-sm bg-current"></div>
-                    <div className="w-1 h-1 rounded-sm bg-current"></div>
-                    <div className="w-1 h-1 rounded-sm bg-current"></div>
+                    <div className="w-0.5 h-0.5 rounded-sm bg-current"></div>
+                    <div className="w-0.5 h-0.5 rounded-sm bg-current"></div>
+                    <div className="w-0.5 h-0.5 rounded-sm bg-current"></div>
+                    <div className="w-0.5 h-0.5 rounded-sm bg-current"></div>
                   </div>
                 </Button>
-                <Button
-                  variant={activeView === 'list' ? 'default' : 'outline'}
-                  size="icon"
-                  className="h-7 w-7 rounded-l-none rounded-r-md"
-                  onClick={() => setActiveView('list')}
-                >
-                  <div className="flex flex-col items-center justify-center gap-0.5 w-full">
-                    <div className="w-3 h-1 rounded-sm bg-current"></div>
-                    <div className="w-3 h-1 rounded-sm bg-current"></div>
-                    <div className="w-3 h-1 rounded-sm bg-current"></div>
+                <Button variant={activeView === 'list' ? 'default' : 'outline'} size="icon" className="h-6 w-6 sm:h-7 sm:w-7 rounded-l-none rounded-r-md" onClick={() => setActiveView('list')}>
+                  <div className="flex flex-col items-center justify-center gap-0.5">
+                    <div className="w-2 h-0.5 rounded-sm bg-current"></div>
+                    <div className="w-2 h-0.5 rounded-sm bg-current"></div>
+                    <div className="w-2 h-0.5 rounded-sm bg-current"></div>
                   </div>
                 </Button>
               </div>
 
               <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="default" size="icon" className="relative shrink-0 h-8 w-8">
-                    <ShoppingCart className="h-4 w-4" />
+                  <Button variant="default" size="icon" className="relative shrink-0 h-7 w-7 sm:h-8 sm:w-8">
+                    <ShoppingCart className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     {cart.length > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground text-[9px] rounded-full h-4 w-4 flex items-center justify-center">
+                      <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[8px] sm:text-[9px] rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 flex items-center justify-center">
                         {cart.length}
                       </span>
                     )}
-                    <span className="sr-only">Open cart</span>
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col h-full border-l">
@@ -660,41 +1119,58 @@ export default function OrderPage() {
           </div>
         </header>
 
+        {/* Pending Transfer Requests Section */}
+        {pendingTransfers.length > 0 && (
+          <div className="border-b bg-yellow-50/30 p-2 sm:p-3 max-h-[40vh] overflow-y-auto">
+            <div className="max-w-6xl mx-auto">
+              <div className="flex items-center justify-between mb-2 sm:mb-3 sticky top-0 bg-yellow-50/30 py-1">
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <ArrowRightLeft className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-600" />
+                  <h2 className="font-semibold text-sm sm:text-base">Transfer Requests</h2>
+                  <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs">
+                    {pendingTransfers.length}
+                  </Badge>
+                </div>
+                <Button variant="ghost" size="sm" onClick={fetchPendingTransfers} disabled={isProcessingTransfer} className="h-6 sm:h-7 text-[10px] sm:text-xs">
+                  <RefreshCw className={`h-3 w-3 sm:h-3.5 sm:w-3.5 mr-1 ${isProcessingTransfer ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
+              
+              <PendingTransferRequests
+                requests={pendingTransfers}
+                onAccept={handleAcceptTransfer}
+                onCancel={handleCancelTransfer}
+                isLoading={isProcessingTransfer}
+                onNewRequest={handleNewRequest}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Search & Categories */}
         <div className="border-b bg-background/60 p-2 sm:p-3">
-          <div className="max-w-6xl mx-auto space-y-2 sm:space-y-3 w-full">
+          <div className="max-w-6xl mx-auto space-y-2 w-full">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3 w-3 sm:h-3.5 sm:w-3.5 text-muted-foreground" />
               <Input
-                placeholder="Search menu items..."
+                placeholder="Search menu..."
                 value={searchQuery}
                 onChange={handleSearchChange}
-                className="pl-8 bg-background pr-3 border-input h-8 text-xs sm:text-sm"
+                className="pl-7 sm:pl-8 bg-background pr-3 border-input h-7 sm:h-8 text-xs"
               />
             </div>
 
             <div className="flex w-full overflow-x-auto pb-1 hide-scrollbar">
-              <div className="flex space-x-1.5 pb-1 w-max">
-                <Button
-                  variant={selectedCategory === 'all' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setSelectedCategory('all')}
-                  className="rounded-full shrink-0 h-7 text-xs"
-                >
+              <div className="flex space-x-1 pb-1 w-max">
+                <Button variant={selectedCategory === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedCategory('all')} className="rounded-full shrink-0 h-6 sm:h-7 text-[10px] sm:text-xs px-2 sm:px-3">
                   All
                 </Button>
-
                 {categories.map((category) => (
-                  <Button
-                    key={category._id}
-                    variant={selectedCategory === category._id ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setSelectedCategory(category._id)}
-                    className="rounded-full whitespace-nowrap shrink-0 h-7 text-xs"
-                  >
-                    <span className="flex items-center gap-1 text-xs">
+                  <Button key={category._id} variant={selectedCategory === category._id ? 'default' : 'outline'} size="sm" onClick={() => setSelectedCategory(category._id)} className="rounded-full whitespace-nowrap shrink-0 h-6 sm:h-7 text-[10px] sm:text-xs px-2 sm:px-3">
+                    <span className="flex items-center gap-0.5 sm:gap-1">
                       {getCategoryIcon(category.type)}
-                      <span className="truncate max-w-[80px] sm:max-w-none">{category.name}</span>
+                      <span className="truncate max-w-[60px] sm:max-w-[80px]">{category.name}</span>
                     </span>
                   </Button>
                 ))}
@@ -709,7 +1185,7 @@ export default function OrderPage() {
             {filteredItems.length > 0 ? (
               <div className={
                 activeView === 'grid'
-                  ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 pb-16 md:pb-4 min-w-[320px]"
+                  ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1.5 sm:gap-3 pb-16 md:pb-4"
                   : "flex flex-col gap-1.5 sm:gap-2 pb-16 md:pb-4"
               }>
                 <AnimatePresence mode="popLayout">
@@ -735,27 +1211,14 @@ export default function OrderPage() {
                 </AnimatePresence>
               </div>
             ) : (
-              <motion.div
-                className="flex flex-col items-center justify-center h-[50vh] text-center p-4"
-                variants={fadeInUp}
-                initial="initial"
-                animate="animate"
-              >
-                <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-3">
-                  <Search className="h-6 w-6 text-muted-foreground" />
-                </div>
-                <h3 className="text-lg font-medium mb-1">No items found</h3>
-                <p className="text-sm text-muted-foreground max-w-md">
-                  We couldn't find any menu items matching your search criteria.
-                  Try adjusting your search or selecting a different category.
+              <motion.div className="flex flex-col items-center justify-center h-[50vh] text-center p-4">
+                <Search className="h-8 w-8 sm:h-12 sm:w-12 mx-auto text-muted-foreground mb-2 sm:mb-4" />
+                <h3 className="text-sm sm:text-base font-medium mb-1">No items found</h3>
+                <p className="text-[10px] sm:text-xs text-muted-foreground max-w-md">
+                  Try adjusting your search or category.
                 </p>
-
                 {searchQuery && (
-                  <Button
-                    variant="outline"
-                    className="mt-3"
-                    onClick={() => setSearchQuery('')}
-                  >
+                  <Button variant="outline" className="mt-2 sm:mt-3 text-xs" onClick={() => setSearchQuery('')}>
                     Clear Search
                   </Button>
                 )}
@@ -765,34 +1228,26 @@ export default function OrderPage() {
         </div>
       </main>
 
-      {/* Insufficient Stock Dialog - FIXED */}
+      {/* Dialogs */}
       <Dialog open={!!insufficientStockItem} onOpenChange={() => setInsufficientStockItem(null)}>
-        <DialogContent className="sm:max-w-md border-primary/10 bg-background/95 backdrop-blur-md rounded-2xl max-w-[90%] p-4 sm:p-6">
-          <DialogHeader className="text-left">
-            <DialogTitle>Insufficient Stock</DialogTitle>
-            <DialogDescription>
-              We're sorry, but there is not enough stock for the requested item.
+        <DialogContent className="sm:max-w-md max-w-[90%] p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-sm sm:text-base">Insufficient Stock</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
+              Sorry, there is not enough stock for the requested item.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2">
-            <div className="bg-destructive/10 rounded-full p-2">
-              <X className="h-5 w-5 text-destructive" />
+            <div className="bg-destructive/10 rounded-full p-1.5 sm:p-2">
+              <X className="h-4 w-4 sm:h-5 sm:w-5 text-destructive" />
             </div>
             <div>
-              <p className="font-medium">{insufficientStockItem}</p>
-              <p className="text-sm text-muted-foreground">
-                Please adjust your order or check back later.
-              </p>
+              <p className="font-medium text-xs sm:text-sm">{insufficientStockItem}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">Please adjust your order.</p>
             </div>
           </div>
-
-          <DialogFooter className="sm:justify-end">
-            <Button
-              onClick={() => setInsufficientStockItem(null)}
-              className="w-full sm:w-auto rounded-xl text-sm"
-              variant="default"
-            >
-              <Check className="mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+          <DialogFooter>
+            <Button onClick={() => setInsufficientStockItem(null)} className="text-xs sm:text-sm">
               Understood
             </Button>
           </DialogFooter>
@@ -802,347 +1257,23 @@ export default function OrderPage() {
       {/* Order Progress */}
       {orderProgress > 0 && orderProgress < 100 && (
         <motion.div
-          className="fixed bottom-20 left-1/2 -translate-x-1/2 lg:bottom-5 lg:left-5 lg:translate-x-0 bg-background/95 backdrop-blur-sm p-3 sm:p-4 rounded-xl shadow-lg border border-primary/20 z-30 w-[90%] max-w-xs"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 lg:bottom-5 lg:left-5 lg:translate-x-0 bg-background/95 backdrop-blur-sm p-2 sm:p-4 rounded-xl shadow-lg border border-primary/20 z-30 w-[85%] sm:w-[90%] max-w-xs"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 20 }}
         >
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-medium text-xs sm:text-base flex items-center gap-1.5 sm:gap-2">
-              <div className="bg-primary/20 rounded-full p-1.5">
-                <ChefHat className="h-3 w-3 sm:h-4 sm:w-4 text-primary animate-pulse" />
-              </div>
-              Preparing Your Order
+          <div className="flex items-center justify-between mb-1 sm:mb-2">
+            <h3 className="font-medium text-[10px] sm:text-xs flex items-center gap-1 sm:gap-2">
+              <ChefHat className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-primary animate-pulse" />
+              Preparing Order
             </h3>
-            <Badge className="bg-primary/20 text-primary border-none px-2 text-xs">
+            <Badge className="bg-primary/20 text-primary border-none px-1.5 sm:px-2 text-[8px] sm:text-[10px]">
               {orderProgress}%
             </Badge>
           </div>
-          <Progress value={orderProgress} className="w-full mx-auto h-2 sm:h-2.5 bg-primary/10" />
-          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1.5 sm:mt-2 text-center">Your culinary experience is being crafted</p>
+          <Progress value={orderProgress} className="w-full h-1 sm:h-1.5 bg-primary/10" />
         </motion.div>
       )}
-
-      {/* Global styles */}
-      <style jsx global>{`
-        /* Hide scrollbar but allow scrolling */
-        .hide-scrollbar {
-          -ms-overflow-style: none;  /* IE and Edge */
-          scrollbar-width: none;  /* Firefox */
-        }
-        
-        .hide-scrollbar::-webkit-scrollbar {
-          display: none; /* Chrome, Safari, Opera */
-        }
-        
-        /* Allow horizontal overflow/scroll if needed */
-        html, body {
-          max-width: 100vw;
-          overflow-x: auto;
-          margin: 0;
-          padding: 0;
-        }
-        
-        /* Improve touch interactions */
-        @media (max-width: 767px) {
-          button, a, [role="button"] {
-            cursor: default;
-            -webkit-tap-highlight-color: transparent;
-          }
-          
-          input, select {
-            font-size: 16px; /* Prevents iOS zoom */
-          }
-        }
-      `}</style>
     </div>
-  )
-}
-
-// List View Item Component
-function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) {
-  return (
-    <div className="flex border border-border/40 rounded-lg overflow-hidden hover:border-primary/30 transition-all bg-background hover:bg-background/95 hover:shadow-sm group">
-      <div className="relative h-14 w-14 sm:h-16 sm:w-16 flex-shrink-0 overflow-hidden">
-        <Image
-          src={item.imageUrl || "/placeholder.svg"}
-          alt={item.name}
-          fill
-          sizes="(max-width: 640px) 56px, 64px"
-          className="object-cover transition-transform duration-500 group-hover:scale-110"
-          loading="lazy"
-        />
-        {item.tags?.includes('bestseller') && (
-          <div className="absolute top-0.5 left-0.5 bg-primary/90 text-primary-foreground text-[7px] font-medium px-1 py-0.5 rounded flex items-center gap-0.5">
-            <Sparkles className="h-2 w-2" />
-            Best
-          </div>
-        )}
-
-        {/* Overlay on hover */}
-        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-      </div>
-
-      <div className="flex-1 p-1.5 sm:p-2 flex flex-col">
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="font-medium text-xs line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
-            <p className="text-[9px] sm:text-[10px] text-muted-foreground line-clamp-1 mt-0.5">{item.description}</p>
-          </div>
-          <div className="flex flex-col items-end">
-            <span className="text-xs font-medium text-primary">
-              {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
-            </span>
-            <div className="flex gap-1 mt-0.5 text-[8px]">
-              <Badge variant="outline" className="h-3.5 px-1 text-[7px] font-normal flex items-center gap-0.5">
-                <Clock className="h-1.5 w-1.5" />
-                {item.preparationTime}m
-              </Badge>
-              <Badge variant="outline" className="h-3.5 px-1 text-[7px] font-normal flex items-center gap-0.5">
-                <Utensils className="h-1.5 w-1.5" />
-                {item.calories}cal
-              </Badge>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-auto pt-0.5 flex justify-end">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              // Add ripple effect
-              const circle = document.createElement("span");
-              const diameter = Math.max(e.currentTarget.clientWidth, e.currentTarget.clientHeight);
-              const radius = diameter / 2;
-
-              circle.style.width = circle.style.height = `${diameter}px`;
-              circle.style.left = `${e.clientX - e.currentTarget.offsetLeft - radius}px`;
-              circle.style.top = `${e.clientY - e.currentTarget.offsetTop - radius}px`;
-              circle.classList.add("ripple");
-
-              const ripple = e.currentTarget.getElementsByClassName("ripple")[0];
-              if (ripple) {
-                ripple.remove();
-              }
-
-              e.currentTarget.appendChild(circle);
-
-              // Add to cart
-              addToCart(item);
-            }}
-            className="h-6 w-6 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0 relative overflow-hidden transition-transform hover:scale-110"
-          >
-            <Plus className="h-3 w-3" />
-            <span className="sr-only">Add to cart</span>
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// Cart Panel Component
-function CartPanel({
-  cart,
-  updateQuantity,
-  removeFromCart,
-  subtotal,
-  tax,
-  discount,
-  total,
-  applyDiscount,
-  setApplyDiscount,
-  numberOfGuests,
-  setNumberOfGuests,
-  specialRequirements,
-  setSpecialRequirements,
-  orderNumber,
-  handlePlaceOrder,
-  closeCart
-}: {
-  cart: CartItem[]
-  updateQuantity: (itemId: string, quantity: number) => void
-  removeFromCart: (itemId: string) => void
-  subtotal: number
-  tax: number
-  discount: number
-  total: number
-  applyDiscount: boolean
-  setApplyDiscount: (value: boolean) => void
-  numberOfGuests: number
-  setNumberOfGuests: (value: number) => void
-  specialRequirements: string
-  setSpecialRequirements: (value: string) => void
-  orderNumber: string
-  handlePlaceOrder: () => void
-  closeCart: () => void
-}) {
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-3 border-b">
-        <h3 className="font-semibold flex items-center gap-2">
-          <ShoppingCart className="h-4 w-4" />
-          Current Order
-          <Badge variant="outline" className="ml-1">
-            {cart.length} {cart.length === 1 ? 'item' : 'items'}
-          </Badge>
-        </h3>
-        <Button variant="ghost" size="icon" onClick={closeCart} className="h-8 w-8 rounded-full">
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </Button>
-      </div>
-
-      {cart.length > 0 ? (
-        <>
-          <ScrollArea className="flex-1 p-3">
-            <div className="space-y-3">
-              {cart.map((item) => (
-                <div key={item._id} className="flex border rounded-lg overflow-hidden bg-background/50">
-                  <div className="relative h-14 w-14 flex-shrink-0">
-                    <Image
-                      src={item.imageUrl || "/placeholder.svg"}
-                      alt={item.name}
-                      fill
-                      sizes="56px"
-                      className="object-cover"
-                    />
-                  </div>
-
-                  <div className="flex-1 p-2 flex flex-col">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h4 className="font-medium text-xs">{item.name}</h4>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeFromCart(item._id)}
-                        className="h-6 w-6 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
-                      >
-                        <X className="h-3 w-3" />
-                        <span className="sr-only">Remove</span>
-                      </Button>
-                    </div>
-
-                    <div className="mt-auto pt-1 flex justify-between items-center">
-                      <div className="flex items-center border rounded-md">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => updateQuantity(item._id, item.quantity - 1)}
-                          className="h-6 w-6 rounded-none rounded-l-md p-0"
-                        >
-                          <Minus className="h-3 w-3" />
-                          <span className="sr-only">Decrease</span>
-                        </Button>
-                        <span className="w-6 text-center text-xs font-medium">{item.quantity}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => updateQuantity(item._id, item.quantity + 1)}
-                          className="h-6 w-6 rounded-none rounded-r-md p-0"
-                        >
-                          <Plus className="h-3 w-3" />
-                          <span className="sr-only">Increase</span>
-                        </Button>
-                      </div>
-
-                      <span className="text-xs font-medium">
-                        {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price * item.quantity)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-
-          <div className="border-t p-3 space-y-3">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Subtotal</span>
-                <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(subtotal)}</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Tax (15%)</span>
-                <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(tax)}</span>
-              </div>
-              {discount > 0 && (
-                <div className="flex items-center justify-between text-xs text-primary">
-                  <span>Discount (10%)</span>
-                  <span>-{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(discount)}</span>
-                </div>
-              )}
-              <Separator />
-              <div className="flex items-center justify-between font-semibold">
-                <span>Total</span>
-                <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(total)}</span>
-              </div>
-            </div>
-
-            <div className="space-y-3 pt-1">
-
-              <div className="flex items-center gap-2">
-                <Label htmlFor="guests" className="text-xs whitespace-nowrap">Guests:</Label>
-                <Select value={numberOfGuests.toString()} onValueChange={(v) => setNumberOfGuests(parseInt(v))}>
-                  <SelectTrigger id="guests" className="h-8 text-xs flex-1">
-                    <SelectValue placeholder="Number of guests" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 10 }, (_, i) => (
-                      <SelectItem key={i} value={(i + 1).toString()}>
-                        {i + 1} {i === 0 ? 'guest' : 'guests'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="special-requirements" className="text-xs">Special Requirements</Label>
-                <Textarea
-                  id="special-requirements"
-                  placeholder="Add any special requirements or notes..."
-                  className="min-h-[60px] text-xs"
-                  value={specialRequirements}
-                  onChange={(e) => setSpecialRequirements(e.target.value)}
-                />
-              </div>
-
-              <div className="pt-1">
-                <p className="text-xs text-muted-foreground mb-1.5">Order #: <span className="font-mono">{orderNumber}</span></p>
-                <Button
-                  onClick={handlePlaceOrder}
-                  className="w-full rounded-lg h-10"
-                  disabled={cart.length === 0}
-                >
-                  <Receipt className="mr-2 h-4 w-4" />
-                  Place Order
-                </Button>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
-          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-3">
-            <ShoppingCart className="h-6 w-6 text-muted-foreground" />
-          </div>
-          <h3 className="text-lg font-medium mb-1">Your cart is empty</h3>
-          <p className="text-sm text-muted-foreground max-w-md mb-4">
-            Add some delicious items from the menu to get started with your order.
-          </p>
-          <Button variant="outline" onClick={closeCart} className="rounded-lg">
-            Browse Menu
-          </Button>
-        </div>
-      )}
-    </div>
-  )
+  );
 }
