@@ -1,7 +1,7 @@
 // app/waitress/orders/[id]/edit/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -72,11 +72,14 @@ import {
   CheckCircle,
   Clock3,
   Send,
-  AlertTriangle
+  AlertTriangle,
+  Volume2,
+  BellRing
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useNotificationSound } from '@/hooks/useNotificationSound';
 
-// Types
+// Types (same as before)
 interface MenuItem {
   _id: string;
   name: string;
@@ -136,6 +139,8 @@ interface EditRequest {
   reason: string;
   originalWaiterId: string;
   originalWaiterName?: string;
+  cancelledBy?: string;
+  cancelledByRole?: string;
 }
 
 interface Order {
@@ -214,7 +219,7 @@ const fadeInUp = {
   exit: { opacity: 0, y: -20 },
 };
 
-// Helper function to get order items array (handles both items and orderItems)
+// Helper function to get order items array
 const getOrderItemsArray = (order: Order): OrderItem[] => {
   if (order.items && Array.isArray(order.items) && order.items.length > 0) {
     return order.items;
@@ -224,6 +229,19 @@ const getOrderItemsArray = (order: Order): OrderItem[] => {
   }
   return [];
 };
+
+// Sound Toggle Button Component
+const SoundToggleButton = ({ isEnabled, onToggle }: { isEnabled: boolean; onToggle: () => void }) => (
+  <Button
+    variant="ghost"
+    size="icon"
+    onClick={onToggle}
+    className="h-8 w-8 relative"
+    title={isEnabled ? "Sound is on" : "Sound is off"}
+  >
+    {isEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+  </Button>
+);
 
 // Menu Item Component
 const MenuItemComponent = ({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) => (
@@ -299,7 +317,7 @@ const MenuItemComponent = ({ item, addToCart }: { item: MenuItem; addToCart: (it
   </Card>
 );
 
-// Cart Panel Component
+// Cart Panel Component (simplified for brevity - same as before)
 const CartPanel = ({
   cart,
   updateQuantity,
@@ -630,6 +648,10 @@ function TransferRequestDialog({
   const hasCooldown = cooldownRemaining > 0;
   const cooldownMinutes = Math.floor(cooldownRemaining / 60000);
   const cooldownSeconds = Math.ceil((cooldownRemaining % 60000) / 1000);
+  
+  // Check who cancelled the previous request
+  const isCancelledByOriginalRequester = order?.editRequest?.cancelledByRole === 'original_requester';
+  const isCancelledByTargetWaiter = order?.editRequest?.cancelledByRole === 'target_waiter';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -700,7 +722,13 @@ function TransferRequestDialog({
               The requested waiter will receive a notification and must accept the transfer before it takes effect.
               {order?.editRequest?.status === 'cancelled' && (
                 <span className="block mt-1 text-yellow-600">
-                  Note: A previous transfer request was cancelled. Please wait 10 minutes before requesting again.
+                  {isCancelledByOriginalRequester ? (
+                    <>Note: You cancelled a previous transfer request. Please wait 2 minutes before requesting again.</>
+                  ) : isCancelledByTargetWaiter ? (
+                    <>Note: The previous transfer request was cancelled by the target waiter. You can request again immediately.</>
+                  ) : (
+                    <>Note: A previous transfer request was cancelled. Please wait before requesting again.</>
+                  )}
                 </span>
               )}
             </AlertDescription>
@@ -733,6 +761,7 @@ function TransferRequestDialog({
   );
 }
 
+// Main Component
 export default function OrderEditPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -763,6 +792,14 @@ export default function OrderEditPage() {
   const [hasPendingRequest, setHasPendingRequest] = useState(false);
   const [isTransferring, setIsTransferring] = useState(false);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const [showNotification, setShowNotification] = useState(false);
+  const [notificationData, setNotificationData] = useState({ title: '', message: '' });
+  
+  // Polling refs
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isPollingActiveRef = useRef(false);
+  
+  const { play: playNotificationSound, isEnabled: soundEnabled, setIsEnabled: setSoundEnabled } = useNotificationSound();
 
   // Cooldown timer effect
   useEffect(() => {
@@ -863,14 +900,25 @@ export default function OrderEditPage() {
     }
   }, []);
 
-  // Poll for new orders
+  // Poll for new orders - 3 second interval
   useEffect(() => {
-    if (status === 'authenticated' && session?.user?.id) {
-      const intervalId = setInterval(() => {
+    if (status === 'authenticated' && session?.user?.id && !isPollingActiveRef.current) {
+      isPollingActiveRef.current = true;
+      
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+      
+      pollingIntervalRef.current = setInterval(() => {
         fetchOrders(false);
-      }, 10000);
+      }, 15000);
 
-      return () => clearInterval(intervalId);
+      return () => {
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+        }
+        isPollingActiveRef.current = false;
+      };
     }
   }, [status, session, fetchOrders]);
 
@@ -878,15 +926,6 @@ export default function OrderEditPage() {
   const initializeCartFromOrder = useCallback((order: Order) => {
     const cartItems: CartItem[] = [];
     const orderItemsArray = getOrderItemsArray(order);
-    
-    console.log("Initializing cart from order:", {
-      orderNumber: order.orderNumber,
-      orderKeys: Object.keys(order),
-      hasItems: !!order.items,
-      hasOrderItems: !!order.orderItems,
-      itemsCount: orderItemsArray.length,
-      items: orderItemsArray
-    });
     
     if (!orderItemsArray || orderItemsArray.length === 0) {
       setCart([]);
@@ -902,10 +941,7 @@ export default function OrderEditPage() {
     orderItemsArray.forEach((orderItem, index) => {
       const itemId = orderItem.menuItemId || orderItem.itemId;
       
-      if (!itemId) {
-        console.warn("Order item has no ID:", orderItem);
-        return;
-      }
+      if (!itemId) return;
       
       const menuItem = menuItems.find(m => m._id === itemId);
       
@@ -1233,7 +1269,6 @@ export default function OrderEditPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        // Handle cooldown error specially
         if (data.error && data.error.includes('Please wait')) {
           if (data.cooldownRemaining) {
             setCooldownRemaining(data.cooldownRemaining);
@@ -1245,20 +1280,36 @@ export default function OrderEditPage() {
             duration: 5000,
           });
         } else {
-          throw new Error(data.error || data.message || 'Failed to send transfer request');
+          // throw new Error(data.error || data.message || 'Failed to send transfer request');
+          toast({
+            title: 'Error',
+            description: data.error || data.message || 'Failed to send transfer request',
+            variant: 'destructive',
+          });
         }
         return;
       }
+
+      // Play sound on successful request
+      if (soundEnabled) {
+        playNotificationSound();
+      }
+      
+      // Show notification
+      setNotificationData({
+        title: 'Transfer Request Sent',
+        message: `Request sent to ${waiters.find(w => w._id === targetWaiterId)?.name} for order #${selectedOrder.orderNumber}`
+      });
+      setShowNotification(true);
+      setTimeout(() => setShowNotification(false), 4000);
 
       toast({
         title: 'Transfer Request Sent',
         description: `Request sent to ${waiters.find(w => w._id === targetWaiterId)?.name}. They will need to accept the transfer.`,
       });
 
-      // Refresh orders to show pending request status
       await fetchOrders();
       
-      // Update selected order
       if (data.order) {
         setSelectedOrder(data.order);
         setHasPendingRequest(true);
@@ -1307,6 +1358,39 @@ export default function OrderEditPage() {
 
   return (
     <div className="container mx-auto p-4 md:p-6">
+      {/* Notification Toast */}
+      {showNotification && (
+        <motion.div
+          initial={{ opacity: 0, y: -50, x: '-50%' }}
+          animate={{ opacity: 1, y: 0, x: '-50%' }}
+          exit={{ opacity: 0, y: -50, x: '-50%' }}
+          className="fixed top-4 left-1/2 z-50 w-[90%] max-w-md"
+        >
+          <div className="bg-yellow-50 border-l-4 border-yellow-500 rounded-lg shadow-lg overflow-hidden">
+            <div className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <BellRing className="h-5 w-5 text-yellow-600 animate-pulse" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-yellow-800">{notificationData.title}</p>
+                  <p className="text-xs text-yellow-700 mt-1">{notificationData.message}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 flex-shrink-0 text-yellow-600 hover:text-yellow-800 hover:bg-yellow-100"
+                  onClick={() => setShowNotification(false)}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+            <div className="h-1 bg-yellow-500 animate-progress" style={{ animationDuration: '4000ms' }} />
+          </div>
+        </motion.div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
         <div>
@@ -1315,7 +1399,8 @@ export default function OrderEditPage() {
             {session.user?.name} • {session.user?.role || 'WAITER'}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <SoundToggleButton isEnabled={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
           <Button onClick={() => fetchOrders(true)} variant="outline" size="sm" disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh Orders
@@ -1924,6 +2009,21 @@ export default function OrderEditPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Add CSS animation for progress bar */}
+      <style jsx global>{`
+        @keyframes progress {
+          from {
+            width: 100%;
+          }
+          to {
+            width: 0%;
+          }
+        }
+        .animate-progress {
+          animation: progress linear forwards;
+        }
+      `}</style>
     </div>
   );
 }

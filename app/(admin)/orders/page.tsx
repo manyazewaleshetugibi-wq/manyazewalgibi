@@ -254,7 +254,7 @@ export default function OrderManagement() {
 
     const intervalId = setInterval(() => {
       fetchOrders(false) // Background refresh
-    }, 10000) // Poll every 10 seconds
+    }, 15000) // Poll every 15 seconds
 
     return () => clearInterval(intervalId)
   }, [fetchOrders, fetchWaitresses])

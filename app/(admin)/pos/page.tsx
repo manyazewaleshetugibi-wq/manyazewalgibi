@@ -1,7 +1,7 @@
 // app/pos/page.tsx
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, Suspense, lazy, useRef } from "react"
+import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { toast } from "react-hot-toast"
@@ -31,6 +31,8 @@ import {
   Package,
   Bell,
   BellRing,
+  Volume2,
+  VolumeX
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -55,7 +57,7 @@ import { Progress } from "@/components/ui/progress"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-// Types
+// Types (same as before)
 interface MenuItem {
   _id: string
   name: string
@@ -110,6 +112,8 @@ interface EditRequest {
   reason: string
   originalWaiterId: string
   originalWaiterName?: string
+  cancelledBy?: string
+  cancelledByRole?: string
 }
 
 interface Order {
@@ -152,28 +156,101 @@ const useDebounce = <T,>(value: T, delay: number): T => {
 // Sound notification hook
 const useNotificationSound = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const [isEnabled, setIsEnabled] = useState(true);
-
+  const [isReady, setIsReady] = useState(false);
+  const [audioLoaded, setAudioLoaded] = useState(false);
+  
   useEffect(() => {
+    const audio = new Audio();
+    audio.preload = 'auto';
+    audio.src = '/sounds/notification.mp3';
+    audio.volume = 0.5;
+    
+    audio.addEventListener('canplaythrough', () => {
+      setAudioLoaded(true);
+      setIsReady(true);
+    });
+    
+    audio.addEventListener('error', () => {
+      setAudioLoaded(false);
+      setIsReady(true);
+    });
+    
+    audioRef.current = audio;
+    
     if (typeof window !== 'undefined') {
-      audioRef.current = new Audio('/sounds/notification.mp3');
-      const enableSound = () => {
-        setIsEnabled(true);
-        document.removeEventListener('click', enableSound);
-      };
-      document.addEventListener('click', enableSound);
-      return () => document.removeEventListener('click', enableSound);
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContext) {
+        audioContextRef.current = new AudioContext();
+      }
+    }
+    
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
+
+  const playFallbackBeep = useCallback(() => {
+    try {
+      if (!audioContextRef.current) {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContext) return;
+        audioContextRef.current = new AudioContext();
+      }
+      
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
+      
+      const oscillator = audioContextRef.current.createOscillator();
+      const gainNode = audioContextRef.current.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContextRef.current.destination);
+      
+      oscillator.frequency.value = 800;
+      gainNode.gain.value = 0.3;
+      
+      oscillator.start();
+      gainNode.gain.exponentialRampToValueAtTime(0.00001, audioContextRef.current.currentTime + 0.3);
+      oscillator.stop(audioContextRef.current.currentTime + 0.3);
+    } catch (error) {
+      console.error('Failed to play fallback beep:', error);
     }
   }, []);
 
   const play = useCallback(() => {
-    if (audioRef.current && isEnabled) {
-      audioRef.current.play().catch(err => console.log('Audio play failed:', err));
+    if (!isEnabled) return;
+    if (!isReady) return;
+    
+    if (audioRef.current && audioLoaded) {
+      audioRef.current.currentTime = 0;
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => playFallbackBeep());
+      }
+      return;
     }
-  }, [isEnabled]);
+    playFallbackBeep();
+  }, [isEnabled, isReady, audioLoaded, playFallbackBeep]);
 
-  return { play, isEnabled, setIsEnabled };
+  return { play, isEnabled, setIsEnabled, isReady };
 };
+
+// Sound Toggle Button
+const SoundToggleButton = ({ isEnabled, onToggle }: { isEnabled: boolean; onToggle: () => void }) => (
+  <Button variant="ghost" size="icon" onClick={onToggle} className="h-7 w-7 sm:h-8 sm:w-8 relative">
+    {isEnabled ? <Volume2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : <VolumeX className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
+  </Button>
+);
 
 const getCategoryIcon = (type: string) => {
   switch (type.toLowerCase()) {
@@ -196,7 +273,7 @@ const fadeInUp = {
   exit: { opacity: 0, y: -20 },
 }
 
-// Menu Item Component
+// Lazy loaded components
 const MenuItemComponent = lazy(() => {
   return new Promise<{ default: React.ComponentType<any> }>((resolve) => {
     setTimeout(() => {
@@ -211,6 +288,10 @@ const MenuItemComponent = lazy(() => {
                 sizes="(max-width: 640px) 150px, (max-width: 1200px) 200px, 250px"
                 className="object-cover transition-transform duration-500 group-hover:scale-110"
                 loading="lazy"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.src = "/placeholder.svg";
+                }}
               />
               <div className="absolute top-2 right-2 bg-black/75 text-white text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm">
                 {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
@@ -336,24 +417,17 @@ function PendingTransferRequests({
           <Card className="border-2 border-yellow-200 bg-yellow-50/30 hover:shadow-lg transition-shadow">
             <CardContent className="p-3 sm:p-6">
               <div className="flex flex-col gap-3 sm:gap-4">
-                {/* Header */}
                 <div className="flex items-start justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <BellRing className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-600 animate-pulse" />
                     <h3 className="font-semibold text-sm sm:text-base">Order #{order.orderNumber}</h3>
-                    <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs">
-                      Transfer Request
-                    </Badge>
-                    <Badge variant="outline" className="bg-blue-50 text-[10px] sm:text-xs">
-                      Table {order.tableNumber}
-                    </Badge>
+                    <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs">Transfer Request</Badge>
+                    <Badge variant="outline" className="bg-blue-50 text-[10px] sm:text-xs">Table {order.tableNumber}</Badge>
                   </div>
                   <div className="text-xs sm:text-sm font-semibold text-green-600">
                     {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(order.finalAmount)}
                   </div>
                 </div>
-
-                {/* Details Grid */}
                 <div className="grid grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm">
                   <div className="flex items-center gap-1.5 sm:gap-2">
                     <UserIcon className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
@@ -372,8 +446,6 @@ function PendingTransferRequests({
                     <span>{order.orderItems?.length || 0} items</span>
                   </div>
                 </div>
-
-                {/* Transfer Details */}
                 {order.editRequest && (
                   <div className="bg-white/70 rounded-lg p-2 sm:p-3 space-y-1">
                     <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
@@ -381,37 +453,18 @@ function PendingTransferRequests({
                       <span className="font-medium">Transfer Details:</span>
                     </div>
                     <div className="text-[10px] sm:text-xs space-y-0.5 sm:space-y-1 pl-4 sm:pl-6">
-                      <p>
-                        <span className="text-muted-foreground">From:</span>{' '}
-                        {order.editRequest.requestedByName || 'Unknown'}
-                      </p>
-                      <p>
-                        <span className="text-muted-foreground">Reason:</span>{' '}
-                        {order.editRequest.reason}
-                      </p>
-                      <p className="text-[9px] sm:text-[10px] text-muted-foreground">
-                        Requested: {new Date(order.editRequest.requestedAt).toLocaleString()}
-                      </p>
+                      <p><span className="text-muted-foreground">From:</span> {order.editRequest.requestedByName || 'Unknown'}</p>
+                      <p><span className="text-muted-foreground">Reason:</span> {order.editRequest.reason}</p>
+                      <p className="text-[9px] sm:text-[10px] text-muted-foreground">Requested: {new Date(order.editRequest.requestedAt).toLocaleString()}</p>
                     </div>
                   </div>
                 )}
-
-                {/* Action Buttons */}
                 <div className="flex gap-2 sm:gap-3 mt-2">
-                  <Button
-                    onClick={() => onAccept(order.id)}
-                    disabled={isLoading}
-                    className="flex-1 gap-1.5 sm:gap-2 bg-green-600 hover:bg-green-700 text-xs sm:text-sm h-8 sm:h-10"
-                  >
+                  <Button onClick={() => onAccept(order.id)} disabled={isLoading} className="flex-1 gap-1.5 sm:gap-2 bg-green-600 hover:bg-green-700 text-xs sm:text-sm h-8 sm:h-10">
                     <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     Accept Transfer
                   </Button>
-                  <Button
-                    onClick={() => onCancel(order.id)}
-                    disabled={isLoading}
-                    variant="outline"
-                    className="flex-1 gap-1.5 sm:gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-10"
-                  >
+                  <Button onClick={() => onCancel(order.id)} disabled={isLoading} variant="outline" className="flex-1 gap-1.5 sm:gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-10">
                     <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     Cancel
                   </Button>
@@ -476,32 +529,17 @@ function CartPanel({
                           {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
                         </p>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeFromCart(item._id)}
-                        className="h-5 w-5 sm:h-6 sm:w-6 rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
-                      >
+                      <Button variant="ghost" size="icon" onClick={() => removeFromCart(item._id)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-full text-destructive">
                         <X className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                       </Button>
                     </div>
                     <div className="mt-1 pt-0.5 flex justify-between items-center">
                       <div className="flex items-center border rounded-md">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => updateQuantity(item._id, item.quantity - 1)}
-                          className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-l-md p-0"
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => updateQuantity(item._id, item.quantity - 1)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-l-md p-0">
                           <Minus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                         </Button>
                         <span className="w-5 sm:w-6 text-center text-[10px] sm:text-xs font-medium">{item.quantity}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => updateQuantity(item._id, item.quantity + 1)}
-                          className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-r-md p-0"
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => updateQuantity(item._id, item.quantity + 1)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-r-md p-0">
                           <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                         </Button>
                       </div>
@@ -566,11 +604,7 @@ function CartPanel({
                 />
               </div>
 
-              <Button
-                onClick={handlePlaceOrder}
-                className="w-full rounded-lg h-8 sm:h-10 text-xs sm:text-sm"
-                disabled={cart.length === 0}
-              >
+              <Button onClick={handlePlaceOrder} className="w-full rounded-lg h-8 sm:h-10 text-xs sm:text-sm" disabled={cart.length === 0}>
                 <Receipt className="mr-1.5 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 Place Order
               </Button>
@@ -602,9 +636,7 @@ function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: M
       <div className="relative h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0 overflow-hidden">
         <Image src={item.imageUrl || "/placeholder.svg"} alt={item.name} fill sizes="56px" className="object-cover" />
         {item.tags?.includes('bestseller') && (
-          <div className="absolute top-0.5 left-0.5 bg-primary/90 text-primary-foreground text-[6px] sm:text-[7px] font-medium px-1 py-0.5 rounded">
-            Best
-          </div>
+          <div className="absolute top-0.5 left-0.5 bg-primary/90 text-primary-foreground text-[6px] sm:text-[7px] font-medium px-1 py-0.5 rounded">Best</div>
         )}
       </div>
       <div className="flex-1 p-1.5 sm:p-2 flex flex-col">
@@ -618,22 +650,13 @@ function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: M
               {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
             </span>
             <div className="flex gap-0.5 sm:gap-1 mt-0.5">
-              <Badge variant="outline" className="h-3 px-0.5 sm:px-1 text-[6px] sm:text-[7px] font-normal">
-                {item.preparationTime}m
-              </Badge>
-              <Badge variant="outline" className="h-3 px-0.5 sm:px-1 text-[6px] sm:text-[7px] font-normal">
-                {item.calories}cal
-              </Badge>
+              <Badge variant="outline" className="h-3 px-0.5 sm:px-1 text-[6px] sm:text-[7px] font-normal">{item.preparationTime}m</Badge>
+              <Badge variant="outline" className="h-3 px-0.5 sm:px-1 text-[6px] sm:text-[7px] font-normal">{item.calories}cal</Badge>
             </div>
           </div>
         </div>
         <div className="mt-0.5 pt-0.5 flex justify-end">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => { e.stopPropagation(); addToCart(item); }}
-            className="h-5 w-5 sm:h-6 sm:w-6 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0"
-          >
+          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); addToCart(item); }} className="h-5 w-5 sm:h-6 sm:w-6 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0">
             <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
           </Button>
         </div>
@@ -642,6 +665,7 @@ function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: M
   );
 }
 
+// Main Component - COMPLETELY REWRITTEN with proper polling
 export default function POSPage() {
   const router = useRouter()
   const [categories, setCategories] = useState<Category[]>([])
@@ -665,38 +689,51 @@ export default function POSPage() {
   const [isProcessingTransfer, setIsProcessingTransfer] = useState(false)
   const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string; email: string } | null>(null)
   const [showNotification, setShowNotification] = useState(false)
+  const [notificationData, setNotificationData] = useState({ title: '', message: '' })
   
-  const { play: playNotificationSound } = useNotificationSound()
+  // Use refs to store data that shouldn't trigger re-renders
+  const lastRequestIdsRef = useRef<string[]>([]);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef<boolean>(true);
+  
+  // Sound hook
+  const { play: playNotificationSound, isEnabled: soundEnabled, setIsEnabled: setSoundEnabled } = useNotificationSound()
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
+
+  // Set mounted flag
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Add global styles
   useEffect(() => {
     const style = document.createElement('style');
     style.textContent = `
-      .ripple { position: absolute; background: rgba(255,255,255,0.3); border-radius: 50%; transform: scale(0); animation: ripple 0.6s linear; pointer-events: none; }
-      @keyframes ripple { to { transform: scale(2); opacity: 0; } }
       .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       .hide-scrollbar::-webkit-scrollbar { display: none; }
+      @keyframes progress {
+        from { width: 100%; }
+        to { width: 0%; }
+      }
+      .animate-progress { animation: progress linear forwards; }
     `;
     document.head.appendChild(style);
     return () => { document.head.removeChild(style); };
   }, []);
 
-  // Fetch current user info and waiter ID
+  // Fetch current user info
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
         const sessionRes = await fetch('/api/auth/session');
         const sessionData = await sessionRes.json();
         
-        console.log("Session data:", sessionData);
-        
         if (sessionData?.user) {
-          // Fetch all waiters to find matching email
           const waitersRes = await fetch('/api/waitress');
           const waitersData = await waitersRes.json();
-          
-          console.log("All waiters:", waitersData);
           
           const matchingWaiter = (waitersData || []).find(
             (w: any) => w.email === sessionData.user.email
@@ -709,7 +746,6 @@ export default function POSPage() {
               role: matchingWaiter.role || sessionData.user.role,
               email: matchingWaiter.email
             });
-            console.log("Found matching waiter:", matchingWaiter.name, "ID:", matchingWaiter._id);
           } else {
             setCurrentUser({
               id: sessionData.user.id,
@@ -717,7 +753,6 @@ export default function POSPage() {
               role: sessionData.user.role,
               email: sessionData.user.email
             });
-            console.log("No matching waiter found, using session ID:", sessionData.user.id);
           }
         }
       } catch (error) {
@@ -727,56 +762,6 @@ export default function POSPage() {
     fetchCurrentUser();
   }, []);
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value)
-  }
-
-  // Fetch pending transfer requests - ONLY for the current waiter
-  const fetchPendingTransfers = useCallback(async () => {
-    if (!currentUser?.id) return;
-    
-    try {
-      console.log("Fetching pending transfers for waiter:", currentUser.id);
-      
-      const response = await fetch(`/api/order/pending-requests?waiterId=${currentUser.id}`);
-      const data = await response.json();
-      
-      console.log("Pending transfers response:", data);
-      
-      if (data.success) {
-        const newRequests = data.requests || [];
-        
-        // Check for new requests and play sound
-        if (newRequests.length > pendingTransfers.length && newRequests.length > 0) {
-          const newRequest = newRequests.find((r: Order) => !pendingTransfers.some(p => p.id === r.id));
-          if (newRequest) {
-            playNotificationSound();
-            setShowNotification(true);
-            setTimeout(() => setShowNotification(false), 3000);
-            
-            toast.custom((t) => (
-              <div className={`bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded shadow-lg ${t.visible ? 'animate-in slide-in-from-top-2' : 'animate-out slide-out-to-top-2'}`}>
-                <div className="flex items-center gap-2">
-                  <BellRing className="h-4 w-4 text-yellow-600" />
-                  <div>
-                    <p className="font-medium text-sm">New Transfer Request!</p>
-                    <p className="text-xs text-muted-foreground">
-                      Order #{newRequest.orderNumber} from {newRequest.editRequest?.requestedByName}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ), { duration: 4000 });
-          }
-        }
-        
-        setPendingTransfers(newRequests);
-      }
-    } catch (error) {
-      console.error('Error fetching pending transfers:', error);
-    }
-  }, [currentUser, pendingTransfers, playNotificationSound]);
-
   // Initial data fetch
   useEffect(() => {
     const fetchData = async () => {
@@ -785,39 +770,126 @@ export default function POSPage() {
           fetch("/api/items"),
           fetch("/api/item-category"),
           fetch("/api/waitress"),
-        ])
+        ]);
 
-        const itemsData = await itemsRes.json()
-        const categoriesData = await categoriesRes.json()
-        const waitersData = await waitersRes.json()
+        const itemsData = await itemsRes.json();
+        const categoriesData = await categoriesRes.json();
+        const waitersData = await waitersRes.json();
 
-        setItems(itemsData.items || [])
-        setCategories(categoriesData.data || [])
-        setWaiters(waitersData || [])
+        setItems(itemsData.items || []);
+        setCategories(categoriesData.data || []);
+        setWaiters(waitersData || []);
       } catch (error) {
-        console.error("Error fetching data:", error)
-        toast.error("Failed to load menu data")
+        console.error("Error fetching data:", error);
+        toast.error("Failed to load menu data");
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
       }
+    };
+
+    fetchData();
+  }, []);
+
+  // CRITICAL FIX: Polling function that doesn't depend on state
+  const startPolling = useCallback(() => {
+    if (!currentUser?.id) return;
+    
+    // Clear existing interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
     }
+    
+    console.log(`[Polling] Starting polling for waiter: ${currentUser.id}`);
+    
+    // Function to fetch transfers (defined inside to access refs)
+    const fetchTransfers = async () => {
+      if (!isMountedRef.current) return;
+      
+      try {
+        const response = await fetch(`/api/order/pending-requests?waiterId=${currentUser.id}`);
+        const data = await response.json();
+        
+        if (data.success && isMountedRef.current) {
+          const newRequests = (data.requests || []) as Order[];
+          const newRequestIds = newRequests.map(r => r.id);
+          
+          // Check for truly new requests
+          const trulyNewRequests = newRequests.filter(r => !lastRequestIdsRef.current.includes(r.id));
+          
+          if (trulyNewRequests.length > 0) {
+            console.log(`🎵 Found ${trulyNewRequests.length} new transfer requests!`);
+            
+            trulyNewRequests.forEach(newRequest => {
+              console.log(`🔊 Playing sound for order #${newRequest.orderNumber}`);
+              playNotificationSound();
+              
+              if (isMountedRef.current) {
+                setNotificationData({
+                  title: `New Transfer Request - Order #${newRequest.orderNumber}`,
+                  message: `From: ${newRequest.editRequest?.requestedByName || 'Unknown'} | Table: ${newRequest.tableNumber}`
+                });
+                setShowNotification(true);
+                setTimeout(() => setShowNotification(false), 4000);
+                
+                toast.custom((t) => (
+                  <div className={`bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded shadow-lg ${t.visible ? 'animate-in slide-in-from-top-2' : 'animate-out slide-out-to-top-2'}`}>
+                    <div className="flex items-center gap-2">
+                      <BellRing className="h-4 w-4 text-yellow-600 animate-pulse" />
+                      <div>
+                        <p className="font-medium text-sm">New Transfer Request!</p>
+                        <p className="text-xs text-muted-foreground">
+                          Order #{newRequest.orderNumber} from {newRequest.editRequest?.requestedByName}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ), { duration: 4000 });
+              }
+            });
+          }
+          
+          // Update refs
+          lastRequestIdsRef.current = newRequestIds;
+          
+          // Update state
+          if (isMountedRef.current) {
+            setPendingTransfers(newRequests);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching pending transfers:', error);
+      }
+    };
+    
+    // Initial fetch
+    fetchTransfers();
+    
+    // Set up interval (15 seconds)
+    pollingIntervalRef.current = setInterval(() => {
+      if (isMountedRef.current) {
+        fetchTransfers();
+      }
+    }, 15000);
+  }, [currentUser?.id, playNotificationSound]);
 
-    fetchData()
-  }, [])
-
-  // Fetch pending transfers when user is loaded
+  // Start polling when user is loaded
   useEffect(() => {
     if (currentUser?.id) {
-      fetchPendingTransfers();
-      const interval = setInterval(fetchPendingTransfers, 10000);
-      return () => clearInterval(interval);
+      startPolling();
     }
-  }, [currentUser, fetchPendingTransfers]);
+    
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [currentUser?.id, startPolling]);
 
-  // Handle new request for sound
-  const handleNewRequest = (request: Order) => {
-    playNotificationSound();
-  };
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value)
+  }
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -863,8 +935,7 @@ export default function POSPage() {
   const discount = applyDiscount ? subtotal * 0.1 : 0
   const total = subtotal + tax - discount
 
-  // Handle accept transfer
-  const handleAcceptTransfer = async (orderId: string) => {
+  const handleAcceptTransfer = useCallback(async (orderId: string) => {
     setIsProcessingTransfer(true);
     try {
       const response = await fetch('/api/order/handle-transfer', {
@@ -876,8 +947,16 @@ export default function POSPage() {
       const data = await response.json();
       if (data.success) {
         toast.success('Transfer accepted! Order assigned to you.');
-        await fetchPendingTransfers();
-        // Refresh orders list
+        if (soundEnabled) playNotificationSound();
+        // Refresh transfers
+        if (currentUser?.id) {
+          const response = await fetch(`/api/order/pending-requests?waiterId=${currentUser.id}`);
+          const data = await response.json();
+          if (data.success && isMountedRef.current) {
+            setPendingTransfers(data.requests || []);
+            lastRequestIdsRef.current = (data.requests || []).map((r: Order) => r.id);
+          }
+        }
         window.location.reload();
       } else {
         throw new Error(data.error || 'Failed to accept transfer');
@@ -888,10 +967,9 @@ export default function POSPage() {
     } finally {
       setIsProcessingTransfer(false);
     }
-  };
+  }, [currentUser?.id, soundEnabled, playNotificationSound]);
 
-  // Handle cancel transfer
-  const handleCancelTransfer = async (orderId: string) => {
+  const handleCancelTransfer = useCallback(async (orderId: string) => {
     setIsProcessingTransfer(true);
     try {
       const response = await fetch('/api/order/handle-transfer', {
@@ -903,7 +981,15 @@ export default function POSPage() {
       const data = await response.json();
       if (data.success) {
         toast('Transfer request cancelled.', { icon: 'ℹ️' });
-        await fetchPendingTransfers();
+        // Refresh transfers
+        if (currentUser?.id) {
+          const response = await fetch(`/api/order/pending-requests?waiterId=${currentUser.id}`);
+          const data = await response.json();
+          if (data.success && isMountedRef.current) {
+            setPendingTransfers(data.requests || []);
+            lastRequestIdsRef.current = (data.requests || []).map((r: Order) => r.id);
+          }
+        }
       } else {
         throw new Error(data.error || 'Failed to cancel transfer');
       }
@@ -913,7 +999,19 @@ export default function POSPage() {
     } finally {
       setIsProcessingTransfer(false);
     }
-  };
+  }, [currentUser?.id]);
+
+  const handleNewRequest = useCallback((request: Order) => {
+    if (soundEnabled) {
+      playNotificationSound();
+      setNotificationData({
+        title: `New Transfer Request - Order #${request.orderNumber}`,
+        message: `From: ${request.editRequest?.requestedByName || 'Unknown'} | Table: ${request.tableNumber}`
+      });
+      setShowNotification(true);
+      setTimeout(() => setShowNotification(false), 4000);
+    }
+  }, [soundEnabled, playNotificationSound]);
 
   const handlePlaceOrder = async () => {
     if (!selectedWaiter || !tableNumber || cart.length === 0) {
@@ -978,20 +1076,14 @@ export default function POSPage() {
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-primary/5 via-background to-background/80">
-        <motion.div
-          className="text-center space-y-3 sm:space-y-4 w-full max-w-xs px-4"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-        >
+        <motion.div className="text-center space-y-3 sm:space-y-4 w-full max-w-xs px-4" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
           <div className="relative w-16 h-16 sm:w-20 sm:h-20 mx-auto">
             <div className="absolute inset-0 bg-primary/20 rounded-full animate-ping"></div>
             <div className="relative flex items-center justify-center w-full h-full bg-background rounded-full border-2 border-primary/40">
               <ChefHat className="h-8 w-8 sm:h-10 sm:w-10 text-primary" />
             </div>
           </div>
-          <h2 className="text-lg sm:text-xl font-semibold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-            Loading Menu...
-          </h2>
+          <h2 className="text-lg sm:text-xl font-semibold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">Loading Menu...</h2>
           <Progress value={33} className="w-full mx-auto h-1.5 sm:h-2" />
           <p className="text-xs sm:text-sm text-muted-foreground">Preparing your experience</p>
         </motion.div>
@@ -1004,17 +1096,27 @@ export default function POSPage() {
       {/* Notification Toast */}
       {showNotification && (
         <motion.div
-          initial={{ opacity: 0, y: -50 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -50 }}
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded-lg shadow-lg"
+          initial={{ opacity: 0, y: -50, x: '-50%' }}
+          animate={{ opacity: 1, y: 0, x: '-50%' }}
+          exit={{ opacity: 0, y: -50, x: '-50%' }}
+          className="fixed top-4 left-1/2 z-50 w-[90%] max-w-md"
         >
-          <div className="flex items-center gap-2">
-            <BellRing className="h-4 w-4 text-yellow-600 animate-pulse" />
-            <div>
-              <p className="font-medium text-sm">New Transfer Request!</p>
-              <p className="text-xs text-muted-foreground">Check pending requests below</p>
+          <div className="bg-yellow-50 border-l-4 border-yellow-500 rounded-lg shadow-lg overflow-hidden">
+            <div className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <BellRing className="h-5 w-5 text-yellow-600 animate-pulse" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-yellow-800">{notificationData.title}</p>
+                  <p className="text-xs text-yellow-700 mt-1">{notificationData.message}</p>
+                </div>
+                <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0 text-yellow-600 hover:text-yellow-800 hover:bg-yellow-100" onClick={() => setShowNotification(false)}>
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
             </div>
+            <div className="h-1 bg-yellow-500 animate-progress" style={{ animationDuration: '4000ms' }} />
           </div>
         </motion.div>
       )}
@@ -1028,9 +1130,7 @@ export default function POSPage() {
               <Button variant="ghost" size="icon" onClick={() => router.push('/dashboard')} className="h-7 w-7 sm:h-8 sm:w-8">
                 <ArrowLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </Button>
-              <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-                POS System
-              </h1>
+              <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">POS System</h1>
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
@@ -1065,21 +1165,14 @@ export default function POSPage() {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
+              <SoundToggleButton isEnabled={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
+              
               <div className="hidden sm:flex items-center mr-1">
                 <Button variant={activeView === 'grid' ? 'default' : 'outline'} size="icon" className="h-6 w-6 sm:h-7 sm:w-7 rounded-l-md rounded-r-none" onClick={() => setActiveView('grid')}>
-                  <div className="grid grid-cols-2 gap-0.5">
-                    <div className="w-0.5 h-0.5 rounded-sm bg-current"></div>
-                    <div className="w-0.5 h-0.5 rounded-sm bg-current"></div>
-                    <div className="w-0.5 h-0.5 rounded-sm bg-current"></div>
-                    <div className="w-0.5 h-0.5 rounded-sm bg-current"></div>
-                  </div>
+                  <div className="grid grid-cols-2 gap-0.5"><div className="w-0.5 h-0.5 rounded-sm bg-current"></div><div className="w-0.5 h-0.5 rounded-sm bg-current"></div><div className="w-0.5 h-0.5 rounded-sm bg-current"></div><div className="w-0.5 h-0.5 rounded-sm bg-current"></div></div>
                 </Button>
                 <Button variant={activeView === 'list' ? 'default' : 'outline'} size="icon" className="h-6 w-6 sm:h-7 sm:w-7 rounded-l-none rounded-r-md" onClick={() => setActiveView('list')}>
-                  <div className="flex flex-col items-center justify-center gap-0.5">
-                    <div className="w-2 h-0.5 rounded-sm bg-current"></div>
-                    <div className="w-2 h-0.5 rounded-sm bg-current"></div>
-                    <div className="w-2 h-0.5 rounded-sm bg-current"></div>
-                  </div>
+                  <div className="flex flex-col items-center justify-center gap-0.5"><div className="w-2 h-0.5 rounded-sm bg-current"></div><div className="w-2 h-0.5 rounded-sm bg-current"></div><div className="w-2 h-0.5 rounded-sm bg-current"></div></div>
                 </Button>
               </div>
 
@@ -1127,11 +1220,9 @@ export default function POSPage() {
                 <div className="flex items-center gap-1 sm:gap-2">
                   <ArrowRightLeft className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-600" />
                   <h2 className="font-semibold text-sm sm:text-base">Transfer Requests</h2>
-                  <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs">
-                    {pendingTransfers.length}
-                  </Badge>
+                  <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs">{pendingTransfers.length}</Badge>
                 </div>
-                <Button variant="ghost" size="sm" onClick={fetchPendingTransfers} disabled={isProcessingTransfer} className="h-6 sm:h-7 text-[10px] sm:text-xs">
+                <Button variant="ghost" size="sm" onClick={() => startPolling()} disabled={isProcessingTransfer} className="h-6 sm:h-7 text-[10px] sm:text-xs">
                   <RefreshCw className={`h-3 w-3 sm:h-3.5 sm:w-3.5 mr-1 ${isProcessingTransfer ? 'animate-spin' : ''}`} />
                   Refresh
                 </Button>
@@ -1163,9 +1254,7 @@ export default function POSPage() {
 
             <div className="flex w-full overflow-x-auto pb-1 hide-scrollbar">
               <div className="flex space-x-1 pb-1 w-max">
-                <Button variant={selectedCategory === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedCategory('all')} className="rounded-full shrink-0 h-6 sm:h-7 text-[10px] sm:text-xs px-2 sm:px-3">
-                  All
-                </Button>
+                <Button variant={selectedCategory === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedCategory('all')} className="rounded-full shrink-0 h-6 sm:h-7 text-[10px] sm:text-xs px-2 sm:px-3">All</Button>
                 {categories.map((category) => (
                   <Button key={category._id} variant={selectedCategory === category._id ? 'default' : 'outline'} size="sm" onClick={() => setSelectedCategory(category._id)} className="rounded-full whitespace-nowrap shrink-0 h-6 sm:h-7 text-[10px] sm:text-xs px-2 sm:px-3">
                     <span className="flex items-center gap-0.5 sm:gap-1">
@@ -1214,13 +1303,9 @@ export default function POSPage() {
               <motion.div className="flex flex-col items-center justify-center h-[50vh] text-center p-4">
                 <Search className="h-8 w-8 sm:h-12 sm:w-12 mx-auto text-muted-foreground mb-2 sm:mb-4" />
                 <h3 className="text-sm sm:text-base font-medium mb-1">No items found</h3>
-                <p className="text-[10px] sm:text-xs text-muted-foreground max-w-md">
-                  Try adjusting your search or category.
-                </p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground max-w-md">Try adjusting your search or category.</p>
                 {searchQuery && (
-                  <Button variant="outline" className="mt-2 sm:mt-3 text-xs" onClick={() => setSearchQuery('')}>
-                    Clear Search
-                  </Button>
+                  <Button variant="outline" className="mt-2 sm:mt-3 text-xs" onClick={() => setSearchQuery('')}>Clear Search</Button>
                 )}
               </motion.div>
             )}
@@ -1233,24 +1318,13 @@ export default function POSPage() {
         <DialogContent className="sm:max-w-md max-w-[90%] p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-sm sm:text-base">Insufficient Stock</DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">
-              Sorry, there is not enough stock for the requested item.
-            </DialogDescription>
+            <DialogDescription className="text-xs sm:text-sm">Sorry, there is not enough stock for the requested item.</DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2">
-            <div className="bg-destructive/10 rounded-full p-1.5 sm:p-2">
-              <X className="h-4 w-4 sm:h-5 sm:w-5 text-destructive" />
-            </div>
-            <div>
-              <p className="font-medium text-xs sm:text-sm">{insufficientStockItem}</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground">Please adjust your order.</p>
-            </div>
+            <div className="bg-destructive/10 rounded-full p-1.5 sm:p-2"><X className="h-4 w-4 sm:h-5 sm:w-5 text-destructive" /></div>
+            <div><p className="font-medium text-xs sm:text-sm">{insufficientStockItem}</p><p className="text-[10px] sm:text-xs text-muted-foreground">Please adjust your order.</p></div>
           </div>
-          <DialogFooter>
-            <Button onClick={() => setInsufficientStockItem(null)} className="text-xs sm:text-sm">
-              Understood
-            </Button>
-          </DialogFooter>
+          <DialogFooter><Button onClick={() => setInsufficientStockItem(null)} className="text-xs sm:text-sm">Understood</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1267,9 +1341,7 @@ export default function POSPage() {
               <ChefHat className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-primary animate-pulse" />
               Preparing Order
             </h3>
-            <Badge className="bg-primary/20 text-primary border-none px-1.5 sm:px-2 text-[8px] sm:text-[10px]">
-              {orderProgress}%
-            </Badge>
+            <Badge className="bg-primary/20 text-primary border-none px-1.5 sm:px-2 text-[8px] sm:text-[10px]">{orderProgress}%</Badge>
           </div>
           <Progress value={orderProgress} className="w-full h-1 sm:h-1.5 bg-primary/10" />
         </motion.div>

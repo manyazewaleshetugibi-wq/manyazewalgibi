@@ -96,3 +96,16 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes progress {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.animate-progress {
+  animation: progress linear forwards;
+}
