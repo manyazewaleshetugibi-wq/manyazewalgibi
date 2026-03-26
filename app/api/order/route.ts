@@ -6,6 +6,8 @@ import { getToken } from "next-auth/jwt";
 
 // Debug flag
 const DEBUG = true;
+const BATCH_SIZE = 10; // Process 10 orders at a time
+const PROCESSING_DELAY = 100; // 100ms delay between batches
 
 function debugLog(message: string, data?: any) {
   if (DEBUG) {
@@ -42,7 +44,6 @@ async function getCurrentUserData(req: NextRequest) {
       return null;
     }
     
-    // Check what's actually in the token
     debugLog("Token data received:", {
       id: token.sub || token.id,
       name: token.name,
@@ -66,6 +67,31 @@ async function getCurrentUserData(req: NextRequest) {
     debugError("Error getting user data from token:", error);
     return null;
   }
+}
+
+// Cache for employee data to reduce database queries
+const employeeCache = new Map();
+let lastEmployeeCacheUpdate = 0;
+const EMPLOYEE_CACHE_TTL = 60000; // 1 minute
+
+async function getEmployeeWithCache(db: any, email: string) {
+  const now = Date.now();
+  
+  // Refresh cache every minute
+  if (now - lastEmployeeCacheUpdate > EMPLOYEE_CACHE_TTL) {
+    const allEmployees = await db.collection("employee_rank")
+      .find({}, { projection: { email: 1, employeeId: 1, name: 1, points: 1, completedOrders: 1 } })
+      .toArray();
+    
+    employeeCache.clear();
+    allEmployees.forEach(emp => {
+      if (emp.email) employeeCache.set(emp.email, emp);
+      if (emp.employeeId) employeeCache.set(emp.employeeId, emp);
+    });
+    lastEmployeeCacheUpdate = now;
+  }
+  
+  return employeeCache.get(email);
 }
 
 // Helper function to register any order activity
@@ -98,13 +124,11 @@ async function registerOrderActivity(
       return { success: false, message: "No user data available" };
     }
 
-    // Check if order has basic info
     if (!order || !order._id) {
       debugLog("Invalid order data for activity registration", { order });
       return { success: false, message: "Invalid order data" };
     }
 
-    // Normalize activity types
     const activityTypes = {
       'created': 'order_created',
       'updated': 'order_updated', 
@@ -123,7 +147,6 @@ async function registerOrderActivity(
       status: order.status
     });
 
-    // Check if employee_rank collection exists, create if not
     try {
       const collections = await db.listCollections({ name: "employee_rank" }).toArray();
       
@@ -134,16 +157,11 @@ async function registerOrderActivity(
       }
     } catch (collectionError) {
       debugError("Error checking/creating employee_rank collection:", collectionError);
-      // Continue anyway - the upsert will handle missing collection
     }
 
-    // Prepare user identifier
     let userId = userData.id;
-    
-    // Generate employee ID if not provided
     const employeeId = userData.employeeId || `EMP-${Date.now().toString().slice(-6)}`;
     
-    // Calculate points based on activity type
     let pointsAwarded = 1;
     let incrementField = 'totalOrders';
     
@@ -151,16 +169,14 @@ async function registerOrderActivity(
       pointsAwarded = 10;
       incrementField = 'completedOrders';
       
-      // Calculate points based on items
       const totalItems = order.items?.reduce((acc: number, item: any) => acc + (Number(item.quantity) || 0), 0) || 0;
       if (totalItems > 5) {
-        pointsAwarded = Math.min(pointsAwarded + Math.floor(totalItems / 5), 25); // Max 25 points
+        pointsAwarded = Math.min(pointsAwarded + Math.floor(totalItems / 5), 25);
       }
     } else if (normalizedType === 'order_created') {
-      pointsAwarded = 2; // Give points for creating orders too
+      pointsAwarded = 2;
     }
 
-    // Prepare activity record
     const activityRecord = {
       type: normalizedType,
       orderId: order._id,
@@ -172,19 +188,13 @@ async function registerOrderActivity(
       userName: userData.name || 'Unknown User'
     };
 
-    // Build match query - try multiple fields to find existing employee
     const matchQuery: any = {};
     
-    // Try to find by email first (most reliable)
     if (userData.email) {
       matchQuery.email = userData.email;
-    } 
-    // Then try by employeeId
-    else if (userData.employeeId) {
+    } else if (userData.employeeId) {
       matchQuery.employeeId = userData.employeeId;
-    }
-    // Finally try by userId
-    else if (userData.id) {
+    } else if (userData.id) {
       matchQuery.userId = userData.id;
     } else {
       debugLog("No matching criteria found for user");
@@ -194,7 +204,6 @@ async function registerOrderActivity(
     debugLog("Match query for employee rank:", matchQuery);
 
     try {
-      // First, try to find existing employee
       const existingEmployee = await db.collection("employee_rank").findOne(matchQuery);
       
       if (existingEmployee) {
@@ -205,7 +214,6 @@ async function registerOrderActivity(
           currentCompletedOrders: existingEmployee.completedOrders
         });
 
-        // Update existing employee
         const updateResult = await db.collection("employee_rank").updateOne(
           { _id: existingEmployee._id },
           {
@@ -228,7 +236,7 @@ async function registerOrderActivity(
             $push: {
               activityHistory: {
                 $each: [activityRecord],
-                $slice: -100 // Keep last 100 activities
+                $slice: -100
               }
             }
           }
@@ -249,7 +257,6 @@ async function registerOrderActivity(
       } else {
         debugLog("No existing employee found, creating new one");
 
-        // Create new employee record
         const newEmployeeDoc = {
           userId: userData.id,
           name: userData.name || 'Unknown User',
@@ -286,11 +293,9 @@ async function registerOrderActivity(
     } catch (dbError: any) {
       debugError("Database error in registerOrderActivity:", dbError);
       
-      // Check if it's a duplicate key error
       if (dbError.code === 11000) {
         debugLog("Duplicate key error, trying alternative approach");
         
-        // Try with a different employeeId
         const altEmployeeId = `EMP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         
         const altEmployeeDoc = {
@@ -360,7 +365,6 @@ async function registerWaitressActivity(db: any, order: any, activityType: strin
       activityType
     });
 
-    // Try to find waiter in collections
     const collectionsToCheck = ["waiters", "waitresses"];
     let waiter = null;
     
@@ -383,7 +387,6 @@ async function registerWaitressActivity(db: any, order: any, activityType: strin
     if (!waiter) {
       debugLog(`Waitress/waiter not found for order ${order._id} with ID ${order.waiterId}`);
       
-      // Create a basic waiter record if not found
       const waitressData = {
         id: order.waiterId,
         name: "Unknown Waiter",
@@ -412,7 +415,7 @@ async function registerWaitressActivity(db: any, order: any, activityType: strin
   }
 }
 
-// Helper function to process stock usage for a single order
+// Optimized stock processing with batch operations
 export async function processOrderStockUsage(order: any) {
   try {
     const dbClient = await clientPromise;
@@ -427,7 +430,7 @@ export async function processOrderStockUsage(order: any) {
       itemsCount: order.items?.length || 0
     });
 
-    // Check if stock has already been processed for this order
+    // CRITICAL: Skip if already processed
     if (order.stockProcessed) {
       debugLog(`Stock already processed for order: ${order._id}`);
       return { 
@@ -437,7 +440,7 @@ export async function processOrderStockUsage(order: any) {
       };
     }
 
-    // Check if order is completed (case-insensitive)
+    // Only process COMPLETED orders
     if (!isOrderCompleted(order)) {
       debugLog(`Order ${order._id} is not completed. Status: ${order.status}`);
       return { 
@@ -447,9 +450,18 @@ export async function processOrderStockUsage(order: any) {
       };
     }
 
-    // Check if order has items
     if (!order.items || !Array.isArray(order.items) || order.items.length === 0) {
       debugLog(`Order ${order._id} has no items to process`);
+      await db.collection("orders").updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            stockProcessed: true,
+            stockProcessedAt: new Date(),
+            stockProcessingNote: "No items to process"
+          },
+        }
+      );
       return { 
         success: true, 
         message: "Order has no items to process",
@@ -462,7 +474,7 @@ export async function processOrderStockUsage(order: any) {
       itemsCount: order.items.length
     });
     
-    // Aggregate items by itemId to handle multiple orders of the same item
+    // Aggregate items
     const aggregatedItems = new Map<string, { quantity: number; itemName: string }>();
     for (const item of order.items) {
       if (!item.itemId) continue;
@@ -481,7 +493,16 @@ export async function processOrderStockUsage(order: any) {
     debugLog(`Aggregated ${order.items.length} items into ${aggregatedItems.size} unique items.`);
 
     if (aggregatedItems.size === 0) {
-      debugLog(`No valid items to process for order ${order._id}`);
+      await db.collection("orders").updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            stockProcessed: true,
+            stockProcessedAt: new Date(),
+            stockProcessingNote: "No valid items to process"
+          },
+        }
+      );
       return { 
         success: true, 
         message: "No valid items to process",
@@ -490,53 +511,60 @@ export async function processOrderStockUsage(order: any) {
       };
     }
 
-    // Step 1: Collect all required ingredients from all items in the order
+    // Get all items in one query
+    const itemIds = Array.from(aggregatedItems.keys()).filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+    
+    if (itemIds.length === 0) {
+      await db.collection("orders").updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            stockProcessed: true,
+            stockProcessedAt: new Date(),
+            stockProcessingNote: "No valid item IDs"
+          },
+        }
+      );
+      return { success: true, message: "No valid item IDs" };
+    }
+    
+    const itemsData = await db.collection("items")
+      .find({ _id: { $in: itemIds } })
+      .toArray();
+    
+    const itemsMap = new Map();
+    itemsData.forEach(item => {
+      itemsMap.set(item._id.toString(), item);
+    });
+
+    // Collect all required ingredients
     const allIngredients = new Map<string, { 
       stockName: string; 
       stockCategory: string; 
       stockUnit: string; 
       unitCost: number; 
       totalQuantityUsed: number; 
-      items: { 
-        itemId: ObjectId; 
-        itemName: string; 
-        quantityUsed: number; 
-      }[];
+      items: { itemId: ObjectId; itemName: string; quantityUsed: number; }[];
     }>();
 
     let itemsWithIngredients = 0;
+    const stockIdsNeeded = new Set<string>();
     
     for (const [itemIdString, aggregatedItem] of aggregatedItems.entries()) {
-      if (!ObjectId.isValid(itemIdString)) {
-        debugError(`Invalid itemId: ${itemIdString}`, null);
-        continue;
-      }
-
-      const itemId = new ObjectId(itemIdString);
-
-      // Get item details including ingredients/requiredStock from items collection
-      const itemData = await db
-        .collection("items")
-        .findOne({ _id: itemId });
-
+      const itemData = itemsMap.get(itemIdString);
+      
       if (!itemData) {
-        debugError(`Item not found in items collection: ${itemId}`, null);
+        debugError(`Item not found: ${itemIdString}`, null);
         continue;
       }
 
-      // Check if item has requiredStock (ingredients)
-      if (
-        !itemData.requiredStock ||
-        !Array.isArray(itemData.requiredStock) ||
-        itemData.requiredStock.length === 0
-      ) {
-        debugLog(`Item ${itemId} has no requiredStock`);
+      if (!itemData.requiredStock || !Array.isArray(itemData.requiredStock) || itemData.requiredStock.length === 0) {
+        debugLog(`Item ${itemIdString} has no requiredStock`);
         continue;
       }
 
       itemsWithIngredients++;
 
-      // Process each ingredient/stock item required for this item
       for (const ingredient of itemData.requiredStock) {
         if (!ingredient.stockId || !ObjectId.isValid(ingredient.stockId)) {
           debugError(`Invalid stockId in ingredient:`, ingredient);
@@ -546,46 +574,28 @@ export async function processOrderStockUsage(order: any) {
         const stockIdString = ingredient.stockId;
         const quantityPerUnit = Number(ingredient.quantity) || 0;
 
-        if (quantityPerUnit <= 0) {
-          debugError(`Invalid quantity per unit for stock ${stockIdString}:`, quantityPerUnit);
-          continue;
-        }
+        if (quantityPerUnit <= 0) continue;
 
-        // Get the stock item details
-        const stockItem = await db
-          .collection("stocks")
-          .findOne({ _id: new ObjectId(stockIdString) });
-
-        if (!stockItem) {
-          debugError(`Stock item not found: ${stockIdString}`, ingredient);
-          continue;
-        }
-
+        stockIdsNeeded.add(stockIdString);
         const totalQuantityNeeded = quantityPerUnit * aggregatedItem.quantity;
 
-        if (totalQuantityNeeded <= 0) {
-          debugError(`Invalid total quantity needed for stock ${stockIdString}:`, totalQuantityNeeded);
-          continue;
-        }
-
-        // Aggregate by stockId
         const existingIngredient = allIngredients.get(stockIdString);
         if (existingIngredient) {
           existingIngredient.totalQuantityUsed += totalQuantityNeeded;
           existingIngredient.items.push({
-            itemId: itemId,
+            itemId: new ObjectId(itemIdString),
             itemName: aggregatedItem.itemName,
             quantityUsed: totalQuantityNeeded,
           });
         } else {
           allIngredients.set(stockIdString, {
-            stockName: stockItem.name || "Unknown Stock",
-            stockCategory: stockItem.category || "General",
-            stockUnit: stockItem.unit || "pcs",
-            unitCost: Number(stockItem.unitCost) || 0,
+            stockName: ingredient.stockName || "Unknown Stock",
+            stockCategory: ingredient.stockCategory || "General",
+            stockUnit: ingredient.stockUnit || "pcs",
+            unitCost: Number(ingredient.unitCost) || 0,
             totalQuantityUsed: totalQuantityNeeded,
             items: [{
-              itemId: itemId,
+              itemId: new ObjectId(itemIdString),
               itemName: aggregatedItem.itemName,
               quantityUsed: totalQuantityNeeded,
             }],
@@ -599,7 +609,6 @@ export async function processOrderStockUsage(order: any) {
     if (allIngredients.size === 0) {
       debugLog(`No ingredients found for order ${order._id}`);
       
-      // Mark order as processed even if no ingredients to prevent reprocessing
       await db.collection("orders").updateOne(
         { _id: order._id },
         {
@@ -621,168 +630,117 @@ export async function processOrderStockUsage(order: any) {
       };
     }
 
-    // Step 2: Process each unique ingredient for stock deduction and logging
-    const stockUsageRecords = [];
-    const processedStockIds = [];
+    // Get all required stock items in ONE query
+    const stockIdsArray = Array.from(allIngredients.keys()).map(id => new ObjectId(id));
+    const stockItems = await db.collection("stocks")
+      .find({ _id: { $in: stockIdsArray } })
+      .toArray();
     
+    const stockMap = new Map();
+    stockItems.forEach(stock => {
+      stockMap.set(stock._id.toString(), stock);
+    });
+
+    // Verify all stock is available
+    const insufficientStock = [];
     for (const [stockIdString, ingredientData] of allIngredients.entries()) {
-      const stockId = new ObjectId(stockIdString);
-      const { totalQuantityUsed, stockName, items } = ingredientData;
-
-      try {
-        // Get current stock level with lock or findAndModify for atomic operation
-        const stockItem = await db.collection("stocks").findOne({ _id: stockId });
-        
-        if (!stockItem) {
-          debugError(`Stock item not found during processing: ${stockIdString}`, null);
-          continue;
-        }
-
-        const currentStock = Number(stockItem.currentStock) || 0;
-        
-        if (currentStock < totalQuantityUsed) {
-          debugError(`Insufficient stock for ${stockName}`, { 
-            available: currentStock, 
-            required: totalQuantityUsed,
-            stockId: stockIdString 
-          });
-          
-          // Rollback any previously processed stock
-          for (const processedId of processedStockIds) {
-            await db.collection("stocks").updateOne(
-              { _id: new ObjectId(processedId) },
-              { $inc: { currentStock: allIngredients.get(processedId)?.totalQuantityUsed || 0 } }
-            );
-          }
-          
-          return { 
-            success: false, 
-            message: `Insufficient stock for ${stockName}. Available: ${currentStock}, Required: ${totalQuantityUsed}`,
-            stockName,
-            available: currentStock,
-            required: totalQuantityUsed
-          };
-        }
-
-        // Deduct the stock from inventory atomically
-        const updateResult = await db.collection("stocks").updateOne(
-          { _id: stockId, currentStock: { $gte: totalQuantityUsed } },
-          {
-            $inc: { 
-              currentStock: -totalQuantityUsed, 
-              stockUsed: totalQuantityUsed 
-            },
-            $set: {
-              lastUsed: new Date(),
-              lastUsedInOrder: order.orderNumber
-            }
-          }
-        );
-
-        if (updateResult.modifiedCount === 0) {
-          debugError(`Failed to deduct stock for ${stockName} - possibly concurrent update`, updateResult);
-          
-          // Rollback any previously processed stock
-          for (const processedId of processedStockIds) {
-            await db.collection("stocks").updateOne(
-              { _id: new ObjectId(processedId) },
-              { $inc: { currentStock: allIngredients.get(processedId)?.totalQuantityUsed || 0 } }
-            );
-          }
-          
-          return { 
-            success: false, 
-            message: `Concurrent stock update failed for ${stockName}` 
-          };
-        }
-
-        processedStockIds.push(stockIdString);
-
-        // Create a single usage record for this ingredient for this order
-        const stockUsageRecord = {
-          orderId: order._id,
-          orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
-          stockId: stockId,
+      const stockItem = stockMap.get(stockIdString);
+      const currentStock = stockItem ? (Number(stockItem.currentStock) || 0) : 0;
+      
+      if (!stockItem || currentStock < ingredientData.totalQuantityUsed) {
+        insufficientStock.push({
           stockName: ingredientData.stockName,
-          stockCategory: ingredientData.stockCategory,
-          stockUnit: ingredientData.stockUnit,
-          unitCost: ingredientData.unitCost,
-          totalQuantityUsed: totalQuantityUsed,
-          totalCost: ingredientData.unitCost * totalQuantityUsed,
-          items: items,
-          usedAt: new Date(),
-          processedAt: new Date(),
-          notes: `Used in ${items.length} item type(s) for order ${order.orderNumber}`,
-        };
-
-        const insertResult = await db
-          .collection("used_stock")
-          .insertOne(stockUsageRecord);
-
-        stockUsageRecords.push(stockUsageRecord);
-
-        debugLog(`Stock ${stockName} processed successfully:`, {
-          quantityUsed: totalQuantityUsed,
-          unitCost: ingredientData.unitCost,
-          totalCost: ingredientData.unitCost * totalQuantityUsed
+          available: currentStock,
+          required: ingredientData.totalQuantityUsed,
+          stockId: stockIdString
         });
+      }
+    }
+    
+    if (insufficientStock.length > 0) {
+      debugError(`Insufficient stock detected:`, insufficientStock);
+      return { 
+        success: false, 
+        message: `Insufficient stock for ${insufficientStock[0].stockName}`,
+        insufficientStock
+      };
+    }
 
-      } catch (dbError) {
-        debugError(`Database operation failed for stock ${stockIdString}`, dbError);
-        
-        // Rollback any previously processed stock
-        for (const processedId of processedStockIds) {
-          await db.collection("stocks").updateOne(
-            { _id: new ObjectId(processedId) },
-            { $inc: { currentStock: allIngredients.get(processedId)?.totalQuantityUsed || 0 } }
-          );
+    // Bulk update all stock in one operation
+    const stockBulkOps = [];
+    for (const [stockIdString, ingredientData] of allIngredients.entries()) {
+      stockBulkOps.push({
+        updateOne: {
+          filter: { _id: new ObjectId(stockIdString), currentStock: { $gte: ingredientData.totalQuantityUsed } },
+          update: { 
+            $inc: { currentStock: -ingredientData.totalQuantityUsed, stockUsed: ingredientData.totalQuantityUsed },
+            $set: { lastUsed: new Date(), lastUsedInOrder: order.orderNumber }
+          }
         }
-        
-        throw dbError;
+      });
+    }
+    
+    if (stockBulkOps.length > 0) {
+      const bulkResult = await db.collection("stocks").bulkWrite(stockBulkOps);
+      debugLog(`Stock bulk update result:`, { matchedCount: bulkResult.matchedCount, modifiedCount: bulkResult.modifiedCount });
+      
+      if (bulkResult.modifiedCount !== stockBulkOps.length) {
+        debugError(`Some stock updates failed`, { expected: stockBulkOps.length, actual: bulkResult.modifiedCount });
+        return { success: false, message: "Stock update conflict detected" };
       }
     }
 
-    const totalStockRecords = stockUsageRecords.length;
-    const processedItems = aggregatedItems.size;
+    // Create usage records in bulk
+    const stockUsageRecords = [];
+    for (const [stockIdString, ingredientData] of allIngredients.entries()) {
+      const stockUsageRecord = {
+        orderId: order._id,
+        orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
+        stockId: new ObjectId(stockIdString),
+        stockName: ingredientData.stockName,
+        stockCategory: ingredientData.stockCategory,
+        stockUnit: ingredientData.stockUnit,
+        unitCost: ingredientData.unitCost,
+        totalQuantityUsed: ingredientData.totalQuantityUsed,
+        totalCost: ingredientData.unitCost * ingredientData.totalQuantityUsed,
+        items: ingredientData.items,
+        usedAt: new Date(),
+        processedAt: new Date(),
+        notes: `Used in ${ingredientData.items.length} item type(s) for order ${order.orderNumber}`,
+      };
+      stockUsageRecords.push(stockUsageRecord);
+    }
+    
+    if (stockUsageRecords.length > 0) {
+      await db.collection("used_stock").insertMany(stockUsageRecords);
+    }
 
-    // Mark the order as processed
-    const updateOrderResult = await db.collection("orders").updateOne(
+    // Mark order as processed
+    await db.collection("orders").updateOne(
       { _id: order._id },
       {
         $set: {
           stockProcessed: true,
           stockProcessedAt: new Date(),
           updatedAt: new Date(),
-          stockProcessingNote: `Processed ${totalStockRecords} stock records from ${processedItems} items`
+          stockProcessingNote: `Processed ${stockUsageRecords.length} stock records`
         },
       }
     );
 
-    debugLog(`Order marked as processed:`, {
-      matchedCount: updateOrderResult.matchedCount,
-      modifiedCount: updateOrderResult.modifiedCount,
-      orderId: order._id
-    });
-
-    debugLog(`Successfully processed ${totalStockRecords} stock records for order: ${order._id}`, {
-      uniqueItemTypesProcessed: processedItems,
-      totalStockRecords,
-      stockIds: processedStockIds
-    });
+    debugLog(`Order ${order._id} processed successfully with ${stockUsageRecords.length} stock records`);
 
     return { 
       success: true, 
-      message: `Processed ${totalStockRecords} stock records from ${processedItems} unique item types`,
-      recordsProcessed: totalStockRecords,
-      itemsProcessed: processedItems,
-      stockUsageRecords,
-      processedStockIds
+      message: `Processed ${stockUsageRecords.length} stock records`,
+      recordsProcessed: stockUsageRecords.length,
+      itemsProcessed: aggregatedItems.size,
+      stockUsageRecords
     };
 
   } catch (error) {
     debugError(`Error processing stock for order ${order._id}:`, error);
     
-    // Try to mark order as failed to prevent infinite retry loops
     try {
       const dbClient = await clientPromise;
       const db = dbClient.db("gold");
@@ -805,7 +763,7 @@ export async function processOrderStockUsage(order: any) {
   }
 }
 
-// Main function to find and process all completed orders
+// Optimized function to find and process only COMPLETED orders
 async function processAllCompletedOrders(req?: NextRequest) {
   try {
     const dbClient = await clientPromise;
@@ -813,12 +771,24 @@ async function processAllCompletedOrders(req?: NextRequest) {
 
     debugLog("Looking for completed orders to process...");
 
-    // Find all completed orders (case-insensitive) that haven't been processed for stock usage
+    // CRITICAL: Only find orders that are:
+    // 1. COMPLETED status
+    // 2. NOT stockProcessed (or stockProcessed is false/null)
     const completedOrders = await db.collection("orders").find({
       status: { $regex: /^completed$/i },
-      stockProcessed: { $ne: true },
-      "items.0": { $exists: true } // Has at least one item
-    }).toArray();
+      $or: [
+        { stockProcessed: { $ne: true } },
+        { stockProcessed: { $exists: false } }
+      ]
+    })
+    .project({ _id: 1, orderNumber: 1, status: 1, items: 1, waiterId: 1, stockProcessed: 1 })
+    .limit(BATCH_SIZE) // Only fetch BATCH_SIZE at a time
+    .toArray();
+
+    if (completedOrders.length === 0) {
+      debugLog(`Found 0 completed orders to process`);
+      return { totalOrders: 0, processedOrders: 0, failedOrders: 0, results: [] };
+    }
 
     debugLog(`Found ${completedOrders.length} completed orders to process`, {
       orderIds: completedOrders.map(o => ({
@@ -832,42 +802,54 @@ async function processAllCompletedOrders(req?: NextRequest) {
     const results = [];
     const userData = req ? await getCurrentUserData(req) : null;
     
-    for (const order of completedOrders) {
-      try {
-        debugLog(`Processing order: ${order.orderNumber || order._id}`, {
-          status: order.status,
-          items: order.items?.length || 0
-        });
-        
-        const stockResult = await processOrderStockUsage(order);
-        
-        // Register waitress activity if order has waiter
-        if (order.waiterId) {
-          await registerWaitressActivity(db, order, 'completed');
+    // Process orders in parallel with concurrency limit
+    const concurrencyLimit = 5;
+    for (let i = 0; i < completedOrders.length; i += concurrencyLimit) {
+      const batch = completedOrders.slice(i, i + concurrencyLimit);
+      
+      await Promise.all(batch.map(async (order) => {
+        try {
+          debugLog(`Processing order: ${order.orderNumber || order._id}`, {
+            status: order.status,
+            items: order.items?.length || 0
+          });
+          
+          // Process stock usage
+          const stockResult = await processOrderStockUsage(order);
+          
+          // Register waitress activity if order has waiter (only if stock processing succeeded)
+          if (order.waiterId && stockResult.success) {
+            await registerWaitressActivity(db, order, 'completed');
+          }
+          
+          // Register employee activity if user context exists
+          if (userData && stockResult.success) {
+            const activityResult = await registerOrderActivity(db, userData, order, 'completed');
+            debugLog("Employee activity registration result for completed order:", activityResult);
+          }
+          
+          results.push({
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            originalStatus: order.status,
+            ...stockResult
+          });
+          
+          debugLog(`Order ${order._id} processed successfully`);
+        } catch (error) {
+          debugError(`Failed to process order ${order._id}:`, error);
+          results.push({
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            success: false,
+            error: (error as any).message
+          });
         }
-        
-        // Register employee activity if user context exists
-        if (userData) {
-          const activityResult = await registerOrderActivity(db, userData, order, 'completed');
-          debugLog("Employee activity registration result for completed order:", activityResult);
-        }
-        
-        results.push({
-          orderId: order._id,
-          orderNumber: order.orderNumber,
-          originalStatus: order.status,
-          ...stockResult
-        });
-        
-        debugLog(`Order ${order._id} processed successfully`);
-      } catch (error) {
-        debugError(`Failed to process order ${order._id}:`, error);
-        results.push({
-          orderId: order._id,
-          orderNumber: order.orderNumber,
-          success: false,
-          error: (error as any).message
-        });
+      }));
+      
+      // Small delay between batches to prevent overwhelming the system
+      if (i + concurrencyLimit < completedOrders.length) {
+        await new Promise(resolve => setTimeout(resolve, PROCESSING_DELAY));
       }
     }
 
@@ -897,7 +879,6 @@ async function handleDiagnosticRequest() {
     
     debugLog("Running diagnostic check...");
 
-    // 1. Check all orders with their status
     const allOrders = await db.collection("orders").find({}).toArray();
     
     debugLog(`Total orders in database: ${allOrders.length}`);
@@ -912,7 +893,6 @@ async function handleDiagnosticRequest() {
     
     debugLog("Order status summary:", statusSummary);
 
-    // 2. Check specifically for completed orders (case-insensitive)
     const completedOrders = await db.collection("orders").find({
       status: { $regex: /^completed$/i }
     }).toArray();
@@ -931,7 +911,6 @@ async function handleDiagnosticRequest() {
     
     debugLog("Sample completed orders:", completedOrdersDetails);
 
-    // 3. Check the query that's used for processing
     const queryResult = await db.collection("orders").find({
       status: { $regex: /^completed$/i },
       stockProcessed: { $ne: true }
@@ -939,18 +918,15 @@ async function handleDiagnosticRequest() {
     
     debugLog(`Unprocessed completed orders: ${queryResult.length}`);
 
-    // 4. Check used_stock collection
     const usedStockCount = await db.collection("used_stock").countDocuments();
     debugLog(`Used stock records: ${usedStockCount}`);
 
-    // 5. Check if items have requiredStock
     const itemsWithStock = await db.collection("items").find({
       "requiredStock.0": { $exists: true }
     }).toArray();
     
     debugLog(`Items with requiredStock defined: ${itemsWithStock.length}`);
 
-    // 6. Check employee_rank collection
     const employeeRankCount = await db.collection("employee_rank").countDocuments();
     debugLog(`Employee rank records: ${employeeRankCount}`);
     
@@ -1066,7 +1042,6 @@ async function handleUsedStockRequest(req: NextRequest) {
 
     debugLog(`Found ${usedStock.length} used stock records`);
 
-    // Get aggregated totals
     const aggregation = [
       { $match: query },
       {
@@ -1111,7 +1086,7 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const orderId = url.searchParams.get("id");
     const status = url.searchParams.get("status");
-    const autoProcess = url.searchParams.get("autoProcess") !== "false"; // Default is true
+    const autoProcess = url.searchParams.get("autoProcess") !== "false";
     const action = url.searchParams.get("action");
     const diagnostic = url.searchParams.get("diagnostic");
 
@@ -1124,19 +1099,16 @@ export async function GET(req: NextRequest) {
       pathname: url.pathname
     });
 
-    // Handle diagnostic request
     if (diagnostic === "true") {
       const result = await handleDiagnosticRequest();
       return NextResponse.json(result, { status: result.success ? 200 : 500 });
     }
 
-    // Handle used_stock request
     if (action === "usedStock") {
       const result = await handleUsedStockRequest(req);
       return NextResponse.json(result, { status: result.success ? 200 : 500 });
     }
 
-    // Handle employee rank debug request
     if (action === "debugEmployeeRank") {
       try {
         const dbClient = await clientPromise;
@@ -1145,7 +1117,6 @@ export async function GET(req: NextRequest) {
         const url = new URL(req.url);
         const fix = url.searchParams.get("fix") === "true";
         
-        // Get all orders with completedBy field
         const completedOrders = await db.collection("orders").find({
           completedBy: { $exists: true }
         }).toArray();
@@ -1156,11 +1127,9 @@ export async function GET(req: NextRequest) {
         let fixedCount = 0;
         
         if (fix) {
-          // Try to fix missing employee rank entries
           for (const order of completedOrders) {
             if (order.completedBy && order.completedBy.userId) {
               try {
-                // Check if employee exists
                 const existingEmployee = await db.collection("employee_rank").findOne({
                   $or: [
                     { userId: order.completedBy.userId },
@@ -1169,7 +1138,6 @@ export async function GET(req: NextRequest) {
                 });
                 
                 if (!existingEmployee) {
-                  // Create missing employee record
                   const userData = {
                     id: order.completedBy.userId,
                     name: order.completedBy.name || "Unknown Employee",
@@ -1203,7 +1171,6 @@ export async function GET(req: NextRequest) {
           }
         }
         
-        // Get current employee rank stats
         const employeeStats = await db.collection("employee_rank").aggregate([
           {
             $group: {
@@ -1242,7 +1209,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Auto-process completed orders when fetching orders
+    // Auto-process completed orders ONLY when fetching orders
     if (autoProcess) {
       try {
         debugLog("Auto-processing completed orders...");
@@ -1252,11 +1219,10 @@ export async function GET(req: NextRequest) {
         }
       } catch (error) {
         debugError("Auto-processing failed:", error);
-        // Don't fail the entire request if auto-processing fails
       }
     }
 
-    // Build query based on parameters
+    // Build query - ONLY fetch pending orders or specific orders, not completed ones unless requested
     let query = {};
     
     if (orderId) {
@@ -1270,14 +1236,17 @@ export async function GET(req: NextRequest) {
     }
     
     if (status) {
-      // Handle case-insensitive status query
       query = { 
         ...query, 
         status: { $regex: new RegExp(`^${status}$`, 'i') }
       };
+    } else if (!orderId) {
+      // Default: Only fetch pending and preparing orders, not completed ones
+      query = {
+        status: { $in: ['PENDING', 'pending', 'PREPARING', 'preparing', 'CONFIRMED', 'confirmed', 'PICKUP', 'pickup', 'SERVED', 'served', 'CANCELLED', 'cancelled'] }
+      };
     }
 
-    // Enforce delivery order visibility rule: Delivery orders must be confirmed to be fetched
     const deliveryRestriction = {
       $or: [
         { delivery: { $ne: true } },
@@ -1292,8 +1261,12 @@ export async function GET(req: NextRequest) {
 
     debugLog("Database query:", query);
 
-    // Fetch orders based on query
-    const orders = await db.collection("orders").find(query).toArray();
+    // Use lean() and limit for better performance
+    const orders = await db.collection("orders")
+      .find(query)
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .toArray();
 
     debugLog(`Found ${orders.length} orders`);
 
@@ -1304,16 +1277,15 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // For each order, check if it has used stock records
     const ordersWithStockInfo = await Promise.all(
       orders.map(async (order) => {
         const usedStock = await db.collection("used_stock")
           .find({ orderId: order._id })
+          .limit(5)
           .toArray();
         
         let additionalDetails = {};
 
-        // Logic for Table Orders: Fetch Waiter Details
         if ((order.inTable === true || order.waiterId) && (!order.delivery)) {
           try {
             if (order.waiterId && ObjectId.isValid(order.waiterId)) {
@@ -1321,13 +1293,6 @@ export async function GET(req: NextRequest) {
                 { _id: new ObjectId(order.waiterId) },
                 { projection: { name: 1, avatar: 1, shift: 1 } }
               );
-              
-              if (!waiter) {
-                waiter = await db.collection("waitresses").findOne(
-                  { _id: new ObjectId(order.waiterId) },
-                  { projection: { name: 1, avatar: 1, shift: 1 } }
-                );
-              }
               
               if (waiter) {
                 additionalDetails = { waiter };
@@ -1338,14 +1303,10 @@ export async function GET(req: NextRequest) {
           }
         }
         
-        // Logic for Delivery Orders: Ensure deliveryInfo and paymentScreenshotUrl are present
-        // These fields are part of the order document, so they are already fetched.
         if (order.delivery === true && (!order.inTable)) {
-          // Ensure deliveryInfo exists
           if (!order.deliveryInfo) {
             order.deliveryInfo = {};
           }
-          // Ensure paymentScreenshotUrl exists
           if (!order.paymentScreenshotUrl) {
             order.paymentScreenshotUrl = null;
           }
@@ -1355,7 +1316,7 @@ export async function GET(req: NextRequest) {
           ...order,
           ...additionalDetails,
           usedStockCount: usedStock.length,
-          usedStock: usedStock.length > 0 ? usedStock.slice(0, 5) : [] // Return first 5 records
+          usedStock: usedStock.length > 0 ? usedStock : []
         };
       })
     );
@@ -1451,7 +1412,6 @@ export async function POST(req: NextRequest) {
 
     debugLog("POST request received:", { body });
 
-    // Validation
     if (!body || !body.items || !Array.isArray(body.items) || body.items.length === 0) {
       return NextResponse.json(
         { success: false, error: "At least one item is required" },
@@ -1459,7 +1419,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate order number
     const lastOrder = await db.collection("orders")
       .find({}, { projection: { orderNumber: 1 } })
       .sort({ orderNumber: -1 })
@@ -1481,7 +1440,6 @@ export async function POST(req: NextRequest) {
     let totalAmount = 0;
     const processedItems = [];
 
-    // Process each item
     for (const item of body.items) {
       if (!ObjectId.isValid(item.itemId)) {
         return NextResponse.json(
@@ -1506,9 +1464,8 @@ export async function POST(req: NextRequest) {
       const subtotal = (Number(item.quantity) || 0) * (Number(itemData.price) || 0);
       totalAmount += subtotal;
 
-      // Store item details
       const processedItem = {
-        itemId: item.itemId, // Keep as string
+        itemId: item.itemId,
         itemName: itemData.name,
         quantity: Number(item.quantity) || 0,
         unitPrice: itemData.price,
@@ -1528,7 +1485,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Calculate amounts
     const taxAmount = totalAmount * 0.15;
     const finalAmount = totalAmount + taxAmount - (Number(body.discount) || 0);
 
@@ -1539,7 +1495,6 @@ export async function POST(req: NextRequest) {
       finalAmount
     });
 
-    // Get current user data
     const userData = await getCurrentUserData(req);
     
     debugLog("User data for order creation:", {
@@ -1552,11 +1507,10 @@ export async function POST(req: NextRequest) {
       } : null
     });
 
-    // Create the order object
     const orderData = {
       orderNumber,
       tableNumber: body.tableNumber || null,
-      waiterId: body.waiterId || null, // Keep as string, not ObjectId
+      waiterId: body.waiterId || null,
       customerId: body.customerId || "walk-in",
       numberOfGuests: body.numberOfGuests || 1,
       items: processedItems,
@@ -1586,7 +1540,6 @@ export async function POST(req: NextRequest) {
       finalAmount: orderData.finalAmount
     });
 
-    // Insert order
     debugLog("Inserting new order...");
 
     const result = await db.collection("orders").insertOne(orderData as any);
@@ -1596,16 +1549,13 @@ export async function POST(req: NextRequest) {
       acknowledged: result.acknowledged
     });
 
-    // Get the inserted order
     const insertedOrder = await db.collection("orders").findOne({ _id: result.insertedId });
 
-    // Register employee activity for order creation
     if (userData && insertedOrder) {
       debugLog("Attempting to register employee activity for order creation...");
       const activityResult = await registerOrderActivity(db, userData, insertedOrder, 'created');
       debugLog("Employee activity registration result:", activityResult);
       
-      // If order has waiter, register waitress activity
       if (insertedOrder.waiterId) {
         debugLog("Registering waitress activity...");
         const waitressResult = await registerWaitressActivity(db, insertedOrder, 'created');
@@ -1657,14 +1607,12 @@ export async function PATCH(req: NextRequest) {
 
     const { orderId, action, status, forceProcess } = body;
 
-    // Handle manual stock processing for all completed orders
     if (action === "processStock") {
       debugLog("Manual stock processing requested", { forceProcess });
       
       const userData = await getCurrentUserData(req);
       const processResult = await processAllCompletedOrders(req);
       
-      // Register activity for the user who triggered the process
       if (userData && processResult.processedOrders > 0) {
         debugLog("Registering batch process activity...");
         await registerOrderActivity(db, userData, { 
@@ -1684,7 +1632,6 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Handle individual order status update
     if (orderId && status) {
       if (!ObjectId.isValid(orderId)) {
         return NextResponse.json(
@@ -1695,13 +1642,9 @@ export async function PATCH(req: NextRequest) {
 
       debugLog(`Updating order ${orderId} status to: ${status}`);
 
-      // Get current user data
       const userData = await getCurrentUserData(req);
-
-      // Normalize status
       const normalizedStatus = normalizeStatus(status);
       
-      // Get the order first
       const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
       
       if (!order) {
@@ -1711,17 +1654,14 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      // Prepare update data
       const updateData: any = {
         status: normalizedStatus,
         updatedAt: new Date(),
       };
 
-      // If completing order, add completion details and set completedAt to current time
       if (normalizedStatus === "completed") {
         updateData.completedAt = new Date();
         
-        // Store who completed the order if user data is available
         if (userData) {
           updateData.completedBy = {
             userId: userData.id,
@@ -1733,7 +1673,6 @@ export async function PATCH(req: NextRequest) {
         }
       }
 
-      // Update order status
       const updateResult = await db.collection("orders").updateOne(
         { _id: new ObjectId(orderId) },
         { $set: updateData }
@@ -1746,7 +1685,6 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      // Get updated order
       const updatedOrder = await db.collection("orders").findOne({ 
         _id: new ObjectId(orderId) 
       });
@@ -1758,28 +1696,23 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      // Register employee activity for status change
       if (userData) {
         debugLog("Registering employee activity for status update...");
         await registerOrderActivity(db, userData, updatedOrder, 'updated');
       }
 
-      // If order is completed, process stock and register completion activities
       if (normalizedStatus === "completed") {
         try {
           debugLog("Processing stock for newly completed order");
           
-          // Process stock usage
           const stockResult = await processOrderStockUsage(updatedOrder);
           
-          // Register employee completion activity
           if (userData) {
             debugLog("Registering employee completion activity...");
             const completionResult = await registerOrderActivity(db, userData, updatedOrder, 'completed');
             debugLog("Employee completion activity result:", completionResult);
           }
           
-          // Register waitress activity if order has waiter
           if (updatedOrder.waiterId) {
             debugLog("Registering waitress completion activity...");
             const waitressResult = await registerWaitressActivity(db, updatedOrder, 'completed');
@@ -1801,7 +1734,6 @@ export async function PATCH(req: NextRequest) {
           debugError("Stock processing failed:", stockError);
           const errorMessage = stockError instanceof Error ? stockError.message : "Unknown stock processing error";
           
-          // Still register completion even if stock fails
           if (userData) {
             debugLog("Registering completion activity despite stock failure...");
             await registerOrderActivity(db, userData, updatedOrder, 'completed');
@@ -1863,7 +1795,6 @@ export async function POST_TEST_PROCESS(req: NextRequest) {
 
     debugLog(`Manual test processing for order: ${orderId}`);
 
-    // Get the order
     const order = await db.collection("orders").findOne({ 
       _id: new ObjectId(orderId) 
     });
@@ -1882,7 +1813,6 @@ export async function POST_TEST_PROCESS(req: NextRequest) {
       itemsCount: order.items?.length || 0
     });
 
-    // Test stock processing
     const result = await processOrderStockUsage(order);
 
     return NextResponse.json(
@@ -1917,20 +1847,17 @@ export async function GET_EMPLOYEE_RANKINGS(req: NextRequest) {
 
     debugLog("Employee rankings request:", { limit, sortBy, role });
 
-    // Build query
     let query = {};
     if (role) {
       query = { role: { $regex: new RegExp(`^${role}$`, 'i') } };
     }
 
-    // Get employee rankings
     const rankings = await db.collection("employee_rank")
       .find(query)
       .sort({ [sortBy]: -1 })
       .limit(limit)
       .toArray();
 
-    // Get summary statistics
     const stats = await db.collection("employee_rank").aggregate([
       { $match: query },
       {

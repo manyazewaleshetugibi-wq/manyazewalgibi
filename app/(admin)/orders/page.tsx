@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { toast, Toaster } from "react-hot-toast"
 import { format } from "date-fns"
 import {
@@ -50,6 +50,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
+import { Slider } from "@/components/ui/slider"
 import {
   CalendarIcon,
   MoreHorizontal,
@@ -76,9 +77,13 @@ import {
   Loader2,
   Phone,
   User,
-  FileText,
   MessageSquare,
+  Volume2,
+  VolumeX,
+  BellRing,
+  Settings,
 } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "PICKUP" | "SERVED" | "COMPLETED" | "CANCELLED"
 
@@ -89,6 +94,14 @@ type Order = {
   waiterId: string
   numberOfGuests: number
   items: Array<{
+    itemId: string
+    quantity: number
+    unitPrice: number
+    price?: number
+    subtotal: number
+    status: string
+  }>
+  orderItems?: Array<{
     itemId: string
     quantity: number
     unitPrice: number
@@ -117,6 +130,7 @@ type Order = {
   specialRequirements?: string
   notes?: string
   customerName?: string
+  isEdited?: boolean
 }
 
 type Waitress = {
@@ -156,6 +170,124 @@ const statusColors: Record<OrderStatus, string> = {
   SERVED: "bg-green-100 text-green-800",
   COMPLETED: "bg-teal-100 text-teal-800",
   CANCELLED: "bg-red-100 text-red-800",
+}
+
+const BATCH_SIZE_LIMIT = 50
+
+// Sound notification hook with volume control
+const useNotificationSound = () => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isEnabled, setIsEnabled] = useState(true);
+  const [volume, setVolume] = useState(0.5);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Create audio element with a working notification sound
+    const audio = new Audio();
+    audio.preload = 'auto';
+    // Use a reliable online notification sound
+    audio.src = 'https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3';
+    audio.volume = volume;
+
+    audio.addEventListener('canplaythrough', () => {
+      setIsLoaded(true);
+    });
+
+    audio.addEventListener('error', () => {
+      setIsLoaded(false);
+    });
+
+    audio.load();
+    audioRef.current = audio;
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // Update volume when changed
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
+
+  const playFallbackBeep = useCallback(() => {
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      
+      const audioCtx = new AudioContext();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
+      oscillator.frequency.value = 800;
+      gainNode.gain.value = volume;
+      
+      oscillator.start();
+      gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.3);
+      oscillator.stop(audioCtx.currentTime + 0.3);
+      
+      setTimeout(() => audioCtx.close(), 500);
+    } catch (error) {
+      console.error('Failed to play fallback beep:', error);
+    }
+  }, [volume]);
+
+  const play = useCallback(() => {
+    if (!isEnabled) return;
+    
+    if (audioRef.current && isLoaded) {
+      audioRef.current.currentTime = 0;
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => playFallbackBeep());
+      }
+    } else {
+      playFallbackBeep();
+    }
+  }, [isEnabled, isLoaded, playFallbackBeep]);
+
+  return { play, isEnabled, setIsEnabled, volume, setVolume };
+};
+
+// Batch fetch items
+const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>> => {
+  if (itemIds.length === 0) return new Map()
+  
+  const uniqueIds = [...new Set(itemIds)]
+  const limitedIds = uniqueIds.slice(0, BATCH_SIZE_LIMIT)
+  
+  try {
+    const response = await fetch(`/api/items/?ids=${limitedIds.join(',')}`)
+    if (!response.ok) throw new Error("Failed to fetch items")
+    const data = await response.json()
+    
+    const itemsMap = new Map<string, MenuItem>()
+    data.items?.forEach((item: MenuItem) => {
+      if (item?._id) {
+        itemsMap.set(item._id, item)
+      }
+    })
+    return itemsMap
+  } catch (error) {
+    console.error("Error fetching items batch:", error)
+    return new Map()
+  }
+}
+
+// Helper function to check if order was edited - ONLY when orderItems exists
+const isOrderEdited = (order: Order): boolean => {
+  return !!(order.orderItems && order.orderItems.length > 0)
 }
 
 const DeleteOrderDialog = ({ orderId, onDelete }: { orderId: string; onDelete: () => Promise<void> }) => {
@@ -204,6 +336,136 @@ const DeleteOrderDialog = ({ orderId, onDelete }: { orderId: string; onDelete: (
   )
 }
 
+// Sound control dialog
+const SoundControlDialog = ({ 
+  isEnabled, 
+  onToggle, 
+  volume, 
+  onVolumeChange 
+}: { 
+  isEnabled: boolean; 
+  onToggle: () => void; 
+  volume: number; 
+  onVolumeChange: (value: number) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-8 w-8 relative">
+          <Settings className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Sound Settings</DialogTitle>
+          <DialogDescription>
+            Configure notification sound preferences
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {isEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              <span className="text-sm font-medium">Sound Notifications</span>
+            </div>
+            <Button
+              variant={isEnabled ? "default" : "outline"}
+              size="sm"
+              onClick={onToggle}
+              className="h-8"
+            >
+              {isEnabled ? "Enabled" : "Disabled"}
+            </Button>
+          </div>
+          
+          {isEnabled && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Volume</span>
+                <span className="text-sm font-medium">{Math.round(volume * 100)}%</span>
+              </div>
+              <Slider
+                value={[volume]}
+                onValueChange={(values) => onVolumeChange(values[0])}
+                min={0}
+                max={1}
+                step={0.01}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>0%</span>
+                <span>50%</span>
+                <span>100%</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const audio = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3');
+                  audio.volume = volume;
+                  audio.play().catch(() => {});
+                }}
+                className="w-full mt-2"
+              >
+                <Volume2 className="h-3 w-3 mr-2" />
+                Test Sound
+              </Button>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// Sound toggle button component
+const SoundToggleButton = ({ isEnabled, onToggle }: { isEnabled: boolean; onToggle: () => void }) => (
+  <Button
+    variant="ghost"
+    size="icon"
+    onClick={onToggle}
+    className="h-8 w-8 relative"
+    title={isEnabled ? "Sound notifications on" : "Sound notifications off"}
+  >
+    {isEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+  </Button>
+)
+
+// Notification toast component
+const NotificationToast = ({ title, message, onClose }: { title: string; message: string; onClose: () => void }) => (
+  <motion.div
+    initial={{ opacity: 0, y: -50, x: '-50%' }}
+    animate={{ opacity: 1, y: 0, x: '-50%' }}
+    exit={{ opacity: 0, y: -50, x: '-50%' }}
+    className="fixed top-4 left-1/2 z-50 w-[90%] max-w-md"
+  >
+    <div className="bg-green-50 border-l-4 border-green-500 rounded-lg shadow-lg overflow-hidden">
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0">
+            <BellRing className="h-5 w-5 text-green-600 animate-pulse" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-green-800">{title}</p>
+            <p className="text-xs text-green-700 mt-1">{message}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 flex-shrink-0 text-green-600 hover:text-green-800 hover:bg-green-100"
+            onClick={onClose}
+          >
+            <XCircle className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
+      <div className="h-1 bg-green-500 animate-progress" style={{ animationDuration: '4000ms' }} />
+    </div>
+  </motion.div>
+)
+
 export default function OrderManagement() {
   const [orders, setOrders] = useState<Order[]>([])
   const [waitresses, setWaitresses] = useState<Waitress[]>([])
@@ -219,29 +481,111 @@ export default function OrderManagement() {
   const [totalPages, setTotalPages] = useState(1)
   const [viewMode, setViewMode] = useState<"list" | "grid">("grid")
   const itemsPerPage = 12
+  
+  // Sound and notification states
+  const { play: playNotificationSound, isEnabled: soundEnabled, setIsEnabled: setSoundEnabled, volume, setVolume } = useNotificationSound()
+  const [showNotification, setShowNotification] = useState(false)
+  const [notificationData, setNotificationData] = useState({ title: '', message: '' })
+  
+  // Refs for polling and tracking
+  const lastOrderIdsRef = useRef<string[]>([])
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const lastFetchTimeRef = useRef<string>(new Date().toISOString())
+  const isMountedRef = useRef<boolean>(true)
 
+  // Set mounted flag
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+      }
+    }
+  }, [])
+
+  // Fetch orders with isEdited flag
   const fetchOrders = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true)
     try {
       const response = await fetch("/api/order")
       if (!response.ok) throw new Error("Failed to fetch orders")
       const data = await response.json()
-      setOrders(data.orders)
-      setTotalPages(Math.ceil(data.orders.length / itemsPerPage))
+      
+      const ordersWithEditFlag = (data.orders || []).map((order: Order) => ({
+        ...order,
+        isEdited: isOrderEdited(order)
+      }))
+      
+      if (isMountedRef.current) {
+        setOrders(ordersWithEditFlag)
+        setTotalPages(Math.ceil(ordersWithEditFlag.length / itemsPerPage))
+        lastOrderIdsRef.current = ordersWithEditFlag.map((order: Order) => order._id)
+        lastFetchTimeRef.current = new Date().toISOString()
+      }
     } catch (error) {
       console.error("Error fetching orders:", error)
-      toast.error("Failed to fetch orders")
+      if (showLoading) toast.error("Failed to fetch orders")
     } finally {
-      if (showLoading) setLoading(false)
+      if (showLoading && isMountedRef.current) setLoading(false)
     }
-  }, [])
+  }, [itemsPerPage])
+
+  // Poll for new orders
+  const pollNewOrders = useCallback(async () => {
+    if (!isMountedRef.current) return
+    
+    try {
+      const response = await fetch(`/api/order?after=${lastFetchTimeRef.current}`)
+      if (!response.ok) throw new Error("Failed to fetch new orders")
+      const data = await response.json()
+      const newOrders = (data.orders || []).map((order: Order) => ({
+        ...order,
+        isEdited: isOrderEdited(order)
+      }))
+      
+      if (newOrders.length > 0 && isMountedRef.current) {
+        // Detect truly new orders (not previously in the list)
+        const trulyNewOrders = newOrders.filter(
+          (order: Order) => !lastOrderIdsRef.current.includes(order._id)
+        )
+        
+        // Show notifications for new orders
+        if (trulyNewOrders.length > 0) {
+          trulyNewOrders.forEach((order: Order) => {
+            // Play sound notification
+            playNotificationSound()
+            
+            setNotificationData({
+              title: `New Order #${order.orderNumber}`,
+              message: `Table ${order.tableNumber} | ${order.items?.length || 0} items`,
+            })
+            setShowNotification(true)
+            setTimeout(() => setShowNotification(false), 4000)
+            
+            toast.success(`New order #${order.orderNumber} received!`, {
+              duration: 5000,
+              icon: '🔔',
+            })
+          })
+        }
+        
+        // Refresh the entire order list to get the latest data
+        await fetchOrders(false)
+      }
+    } catch (error) {
+      console.error("Error polling new orders:", error)
+    }
+  }, [playNotificationSound, fetchOrders])
 
   const fetchWaitresses = useCallback(async () => {
     try {
       const response = await fetch("/api/waitress")
       if (!response.ok) throw new Error("Failed to fetch waitresses")
       const data = await response.json()
-      setWaitresses(data || [])
+      if (isMountedRef.current) {
+        setWaitresses(data || [])
+      }
     } catch (error) {
       console.error("Error fetching waitresses:", error)
       toast.error("Failed to fetch waitresses")
@@ -249,15 +593,26 @@ export default function OrderManagement() {
   }, [])
 
   useEffect(() => {
-    fetchOrders(true)
-    fetchWaitresses()
-
-    const intervalId = setInterval(() => {
-      fetchOrders(false) // Background refresh
-    }, 15000) // Poll every 15 seconds
-
-    return () => clearInterval(intervalId)
-  }, [fetchOrders, fetchWaitresses])
+    const initialize = async () => {
+      await Promise.all([
+        fetchOrders(true),
+        fetchWaitresses()
+      ])
+      
+      // Start polling every 20 seconds
+      pollingIntervalRef.current = setInterval(() => {
+        pollNewOrders()
+      }, 20000) // 20 seconds polling
+    }
+    
+    initialize()
+    
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+      }
+    }
+  }, [fetchOrders, fetchWaitresses, pollNewOrders])
 
   const handleDeleteOrder = async (orderId: string) => {
     try {
@@ -332,7 +687,11 @@ export default function OrderManagement() {
 
   const OrderDetailModal = ({ order }: { order: Order }) => {
     const [waitress, setWaitress] = useState<Waitress | null>(null)
-    const [menuItems, setMenuItems] = useState<Record<string, MenuItem>>({})
+    const [menuItems, setMenuItems] = useState<Map<string, MenuItem>>(new Map())
+    const [loadingItems, setLoadingItems] = useState(true)
+
+    // Determine which items to display - use orderItems if exists (edited), otherwise use items
+    const displayItems = order.orderItems || order.items
 
     useEffect(() => {
       const fetchWaitress = async () => {
@@ -349,24 +708,18 @@ export default function OrderManagement() {
       }
 
       const fetchMenuItems = async () => {
-        const itemIds = order.items.map((item) => item.itemId)
-        const itemsData: Record<string, MenuItem> = {}
-        for (const id of itemIds) {
-          try {
-            const response = await fetch(`/api/items/${id}`)
-            if (!response.ok) throw new Error(`Failed to fetch item ${id}`)
-            const { data } = await response.json()
-            itemsData[id] = data
-          } catch (error) {
-            console.error(`Error fetching item ${id}:`, error)
-          }
-        }
-        setMenuItems(itemsData)
+        setLoadingItems(true)
+        const itemIds = displayItems.map((item) => item.itemId)
+        const itemsMap = await fetchItemsBatch(itemIds)
+        setMenuItems(itemsMap)
+        setLoadingItems(false)
       }
 
       fetchWaitress()
       fetchMenuItems()
-    }, [order])
+    }, [order, displayItems])
+
+    const edited = order.isEdited || false
 
     return (
       <Dialog>
@@ -375,56 +728,67 @@ export default function OrderManagement() {
             <Eye className="h-4 w-4" />
           </Button>
         </DialogTrigger>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold flex items-center">
-              <Receipt className="mr-2 h-6 w-6" />
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+              <Receipt className="h-6 w-6" />
               Order Details
+              {edited && (
+                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 ml-2">
+                  <Clock className="h-3 w-3 mr-1" />
+                  Edited
+                </Badge>
+              )}
             </DialogTitle>
             <DialogDescription>
               Order #{order.orderNumber} - {new Date(order.createdAt).toLocaleString()}
+              {edited && (
+                <span className="block text-xs text-blue-600 mt-1">
+                  Last updated: {new Date(order.updatedAt).toLocaleString()}
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="h-[70vh] pr-4">
-            <div className="space-y-8">
+          <ScrollArea className="flex-1 pr-4 overflow-y-auto">
+            <div className="space-y-6 pb-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="pb-2">
                     <CardTitle className="text-lg font-semibold flex items-center">
                       <MapPin className="mr-2 h-5 w-5" />
                       Order Information
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    <div className="flex items-center">
-                      <MapPin className="mr-2 h-4 w-4 text-muted-foreground" />
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground" />
                       <span>Table: {order.tableNumber}</span>
                     </div>
-                    <div className="flex items-center">
-                      <Users className="mr-2 h-4 w-4 text-muted-foreground" />
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-muted-foreground" />
                       <span>Guests: {order.numberOfGuests}</span>
                     </div>
-                    <div className="flex items-center">
-                      <AlertCircle className="mr-2 h-4 w-4 text-muted-foreground" />
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 text-muted-foreground" />
                       <span>Status: </span>
                       <Badge variant="outline" className={`ml-2 ${statusColors[order.status]}`}>
                         {statusIcons[order.status]} {order.status}
                       </Badge>
                     </div>
-                    <div className="flex items-center">
-                      <CreditCard className="mr-2 h-4 w-4 text-muted-foreground" />
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-muted-foreground" />
                       <span>Payment Method: {order.paymentMethod}</span>
                     </div>
                     {order.customerName && (
-                      <div className="flex items-center">
-                        <User className="mr-2 h-4 w-4 text-muted-foreground" />
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-muted-foreground" />
                         <span>Customer: {order.customerName}</span>
                       </div>
                     )}
                   </CardContent>
                 </Card>
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="pb-2">
                     <CardTitle className="text-lg font-semibold flex items-center">
                       {order.delivery ? <Truck className="mr-2 h-5 w-5" /> : <User className="mr-2 h-5 w-5" />}
                       {order.delivery ? "Delivery Information" : "Waitress Information"}
@@ -432,31 +796,28 @@ export default function OrderManagement() {
                   </CardHeader>
                   <CardContent className="space-y-2">
                     {order.delivery ? (
-                      <div className="space-y-3">
-                        {order.deliveryInfo ? (
-                          <>
-                            <div className="flex items-center">
-                              <User className="mr-2 h-4 w-4 text-muted-foreground" />
-                              <span className="font-medium">{order.deliveryInfo.fullName}</span>
-                            </div>
-                            <div className="flex items-center">
-                              <Phone className="mr-2 h-4 w-4 text-muted-foreground" />
-                              <span>{order.deliveryInfo.phoneNumber}</span>
-                            </div>
-                            <div className="flex items-start">
-                              <MapPin className="mr-2 h-4 w-4 text-muted-foreground mt-1" />
-                              <span>{order.deliveryInfo.address}, {order.deliveryInfo.city}</span>
-                            </div>
-                          </>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No delivery information available</p>
-                        )}
-                      </div>
+                      order.deliveryInfo ? (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4 text-muted-foreground" />
+                            <span className="font-medium">{order.deliveryInfo.fullName}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Phone className="h-4 w-4 text-muted-foreground" />
+                            <span>{order.deliveryInfo.phoneNumber}</span>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
+                            <span>{order.deliveryInfo.address}, {order.deliveryInfo.city}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No delivery information available</p>
+                      )
                     ) : waitress ? (
                       <>
-                        <div className="flex items-center space-x-4">
-                          <Avatar>
-                            <AvatarImage src="/placeholder-avatar.jpg" />
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-10 w-10">
                             <AvatarFallback>{waitress.name.charAt(0)}</AvatarFallback>
                           </Avatar>
                           <div>
@@ -464,13 +825,13 @@ export default function OrderManagement() {
                             <p className="text-sm text-muted-foreground">{waitress.shift} Shift</p>
                           </div>
                         </div>
-                        <div className="flex items-center">
-                          <Phone className="mr-2 h-4 w-4 text-muted-foreground" />
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
                           <span>{waitress.phone}</span>
                         </div>
                       </>
                     ) : (
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span>Loading waitress information...</span>
                       </div>
@@ -492,10 +853,9 @@ export default function OrderManagement() {
                 </Card>
               </div>
 
-              {/* Special Requirements Section */}
               {(order.specialRequirements || order.notes) && (
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="pb-2">
                     <CardTitle className="text-lg font-semibold flex items-center">
                       <MessageSquare className="mr-2 h-5 w-5" />
                       Special Requirements
@@ -510,79 +870,103 @@ export default function OrderManagement() {
               )}
 
               <Card>
-                <CardHeader>
+                <CardHeader className="pb-2">
                   <CardTitle className="text-lg font-semibold flex items-center">
                     <Utensils className="mr-2 h-5 w-5" />
                     Order Items
+                    {edited && (
+                      <Badge variant="outline" className="ml-2 bg-blue-50 text-blue-700 text-xs">
+                        Updated Version
+                      </Badge>
+                    )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Quantity</TableHead>
-                        <TableHead>Unit Price</TableHead>
-                        <TableHead>Subtotal</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {order.items.map((item, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            {menuItems[item.itemId] ? (
-                              <div className="flex items-center space-x-3">
-                                <img
-                                  src={menuItems[item.itemId].imageUrl || "/placeholder.svg"}
-                                  alt={menuItems[item.itemId].name}
-                                  className="w-12 h-12 rounded-md object-cover"
-                                />
-                                <div>
-                                  <p className="font-medium">{menuItems[item.itemId].name}</p>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex items-center space-x-2">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                <span>Loading...</span>
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell>{item.quantity}</TableCell>
-                          <TableCell>
-                            {(item.unitPrice || item.price || 0).toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
-                          </TableCell>
-                          <TableCell>
-                            {(item.subtotal || 0).toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
-                          </TableCell>
-                        </TableRow>
+                  {loadingItems ? (
+                    <div className="space-y-2">
+                      {[...Array(3)].map((_, i) => (
+                        <Skeleton key={i} className="h-12 w-full" />
                       ))}
-                    </TableBody>
-                  </Table>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Item</TableHead>
+                            <TableHead className="w-20">Qty</TableHead>
+                            <TableHead className="w-28">Unit Price</TableHead>
+                            <TableHead className="w-28">Subtotal</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {displayItems.map((item, index) => {
+                            const menuItem = menuItems.get(item.itemId)
+                            return (
+                              <TableRow key={index}>
+                                <TableCell>
+                                  {menuItem ? (
+                                    <div className="flex items-center gap-3">
+                                      {menuItem.imageUrl && (
+                                        <img
+                                          src={menuItem.imageUrl}
+                                          alt={menuItem.name}
+                                          className="w-10 h-10 rounded-md object-cover"
+                                        />
+                                      )}
+                                      <span className="font-medium">{menuItem.name}</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                      <span>Loading...</span>
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell>{item.quantity}</TableCell>
+                                <TableCell>
+                                  {(item.unitPrice || item.price || 0).toLocaleString("en-ET", { 
+                                    style: "currency", 
+                                    currency: "ETB" 
+                                  })}
+                                </TableCell>
+                                <TableCell>
+                                  {(item.subtotal || 0).toLocaleString("en-ET", { 
+                                    style: "currency", 
+                                    currency: "ETB" 
+                                  })}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
               <Card>
-                <CardHeader>
+                <CardHeader className="pb-2">
                   <CardTitle className="text-lg font-semibold flex items-center">
                     <DollarSign className="mr-2 h-5 w-5" />
                     Order Summary
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Subtotal:</span>
                     <span>{order.totalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
                   </div>
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Discount:</span>
                     <span>{order.discount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
                   </div>
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Tax:</span>
                     <span>{order.tax.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
                   </div>
                   <Separator />
-                  <div className="flex justify-between items-center font-bold">
+                  <div className="flex justify-between font-bold">
                     <span>Total:</span>
                     <span>{order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
                   </div>
@@ -598,9 +982,18 @@ export default function OrderManagement() {
   const OrderCard = ({ order }: { order: Order }) => {
     const waitress = waitresses.find((w) => w._id === order.waiterId)
     const hasSpecialRequirements = !!(order.specialRequirements || order.notes)
+    const edited = order.isEdited || false
 
     return (
-      <Card className="hover:shadow-lg transition-shadow duration-300">
+      <Card className="hover:shadow-lg transition-shadow duration-300 relative overflow-hidden">
+        {edited && (
+          <div className="absolute top-2 right-2 z-10">
+            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+              <Clock className="h-3 w-3 mr-1" />
+              Edited
+            </Badge>
+          </div>
+        )}
         <CardHeader>
           <CardTitle className="flex justify-between items-center">
             <span className="text-lg font-bold">Order #{order.orderNumber}</span>
@@ -644,7 +1037,6 @@ export default function OrderManagement() {
             </div>
           )}
 
-          {/* Special Requirements Badge */}
           {hasSpecialRequirements && (
             <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
               <div className="flex items-start gap-2">
@@ -677,6 +1069,13 @@ export default function OrderManagement() {
               <span>{order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
             </div>
           </div>
+          
+          {edited && (
+            <div className="text-xs text-blue-600 flex items-center gap-1 pt-1 border-t">
+              <Clock className="h-3 w-3" />
+              Updated: {new Date(order.updatedAt).toLocaleTimeString()}
+            </div>
+          )}
         </CardContent>
         <CardFooter className="justify-between">
           <OrderDetailModal order={order} />
@@ -707,11 +1106,33 @@ export default function OrderManagement() {
 
   return (
     <div className="container mx-auto p-4 space-y-6">
-      <Toaster />
+      <Toaster position="top-right" />
+      
+      <AnimatePresence>
+        {showNotification && (
+          <NotificationToast
+            title={notificationData.title}
+            message={notificationData.message}
+            onClose={() => setShowNotification(false)}
+          />
+        )}
+      </AnimatePresence>
+      
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Order Management</h1>
-        <Button onClick={fetchOrders} variant="outline" size="icon">
-          <RefreshCcw className="h-4 w-4" />
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold">Order Management</h1>
+          <div className="flex items-center gap-1">
+            <SoundToggleButton isEnabled={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
+            <SoundControlDialog 
+              isEnabled={soundEnabled} 
+              onToggle={() => setSoundEnabled(!soundEnabled)} 
+              volume={volume} 
+              onVolumeChange={setVolume} 
+            />
+          </div>
+        </div>
+        <Button onClick={() => fetchOrders(true)} variant="outline" size="icon" disabled={loading}>
+          <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
 
@@ -729,7 +1150,7 @@ export default function OrderManagement() {
                 />
               </div>
             </div>
-            <Select onValueChange={(value) => setStatusFilter((value as OrderStatus) || null)}>
+            <Select value={statusFilter || "All"} onValueChange={(value) => setStatusFilter(value === "All" ? null : value as OrderStatus)}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
@@ -745,7 +1166,7 @@ export default function OrderManagement() {
                 ))}
               </SelectContent>
             </Select>
-            <Select onValueChange={(value) => setOrderTypeFilter(value === "All" ? null : value)}>
+            <Select value={orderTypeFilter || "All"} onValueChange={(value) => setOrderTypeFilter(value === "All" ? null : value)}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filter by Type" />
               </SelectTrigger>
@@ -756,7 +1177,7 @@ export default function OrderManagement() {
                 <SelectItem value="pos">POS</SelectItem>
               </SelectContent>
             </Select>
-            <Select onValueChange={(value) => setWaitressFilter(value || null)}>
+            <Select value={waitressFilter || "All"} onValueChange={(value) => setWaitressFilter(value === "All" ? null : value)}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filter by waitress" />
               </SelectTrigger>
@@ -798,7 +1219,7 @@ export default function OrderManagement() {
               <RefreshCcw className="mr-2 h-4 w-4" />
               Clear Filters
             </Button>
-            <div className="ml-auto">
+            <div className="ml-auto flex gap-1">
               <Button
                 variant="outline"
                 size="icon"
@@ -820,7 +1241,7 @@ export default function OrderManagement() {
         </CardContent>
       </Card>
 
-      {loading ? (
+      {loading && orders.length === 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => (
             <Card key={i} className="w-full h-[250px]">
@@ -836,107 +1257,124 @@ export default function OrderManagement() {
         </div>
       ) : viewMode === "list" ? (
         <Card>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[100px]">
-                  <Button variant="ghost" onClick={() => handleSort("orderNumber")}>
-                    Order #
-                  </Button>
-                </TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Waitress</TableHead>
-                <TableHead>
-                  <Button variant="ghost" onClick={() => handleSort("tableNumber")}>
-                    Table
-                  </Button>
-                </TableHead>
-                <TableHead>
-                  <Button variant="ghost" onClick={() => handleSort("status")}>
-                    Status
-                  </Button>
-                </TableHead>
-                <TableHead>
-                  <Button variant="ghost" onClick={() => handleSort("finalAmount")}>
-                    Total
-                  </Button>
-                </TableHead>
-                <TableHead>
-                  <Button variant="ghost" onClick={() => handleSort("createdAt")}>
-                    Date
-                  </Button>
-                </TableHead>
-                <TableHead>Special Req.</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedOrders.map((order) => {
-                const waitress = waitresses.find((w) => w._id === order.waiterId)
-                const hasSpecialRequirements = !!(order.specialRequirements || order.notes)
-                return (
-                  <TableRow key={order._id}>
-                    <TableCell className="font-medium">{order.orderNumber}</TableCell>
-                    <TableCell>{order.customerName || "Walk-in"}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src="/placeholder-avatar.jpg" />
-                          <AvatarFallback>{waitress?.name.charAt(0) || "W"}</AvatarFallback>
-                        </Avatar>
-                        <span>{waitress?.name || "Unknown"}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{order.tableNumber}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={statusColors[order.status]}>
-                        {statusIcons[order.status]} {order.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
-                    </TableCell>
-                    <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      {hasSpecialRequirements ? (
-                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-                          <MessageSquare className="h-3 w-3 mr-1" />
-                          Yes
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[100px]">
+                    <Button variant="ghost" onClick={() => handleSort("orderNumber")} className="p-0">
+                      Order #
+                    </Button>
+                  </TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Waitress</TableHead>
+                  <TableHead>
+                    <Button variant="ghost" onClick={() => handleSort("tableNumber")} className="p-0">
+                      Table
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button variant="ghost" onClick={() => handleSort("status")} className="p-0">
+                      Status
+                    </Button>
+                  </TableHead>
+                  <TableHead>Edited</TableHead>
+                  <TableHead>
+                    <Button variant="ghost" onClick={() => handleSort("finalAmount")} className="p-0">
+                      Total
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button variant="ghost" onClick={() => handleSort("createdAt")} className="p-0">
+                      Date
+                    </Button>
+                  </TableHead>
+                  <TableHead>Special</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginatedOrders.map((order) => {
+                  const waitress = waitresses.find((w) => w._id === order.waiterId)
+                  const hasSpecialRequirements = !!(order.specialRequirements || order.notes)
+                  const edited = order.isEdited || false
+                  return (
+                    <TableRow key={order._id}>
+                      <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                      <TableCell>{order.customerName || "Walk-in"}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-8 w-8">
+                            <AvatarFallback>{waitress?.name.charAt(0) || "W"}</AvatarFallback>
+                          </Avatar>
+                          <span>{waitress?.name || "Unknown"}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>{order.tableNumber}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={statusColors[order.status]}>
+                          {statusIcons[order.status]} {order.status}
                         </Badge>
-                      ) : (
-                        <Badge variant="outline" className="bg-gray-50 text-gray-400">
-                          No
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DeleteOrderDialog orderId={order._id} onDelete={() => handleDeleteOrder(order._id)} />
-                          <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Change Status</DropdownMenuLabel>
-                          {statusOptions.map((status) => (
-                            <DropdownMenuItem key={status} onClick={() => handleStatusUpdate(order._id, status)}>
-                              {statusIcons[status]}
-                              <span className="ml-2">{status}</span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <OrderDetailModal order={order} />
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+                      </TableCell>
+                      <TableCell>
+                        {edited ? (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            <Clock className="h-3 w-3 mr-1" />
+                            Yes
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-gray-50 text-gray-400">
+                            No
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
+                      </TableCell>
+                      <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
+                      <TableCell>
+                        {hasSpecialRequirements ? (
+                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                            <MessageSquare className="h-3 w-3 mr-1" />
+                            Yes
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-gray-50 text-gray-400">
+                            No
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <OrderDetailModal order={order} />
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DeleteOrderDialog orderId={order._id} onDelete={() => handleDeleteOrder(order._id)} />
+                              <DropdownMenuSeparator />
+                              <DropdownMenuLabel>Change Status</DropdownMenuLabel>
+                              {statusOptions.map((status) => (
+                                <DropdownMenuItem key={status} onClick={() => handleStatusUpdate(order._id, status)}>
+                                  {statusIcons[status]}
+                                  <span className="ml-2">{status}</span>
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -955,13 +1393,28 @@ export default function OrderManagement() {
               aria-disabled={currentPage === 1}
             />
           </PaginationItem>
-          {[...Array(totalPages)].map((_, i) => (
-            <PaginationItem key={i}>
-              <PaginationLink onClick={() => setCurrentPage(i + 1)} isActive={currentPage === i + 1}>
-                {i + 1}
-              </PaginationLink>
-            </PaginationItem>
-          ))}
+          {[...Array(Math.min(totalPages, 5))].map((_, i) => {
+            let pageNum
+            if (totalPages <= 5) {
+              pageNum = i + 1
+            } else if (currentPage <= 3) {
+              pageNum = i + 1
+            } else if (currentPage >= totalPages - 2) {
+              pageNum = totalPages - 4 + i
+            } else {
+              pageNum = currentPage - 2 + i
+            }
+            return (
+              <PaginationItem key={pageNum}>
+                <PaginationLink
+                  onClick={() => setCurrentPage(pageNum)}
+                  isActive={currentPage === pageNum}
+                >
+                  {pageNum}
+                </PaginationLink>
+              </PaginationItem>
+            )
+          })}
           <PaginationItem>
             <PaginationNext
               onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
@@ -971,6 +1424,16 @@ export default function OrderManagement() {
           </PaginationItem>
         </PaginationContent>
       </Pagination>
+
+      <style jsx global>{`
+        @keyframes progress {
+          from { width: 100%; }
+          to { width: 0%; }
+        }
+        .animate-progress {
+          animation: progress linear forwards;
+        }
+      `}</style>
     </div>
   )
 }
