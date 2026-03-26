@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 export async function POST(request: NextRequest) {
   try {
     const client = await clientPromise;
-    const db = client.db('gold
+    const db = client.db('gold'); // Use the correct database name
     const staffCollection = db.collection('users'); // Using users collection
     
     const { email, password } = await request.json();

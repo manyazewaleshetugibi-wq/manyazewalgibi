@@ -4,7 +4,7 @@ import clientPromise from "@/lib/mongodb";
 export async function GET(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
-    const db = dbClient.db("gold
+    const db = dbClient.db("gold"); // Use the correct database name
     
     const orders = await db.collection("orders").find({ delivery: true }).toArray();
 
