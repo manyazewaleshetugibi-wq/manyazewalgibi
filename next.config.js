@@ -28,26 +28,33 @@ const nextConfig = {
       },
     ],
     domains: ["fly.storage.tigris.dev"],
-    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
-    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
-    formats: ['image/webp'],
     minimumCacheTTL: 60,
   },
   
-  // ⚡ Netlify-specific optimizations
   output: process.env.NETLIFY ? 'standalone' : undefined,
-  
-  // Optional: Enable React Strict Mode (recommended)
   reactStrictMode: true,
   
-  // Compiler optimizations
-  compiler: {
-    removeConsole: process.env.NODE_ENV === 'production' ? {
-      exclude: ['error', 'warn'],
-    } : false,
+  // Force Webpack instead of Turbopack
+  experimental: {
+    turbo: false,
   },
   
-  // Important for API routes
+  // Webpack configuration to ensure CSS works
+  webpack: (config, { isServer }) => {
+    // Ensure CSS modules work correctly
+    config.module.rules.forEach(rule => {
+      if (rule.oneOf) {
+        rule.oneOf.forEach(oneOfRule => {
+          if (oneOfRule.test && oneOfRule.test.toString().includes('css')) {
+            oneOfRule.use = oneOfRule.use || [];
+          }
+        });
+      }
+    });
+    
+    return config;
+  },
+  
   async headers() {
     return [
       {
@@ -57,17 +64,10 @@ const nextConfig = {
           { key: 'Access-Control-Allow-Origin', value: '*' },
           { key: 'Access-Control-Allow-Methods', value: 'GET,OPTIONS,PATCH,DELETE,POST,PUT' },
           { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version' },
-          { key: 'Cache-Control', value: 's-maxage=60, stale-while-revalidate=120' },
         ]
       }
     ]
-  },
-  
-  // Production optimizations
-  swcMinify: true,
-  compress: true,
-  poweredByHeader: false,
-  generateEtags: true,
+  }
 }
 
 module.exports = nextConfig;
