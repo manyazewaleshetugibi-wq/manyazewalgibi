@@ -15,16 +15,6 @@
     "domains": ["fly.storage.tigris.dev"],
     "sizes": [16, 32, 48, 64, 96, 128, 256, 384, 512, 1024, 2048]
   },
-  "functions": {
-    "api/**/*.js": {
-      "maxDuration": 10,
-      "memory": 1024
-    },
-    "api/**/*.ts": {
-      "maxDuration": 10,
-      "memory": 1024
-    }
-  },
   "headers": [
     {
       "source": "/_next/static/(.*)",
