@@ -6,7 +6,7 @@ import { getToken } from "next-auth/jwt";
 
 // Debug flag
 const DEBUG = true;
-const BATCH_SIZE = 10; // Process 10 orders at a time
+const BATCH_SIZE = 10; // Process 10 orders at a time (for manual batch only)
 const PROCESSING_DELAY = 100; // 100ms delay between batches
 
 function debugLog(message: string, data?: any) {
@@ -415,7 +415,7 @@ async function registerWaitressActivity(db: any, order: any, activityType: strin
   }
 }
 
-// Optimized stock processing with batch operations
+// Optimized stock processing - Now only processes a single order (no batch)
 export async function processOrderStockUsage(order: any) {
   try {
     const dbClient = await clientPromise;
@@ -763,17 +763,14 @@ export async function processOrderStockUsage(order: any) {
   }
 }
 
-// Optimized function to find and process only COMPLETED orders
-async function processAllCompletedOrders(req?: NextRequest) {
+// Function for manual batch processing (kept for admin use)
+async function processAllCompletedOrdersBatch(req?: NextRequest) {
   try {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
 
-    debugLog("Looking for completed orders to process...");
+    debugLog("Manual batch processing: Looking for completed orders to process...");
 
-    // CRITICAL: Only find orders that are:
-    // 1. COMPLETED status
-    // 2. NOT stockProcessed (or stockProcessed is false/null)
     const completedOrders = await db.collection("orders").find({
       status: { $regex: /^completed$/i },
       $or: [
@@ -782,75 +779,54 @@ async function processAllCompletedOrders(req?: NextRequest) {
       ]
     })
     .project({ _id: 1, orderNumber: 1, status: 1, items: 1, waiterId: 1, stockProcessed: 1 })
-    .limit(BATCH_SIZE) // Only fetch BATCH_SIZE at a time
+    .limit(BATCH_SIZE)
     .toArray();
 
     if (completedOrders.length === 0) {
-      debugLog(`Found 0 completed orders to process`);
+      debugLog(`Found 0 completed orders to process in batch`);
       return { totalOrders: 0, processedOrders: 0, failedOrders: 0, results: [] };
     }
 
-    debugLog(`Found ${completedOrders.length} completed orders to process`, {
-      orderIds: completedOrders.map(o => ({
-        id: o._id,
-        orderNumber: o.orderNumber,
-        status: o.status,
-        itemsCount: o.items?.length || 0
-      }))
-    });
+    debugLog(`Found ${completedOrders.length} completed orders to process in batch`);
 
     const results = [];
     const userData = req ? await getCurrentUserData(req) : null;
     
-    // Process orders in parallel with concurrency limit
-    const concurrencyLimit = 5;
-    for (let i = 0; i < completedOrders.length; i += concurrencyLimit) {
-      const batch = completedOrders.slice(i, i + concurrencyLimit);
-      
-      await Promise.all(batch.map(async (order) => {
-        try {
-          debugLog(`Processing order: ${order.orderNumber || order._id}`, {
-            status: order.status,
-            items: order.items?.length || 0
-          });
-          
-          // Process stock usage
-          const stockResult = await processOrderStockUsage(order);
-          
-          // Register waitress activity if order has waiter (only if stock processing succeeded)
-          if (order.waiterId && stockResult.success) {
-            await registerWaitressActivity(db, order, 'completed');
-          }
-          
-          // Register employee activity if user context exists
-          if (userData && stockResult.success) {
-            const activityResult = await registerOrderActivity(db, userData, order, 'completed');
-            debugLog("Employee activity registration result for completed order:", activityResult);
-          }
-          
-          results.push({
-            orderId: order._id,
-            orderNumber: order.orderNumber,
-            originalStatus: order.status,
-            ...stockResult
-          });
-          
-          debugLog(`Order ${order._id} processed successfully`);
-        } catch (error) {
-          debugError(`Failed to process order ${order._id}:`, error);
-          results.push({
-            orderId: order._id,
-            orderNumber: order.orderNumber,
-            success: false,
-            error: (error as any).message
-          });
+    // Process orders sequentially to prevent stock conflicts
+    for (const order of completedOrders) {
+      try {
+        debugLog(`Processing order in batch: ${order.orderNumber || order._id}`);
+        
+        const stockResult = await processOrderStockUsage(order);
+        
+        if (order.waiterId && stockResult.success) {
+          await registerWaitressActivity(db, order, 'completed');
         }
-      }));
-      
-      // Small delay between batches to prevent overwhelming the system
-      if (i + concurrencyLimit < completedOrders.length) {
-        await new Promise(resolve => setTimeout(resolve, PROCESSING_DELAY));
+        
+        if (userData && stockResult.success) {
+          await registerOrderActivity(db, userData, order, 'completed');
+        }
+        
+        results.push({
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          originalStatus: order.status,
+          ...stockResult
+        });
+        
+        debugLog(`Order ${order._id} processed successfully in batch`);
+      } catch (error) {
+        debugError(`Failed to process order ${order._id} in batch:`, error);
+        results.push({
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          success: false,
+          error: (error as any).message
+        });
       }
+      
+      // Small delay between orders in batch
+      await new Promise(resolve => setTimeout(resolve, PROCESSING_DELAY));
     }
 
     const summary = {
@@ -860,13 +836,13 @@ async function processAllCompletedOrders(req?: NextRequest) {
       results
     };
 
-    debugLog("Completed order processing summary:", summary);
+    debugLog("Manual batch processing summary:", summary);
 
     return summary;
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error in processAllCompletedOrders";
-    debugError("Error in processAllCompletedOrders:", { message: errorMessage, error });
+    const errorMessage = error instanceof Error ? error.message : "Unknown error in processAllCompletedOrdersBatch";
+    debugError("Error in processAllCompletedOrdersBatch:", { message: errorMessage, error });
     throw error;
   }
 }
@@ -1077,7 +1053,7 @@ async function handleUsedStockRequest(req: NextRequest) {
   }
 }
 
-// GET endpoint - Main function that gets orders and automatically processes completed ones
+// GET endpoint - Now WITHOUT auto-processing (optimized)
 export async function GET(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
@@ -1086,7 +1062,7 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const orderId = url.searchParams.get("id");
     const status = url.searchParams.get("status");
-    const autoProcess = url.searchParams.get("autoProcess") !== "false";
+    const autoProcess = url.searchParams.get("autoProcess") === "true"; // Changed: Only process if explicitly true
     const action = url.searchParams.get("action");
     const diagnostic = url.searchParams.get("diagnostic");
 
@@ -1209,20 +1185,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Auto-process completed orders ONLY when fetching orders
+    // REMOVED: Auto-processing completed orders on GET
+    // Stock is now processed ONLY when status changes to COMPLETED
     if (autoProcess) {
-      try {
-        debugLog("Auto-processing completed orders...");
-        const processResult = await processAllCompletedOrders(req);
-        if (processResult.processedOrders > 0) {
-          debugLog(`Auto-processed ${processResult.processedOrders} completed orders`);
-        }
-      } catch (error) {
-        debugError("Auto-processing failed:", error);
-      }
+      debugLog("⚠️ Auto-processing is disabled by default. Use action=processStock for manual batch processing.");
     }
 
-    // Build query - ONLY fetch pending orders or specific orders, not completed ones unless requested
+    // Build query
     let query = {};
     
     if (orderId) {
@@ -1241,10 +1210,8 @@ export async function GET(req: NextRequest) {
         status: { $regex: new RegExp(`^${status}$`, 'i') }
       };
     } else if (!orderId) {
-      // Default: Only fetch pending and preparing orders, not completed ones
-      query = {
-        status: { $in: ['PENDING', 'pending', 'PREPARING', 'preparing', 'CONFIRMED', 'confirmed', 'PICKUP', 'pickup', 'SERVED', 'served', 'CANCELLED', 'cancelled'] }
-      };
+      // Default: Fetch all orders including completed ones (but stock is already processed)
+      query = {};
     }
 
     const deliveryRestriction = {
@@ -1261,7 +1228,6 @@ export async function GET(req: NextRequest) {
 
     debugLog("Database query:", query);
 
-    // Use lean() and limit for better performance
     const orders = await db.collection("orders")
       .find(query)
       .sort({ createdAt: -1 })
@@ -1371,7 +1337,7 @@ async function uploadToCloudinary(file: File): Promise<string> {
   return data.secure_url;
 }
 
-// POST endpoint - Create new order
+// POST endpoint - Create new order (unchanged)
 export async function POST(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
@@ -1596,7 +1562,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PATCH endpoint - Update order status or manually process stock
+// PATCH endpoint - Update order status and process stock immediately when COMPLETED
 export async function PATCH(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
@@ -1607,11 +1573,12 @@ export async function PATCH(req: NextRequest) {
 
     const { orderId, action, status, forceProcess } = body;
 
+    // Handle manual batch stock processing (admin only)
     if (action === "processStock") {
-      debugLog("Manual stock processing requested", { forceProcess });
+      debugLog("Manual batch stock processing requested", { forceProcess });
       
       const userData = await getCurrentUserData(req);
-      const processResult = await processAllCompletedOrders(req);
+      const processResult = await processAllCompletedOrdersBatch(req);
       
       if (userData && processResult.processedOrders > 0) {
         debugLog("Registering batch process activity...");
@@ -1624,7 +1591,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json(
         {
           success: true,
-          message: `Stock processing completed`,
+          message: `Batch stock processing completed`,
           ...processResult,
           triggeredBy: userData ? { name: userData.name, id: userData.id } : null
         },
@@ -1632,6 +1599,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
+    // Handle individual order status update
     if (orderId && status) {
       if (!ObjectId.isValid(orderId)) {
         return NextResponse.json(
@@ -1696,28 +1664,35 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
+      // Register employee activity for status change
       if (userData) {
         debugLog("Registering employee activity for status update...");
         await registerOrderActivity(db, userData, updatedOrder, 'updated');
       }
 
+      // CRITICAL: Process stock IMMEDIATELY when order is COMPLETED
       if (normalizedStatus === "completed") {
         try {
-          debugLog("Processing stock for newly completed order");
+          debugLog("🔄 Order marked as COMPLETED - Processing stock immediately...");
           
+          // Process stock usage for this single order
           const stockResult = await processOrderStockUsage(updatedOrder);
           
+          // Register employee completion activity
           if (userData) {
             debugLog("Registering employee completion activity...");
             const completionResult = await registerOrderActivity(db, userData, updatedOrder, 'completed');
             debugLog("Employee completion activity result:", completionResult);
           }
           
+          // Register waitress activity if order has waiter
           if (updatedOrder.waiterId) {
             debugLog("Registering waitress completion activity...");
             const waitressResult = await registerWaitressActivity(db, updatedOrder, 'completed');
             debugLog("Waitress completion activity result:", waitressResult);
           }
+          
+          debugLog(`✅ Stock processed successfully for order ${orderId}`);
           
           return NextResponse.json(
             { 
@@ -1726,14 +1701,16 @@ export async function PATCH(req: NextRequest) {
               employeeRegistered: !!userData,
               waitressRegistered: !!updatedOrder.waiterId,
               completedAt: updatedOrder.completedAt,
-              message: `Order completed and ${stockResult.success ? 'stock processed' : 'stock processing attempted'}`
+              message: `Order completed and stock processed successfully`,
+              processedAt: new Date().toISOString()
             },
             { status: 200 }
           );
         } catch (stockError) {
-          debugError("Stock processing failed:", stockError);
+          debugError("❌ Stock processing failed:", stockError);
           const errorMessage = stockError instanceof Error ? stockError.message : "Unknown stock processing error";
           
+          // Still register completion activity even if stock fails (for audit)
           if (userData) {
             debugLog("Registering completion activity despite stock failure...");
             await registerOrderActivity(db, userData, updatedOrder, 'completed');
@@ -1741,11 +1718,12 @@ export async function PATCH(req: NextRequest) {
           
           return NextResponse.json({
             success: true,
-            message: "Order completed, but stock processing failed.",
+            message: "Order completed, but stock processing failed. Please check inventory.",
             orderId,
             completedAt: updatedOrder.completedAt,
             error: errorMessage,
-            employeeRegistered: !!userData
+            employeeRegistered: !!userData,
+            stockProcessed: false
           }, { status: 200 });
         }
       }
@@ -1755,7 +1733,7 @@ export async function PATCH(req: NextRequest) {
         message: `Order status updated to ${normalizedStatus}`,
         orderId,
         updatedBy: userData ? { name: userData.name, id: userData.id } : null,
-        completedAt: normalizedStatus === "completed" ? new Date() : order.completedAt
+        completedAt: normalizedStatus === "completed" ? updatedOrder.completedAt : order.completedAt
       }, { status: 200 });
     }
 

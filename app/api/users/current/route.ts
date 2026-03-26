@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     }
 
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db("gold");
 
     // Get user ID from session
     const userId = (session.user as any).id;

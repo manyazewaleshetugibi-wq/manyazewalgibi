@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -16,7 +16,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,19 +33,6 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination"
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-} from 'recharts';
-import * as XLSX from "xlsx";
 import {
   Download,
   TrendingUp,
@@ -79,10 +66,13 @@ import {
   MapPin,
   Receipt,
   Smartphone,
+  Calculator,
+  DoorOpen,
 } from 'lucide-react';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import * as XLSX from 'xlsx';
 
-// Types (keep all your existing types here)
+// Types
 interface OrderItem {
   id?: string;
   menuItemId: string;
@@ -148,28 +138,15 @@ interface Item {
   categoryId: string;
 }
 
-interface ReportSummary {
+interface TableSummary {
+  tableNumber: string;
+  orders: Order[];
+  totalAmount: number;
   totalOrders: number;
-  totalSales: number;
-  totalTax: number;
-  totalDiscount: number;
-  totalItems: number;
-  totalGuests: number;
-  averageOrderValue: number;
-}
-
-interface TopItem {
-  id: string;
-  name: string;
-  quantity: number;
-  revenue: number;
-}
-
-interface DailySales {
-  date: string;
-  total: number;
-  orders: number;
-  averageOrderValue: number;
+  customerCount: number;
+  firstOrderTime: string;
+  lastOrderTime: string;
+  status: 'active' | 'closed' | 'pending_payment';
 }
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "PICKUP" | "SERVED" | "COMPLETED" | "CANCELLED";
@@ -186,7 +163,7 @@ const statusIcons: Record<OrderStatus, React.ReactNode> = {
   CANCELLED: <XCircle className="h-4 w-4" />,
 };
 
-// Helper functions (keep all your existing helper functions)
+// Helper functions
 const getStatusColor = (status: string) => {
   switch (status?.toUpperCase()) {
     case 'COMPLETED':
@@ -235,7 +212,6 @@ const formatNumber = (num: number) => {
   return new Intl.NumberFormat('en-US').format(num);
 };
 
-// Export to Excel function
 function exportToExcel(data: any[], filename: string) {
   const worksheet = XLSX.utils.json_to_sheet(data);
   const workbook = XLSX.utils.book_new();
@@ -243,7 +219,6 @@ function exportToExcel(data: any[], filename: string) {
   XLSX.writeFile(workbook, `${filename}.xlsx`);
 }
 
-// Date range helper
 function getDateRange(type: 'today' | 'yesterday' | 'week' | 'month' | 'custom') {
   const now = new Date();
   let start = new Date();
@@ -372,63 +347,164 @@ const OrderCard = ({
   );
 };
 
-// Sales Chart Component
-const SalesChart = ({ data, type = "line" }: { data: DailySales[], type?: "line" | "bar" }) => {
-  const chartData = data.map(day => ({
-    name: new Date(day.date).toLocaleDateString(),
-    total: day.total,
-    date: day.date,
-  }));
+// Table Summary Card Component
+const TableSummaryCard = ({ 
+  tableSummary, 
+  onCalculate,
+  onCloseTable,
+  onViewOrders,
+  itemsMap,
+}: { 
+  tableSummary: TableSummary;
+  onCalculate: (tableNumber: string) => void;
+  onCloseTable: (tableNumber: string) => void;
+  onViewOrders: (tableNumber: string) => void;
+  itemsMap: Map<string, Item>;
+}) => {
+  // Get all items from all orders with proper names from itemsMap
+  const allItems = tableSummary.orders.flatMap(order => 
+    (order.orderItems || order.items || []).map(item => {
+      const itemDetails = itemsMap.get(item.menuItemId || item.id || '');
+      return {
+        ...item,
+        name: itemDetails?.name || item.name || 'Unknown Item',
+        price: itemDetails?.price || item.price || 0,
+        orderNumber: order.orderNumber,
+        orderStatus: order.status,
+        orderTime: order.createdAt
+      };
+    })
+  );
+
+  // Group items by name for summary
+  const itemSummary = allItems.reduce((acc, item) => {
+    const key = item.name;
+    if (!acc[key]) {
+      acc[key] = {
+        name: item.name,
+        quantity: 0,
+        total: 0,
+        price: item.price
+      };
+    }
+    acc[key].quantity += item.quantity;
+    acc[key].total += (item.price * item.quantity);
+    return acc;
+  }, {} as Record<string, { name: string; quantity: number; total: number; price: number }>);
+
+  const uniqueItems = Object.values(itemSummary);
 
   return (
-    <ResponsiveContainer width="100%" height={350}>
-      {type === "line" ? (
-        <LineChart data={chartData}>
-          <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
-          <YAxis
-            stroke="#888888"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(value) => `${value} BIRR`}
-          />
-          <Tooltip
-            contentStyle={{ background: "#333", border: "none", borderRadius: "8px" }}
-            labelStyle={{ color: "#fff" }}
-            itemStyle={{ color: "#adfa1d" }}
-            formatter={(value) => [`${value} BIRR`, "Sales"]}
-          />
-          <Legend />
-          <Line
-            type="monotone"
-            dataKey="total"
-            stroke="#adfa1d"
-            strokeWidth={2}
-            dot={{ fill: "#adfa1d", strokeWidth: 2 }}
-            name="Sales"
-          />
-        </LineChart>
-      ) : (
-        <BarChart data={chartData}>
-          <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
-          <YAxis
-            stroke="#888888"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(value) => `${value} BIRR`}
-          />
-          <Tooltip
-            contentStyle={{ background: "#333", border: "none", borderRadius: "8px" }}
-            labelStyle={{ color: "#fff" }}
-            itemStyle={{ color: "#adfa1d" }}
-            formatter={(value) => [`${value} BIRR`, "Sales"]}
-          />
-          <Legend />
-          <Bar dataKey="total" fill="#adfa1d" radius={[4, 4, 0, 0]} name="Sales" />
-        </BarChart>
-      )}
-    </ResponsiveContainer>
+    <Card className={`border-l-4 ${tableSummary.status === 'closed' ? 'border-l-gray-400' : 'border-l-green-500'} hover:shadow-lg transition-all duration-300`}>
+      <CardHeader className="pb-2">
+        <div className="flex justify-between items-start">
+          <div className="flex items-center gap-3">
+            <div className="bg-primary/10 p-2 rounded-lg">
+              <Utensils className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-xl font-bold">Table {tableSummary.tableNumber}</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {tableSummary.orders.length} order(s) • {tableSummary.totalOrders} transaction(s)
+              </p>
+            </div>
+          </div>
+          <Badge variant={tableSummary.status === 'closed' ? 'secondary' : tableSummary.status === 'pending_payment' ? 'destructive' : 'default'}>
+            {tableSummary.status === 'active' && 'Active'}
+            {tableSummary.status === 'pending_payment' && 'Pending Payment'}
+            {tableSummary.status === 'closed' && 'Closed'}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-sm text-muted-foreground">Total Amount</p>
+            <p className="text-2xl font-bold text-primary">{formatCurrency(tableSummary.totalAmount)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Customers Served</p>
+            <p className="text-2xl font-bold">{tableSummary.customerCount}</p>
+          </div>
+        </div>
+
+        {/* Show items summary */}
+        {uniqueItems.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Items Ordered:</p>
+            <div className="space-y-1 max-h-32 overflow-y-auto">
+              {uniqueItems.slice(0, 5).map((item, idx) => (
+                <div key={idx} className="flex justify-between text-sm">
+                  <span className="truncate flex-1">{item.name}</span>
+                  <span className="text-muted-foreground mx-2">{item.quantity}x</span>
+                  <span className="font-medium">{formatCurrency(item.total)}</span>
+                </div>
+              ))}
+              {uniqueItems.length > 5 && (
+                <p className="text-xs text-muted-foreground">+{uniqueItems.length - 5} more items</p>
+              )}
+            </div>
+          </div>
+        )}
+        
+        <div className="text-xs text-muted-foreground">
+          <p>First Order: {new Date(tableSummary.firstOrderTime).toLocaleTimeString()}</p>
+          {tableSummary.lastOrderTime && (
+            <p>Last Order: {new Date(tableSummary.lastOrderTime).toLocaleTimeString()}</p>
+          )}
+        </div>
+
+        {tableSummary.orders.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Recent Orders:</p>
+            <div className="space-y-1 max-h-24 overflow-y-auto">
+              {tableSummary.orders.slice(0, 3).map((order, idx) => (
+                <div key={idx} className="flex justify-between text-sm">
+                  <span>#{order.orderNumber}</span>
+                  <Badge variant="outline" className={getStatusColor(order.status)}>
+                    {order.status}
+                  </Badge>
+                  <span>{formatCurrency(order.finalAmount)}</span>
+                </div>
+              ))}
+              {tableSummary.orders.length > 3 && (
+                <p className="text-xs text-muted-foreground">+{tableSummary.orders.length - 3} more orders</p>
+              )}
+            </div>
+          </div>
+        )}
+      </CardContent>
+      <CardFooter className="flex gap-2 pt-2 border-t">
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="flex-1"
+          onClick={() => onViewOrders(tableSummary.tableNumber)}
+        >
+          <Eye className="h-4 w-4 mr-2" />
+          View Orders
+        </Button>
+        <Button 
+          variant="default" 
+          size="sm" 
+          className="flex-1"
+          onClick={() => onCalculate(tableSummary.tableNumber)}
+          disabled={tableSummary.status === 'closed'}
+        >
+          <Calculator className="h-4 w-4 mr-2" />
+          Calculate Total
+        </Button>
+        <Button 
+          variant={tableSummary.status === 'closed' ? 'secondary' : 'destructive'} 
+          size="sm"
+          onClick={() => onCloseTable(tableSummary.tableNumber)}
+          disabled={tableSummary.status === 'closed'}
+        >
+          <DoorOpen className="h-4 w-4 mr-2" />
+          Close Table
+        </Button>
+      </CardFooter>
+    </Card>
   );
 };
 
@@ -451,39 +527,55 @@ export default function WaiterReportPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
-  const [chartType, setChartType] = useState<"line" | "bar">("line");
   const [sortBy, setSortBy] = useState<keyof Order>("createdAt");
   const [sortOrder, setSortOrder] = useState("desc");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
   
+  // Table Management States
+  const [tableSummaries, setTableSummaries] = useState<Map<string, TableSummary>>(new Map());
+  const [selectedTableForDetails, setSelectedTableForDetails] = useState<string | null>(null);
+  const [calculateDialogOpen, setCalculateDialogOpen] = useState(false);
+  const [selectedTableForCalculation, setSelectedTableForCalculation] = useState<string | null>(null);
+  const [calculatedTotal, setCalculatedTotal] = useState(0);
+  const [closedTables, setClosedTables] = useState<Set<string>>(new Set());
+  
+  // Items cache
+  const [itemsMap, setItemsMap] = useState<Map<string, Item>>(new Map());
+  const [itemsLoading, setItemsLoading] = useState(false);
+  
   // Detail view state
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [selectedItems, setSelectedItems] = useState<Record<string, Item>>({});
-  
-  // Summary stats from API
-  const [summary, setSummary] = useState<ReportSummary>({
-    totalOrders: 0,
-    totalSales: 0,
-    totalTax: 0,
-    totalDiscount: 0,
-    totalItems: 0,
-    totalGuests: 0,
-    averageOrderValue: 0,
-  });
-  
-  const [statusBreakdown, setStatusBreakdown] = useState<Record<string, { count: number; total: number }>>({});
-  const [paymentBreakdown, setPaymentBreakdown] = useState<Record<string, { count: number; total: number }>>({});
-  const [topItems, setTopItems] = useState<TopItem[]>([]);
-  const [dailySales, setDailySales] = useState<DailySales[]>([]);
 
-  // Fetch current waitress - only once
+  // Fetch all items from API
+  const fetchAllItems = useCallback(async () => {
+    try {
+      setItemsLoading(true);
+      const response = await fetch("/api/items");
+      const data = await response.json();
+      
+      if (data.success && data.items) {
+        const itemsMapData = new Map<string, Item>();
+        data.items.forEach((item: Item) => {
+          itemsMapData.set(item._id, item);
+        });
+        setItemsMap(itemsMapData);
+      }
+    } catch (error) {
+      console.error("Error fetching items:", error);
+    } finally {
+      setItemsLoading(false);
+    }
+  }, []);
+
+  // Fetch current waitress
   useEffect(() => {
     if (status === 'authenticated' && session?.user?.email && !waitressFetched.current) {
       waitressFetched.current = true;
       fetchCurrentWaitress();
+      fetchAllItems();
     }
-  }, [status, session]);
+  }, [status, session, fetchAllItems]);
 
   const fetchCurrentWaitress = useCallback(async () => {
     if (!session?.user?.email) return null;
@@ -493,7 +585,6 @@ export default function WaiterReportPage() {
       if (!response.ok) throw new Error("Failed to fetch waitresses");
       const data = await response.json();
       
-      // Find the waitress that matches the logged-in user's email
       const waitress = (data || []).find((w: Waitress) => 
         w.email?.toLowerCase() === session.user?.email?.toLowerCase()
       );
@@ -513,7 +604,7 @@ export default function WaiterReportPage() {
     }
   }, [session?.user?.email]);
 
-  // Fetch reports - only when filterType changes and we have waitress
+  // Fetch reports
   useEffect(() => {
     if (currentWaitress?._id && !initialFetchDone.current) {
       initialFetchDone.current = true;
@@ -521,22 +612,71 @@ export default function WaiterReportPage() {
     }
   }, [currentWaitress]);
 
-  // Separate effect for filterType changes
   useEffect(() => {
     if (currentWaitress?._id && initialFetchDone.current) {
       fetchReports(currentWaitress._id);
     }
   }, [filterType]);
 
+  // Update table summaries
+  useEffect(() => {
+    if (orders.length > 0 && currentWaitress) {
+      updateTableSummaries();
+    }
+  }, [orders, currentWaitress, closedTables]);
+
+  const updateTableSummaries = () => {
+    const tablesMap = new Map<string, TableSummary>();
+    
+    orders.forEach(order => {
+      if (currentWaitress && order.waiterId !== currentWaitress._id) {
+        return;
+      }
+      
+      const tableNumber = order.tableNumber || 'Unknown';
+      
+      if (!tablesMap.has(tableNumber)) {
+        tablesMap.set(tableNumber, {
+          tableNumber,
+          orders: [],
+          totalAmount: 0,
+          totalOrders: 0,
+          customerCount: 0,
+          firstOrderTime: order.createdAt,
+          lastOrderTime: order.createdAt,
+          status: closedTables.has(tableNumber) ? 'closed' : 'active',
+        });
+      }
+      
+      const tableSummary = tablesMap.get(tableNumber)!;
+      tableSummary.orders.push(order);
+      tableSummary.totalAmount += order.finalAmount || 0;
+      tableSummary.totalOrders += 1;
+      tableSummary.customerCount += order.numberOfGuests || 1;
+      
+      if (new Date(order.createdAt) < new Date(tableSummary.firstOrderTime)) {
+        tableSummary.firstOrderTime = order.createdAt;
+      }
+      if (new Date(order.createdAt) > new Date(tableSummary.lastOrderTime)) {
+        tableSummary.lastOrderTime = order.createdAt;
+      }
+      
+      const hasUnpaidOrder = order.status !== 'COMPLETED' && order.status !== 'CANCELLED';
+      if (hasUnpaidOrder && !closedTables.has(tableNumber)) {
+        tableSummary.status = 'pending_payment';
+      }
+    });
+    
+    setTableSummaries(tablesMap);
+  };
+
   const fetchReports = useCallback(async (waiterId: string) => {
     try {
       setIsLoading(true);
       setApiError(null);
 
-      // Build query params
       const params = new URLSearchParams();
       
-      // Set date range based on selection
       if (filterType === 'today') {
         const today = new Date();
         params.append('startDate', format(today, 'yyyy-MM-dd'));
@@ -557,10 +697,8 @@ export default function WaiterReportPage() {
         params.append('endDate', format(monthEnd, 'yyyy-MM-dd'));
       }
 
-      // Add waiterId filter
       params.append('waiterId', waiterId);
 
-      // Fetch reports from the waiterreport endpoint
       const response = await fetch(`/api/order/waiterreport?${params.toString()}`);
       const data = await response.json();
 
@@ -570,21 +708,6 @@ export default function WaiterReportPage() {
 
       if (data.success) {
         setOrders(data.orders || []);
-        setSummary(data.summary || {
-          totalOrders: 0,
-          totalSales: 0,
-          totalTax: 0,
-          totalDiscount: 0,
-          totalItems: 0,
-          totalGuests: 0,
-          averageOrderValue: 0,
-        });
-        setStatusBreakdown(data.breakdown?.byStatus || {});
-        setPaymentBreakdown(data.breakdown?.byPayment || {});
-        setTopItems(data.topItems || []);
-        setDailySales(data.dailySales || []);
-        
-        // Set date range from response or calculate
         const { start, end } = getDateRange(filterType);
         setDateRange({ start, end });
       } else {
@@ -599,12 +722,12 @@ export default function WaiterReportPage() {
     }
   }, [filterType]);
 
-  // Apply client-side filtering - use debounce for search
+  // Apply filters
   useEffect(() => {
     if (orders.length > 0) {
       const timer = setTimeout(() => {
         applyFilters();
-      }, 300); // Debounce search
+      }, 300);
       
       return () => clearTimeout(timer);
     }
@@ -613,7 +736,6 @@ export default function WaiterReportPage() {
   const applyFilters = useCallback(() => {
     let filtered = [...orders];
 
-    // Filter by date range (client-side for custom ranges)
     if (dateRange.start && dateRange.end && filterType === 'custom') {
       filtered = filtered.filter(order => {
         const orderDate = new Date(order.createdAt);
@@ -621,21 +743,18 @@ export default function WaiterReportPage() {
       });
     }
 
-    // Filter by status (client-side in addition to server filter)
     if (selectedStatus !== 'all') {
       filtered = filtered.filter(order => 
         order.status?.toUpperCase() === selectedStatus.toUpperCase()
       );
     }
 
-    // Filter by payment method (client-side in addition to server filter)
     if (selectedPaymentMethod !== 'all') {
       filtered = filtered.filter(order => 
         order.paymentMethod?.toUpperCase() === selectedPaymentMethod.toUpperCase()
       );
     }
 
-    // Filter by search term
     if (searchTerm) {
       filtered = filtered.filter(order => 
         order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -644,7 +763,6 @@ export default function WaiterReportPage() {
       );
     }
 
-    // Apply sorting
     filtered.sort((a, b) => {
       const aVal = a[sortBy];
       const bVal = b[sortBy];
@@ -659,7 +777,6 @@ export default function WaiterReportPage() {
         return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
       }
       
-      // Handle date comparison
       if (sortBy === 'createdAt' || sortBy === 'updatedAt') {
         const aDate = new Date(a[sortBy] as string).getTime();
         const bDate = new Date(b[sortBy] as string).getTime();
@@ -690,13 +807,10 @@ export default function WaiterReportPage() {
     setSortOrder(order);
   };
 
-  const handleExport = (section: 'overview' | 'analytics') => {
-    const data = section === 'overview' ? filteredOrders : filteredOrders;
-    const filename = section === 'overview' 
-      ? `waiter_sales_overview_${format(new Date(), 'yyyy-MM-dd')}`
-      : `waiter_sales_analytics_${format(new Date(), 'yyyy-MM-dd')}`;
+  const handleExport = () => {
+    const filename = `my_orders_${format(new Date(), 'yyyy-MM-dd')}`;
     
-    const exportData = data.map(order => ({
+    const exportData = filteredOrders.map(order => ({
       'Order Number': order.orderNumber,
       'Table Number': order.tableNumber || 'N/A',
       'Customer': order.customerName || 'Walk-in',
@@ -715,50 +829,47 @@ export default function WaiterReportPage() {
     exportToExcel(exportData, filename);
   };
 
-  const handleViewDetails = async (order: Order) => {
-    setSelectedOrder(order);
+  // Table Management Functions
+  const handleCalculateTableTotal = (tableNumber: string) => {
+    const tableSummary = tableSummaries.get(tableNumber);
+    if (tableSummary) {
+      setSelectedTableForCalculation(tableNumber);
+      setCalculatedTotal(tableSummary.totalAmount);
+      setCalculateDialogOpen(true);
+    }
+  };
+
+  const handleCloseTable = async (tableNumber: string) => {
+    const tableSummary = tableSummaries.get(tableNumber);
+    if (!tableSummary) return;
     
-    // Fetch item details
-    const items = order.orderItems || order.items || [];
-    const itemDetails: Record<string, Item> = {};
+    const finalTotal = tableSummary.totalAmount;
     
-    for (const item of items) {
-      const itemId = item.menuItemId || item.id;
+    const confirmed = window.confirm(
+      `Table ${tableNumber}\n` +
+      `Total Orders: ${tableSummary.orders.length}\n` +
+      `Total Amount: ${formatCurrency(finalTotal)}\n` +
+      `Customers Served: ${tableSummary.customerCount}\n\n` +
+      `Are you sure you want to close this table?\n` +
+      `This will mark it as ready for new customers.`
+    );
+    
+    if (confirmed) {
+      setClosedTables(prev => new Set(prev).add(tableNumber));
+      alert(`Table ${tableNumber} has been closed.\nTotal collected: ${formatCurrency(finalTotal)}`);
       
-      if (itemId) {
-        try {
-          const response = await fetch(`/api/items/${itemId}`);
-          const data = await response.json();
-          
-          if (data.success && data.item) {
-            itemDetails[itemId] = data.item;
-          } else if (item.name) {
-            itemDetails[itemId] = {
-              _id: itemId,
-              name: item.name,
-              description: '',
-              price: item.price || 0,
-              imageUrl: '',
-              categoryId: '',
-            } as Item;
-          }
-        } catch (error) {
-          console.error(`Error fetching item ${itemId}:`, error);
-          if (item.name) {
-            itemDetails[itemId] = {
-              _id: itemId,
-              name: item.name,
-              description: '',
-              price: item.price || 0,
-              imageUrl: '',
-              categoryId: '',
-            } as Item;
-          }
-        }
+      if (currentWaitress?._id) {
+        fetchReports(currentWaitress._id);
       }
     }
-    
-    setSelectedItems(itemDetails);
+  };
+
+  const handleViewTableOrders = (tableNumber: string) => {
+    setSelectedTableForDetails(tableNumber);
+  };
+
+  const getTableOrders = (tableNumber: string): Order[] => {
+    return orders.filter(order => order.tableNumber === tableNumber);
   };
 
   const clearFilters = () => {
@@ -774,6 +885,10 @@ export default function WaiterReportPage() {
     if (currentWaitress?._id) {
       fetchReports(currentWaitress._id);
     }
+  };
+
+  const handleViewDetails = (order: Order) => {
+    setSelectedOrder(order);
   };
 
   if (status === 'loading') {
@@ -798,13 +913,20 @@ export default function WaiterReportPage() {
     currentPage * itemsPerPage
   );
 
+  // Calculate summary statistics
+  const totalSales = filteredOrders.reduce((sum, order) => sum + (order.finalAmount || 0), 0);
+  const totalOrders = filteredOrders.length;
+  const totalItems = filteredOrders.reduce((sum, order) => sum + (order.orderItems?.length || 0), 0);
+  const totalGuests = filteredOrders.reduce((sum, order) => sum + (order.numberOfGuests || 1), 0);
+  const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
+
   return (
     <div className="flex-col md:flex">
       <div className="flex-1 space-y-4 p-8 pt-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">My Orders</h1>
+            <h1 className="text-3xl font-bold tracking-tight">My Orders & Table Management</h1>
             <p className="text-muted-foreground">
               {currentWaitress?.name || session.user?.name || 'Waitress'} • {session.user?.email}
             </p>
@@ -844,8 +966,8 @@ export default function WaiterReportPage() {
 
         <Tabs defaultValue="overview" className="space-y-4" onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
+            <TabsTrigger value="overview">My Orders</TabsTrigger>
+            <TabsTrigger value="tables">Table Management</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -855,7 +977,7 @@ export default function WaiterReportPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Filter className="h-5 w-5" />
-                  Filter by Date Range
+                  Filter Orders
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -902,9 +1024,9 @@ export default function WaiterReportPage() {
                     </span>
                   </div>
                   
-                  <Button onClick={() => handleExport('overview')} variant="outline" size="sm" disabled={filteredOrders.length === 0}>
+                  <Button onClick={handleExport} variant="outline" size="sm" disabled={filteredOrders.length === 0}>
                     <Download className="mr-2 h-4 w-4" />
-                    Export Overview
+                    Export
                   </Button>
                 </div>
 
@@ -1004,6 +1126,50 @@ export default function WaiterReportPage() {
               </CardContent>
             </Card>
 
+            {/* Metrics Cards */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(totalSales)}</div>
+                  <p className="text-xs text-muted-foreground">{totalOrders} orders</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Average Order</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(averageOrderValue)}</div>
+                  <p className="text-xs text-muted-foreground">per transaction</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Items</CardTitle>
+                  <ShoppingBag className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNumber(totalItems)}</div>
+                  <p className="text-xs text-muted-foreground">items sold</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Guests</CardTitle>
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNumber(totalGuests)}</div>
+                  <p className="text-xs text-muted-foreground">customers served</p>
+                </CardContent>
+              </Card>
+            </div>
+
             {/* View Mode Toggle */}
             <div className="flex justify-end">
               <div className="flex items-center gap-2 border rounded-lg p-1">
@@ -1041,50 +1207,6 @@ export default function WaiterReportPage() {
               </div>
             ) : (
               <>
-                {/* Metrics Cards */}
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-                      <DollarSign className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{formatCurrency(summary.totalSales)}</div>
-                      <p className="text-xs text-muted-foreground">{summary.totalOrders} orders</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <CardTitle className="text-sm font-medium">Average Order</CardTitle>
-                      <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{formatCurrency(summary.averageOrderValue)}</div>
-                      <p className="text-xs text-muted-foreground">per transaction</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <CardTitle className="text-sm font-medium">Total Items</CardTitle>
-                      <ShoppingBag className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{formatNumber(summary.totalItems)}</div>
-                      <p className="text-xs text-muted-foreground">items sold</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <CardTitle className="text-sm font-medium">Total Guests</CardTitle>
-                      <Users className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{formatNumber(summary.totalGuests)}</div>
-                      <p className="text-xs text-muted-foreground">customers served</p>
-                    </CardContent>
-                  </Card>
-                </div>
-
                 {/* Orders Display */}
                 {viewMode === "grid" ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1210,243 +1332,331 @@ export default function WaiterReportPage() {
             )}
           </TabsContent>
 
-          {/* Analytics Tab */}
-          <TabsContent value="analytics" className="space-y-4">
-            {/* Metrics Cards */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-                  <DollarSign className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{formatCurrency(summary.totalSales)}</div>
-                  <p className="text-xs text-muted-foreground">{summary.totalOrders} orders</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Average Order</CardTitle>
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{formatCurrency(summary.averageOrderValue)}</div>
-                  <p className="text-xs text-muted-foreground">per transaction</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Items</CardTitle>
-                  <ShoppingBag className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{formatNumber(summary.totalItems)}</div>
-                  <p className="text-xs text-muted-foreground">items sold</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Guests</CardTitle>
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{formatNumber(summary.totalGuests)}</div>
-                  <p className="text-xs text-muted-foreground">customers served</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Chart Section */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-              <Card className="col-span-4">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Sales Overview</CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant={chartType === "line" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setChartType("line")}
-                    >
-                      Line
-                    </Button>
-                    <Button
-                      variant={chartType === "bar" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setChartType("bar")}
-                    >
-                      Bar
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="pl-2">
-                  {dailySales.length > 0 ? (
-                    <SalesChart data={dailySales} type={chartType} />
-                  ) : (
-                    <div className="h-[350px] flex items-center justify-center">
-                      <p className="text-muted-foreground">No sales data available</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-              <Card className="col-span-3">
-                <CardHeader>
-                  <CardTitle>Recent Sales</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[350px]">
-                    <div className="space-y-4">
-                      {filteredOrders.slice(0, 10).map((order) => (
-                        <div className="flex items-center justify-between" key={order._id || order.id}>
-                          <div>
-                            <p className="text-sm font-medium leading-none">{order.orderNumber}</p>
-                            <p className="text-sm text-muted-foreground">
-                              Table {order.tableNumber || 'N/A'} • {new Date(order.createdAt).toLocaleTimeString()}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-medium">{formatCurrency(order.finalAmount || 0)}</div>
-                            <Badge variant="secondary" className="text-xs">
-                              {order.status || 'PENDING'}
-                            </Badge>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Status and Payment Breakdown */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Orders by Status</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {Object.entries(statusBreakdown).map(([status, data]) => (
-                      <div key={status} className="flex items-center justify-between">
-                        <Badge className={getStatusColor(status)}>
-                          {status}
-                        </Badge>
-                        <div className="flex items-center gap-4">
-                          <span className="font-medium">{data.count}</span>
-                          <span className="text-muted-foreground w-24">
-                            {formatCurrency(data.total)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Payment Methods</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {Object.entries(paymentBreakdown).map(([method, data]) => (
-                      <div key={method} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {getPaymentMethodIcon(method)}
-                          <span>{method}</span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <span className="font-medium">{data.count}</span>
-                          <span className="text-muted-foreground w-24">
-                            {formatCurrency(data.total)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Top Items */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Star className="h-5 w-5 text-yellow-500" />
-                  Top Selling Items
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {topItems.length > 0 ? (
-                  <div className="space-y-4">
-                    {topItems.map((item, index) => (
-                      <div key={item.id || index} className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-medium text-muted-foreground w-6">
-                            #{index + 1}
-                          </span>
-                          <div>
-                            <p className="font-medium">{item.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {item.quantity} units sold
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-semibold">{formatCurrency(item.revenue)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {((item.revenue / summary.totalSales) * 100 || 0).toFixed(1)}% of sales
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <ShoppingBag className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">No item data available</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Export Button */}
-            <div className="flex justify-end">
-              <Button onClick={() => handleExport('analytics')} variant="outline" disabled={filteredOrders.length === 0}>
-                <Download className="mr-2 h-4 w-4" />
-                Export Analytics
+          {/* Table Management Tab */}
+          <TabsContent value="tables" className="space-y-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-bold">Table Management</h2>
+                <p className="text-muted-foreground">Manage tables, calculate totals, and close tables when customers leave</p>
+              </div>
+              <Button onClick={() => handleRefresh()} variant="outline" size="sm">
+                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh Tables
               </Button>
             </div>
+
+            {isLoading || itemsLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[...Array(6)].map((_, i) => (
+                  <Skeleton key={i} className="h-[250px] w-full" />
+                ))}
+              </div>
+            ) : tableSummaries.size === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <DoorOpen className="h-16 w-16 text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-medium mb-2">No Active Tables</h3>
+                  <p className="text-muted-foreground text-center">
+                    There are no active orders for any tables at the moment.
+                    <br />
+                    When you create orders, they will appear here for management.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Array.from(tableSummaries.values())
+                  .sort((a, b) => a.tableNumber.localeCompare(b.tableNumber))
+                  .map((tableSummary) => (
+                    <TableSummaryCard
+                      key={tableSummary.tableNumber}
+                      tableSummary={tableSummary}
+                      onCalculate={handleCalculateTableTotal}
+                      onCloseTable={handleCloseTable}
+                      onViewOrders={handleViewTableOrders}
+                      itemsMap={itemsMap}
+                    />
+                  ))}
+              </div>
+            )}
           </TabsContent>
         </Tabs>
-
-        {/* Summary Footer */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Orders</p>
-                <p className="text-xl font-bold">{summary.totalOrders}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Sales</p>
-                <p className="text-xl font-bold text-primary">{formatCurrency(summary.totalSales)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Tax</p>
-                <p className="text-xl font-bold">{formatCurrency(summary.totalTax)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Discount</p>
-                <p className="text-xl font-bold text-red-600 dark:text-red-400">{formatCurrency(summary.totalDiscount)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Avg Order</p>
-                <p className="text-xl font-bold">{formatCurrency(summary.averageOrderValue)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
+
+      {/* Calculate Total Dialog with Item Details */}
+      <Dialog open={calculateDialogOpen} onOpenChange={setCalculateDialogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold flex items-center">
+              <Calculator className="mr-2 h-6 w-6" />
+              Table {selectedTableForCalculation} - Bill Summary
+            </DialogTitle>
+            <DialogDescription>
+              Complete breakdown of all orders at this table
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[70vh] pr-4">
+            {selectedTableForCalculation && tableSummaries.get(selectedTableForCalculation) && (
+              <div className="space-y-6">
+                {/* Table Info Header */}
+                <div className="bg-primary/10 p-4 rounded-lg">
+                  <div className="grid grid-cols-2 gap-4 text-center">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Orders</p>
+                      <p className="text-xl font-bold">{tableSummaries.get(selectedTableForCalculation)?.orders.length}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Customers</p>
+                      <p className="text-xl font-bold">{tableSummaries.get(selectedTableForCalculation)?.customerCount}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* All Items Breakdown */}
+                <div>
+                  <h3 className="font-semibold text-lg mb-3 flex items-center">
+                    <ShoppingBag className="h-5 w-5 mr-2" />
+                    Items Ordered
+                  </h3>
+                  <div className="rounded-md border overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Item Name</TableHead>
+                          <TableHead className="text-center">Quantity</TableHead>
+                          <TableHead className="text-right">Unit Price</TableHead>
+                          <TableHead className="text-right">Total</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(() => {
+                          const tableData = tableSummaries.get(selectedTableForCalculation);
+                          if (!tableData) return null;
+                          
+                          const allItems = tableData.orders.flatMap(order => 
+                            (order.orderItems || order.items || []).map(item => {
+                              const itemDetails = itemsMap.get(item.menuItemId || item.id || '');
+                              return {
+                                ...item,
+                                name: itemDetails?.name || item.name || 'Unknown Item',
+                                price: itemDetails?.price || item.price || 0,
+                                orderNumber: order.orderNumber
+                              };
+                            })
+                          );
+                          
+                          const groupedItems = allItems.reduce((acc, item) => {
+                            const key = item.name;
+                            if (!acc[key]) {
+                              acc[key] = {
+                                name: item.name,
+                                quantity: 0,
+                                total: 0,
+                                price: item.price,
+                                orders: new Set<string>()
+                              };
+                            }
+                            acc[key].quantity += item.quantity;
+                            acc[key].total += (item.price * item.quantity);
+                            acc[key].orders.add(item.orderNumber);
+                            return acc;
+                          }, {} as Record<string, { name: string; quantity: number; total: number; price: number; orders: Set<string> }>);
+                          
+                          return Object.values(groupedItems).map((item, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell>
+                                <div>
+                                  <p className="font-medium">{item.name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    From {item.orders.size} order(s)
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="secondary">{item.quantity}x</Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {formatCurrency(item.price)}
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {formatCurrency(item.total)}
+                              </TableCell>
+                            </TableRow>
+                          ));
+                        })()}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                {/* Order Breakdown */}
+                <div>
+                  <h3 className="font-semibold text-lg mb-3 flex items-center">
+                    <Receipt className="h-5 w-5 mr-2" />
+                    Order Breakdown
+                  </h3>
+                  <div className="space-y-3">
+                    {tableSummaries.get(selectedTableForCalculation)?.orders.map((order, idx) => (
+                      <Card key={idx} className="bg-secondary/30">
+                        <CardHeader className="pb-2">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <CardTitle className="text-md">Order #{order.orderNumber}</CardTitle>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(order.createdAt).toLocaleTimeString()}
+                              </p>
+                            </div>
+                            <Badge className={getStatusColor(order.status)}>
+                              {order.status}
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="space-y-2">
+                            {(order.orderItems || order.items || []).map((item, itemIdx) => {
+                              const itemDetails = itemsMap.get(item.menuItemId || item.id || '');
+                              const itemName = itemDetails?.name || item.name || 'Unknown Item';
+                              const itemPrice = itemDetails?.price || item.price || 0;
+                              return (
+                                <div key={itemIdx} className="flex justify-between text-sm">
+                                  <span>{itemName}</span>
+                                  <span className="text-muted-foreground">{item.quantity}x</span>
+                                  <span>{formatCurrency(itemPrice * item.quantity)}</span>
+                                </div>
+                              );
+                            })}
+                            <Separator className="my-2" />
+                            <div className="flex justify-between font-medium">
+                              <span>Subtotal</span>
+                              <span>{formatCurrency(order.totalAmount || 0)}</span>
+                            </div>
+                            {order.discount > 0 && (
+                              <div className="flex justify-between text-red-600 dark:text-red-400">
+                                <span>Discount</span>
+                                <span>-{formatCurrency(order.discount)}</span>
+                              </div>
+                            )}
+                            {order.tax > 0 && (
+                              <div className="flex justify-between">
+                                <span>Tax</span>
+                                <span>{formatCurrency(order.tax)}</span>
+                              </div>
+                            )}
+                            <div className="flex justify-between font-bold text-primary pt-2 border-t">
+                              <span>Total</span>
+                              <span>{formatCurrency(order.finalAmount)}</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Grand Total */}
+                <div className="bg-primary/20 p-4 rounded-lg sticky bottom-0">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-lg font-semibold">GRAND TOTAL</p>
+                      <p className="text-sm text-muted-foreground">To be collected from Table {selectedTableForCalculation}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-3xl font-bold text-primary">{formatCurrency(calculatedTotal)}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Including tax & discounts
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCalculateDialogOpen(false)}>
+              Close
+            </Button>
+            <Button onClick={() => {
+              setCalculateDialogOpen(false);
+              window.print();
+            }}>
+              <Receipt className="h-4 w-4 mr-2" />
+              Print Bill
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Table Orders Dialog */}
+      <Dialog open={!!selectedTableForDetails} onOpenChange={() => setSelectedTableForDetails(null)}>
+        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold flex items-center">
+              <Utensils className="mr-2 h-6 w-6" />
+              Table {selectedTableForDetails} - All Orders
+            </DialogTitle>
+            <DialogDescription>
+              Complete order history for this table
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[70vh] pr-4">
+            {selectedTableForDetails && (
+              <div className="space-y-4">
+                {getTableOrders(selectedTableForDetails).map((order) => (
+                  <Card key={order._id} className="hover:shadow-md transition-shadow">
+                    <CardHeader className="pb-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <CardTitle className="text-lg font-bold">Order #{order.orderNumber}</CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            {new Date(order.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                        <Badge className={getStatusColor(order.status)}>
+                          {order.status}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="flex items-center">
+                          <Users className="mr-2 h-4 w-4 text-muted-foreground" />
+                          <span>{order.numberOfGuests || 1} guests</span>
+                        </div>
+                        <div className="flex items-center">
+                          <ShoppingBag className="mr-2 h-4 w-4 text-muted-foreground" />
+                          <span>{(order.orderItems || []).length} items</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CreditCard className="mr-2 h-4 w-4 text-muted-foreground" />
+                          <span>{order.paymentMethod || 'CASH'}</span>
+                        </div>
+                        <div className="flex items-center">
+                          <DollarSign className="mr-2 h-4 w-4 text-muted-foreground" />
+                          <span className="font-semibold">{formatCurrency(order.finalAmount || 0)}</span>
+                        </div>
+                      </div>
+                      {order.specialRequirements && (
+                        <div className="text-sm bg-secondary/30 p-2 rounded">
+                          <span className="font-medium">Notes:</span> {order.specialRequirements}
+                        </div>
+                      )}
+                    </CardContent>
+                    <CardFooter>
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setSelectedTableForDetails(null);
+                        handleViewDetails(order);
+                      }}>
+                        <Eye className="h-4 w-4 mr-2" />
+                        View Details
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
 
       {/* Order Details Dialog */}
       <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
@@ -1534,9 +1744,9 @@ export default function WaiterReportPage() {
                       </TableHeader>
                       <TableBody>
                         {(selectedOrder.orderItems || selectedOrder.items || []).map((item, index) => {
-                          const itemDetails = selectedItems[item.menuItemId || item.id || ''];
+                          const itemDetails = itemsMap.get(item.menuItemId || item.id || '');
                           const itemName = itemDetails?.name || item.name || 'Unknown Item';
-                          const unitPrice = item.price || 0;
+                          const unitPrice = itemDetails?.price || item.price || 0;
                           const subtotal = item.total || (unitPrice * item.quantity);
                           
                           return (
