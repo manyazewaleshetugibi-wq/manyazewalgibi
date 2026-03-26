@@ -27,34 +27,17 @@ const nextConfig = {
         pathname: "/**",
       },
     ],
-    domains: ["fly.storage.tigris.dev"],
-    minimumCacheTTL: 60,
   },
   
+  // ⚡ Netlify-specific optimizations
   output: process.env.NETLIFY ? 'standalone' : undefined,
+  
+  // Optional: Enable React Strict Mode (recommended)
   reactStrictMode: true,
   
-  // Force Webpack instead of Turbopack
-  experimental: {
-    turbo: false,
-  },
+ 
   
-  // Webpack configuration to ensure CSS works
-  webpack: (config, { isServer }) => {
-    // Ensure CSS modules work correctly
-    config.module.rules.forEach(rule => {
-      if (rule.oneOf) {
-        rule.oneOf.forEach(oneOfRule => {
-          if (oneOfRule.test && oneOfRule.test.toString().includes('css')) {
-            oneOfRule.use = oneOfRule.use || [];
-          }
-        });
-      }
-    });
-    
-    return config;
-  },
-  
+  // Important for API routes in Netlify
   async headers() {
     return [
       {
@@ -71,3 +54,4 @@ const nextConfig = {
 }
 
 module.exports = nextConfig;
+// module.exports

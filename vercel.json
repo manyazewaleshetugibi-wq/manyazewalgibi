@@ -1,15 +1,10 @@
 {
   "version": 2,
-  "buildCommand": "NEXT_TURBOPACK=0 next build",
-  "installCommand": "npm install --legacy-peer-deps",
-  "framework": "nextjs",
-  "outputDirectory": ".next",
+  "buildCommand": "npm install --legacy-peer-deps && next build",
   "env": {
     "S3_BUCKET_NAME": "eresto",
     "S3_BASE_URL": "https://fly.storage.tigris.dev",
-    "VERCEL_FORCE_NO_BUILD_CACHE": "1",
-    "NEXT_TURBOPACK": "0",
-    "NEXT_PRIVATE_LOCAL_WEBPACK": "1"
+    "VERCEL_FORCE_NO_BUILD_CACHE": "1"
   },
   "images": {
     "domains": ["fly.storage.tigris.dev"],
