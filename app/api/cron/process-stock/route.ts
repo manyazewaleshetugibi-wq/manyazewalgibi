@@ -5,9 +5,23 @@ import { debugLog, debugError } from "../../utils/orderHelpers";
 
 export async function GET(req: NextRequest) {
   try {
+    // Verify cron job secret for security
+    const authHeader = req.headers.get("authorization");
+    const cronSecret = process.env.CRON_SECRET;
+    
+    // For development, you can skip auth if CRON_SECRET not set
+    if (process.env.NODE_ENV === "production" && (!cronSecret || authHeader !== `Bearer ${cronSecret}`)) {
+      debugLog("Unauthorized cron attempt", { authHeader });
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+    
     debugLog("🕐 Cron job triggered - processing pending orders...");
     
     // Process in background to respond quickly
+    // Use setImmediate to avoid blocking the response
     setImmediate(async () => {
       try {
         const startTime = Date.now();
@@ -20,7 +34,7 @@ export async function GET(req: NextRequest) {
           failedOrders: result.failedOrders
         });
         
-        // Optional: Log if there were failures
+        // Optional: Send notification if there were failures
         if (result.failedOrders > 0) {
           debugLog(`⚠️ ${result.failedOrders} orders failed to process`);
         }
