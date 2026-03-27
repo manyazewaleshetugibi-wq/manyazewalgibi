@@ -119,6 +119,7 @@ interface Order {
     city: string;
   };
   paymentScreenshotUrl?: string;
+  calculated?: boolean;
 }
 
 interface Waitress {
@@ -361,7 +362,6 @@ const TableSummaryCard = ({
   onViewOrders: (tableNumber: string) => void;
   itemsMap: Map<string, Item>;
 }) => {
-  // Get all items from all orders with proper names from itemsMap
   const allItems = tableSummary.orders.flatMap(order => 
     (order.orderItems || order.items || []).map(item => {
       const itemDetails = itemsMap.get(item.menuItemId || item.id || '');
@@ -376,7 +376,6 @@ const TableSummaryCard = ({
     })
   );
 
-  // Group items by name for summary
   const itemSummary = allItems.reduce((acc, item) => {
     const key = item.name;
     if (!acc[key]) {
@@ -428,7 +427,6 @@ const TableSummaryCard = ({
           </div>
         </div>
 
-        {/* Show items summary */}
         {uniqueItems.length > 0 && (
           <div className="space-y-1">
             <p className="text-sm font-medium">Items Ordered:</p>
@@ -514,7 +512,6 @@ export default function WaiterReportPage() {
   const initialFetchDone = useRef(false);
   const waitressFetched = useRef(false);
 
-  // State
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
   const [currentWaitress, setCurrentWaitress] = useState<Waitress | null>(null);
@@ -532,7 +529,6 @@ export default function WaiterReportPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
   
-  // Table Management States
   const [tableSummaries, setTableSummaries] = useState<Map<string, TableSummary>>(new Map());
   const [selectedTableForDetails, setSelectedTableForDetails] = useState<string | null>(null);
   const [calculateDialogOpen, setCalculateDialogOpen] = useState(false);
@@ -540,14 +536,10 @@ export default function WaiterReportPage() {
   const [calculatedTotal, setCalculatedTotal] = useState(0);
   const [closedTables, setClosedTables] = useState<Set<string>>(new Set());
   
-  // Items cache
   const [itemsMap, setItemsMap] = useState<Map<string, Item>>(new Map());
   const [itemsLoading, setItemsLoading] = useState(false);
-  
-  // Detail view state
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
-  // Fetch all items from API
   const fetchAllItems = useCallback(async () => {
     try {
       setItemsLoading(true);
@@ -568,7 +560,6 @@ export default function WaiterReportPage() {
     }
   }, []);
 
-  // Fetch current waitress
   useEffect(() => {
     if (status === 'authenticated' && session?.user?.email && !waitressFetched.current) {
       waitressFetched.current = true;
@@ -604,7 +595,6 @@ export default function WaiterReportPage() {
     }
   }, [session?.user?.email]);
 
-  // Fetch reports
   useEffect(() => {
     if (currentWaitress?._id && !initialFetchDone.current) {
       initialFetchDone.current = true;
@@ -618,7 +608,6 @@ export default function WaiterReportPage() {
     }
   }, [filterType]);
 
-  // Update table summaries
   useEffect(() => {
     if (orders.length > 0 && currentWaitress) {
       updateTableSummaries();
@@ -627,8 +616,9 @@ export default function WaiterReportPage() {
 
   const updateTableSummaries = () => {
     const tablesMap = new Map<string, TableSummary>();
+    const activeOrders = orders.filter(order => !order.calculated);
     
-    orders.forEach(order => {
+    activeOrders.forEach(order => {
       if (currentWaitress && order.waiterId !== currentWaitress._id) {
         return;
       }
@@ -670,6 +660,66 @@ export default function WaiterReportPage() {
     setTableSummaries(tablesMap);
   };
 
+  const updateOrderCalculatedStatus = async (orderIds: string[]) => {
+    try {
+      console.log('📤 Raw order IDs received:', orderIds);
+      
+      // Ensure all IDs are strings and valid
+      const stringIds = orderIds.map(id => {
+        // Convert to string if needed
+        let idString = '';
+        if (id && typeof id === 'object' && id.toString) {
+          idString = id.toString();
+        } else if (typeof id === 'string') {
+          idString = id;
+        } else {
+          idString = String(id);
+        }
+        
+        // Remove any quotes or extra spaces
+        idString = idString.trim();
+        
+        // Check if it's a valid MongoDB ObjectId format (24 hex chars)
+        const isValidObjectId = /^[a-fA-F0-9]{24}$/.test(idString);
+        
+        if (!isValidObjectId) {
+          console.warn(`⚠️ Invalid ObjectId format: ${idString} (length: ${idString.length})`);
+          return null;
+        }
+        
+        return idString;
+      }).filter(id => id !== null);
+      
+      console.log('📤 Valid order IDs after filtering:', stringIds);
+      
+      if (stringIds.length === 0) {
+        console.error('❌ No valid order IDs found. Raw IDs:', orderIds);
+        throw new Error(`No valid order IDs provided. Received: ${JSON.stringify(orderIds)}`);
+      }
+      
+      const response = await fetch("/api/order/update-calculated-status", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ orderIds: stringIds, calculated: true }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error('❌ API Error Response:', data);
+        throw new Error(data.error || data.message || `Server error: ${response.status}`);
+      }
+      
+      console.log('✅ API Success:', data);
+      return data.success;
+    } catch (error) {
+      console.error("❌ Error updating order calculated status:", error);
+      return false;
+    }
+  };
+
   const fetchReports = useCallback(async (waiterId: string) => {
     try {
       setIsLoading(true);
@@ -698,6 +748,7 @@ export default function WaiterReportPage() {
       }
 
       params.append('waiterId', waiterId);
+      params.append('includeAllStatuses', 'true');
 
       const response = await fetch(`/api/order/waiterreport?${params.toString()}`);
       const data = await response.json();
@@ -722,7 +773,6 @@ export default function WaiterReportPage() {
     }
   }, [filterType]);
 
-  // Apply filters
   useEffect(() => {
     if (orders.length > 0) {
       const timer = setTimeout(() => {
@@ -734,7 +784,7 @@ export default function WaiterReportPage() {
   }, [orders, dateRange, selectedStatus, selectedPaymentMethod, searchTerm, sortBy, sortOrder]);
 
   const applyFilters = useCallback(() => {
-    let filtered = [...orders];
+    let filtered = orders.filter(order => !order.calculated);
 
     if (dateRange.start && dateRange.end && filterType === 'custom') {
       filtered = filtered.filter(order => {
@@ -829,7 +879,6 @@ export default function WaiterReportPage() {
     exportToExcel(exportData, filename);
   };
 
-  // Table Management Functions
   const handleCalculateTableTotal = (tableNumber: string) => {
     const tableSummary = tableSummaries.get(tableNumber);
     if (tableSummary) {
@@ -844,22 +893,76 @@ export default function WaiterReportPage() {
     if (!tableSummary) return;
     
     const finalTotal = tableSummary.totalAmount;
+    const ordersToUpdate = tableSummary.orders;
+    
+    console.log('🔍 Table Summary Orders:', ordersToUpdate.map(order => ({
+      _id: order._id,
+      _idType: typeof order._id,
+      orderNumber: order.orderNumber,
+      waiterId: order.waiterId,
+      calculated: order.calculated
+    })));
     
     const confirmed = window.confirm(
       `Table ${tableNumber}\n` +
-      `Total Orders: ${tableSummary.orders.length}\n` +
+      `Total Orders: ${ordersToUpdate.length}\n` +
       `Total Amount: ${formatCurrency(finalTotal)}\n` +
       `Customers Served: ${tableSummary.customerCount}\n\n` +
       `Are you sure you want to close this table?\n` +
-      `This will mark it as ready for new customers.`
+      `This will mark all orders at this table as calculated and remove them from the active display.`
     );
     
     if (confirmed) {
-      setClosedTables(prev => new Set(prev).add(tableNumber));
-      alert(`Table ${tableNumber} has been closed.\nTotal collected: ${formatCurrency(finalTotal)}`);
-      
-      if (currentWaitress?._id) {
-        fetchReports(currentWaitress._id);
+      try {
+        setIsLoading(true);
+        
+        // Extract order IDs - they are already strings from your database
+        const orderIds = ordersToUpdate.map(order => {
+          if (order._id && typeof order._id === 'string') {
+            return order._id;
+          } else if (order._id && typeof order._id === 'object' && order._id.toString) {
+            return order._id.toString();
+          } else if (order.id) {
+            return order.id;
+          } else {
+            console.error('Invalid order ID format:', order);
+            return null;
+          }
+        }).filter(id => id !== null);
+        
+        console.log('📦 Extracted order IDs for API:', orderIds);
+        
+        if (orderIds.length === 0) {
+          throw new Error('No valid order IDs found for this table');
+        }
+        
+        const updateSuccess = await updateOrderCalculatedStatus(orderIds);
+        
+        if (updateSuccess) {
+          const updatedOrders = orders.map(order => {
+            const orderIdStr = typeof order._id === 'object' ? order._id.toString() : order._id;
+            if (orderIds.includes(orderIdStr)) {
+              console.log(`✅ Marking order ${order.orderNumber} as calculated`);
+              return { ...order, calculated: true };
+            }
+            return order;
+          });
+          setOrders(updatedOrders);
+          setClosedTables(prev => new Set(prev).add(tableNumber));
+          
+          alert(`Table ${tableNumber} has been closed.\nTotal collected: ${formatCurrency(finalTotal)}\nAll orders at this table have been marked as completed.`);
+          
+          if (currentWaitress?._id) {
+            await fetchReports(currentWaitress._id);
+          }
+        } else {
+          alert("Failed to update orders. Please check the console for details.");
+        }
+      } catch (error) {
+        console.error("Error closing table:", error);
+        alert(`An error occurred while closing the table: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
+      } finally {
+        setIsLoading(false);
       }
     }
   };
@@ -869,7 +972,7 @@ export default function WaiterReportPage() {
   };
 
   const getTableOrders = (tableNumber: string): Order[] => {
-    return orders.filter(order => order.tableNumber === tableNumber);
+    return orders.filter(order => order.tableNumber === tableNumber && !order.calculated);
   };
 
   const clearFilters = () => {
@@ -913,17 +1016,15 @@ export default function WaiterReportPage() {
     currentPage * itemsPerPage
   );
 
-  // Calculate summary statistics
   const totalSales = filteredOrders.reduce((sum, order) => sum + (order.finalAmount || 0), 0);
-  const totalOrders = filteredOrders.length;
+  const totalOrdersCount = filteredOrders.length;
   const totalItems = filteredOrders.reduce((sum, order) => sum + (order.orderItems?.length || 0), 0);
   const totalGuests = filteredOrders.reduce((sum, order) => sum + (order.numberOfGuests || 1), 0);
-  const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
+  const averageOrderValue = totalOrdersCount > 0 ? totalSales / totalOrdersCount : 0;
 
   return (
     <div className="flex-col md:flex">
       <div className="flex-1 space-y-4 p-8 pt-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">My Orders & Table Management</h1>
@@ -970,9 +1071,8 @@ export default function WaiterReportPage() {
             <TabsTrigger value="tables">Table Management</TabsTrigger>
           </TabsList>
 
-          {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-4">
-            {/* Date Filter */}
+            {/* Date Filter Card */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1063,7 +1163,7 @@ export default function WaiterReportPage() {
               </CardContent>
             </Card>
 
-            {/* Status and Payment Filters */}
+            {/* Status and Payment Filters Card */}
             <Card>
               <CardContent className="pt-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1135,7 +1235,7 @@ export default function WaiterReportPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{formatCurrency(totalSales)}</div>
-                  <p className="text-xs text-muted-foreground">{totalOrders} orders</p>
+                  <p className="text-xs text-muted-foreground">{totalOrdersCount} orders</p>
                 </CardContent>
               </Card>
               <Card>
@@ -1207,8 +1307,19 @@ export default function WaiterReportPage() {
               </div>
             ) : (
               <>
-                {/* Orders Display */}
-                {viewMode === "grid" ? (
+                {filteredOrders.length === 0 ? (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <CheckCircle className="h-16 w-16 text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-medium mb-2">No Active Orders</h3>
+                      <p className="text-muted-foreground text-center">
+                        No active orders found for the selected filters.
+                        <br />
+                        All completed orders have been moved to history.
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : viewMode === "grid" ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {paginatedOrders.map((order) => (
                       <OrderCard
@@ -1299,7 +1410,6 @@ export default function WaiterReportPage() {
                   </Card>
                 )}
 
-                {/* Pagination */}
                 {totalPages > 1 && (
                   <Pagination>
                     <PaginationContent>
@@ -1383,7 +1493,7 @@ export default function WaiterReportPage() {
         </Tabs>
       </div>
 
-      {/* Calculate Total Dialog with Item Details */}
+      {/* Calculate Total Dialog */}
       <Dialog open={calculateDialogOpen} onOpenChange={setCalculateDialogOpen}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1398,7 +1508,6 @@ export default function WaiterReportPage() {
           <ScrollArea className="max-h-[70vh] pr-4">
             {selectedTableForCalculation && tableSummaries.get(selectedTableForCalculation) && (
               <div className="space-y-6">
-                {/* Table Info Header */}
                 <div className="bg-primary/10 p-4 rounded-lg">
                   <div className="grid grid-cols-2 gap-4 text-center">
                     <div>
@@ -1412,7 +1521,6 @@ export default function WaiterReportPage() {
                   </div>
                 </div>
 
-                {/* All Items Breakdown */}
                 <div>
                   <h3 className="font-semibold text-lg mb-3 flex items-center">
                     <ShoppingBag className="h-5 w-5 mr-2" />
@@ -1489,7 +1597,6 @@ export default function WaiterReportPage() {
                   </div>
                 </div>
 
-                {/* Order Breakdown */}
                 <div>
                   <h3 className="font-semibold text-lg mb-3 flex items-center">
                     <Receipt className="h-5 w-5 mr-2" />
@@ -1553,7 +1660,6 @@ export default function WaiterReportPage() {
                   </div>
                 </div>
 
-                {/* Grand Total */}
                 <div className="bg-primary/20 p-4 rounded-lg sticky bottom-0">
                   <div className="flex justify-between items-center">
                     <div>
