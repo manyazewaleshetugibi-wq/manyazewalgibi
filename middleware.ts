@@ -206,11 +206,16 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // Add user info to headers for API routes
+  // ⭐ FIX: Add user info to headers with proper encoding for Ethiopian characters
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-user-id", token.id || "");
   requestHeaders.set("x-user-email", token.email || "");
-  requestHeaders.set("x-user-name", token.name || "");
+  
+  // Encode name to handle non-ASCII characters (ሀሁ, አማርኛ, ትግርኛ, etc.)
+  // This prevents the "Cannot convert argument to a ByteString" error
+  const encodedName = token.name ? encodeURIComponent(token.name) : "";
+  requestHeaders.set("x-user-name", encodedName);
+  
   requestHeaders.set("x-user-role", token.role || "");
   requestHeaders.set("x-employee-id", token.employeeId || "");
   requestHeaders.set("x-requires-password-change", requiresPasswordChange.toString());

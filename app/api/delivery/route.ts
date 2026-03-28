@@ -118,11 +118,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let totalAmount = 0;
-    let taxAmount = 0;
-    let finalAmount = 0;
+    // ✅ USE FRONTEND VALUES instead of recalculating
+    const subtotalFromFrontend = body.subtotal || 0;      // Price without tax
+    const taxFromFrontend = body.tax || 0;                // Tax amount
+    const totalAmountFromFrontend = body.totalAmount || 0; // Price with tax
+    const deliveryFee = body.deliveryFee || 0;
+    const discount = body.discount || 0;
+    
+    // Calculate final amount using frontend values
+    const finalAmount = totalAmountFromFrontend + deliveryFee - discount;
 
-    // Fetch unitPrice for each item and calculate subtotal
+    // Process items with their correct tax breakdown
     const itemsWithDetails = [];
     for (const item of body.items) {
       if (!ObjectId.isValid(item.itemId)) {
@@ -144,28 +150,29 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Calculate subtotal for the item
-      const unitPrice = itemData.price;
-      const subtotal = item.quantity * unitPrice;
+      const priceWithTax = itemData.price;
+      const priceWithoutTax = priceWithTax / 1.15;
+      const itemTaxAmount = priceWithTax - priceWithoutTax;
+      const quantity = Number(item.quantity) || 0;
+      
+      // Use frontend values if provided, otherwise calculate
+      const itemSubtotal = item.subtotal || (priceWithoutTax * quantity);
+      const itemTaxTotal = item.taxTotal || (itemTaxAmount * quantity);
+      const itemTotal = item.total || (priceWithTax * quantity);
 
-      // Add subtotal to the total amount
-      totalAmount += subtotal;
-
-      // Add item with all details
       itemsWithDetails.push({
         itemId: item.itemId,
-        quantity: item.quantity,
+        quantity: quantity,
         notes: item.notes || '',
-        subtotal: subtotal,
-        unitPrice: unitPrice,
-        itemName: itemData.name,
-        price: unitPrice
+        subtotal: itemSubtotal,
+        unitPrice: priceWithTax,
+        priceWithoutTax: priceWithoutTax,
+        taxAmount: itemTaxAmount,
+        taxTotal: itemTaxTotal,
+        total: itemTotal,
+        itemName: itemData.name
       });
     }
-
-    // Calculate tax and final amount
-    taxAmount = totalAmount * 0.15;
-    finalAmount = totalAmount + taxAmount - (body.discount || 0) + (body.deliveryFee || 0);
 
     // Prepare delivery info with coordinates if available
     const deliveryInfo = {
@@ -179,24 +186,24 @@ export async function POST(req: NextRequest) {
       location: body.deliveryInfo?.location || null // This will store coordinates
     };
 
-    // Prepare the order data
+    // Prepare the order data with CORRECT values
     const orderData = {
       orderNumber: body.orderNumber || `ORD-${Date.now().toString().slice(-6)}`,
       userId: session?.user?.id,
       customerId: body.customerId || session?.user?.id,
       items: itemsWithDetails,
-      deliveryInfo: deliveryInfo, // Now includes location coordinates
+      deliveryInfo: deliveryInfo,
       specialRequirements: body.specialRequirements || '',
       status: 'PENDING',
       paymentMethod: body.paymentMethod || 'ONLINE',
       paymentScreenshotUrl: paymentScreenshotUrl,
       transactionId: body.transactionId || `TXN-${Date.now()}`,
-      deliveryFee: body.deliveryFee || 0,
-      discount: body.discount || 0,
-      subtotal: totalAmount,
-      tax: taxAmount,
-      totalAmount: body.totalAmount || finalAmount,
-      finalAmount: finalAmount,
+      deliveryFee: deliveryFee,
+      discount: discount,
+      subtotal: subtotalFromFrontend,        // Use frontend value (excl. tax)
+      tax: taxFromFrontend,                  // Use frontend value (tax amount)
+      totalAmount: totalAmountFromFrontend,  // Use frontend value (incl. tax)
+      finalAmount: finalAmount,              // totalAmount + delivery - discount
       delivery: true,
       inTable: false,
       isActive: true,
@@ -204,11 +211,16 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date()
     };
 
-    console.log("💾 Saving order with:", {
+    console.log("💾 Saving order with values:", {
       orderNumber: orderData.orderNumber,
+      subtotal: orderData.subtotal,
+      tax: orderData.tax,
+      totalAmount: orderData.totalAmount,
+      deliveryFee: orderData.deliveryFee,
+      finalAmount: orderData.finalAmount,
       hasScreenshot: !!orderData.paymentScreenshotUrl,
       hasCoordinates: !!orderData.deliveryInfo?.location?.coordinates,
-      coordinates: orderData.deliveryInfo?.location?.coordinates
+      itemsCount: itemsWithDetails.length
     });
 
     // Validate with schema
@@ -220,6 +232,10 @@ export async function POST(req: NextRequest) {
     console.log("✅ Order created successfully:", {
       id: result.insertedId,
       orderNumber: orderData.orderNumber,
+      subtotal: orderData.subtotal,
+      tax: orderData.tax,
+      totalAmount: orderData.totalAmount,
+      finalAmount: orderData.finalAmount,
       hasCoordinates: !!orderData.deliveryInfo?.location?.coordinates
     });
 
@@ -229,7 +245,9 @@ export async function POST(req: NextRequest) {
         orderId: result.insertedId,
         orderNumber: orderData.orderNumber,
         finalAmount,
-        tax: taxAmount,
+        tax: taxFromFrontend,
+        subtotal: subtotalFromFrontend,
+        totalAmount: totalAmountFromFrontend,
         paymentScreenshotUrl: orderData.paymentScreenshotUrl,
         hasCoordinates: !!orderData.deliveryInfo?.location?.coordinates
       },
@@ -238,7 +256,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("❌ Order placement error:", error);
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      { error: "Internal Server Error", details: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     );
   }

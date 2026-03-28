@@ -18,7 +18,7 @@ function debugError(message: string, error: any) {
   console.error(`[ERROR] ${message}`, error);
 }
 
-// GET: Fetch COMPLETED orders for reports with filtering by date and waiter
+// GET: Fetch orders for reports with filtering by date and waiter
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -34,12 +34,11 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const waiterId = searchParams.get('waiterId');
-    const status = searchParams.get('status'); // Optional: filter by specific status (overrides default)
     const paymentMethod = searchParams.get('paymentMethod'); // Optional: filter by payment method
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
     const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1;
     const pageSize = 50; // Items per page
-    const includeAllStatuses = searchParams.get('includeAllStatuses') === 'true'; // Optional: override to include all statuses
+    const excludeCalculated = searchParams.get('excludeCalculated') === 'true'; // Exclude calculated orders
 
     // Validate required parameters
     if (!startDate || !endDate) {
@@ -68,35 +67,25 @@ export async function GET(req: NextRequest) {
     }
 
     debugLog(`Fetching reports from ${startDate} to ${endDate} for waiter: ${targetWaiterId}`);
+    debugLog(`Exclude calculated: ${excludeCalculated}`);
 
-    // Build query
+    // Build query - ONLY COMPLETED ORDERS
     const query: any = {
       createdAt: {
         $gte: new Date(startDate),
         $lte: new Date(endDate + 'T23:59:59.999Z'),
       },
+      status: 'COMPLETED', // Only fetch completed orders
     };
+
+    // Exclude calculated orders if requested
+    if (excludeCalculated) {
+      query.calculated = { $ne: true }; // Only include orders where calculated is not true
+    }
 
     // Add waiter filter if specified and not 'all'
     if (targetWaiterId && targetWaiterId !== 'all' && ObjectId.isValid(targetWaiterId)) {
       query.waiterId = targetWaiterId;
-    }
-
-    // Set status filter - default to COMPLETED only unless includeAllStatuses is true
-    if (includeAllStatuses) {
-      // Include all statuses, but still apply specific status filter if provided
-      if (status && status !== 'all') {
-        query.status = status.toLowerCase();
-      }
-    } else {
-      // Default: only show COMPLETED orders
-      if (status && status !== 'all') {
-        // If specific status is requested, use that instead of default
-        query.status = status.toLowerCase();
-      } else {
-        // Default to COMPLETED only
-        query.status = 'COMPLETED';
-      }
     }
 
     // Add payment method filter if specified
@@ -104,7 +93,7 @@ export async function GET(req: NextRequest) {
       query.paymentMethod = paymentMethod;
     }
 
-    debugLog('Query:', query);
+    debugLog('Query (only completed orders):', query);
 
     // Get total count for pagination
     const totalCount = await db.collection("orders").countDocuments(query);
@@ -154,7 +143,7 @@ export async function GET(req: NextRequest) {
       .aggregate(pipeline)
       .toArray();
 
-    // Get summary statistics
+    // Get summary statistics (without pagination)
     const summaryPipeline = [
       { $match: query },
       {
@@ -175,7 +164,7 @@ export async function GET(req: NextRequest) {
       .aggregate(summaryPipeline)
       .toArray();
 
-    // Get orders by status breakdown
+    // Get orders by status breakdown (will only show COMPLETED since that's all we query)
     const statusBreakdownPipeline = [
       { $match: query },
       {
@@ -259,9 +248,9 @@ export async function GET(req: NextRequest) {
 
     // Transform orders to match frontend interface
     const transformedOrders = orders.map(order => ({
-      id: order._id.toString(),
+      _id: order._id.toString(),
       orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
-      status: order.status || 'PENDING',
+      status: order.status || 'COMPLETED',
       totalAmount: order.totalAmount || 0,
       finalAmount: order.finalAmount || 0,
       tax: order.tax || 0,
@@ -270,10 +259,10 @@ export async function GET(req: NextRequest) {
       tableNumber: order.tableNumber || '',
       customerName: order.customerName || '',
       notes: order.notes || '',
+      specialRequirements: order.specialRequirements || '',
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
       orderItems: (order.items || []).map((item: any, index: number) => ({
-        id: item.id || `item-${index}`,
         menuItemId: item.itemId || item.menuItemId || '',
         name: item.name || 'Unknown Item',
         price: item.price || 0,
@@ -281,13 +270,15 @@ export async function GET(req: NextRequest) {
         specialInstructions: item.specialInstructions || '',
         total: (item.price || 0) * (item.quantity || 1),
       })),
-      paymentStatus: order.paymentStatus || 'PENDING',
       paymentMethod: order.paymentMethod || 'CASH',
       waiterId: order.waiterId || '',
+      calculated: order.calculated || false, // Include calculated flag
+      delivery: order.delivery || false,
+      deliveryInfo: order.deliveryInfo,
+      paymentScreenshotUrl: order.paymentScreenshotUrl,
       waiterInfo: order.waiterInfo ? {
-        id: order.waiterInfo._id?.toString() || '',
+        _id: order.waiterInfo._id?.toString() || '',
         name: order.waiterInfo.name || 'Unknown',
-        role: order.waiterInfo.role || 'WAITER',
         shift: order.waiterInfo.shift || 'All Shifts',
       } : undefined,
     }));
@@ -327,7 +318,7 @@ export async function GET(req: NextRequest) {
       },
       breakdown: {
         byStatus: statusBreakdown.reduce((acc, item) => {
-          acc[item._id || 'UNKNOWN'] = {
+          acc[item._id || 'COMPLETED'] = {
             count: item.count,
             total: item.total,
           };
@@ -366,8 +357,9 @@ export async function GET(req: NextRequest) {
       },
       // Add info about what status filter was applied
       filterInfo: {
-        statusFilter: includeAllStatuses ? (status || 'all') : 'COMPLETED',
-        includeAllStatuses
+        statusFilter: 'COMPLETED', // Always COMPLETED
+        includeAllStatuses: false,
+        excludeCalculated,
       }
     });
 
@@ -416,7 +408,7 @@ export async function POST(req: NextRequest) {
       const csvRows = [];
       
       // Add headers
-      csvRows.push('Order Number,Date,Customer,Table,Waiter,Status,Payment Method,Items,Total');
+      csvRows.push('Order Number,Date,Customer,Table,Waiter,Status,Payment Method,Items,Total,Calculated');
       
       // Add data rows
       data.orders.forEach((order: any) => {
@@ -430,6 +422,7 @@ export async function POST(req: NextRequest) {
           order.paymentMethod,
           order.items,
           order.total.toFixed(2),
+          order.calculated ? 'Yes' : 'No',
         ].join(','));
       });
 

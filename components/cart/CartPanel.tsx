@@ -23,6 +23,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { CartItem, UserData, Waiter, DeliveryFeeDetails } from '@/types'
 import { motion, AnimatePresence } from 'framer-motion'
 
+// Helper function to calculate original price and tax
+const calculatePriceBreakdown = (priceWithTax: number, taxRate: number = 0.15) => {
+  const originalPrice = priceWithTax / (1 + taxRate)
+  const taxAmount = priceWithTax - originalPrice
+  return { originalPrice, taxAmount }
+}
+
 interface CartPanelProps {
   cart: CartItem[]
   onClose: () => void
@@ -51,8 +58,18 @@ interface CartPanelProps {
   onLoginRequired: (message: string) => void
   userData: UserData | null
   onNavigateToProfile?: () => void
-  // Enhanced delivery props - REMOVED PROMO CODE
   isCalculatingDelivery?: boolean
+}
+
+// Helper function to safely format numbers
+const formatCurrency = (value: number | undefined | null): string => {
+  if (value === undefined || value === null || isNaN(value)) {
+    return '0.00'
+  }
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })
 }
 
 export const CartPanel = memo(({
@@ -72,18 +89,18 @@ export const CartPanel = memo(({
   onGuestsChange,
   specialRequirements,
   onSpecialRequirementsChange,
-  subtotal,
-  tax,
+  subtotal = 0,
+  tax = 0,
   deliveryFee,
-  total,
+  total = 0,
   orderNumber,
   onPlaceOrder,
-  isPlacingOrder,
-  isUserLoggedIn,
+  isPlacingOrder = false,
+  isUserLoggedIn = false,
   onLoginRequired,
   userData,
   onNavigateToProfile,
-  isCalculatingDelivery
+  isCalculatingDelivery = false
 }: CartPanelProps) => {
   const handlePlaceOrder = () => {
     if (!isUserLoggedIn) {
@@ -103,6 +120,12 @@ export const CartPanel = memo(({
     if (imageUrl.startsWith('/uploads')) return imageUrl
     return `/uploads/${imageUrl}`
   }
+
+  // Format all values safely
+  const formattedSubtotal = formatCurrency(subtotal)
+  const formattedTax = formatCurrency(tax)
+  const formattedTotal = formatCurrency(total)
+  const formattedDeliveryFee = formatCurrency(deliveryFee?.fee)
 
   return (
     <div className="flex flex-col h-full bg-gradient-to-br from-white to-purple-50/30">
@@ -146,66 +169,61 @@ export const CartPanel = memo(({
               {/* Cart Items with Purple-900 styling */}
               <AnimatePresence>
                 <div className="space-y-3">
-                  {cart.map((item, index) => (
-                    <motion.div
-                      key={item._id}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -20 }}
-                      transition={{ delay: index * 0.05 }}
-                      whileHover={{ scale: 1.02 }}
-                      className="group relative"
-                    >
-                      <div className="flex border-2 border-purple-100 rounded-2xl overflow-hidden bg-white hover:shadow-xl transition-all duration-300 hover:border-purple-300">
-                        {/* Purple accent on hover */}
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-purple-800 to-purple-900 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        
-                        {/* Image section */}
-                        <div className="relative h-28 w-28 flex-shrink-0 bg-gradient-to-br from-purple-50 to-gray-50">
-                          <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent" />
-                          <img
-                            src={getImageSrc(item.imageUrl)}
-                            alt={item.name}
-                            className="object-cover w-full h-full transition-transform duration-500 group-hover:scale-110"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = '/placeholder.svg'
-                            }}
-                          />
-                        </div>
-                        
-                        <div className="flex-1 p-4">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <h4 className="font-bold text-gray-800 line-clamp-1 group-hover:text-purple-900 transition-colors">
-                                {item.name}
-                              </h4>
-                              <p className="text-sm text-purple-900 font-semibold">
-                                {Number(item.price).toLocaleString()} ETB
-                              </p>
-                              {item.preparationTime && (
-                                <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                                  <Clock className="h-3 w-3 text-purple-700" />
-                                  {item.preparationTime} min
-                                </p>
-                              )}
-                            </div>
-                            <motion.div
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                            >
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => onRemoveItem(item._id)}
-                                className="h-8 w-8 rounded-full text-red-500 hover:bg-red-50 hover:text-red-600"
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            </motion.div>
+                  {cart.map((item, index) => {
+                    // Calculate original price and tax for each item
+                    const { originalPrice, taxAmount } = calculatePriceBreakdown(Number(item.price))
+                    const itemTotalWithTax = Number(item.price) * item.quantity
+                    const itemTotalOriginal = originalPrice * item.quantity
+                    const itemTotalTax = taxAmount * item.quantity
+                    
+                    return (
+                      <motion.div
+                        key={item._id}
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        transition={{ delay: index * 0.05 }}
+                        whileHover={{ scale: 1.02 }}
+                        className="group relative"
+                      >
+                        <div className="flex border-2 border-purple-100 rounded-2xl overflow-hidden bg-white hover:shadow-xl transition-all duration-300 hover:border-purple-300">
+                          {/* Purple accent on hover */}
+                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-purple-800 to-purple-900 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          
+                          {/* Image section */}
+                          <div className="relative h-28 w-28 flex-shrink-0 bg-gradient-to-br from-purple-50 to-gray-50">
+                            <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent" />
+                            <img
+                              src={getImageSrc(item.imageUrl)}
+                              alt={item.name}
+                              className="object-cover w-full h-full transition-transform duration-500 group-hover:scale-110"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = '/placeholder.svg'
+                              }}
+                            />
                           </div>
                           
-                          <div className="mt-3 flex items-center justify-between">
-                            <div className="flex items-center border-2 border-purple-100 rounded-xl overflow-hidden bg-white">
+                          <div className="flex-1 p-4">
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <h4 className="font-bold text-gray-800 line-clamp-1 group-hover:text-purple-900 transition-colors">
+                                  {item.name}
+                                </h4>
+                                <div className="flex flex-col mt-1">
+                                  <p className="text-sm text-purple-900 font-semibold">
+                                    {originalPrice.toFixed(2)} ETB <span className="text-xs text-gray-500 font-normal">(excl. VAT)</span>
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    + VAT: {taxAmount.toFixed(2)} ETB
+                                  </p>
+                                </div>
+                                {item.preparationTime && (
+                                  <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                                    <Clock className="h-3 w-3 text-purple-700" />
+                                    {item.preparationTime} min
+                                  </p>
+                                )}
+                              </div>
                               <motion.div
                                 whileHover={{ scale: 1.1 }}
                                 whileTap={{ scale: 0.9 }}
@@ -213,49 +231,72 @@ export const CartPanel = memo(({
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  onClick={() => onUpdateQuantity(item._id, item.quantity - 1)}
-                                  className="h-9 w-9 rounded-none hover:bg-purple-50 hover:text-purple-900"
+                                  onClick={() => onRemoveItem(item._id)}
+                                  className="h-8 w-8 rounded-full text-red-500 hover:bg-red-50 hover:text-red-600"
                                 >
-                                  <Minus className="h-3 w-3" />
-                                </Button>
-                              </motion.div>
-                              <span className="w-12 text-center text-sm font-bold text-purple-900">
-                                {item.quantity}
-                              </span>
-                              <motion.div
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                              >
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => onUpdateQuantity(item._id, item.quantity + 1)}
-                                  className="h-9 w-9 rounded-none hover:bg-purple-50 hover:text-purple-900"
-                                >
-                                  <Plus className="h-3 w-3" />
+                                  <X className="h-3 w-3" />
                                 </Button>
                               </motion.div>
                             </div>
                             
-                            <span className="text-lg font-bold text-purple-900">
-                              {(Number(item.price) * item.quantity).toLocaleString()} <span className="text-xs font-normal text-gray-500">ETB</span>
-                            </span>
-                          </div>
-
-                          {onUpdateInstructions && (
-                            <div className="mt-3">
-                              <Textarea
-                                placeholder="Special instructions..."
-                                value={item.specialInstructions || ''}
-                                onChange={(e) => onUpdateInstructions(item._id, e.target.value)}
-                                className="text-xs h-20 resize-none border-2 border-purple-100 focus:border-purple-900 focus:ring-2 focus:ring-purple-200 rounded-xl"
-                              />
+                            <div className="mt-3 flex items-center justify-between">
+                              <div className="flex items-center border-2 border-purple-100 rounded-xl overflow-hidden bg-white">
+                                <motion.div
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                >
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => onUpdateQuantity(item._id, item.quantity - 1)}
+                                    className="h-9 w-9 rounded-none hover:bg-purple-50 hover:text-purple-900"
+                                  >
+                                    <Minus className="h-3 w-3" />
+                                  </Button>
+                                </motion.div>
+                                <span className="w-12 text-center text-sm font-bold text-purple-900">
+                                  {item.quantity}
+                                </span>
+                                <motion.div
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                >
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => onUpdateQuantity(item._id, item.quantity + 1)}
+                                    className="h-9 w-9 rounded-none hover:bg-purple-50 hover:text-purple-900"
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                  </Button>
+                                </motion.div>
+                              </div>
+                              
+                              <div className="text-right">
+                                <span className="text-lg font-bold text-purple-900">
+                                  {itemTotalOriginal.toFixed(2)} ETB
+                                </span>
+                                <p className="text-xs text-gray-500">
+                                  + VAT: {itemTotalTax.toFixed(2)} ETB
+                                </p>
+                              </div>
                             </div>
-                          )}
+
+                            {onUpdateInstructions && (
+                              <div className="mt-3">
+                                <Textarea
+                                  placeholder="Special instructions..."
+                                  value={item.specialInstructions || ''}
+                                  onChange={(e) => onUpdateInstructions(item._id, e.target.value)}
+                                  className="text-xs h-20 resize-none border-2 border-purple-100 focus:border-purple-900 focus:ring-2 focus:ring-purple-200 rounded-xl"
+                                />
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </motion.div>
+                    )
+                  })}
                 </div>
               </AnimatePresence>
 
@@ -327,28 +368,9 @@ export const CartPanel = memo(({
                             <SelectValue placeholder="Select Table" />
                           </SelectTrigger>
                           <SelectContent className="rounded-xl border-purple-200">
-                            {Array.from({ length: 20 }, (_, i) => (
+                            {Array.from({ length: 30 }, (_, i) => (
                               <SelectItem key={i} value={`T${i + 1}`} className="hover:bg-purple-50">
                                 Table {i + 1}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="waiter" className="text-sm font-medium text-purple-900 flex items-center gap-2">
-                          <span className="p-1 bg-purple-100 rounded-md">👨‍🍳</span>
-                          Server <span className="text-red-500">*</span>
-                        </Label>
-                        <Select value={selectedWaiter} onValueChange={onWaiterChange}>
-                          <SelectTrigger id="waiter" className="border-2 border-purple-200 focus:border-purple-900 focus:ring-2 focus:ring-purple-200 rounded-xl">
-                            <SelectValue placeholder="Select Server" />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-xl border-purple-200">
-                            {waiters.map((waiter) => (
-                              <SelectItem key={waiter._id} value={waiter._id} className="hover:bg-purple-50">
-                                {waiter.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -379,7 +401,7 @@ export const CartPanel = memo(({
                     </motion.div>
                   )}
 
-                  {/* Delivery Order Fields with Purple-900 - REMOVED PROMO CODE */}
+                  {/* Delivery Order Fields with Purple-900 */}
                   {orderType === 'delivery' && (
                     <motion.div
                       initial={{ opacity: 0, height: 0 }}
@@ -439,10 +461,8 @@ export const CartPanel = memo(({
                             </AlertDescription>
                           </Alert>
 
-                          {/* REMOVED PROMOTIONS SECTION */}
-
                           {/* Delivery Fee Status with Purple-900 */}
-                          {/* {isCalculatingDelivery ? (
+                          {isCalculatingDelivery ? (
                             <div className="flex items-center justify-center py-6 bg-purple-50 rounded-xl border-2 border-purple-200">
                               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-900 mr-3"></div>
                               <span className="text-sm text-purple-900 font-medium">Calculating delivery fee...</span>
@@ -462,7 +482,7 @@ export const CartPanel = memo(({
                                   ? "bg-green-100 text-green-700 border-green-200" 
                                   : "bg-purple-900 text-white"
                                 }>
-                                  {deliveryFee.fee === 0 ? 'FREE' : `${deliveryFee.fee} ETB`}
+                                  {deliveryFee.fee === 0 ? 'FREE' : `${formattedDeliveryFee} ETB`}
                                 </Badge>
                               </div>
                               <div className="space-y-2 text-sm">
@@ -488,9 +508,7 @@ export const CartPanel = memo(({
                                 )}
                               </div>
                             </motion.div>
-                          )} */}
-
-                          {/* REMOVED APPLIED PROMOTION SECTION */}
+                          )}
                         </>
                       )}
                     </motion.div>
@@ -520,25 +538,24 @@ export const CartPanel = memo(({
           <div className="sticky bottom-0 border-t-2 border-purple-100 p-5 space-y-4 bg-gradient-to-b from-white/95 to-purple-50/95 backdrop-blur-md shadow-lg">
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Subtotal:</span>
-                <span className="font-semibold text-purple-900">{subtotal.toLocaleString()} ETB</span>
+                <span className="text-gray-600">Subtotal (excl. VAT):</span>
+                <span className="font-semibold text-purple-900">{formattedSubtotal} ETB</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Tax (15%):</span>
-                <span className="font-semibold text-purple-900">{tax.toLocaleString()} ETB</span>
+                <span className="text-gray-600">VAT (15%):</span>
+                <span className="font-semibold text-purple-900">{formattedTax} ETB</span>
               </div>
               {orderType === 'delivery' && deliveryFee && (
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Delivery Fee:</span>
-                  <span className="font-semibold text-purple-900">{deliveryFee.fee.toLocaleString()} ETB</span>
+                  <span className="font-semibold text-purple-900">{formattedDeliveryFee} ETB</span>
                 </div>
               )}
-              {/* REMOVED PROMOTION DISPLAY */}
               <Separator className="my-3 bg-gradient-to-r from-transparent via-purple-200 to-transparent" />
               <div className="flex justify-between font-bold text-xl">
-                <span className="text-gray-800">Total:</span>
+                <span className="text-gray-800">Total (incl. VAT):</span>
                 <span className="bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent">
-                  {total.toLocaleString()} ETB
+                  {formattedTotal} ETB
                 </span>
               </div>
             </div>

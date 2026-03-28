@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy, useRe
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { toast } from "react-hot-toast"
+import { Label } from "@/components/ui/label" 
 import { motion, AnimatePresence } from "framer-motion"
 import {
   ArrowLeft,
@@ -32,7 +33,8 @@ import {
   Bell,
   BellRing,
   Volume2,
-  VolumeX
+  VolumeX,
+  Home
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -42,8 +44,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
 import {
   Dialog,
   DialogContent,
@@ -57,7 +57,7 @@ import { Progress } from "@/components/ui/progress"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-// Types (same as before)
+// Types
 interface MenuItem {
   _id: string
   name: string
@@ -81,6 +81,8 @@ interface Category {
 interface CartItem extends MenuItem {
   quantity: number
   specialInstructions?: string
+  originalPrice?: number
+  taxAmount?: number
 }
 
 interface Waiter {
@@ -116,6 +118,23 @@ interface EditRequest {
   cancelledByRole?: string
 }
 
+interface AssignmentRequest {
+  status: 'pending' | 'accepted' | 'rejected'
+  type: 'table_assignment'
+  requestedAt: string
+  tableNumber: string
+  numberOfGuests: number
+  orderNumber: string
+  customerName: string
+  itemsCount: number
+  totalAmount: number
+  acceptedAt?: string
+  acceptedBy?: string
+  rejectedAt?: string
+  rejectedBy?: string
+  rejectionReason?: string
+}
+
 interface Order {
   id: string
   orderNumber: string
@@ -140,7 +159,15 @@ interface Order {
     role: string
   }
   editRequest?: EditRequest
+  assignmentRequest?: AssignmentRequest
   _id?: string
+}
+
+// Helper function to calculate price breakdown
+const calculatePriceBreakdown = (priceWithTax: number, taxRate: number = 0.15) => {
+  const originalPrice = priceWithTax / (1 + taxRate)
+  const taxAmount = priceWithTax - originalPrice
+  return { originalPrice, taxAmount }
 }
 
 // Custom debounce function
@@ -273,93 +300,132 @@ const fadeInUp = {
   exit: { opacity: 0, y: -20 },
 }
 
-// Lazy loaded components
-const MenuItemComponent = lazy(() => {
-  return new Promise<{ default: React.ComponentType<any> }>((resolve) => {
-    setTimeout(() => {
-      resolve({
-        default: ({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) => (
-          <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/30 group min-w-0">
-            <div className="relative aspect-square sm:aspect-[4/3] overflow-hidden rounded-t-lg">
-              <Image
-                src={item.imageUrl || "/placeholder.svg"}
-                alt={item.name}
-                fill
-                sizes="(max-width: 640px) 150px, (max-width: 1200px) 200px, 250px"
-                className="object-cover transition-transform duration-500 group-hover:scale-110"
-                loading="lazy"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.src = "/placeholder.svg";
-                }}
-              />
-              <div className="absolute top-2 right-2 bg-black/75 text-white text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm">
-                {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
+// Table Assignment Card Component
+function TableAssignmentCard({
+  order,
+  onAccept,
+  onReject,
+  isLoading
+}: {
+  order: Order;
+  onAccept: (orderId: string) => Promise<void>;
+  onReject: (orderId: string, reason?: string) => Promise<void>;
+  isLoading: boolean;
+}) {
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      <Card className="border-2 border-green-200 bg-green-50/30 hover:shadow-lg transition-shadow">
+        <CardContent className="p-3 sm:p-6">
+          <div className="flex flex-col gap-3 sm:gap-4">
+            <div className="flex items-start justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Home className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 animate-pulse" />
+                <h3 className="font-semibold text-sm sm:text-base">New Table Assignment - Order #{order.orderNumber}</h3>
+                <Badge className="bg-green-100 text-green-800 text-[10px] sm:text-xs">Table {order.tableNumber}</Badge>
               </div>
-              {item.tags?.includes('bestseller') && (
-                <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-[8px] sm:text-[9px] font-medium px-1.5 py-0.5 rounded-md backdrop-blur-sm flex items-center gap-1">
-                  <Sparkles className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
-                  Best
-                </div>
-              )}
-              <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={(e) => { e.stopPropagation(); addToCart(item); }}
-                  className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm text-xs sm:text-sm px-2 sm:px-3"
-                >
-                  <Plus className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                  Add
-                </Button>
+              <div className="text-xs sm:text-sm font-semibold text-green-600">
+                {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(order.finalAmount)}
               </div>
             </div>
-            <CardContent className="p-2 sm:p-3 flex flex-col gap-1 sm:gap-2 h-full">
-              <div className="space-y-0.5 flex-grow">
-                <h3 className="font-medium text-xs sm:text-sm line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
-                <p className="text-[9px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2">{item.description}</p>
+            
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <UserIcon className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+                <span className="truncate">Customer: {order.customerName || 'Walk-in'}</span>
               </div>
-              <div className="flex items-center justify-between mt-auto pt-1">
-                <div className="flex items-center gap-1 text-[8px] sm:text-[9px] text-muted-foreground">
-                  <Badge variant="outline" className="h-3.5 px-1 text-[7px] sm:text-[8px] font-normal flex items-center gap-0.5">
-                    <Clock className="h-1.5 w-1.5 sm:h-2 sm:w-2" />
-                    {item.preparationTime}m
-                  </Badge>
-                  <Badge variant="outline" className="h-3.5 px-1 text-[7px] sm:text-[8px] font-normal flex items-center gap-0.5">
-                    <Utensils className="h-1.5 w-1.5 sm:h-2 sm:w-2" />
-                    {item.calories}cal
-                  </Badge>
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <Users className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+                <span>Guests: {order.numberOfGuests}</span>
+              </div>
+              <div className="flex items-center gap-1.5 sm:gap-2 col-span-2 sm:col-span-1">
+                <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+                <span className="text-[10px] sm:text-xs">{new Date(order.createdAt).toLocaleString()}</span>
+              </div>
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <Package className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+                <span>{order.orderItems?.length || 0} items</span>
+              </div>
+            </div>
+            
+            {order.assignmentRequest && (
+              <div className="bg-white/70 rounded-lg p-2 sm:p-3 space-y-1">
+                <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm">
+                  <ChefHat className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
+                  <span className="font-medium">Order Details:</span>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={(e) => { e.stopPropagation(); addToCart(item); }}
-                  className="h-5 w-5 sm:h-6 sm:w-6 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0 relative overflow-hidden transition-transform hover:scale-110"
-                >
-                  <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                </Button>
+                <div className="text-[10px] sm:text-xs space-y-0.5 sm:space-y-1 pl-4 sm:pl-6">
+                  <p><span className="text-muted-foreground">Items:</span> {order.orderItems?.slice(0, 2).map(i => i.name).join(', ')}</p>
+                  {order.orderItems?.length > 2 && <p className="text-[9px] sm:text-[10px] text-muted-foreground">+{order.orderItems.length - 2} more items</p>}
+                  <p className="text-[9px] sm:text-[10px] text-muted-foreground">Requested: {new Date(order.assignmentRequest.requestedAt).toLocaleString()}</p>
+                </div>
               </div>
-            </CardContent>
-          </Card>
-        ),
-      })
-    }, 50)
-  })
-})
+            )}
+            
+            <div className="flex gap-2 sm:gap-3 mt-2">
+              <Button 
+                onClick={() => onAccept(order.id)} 
+                disabled={isLoading} 
+                className="flex-1 gap-1.5 sm:gap-2 bg-green-600 hover:bg-green-700 text-xs sm:text-sm h-8 sm:h-10"
+              >
+                <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                Accept & Serve
+              </Button>
+              <Button 
+                onClick={() => setShowRejectDialog(true)} 
+                disabled={isLoading} 
+                variant="outline" 
+                className="flex-1 gap-1.5 sm:gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-10"
+              >
+                <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                Decline
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-const MenuItemFallback = () => (
-  <div className="overflow-hidden h-full rounded-lg border border-border/40 bg-background/60">
-    <div className="relative aspect-square sm:aspect-[4/3] bg-muted/40 animate-pulse rounded-t-lg"></div>
-    <div className="p-2 sm:p-3 space-y-1 sm:space-y-2">
-      <div className="h-3 bg-muted/40 animate-pulse rounded-md w-3/4"></div>
-      <div className="h-2 bg-muted/40 animate-pulse rounded-md w-full"></div>
-      <div className="pt-1 flex items-center justify-between">
-        <div className="h-3 bg-muted/40 animate-pulse rounded-md w-1/3"></div>
-        <div className="h-5 w-5 bg-muted/40 animate-pulse rounded-full"></div>
-      </div>
-    </div>
-  </div>
-)
+      {/* Reject Dialog */}
+      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Decline Table Assignment</DialogTitle>
+            <DialogDescription>
+              Please provide a reason for declining this assignment.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Reason for declining (e.g., too busy, shift ending, etc.)"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            className="min-h-[100px]"
+          />
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowRejectDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={() => {
+                onReject(order.id, rejectReason);
+                setShowRejectDialog(false);
+                setRejectReason('');
+              }}
+            >
+              Decline Assignment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </motion.div>
+  );
+}
 
 // Pending Transfer Requests Component
 function PendingTransferRequests({ 
@@ -478,7 +544,7 @@ function PendingTransferRequests({
   );
 }
 
-// Cart Panel Component
+// Cart Panel Component with correct tax calculation
 function CartPanel({
   cart,
   updateQuantity,
@@ -516,51 +582,67 @@ function CartPanel({
         <>
           <ScrollArea className="flex-1 p-2 sm:p-3">
             <div className="space-y-2 sm:space-y-3">
-              {cart.map((item: any) => (
-                <div key={item._id} className="flex border rounded-lg overflow-hidden bg-background/50">
-                  <div className="relative h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0">
-                    <Image src={item.imageUrl || "/placeholder.svg"} alt={item.name} fill sizes="56px" className="object-cover" />
-                  </div>
-                  <div className="flex-1 p-1.5 sm:p-2 flex flex-col">
-                    <div className="flex items-start justify-between gap-1">
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium text-xs sm:text-sm truncate">{item.name}</h4>
-                        <p className="text-[9px] sm:text-[10px] text-muted-foreground">
-                          {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
-                        </p>
-                      </div>
-                      <Button variant="ghost" size="icon" onClick={() => removeFromCart(item._id)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-full text-destructive">
-                        <X className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                      </Button>
+              {cart.map((item: any) => {
+                const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+                const itemTotalOriginal = originalPrice * item.quantity;
+                const itemTotalTax = taxAmount * item.quantity;
+                
+                return (
+                  <div key={item._id} className="flex border rounded-lg overflow-hidden bg-background/50">
+                    <div className="relative h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0">
+                      <Image src={item.imageUrl || "/placeholder.svg"} alt={item.name} fill sizes="56px" className="object-cover" />
                     </div>
-                    <div className="mt-1 pt-0.5 flex justify-between items-center">
-                      <div className="flex items-center border rounded-md">
-                        <Button variant="ghost" size="icon" onClick={() => updateQuantity(item._id, item.quantity - 1)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-l-md p-0">
-                          <Minus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                        </Button>
-                        <span className="w-5 sm:w-6 text-center text-[10px] sm:text-xs font-medium">{item.quantity}</span>
-                        <Button variant="ghost" size="icon" onClick={() => updateQuantity(item._id, item.quantity + 1)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-r-md p-0">
-                          <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                    <div className="flex-1 p-1.5 sm:p-2 flex flex-col">
+                      <div className="flex items-start justify-between gap-1">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-xs sm:text-sm truncate">{item.name}</h4>
+                          <div className="flex flex-col">
+                            <p className="text-[9px] sm:text-[10px] text-muted-foreground">
+                              {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(originalPrice)} <span className="text-[8px]">(excl. VAT)</span>
+                            </p>
+                            <p className="text-[8px] sm:text-[9px] text-primary">
+                              + VAT: {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(taxAmount)}
+                            </p>
+                          </div>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => removeFromCart(item._id)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-full text-destructive">
+                          <X className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                         </Button>
                       </div>
-                      <span className="text-[10px] sm:text-xs font-medium">
-                        {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price * item.quantity)}
-                      </span>
+                      <div className="mt-1 pt-0.5 flex justify-between items-center">
+                        <div className="flex items-center border rounded-md">
+                          <Button variant="ghost" size="icon" onClick={() => updateQuantity(item._id, item.quantity - 1)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-l-md p-0">
+                            <Minus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                          </Button>
+                          <span className="w-5 sm:w-6 text-center text-[10px] sm:text-xs font-medium">{item.quantity}</span>
+                          <Button variant="ghost" size="icon" onClick={() => updateQuantity(item._id, item.quantity + 1)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-r-md p-0">
+                            <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                          </Button>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] sm:text-xs font-medium">
+                            {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(itemTotalOriginal)}
+                          </span>
+                          <p className="text-[7px] sm:text-[8px] text-muted-foreground">
+                            + VAT: {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(itemTotalTax)}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </ScrollArea>
 
           <div className="border-t p-3 sm:p-4 space-y-2 sm:space-y-3">
             <div className="space-y-1 sm:space-y-2">
               <div className="flex items-center justify-between text-[10px] sm:text-xs">
-                <span className="text-muted-foreground">Subtotal</span>
+                <span className="text-muted-foreground">Subtotal (excl. VAT)</span>
                 <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(subtotal)}</span>
               </div>
               <div className="flex items-center justify-between text-[10px] sm:text-xs">
-                <span className="text-muted-foreground">Tax (15%)</span>
+                <span className="text-muted-foreground">VAT (15%)</span>
                 <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(tax)}</span>
               </div>
               {discount > 0 && (
@@ -571,7 +653,7 @@ function CartPanel({
               )}
               <Separator />
               <div className="flex items-center justify-between font-semibold text-xs sm:text-sm">
-                <span>Total</span>
+                <span>Total (incl. VAT)</span>
                 <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(total)}</span>
               </div>
             </div>
@@ -629,8 +711,10 @@ function CartPanel({
   );
 }
 
-// List View Item Component
+// List View Item Component with tax info
 function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) {
+  const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+  
   return (
     <div className="flex border border-border/40 rounded-lg overflow-hidden hover:border-primary/30 transition-all bg-background hover:bg-background/95 hover:shadow-sm group">
       <div className="relative h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0 overflow-hidden">
@@ -647,7 +731,10 @@ function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: M
           </div>
           <div className="flex flex-col items-end">
             <span className="text-[9px] sm:text-[10px] font-medium text-primary">
-              {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}
+              {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)} <span className="text-[7px]">incl. VAT</span>
+            </span>
+            <span className="text-[7px] sm:text-[8px] text-muted-foreground">
+              {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(originalPrice)} excl.
             </span>
             <div className="flex gap-0.5 sm:gap-1 mt-0.5">
               <Badge variant="outline" className="h-3 px-0.5 sm:px-1 text-[6px] sm:text-[7px] font-normal">{item.preparationTime}m</Badge>
@@ -665,7 +752,100 @@ function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: M
   );
 }
 
-// Main Component - COMPLETELY REWRITTEN with proper polling
+// Lazy loaded components
+const MenuItemComponent = lazy(() => {
+  return new Promise<{ default: React.ComponentType<any> }>((resolve) => {
+    setTimeout(() => {
+      resolve({
+        default: ({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) => {
+          const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+          
+          return (
+            <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/30 group min-w-0">
+              <div className="relative aspect-square sm:aspect-[4/3] overflow-hidden rounded-t-lg">
+                <Image
+                  src={item.imageUrl || "/placeholder.svg"}
+                  alt={item.name}
+                  fill
+                  sizes="(max-width: 640px) 150px, (max-width: 1200px) 200px, 250px"
+                  className="object-cover transition-transform duration-500 group-hover:scale-110"
+                  loading="lazy"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = "/placeholder.svg";
+                  }}
+                />
+                <div className="absolute top-2 right-2 bg-black/75 text-white text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm flex flex-col items-end">
+                  <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}</span>
+                  <span className="text-[6px] sm:text-[7px] opacity-80">incl. VAT</span>
+                </div>
+                {item.tags?.includes('bestseller') && (
+                  <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-[8px] sm:text-[9px] font-medium px-1.5 py-0.5 rounded-md backdrop-blur-sm flex items-center gap-1">
+                    <Sparkles className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
+                    Best
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={(e) => { e.stopPropagation(); addToCart(item); }}
+                    className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm text-xs sm:text-sm px-2 sm:px-3"
+                  >
+                    <Plus className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                    Add
+                  </Button>
+                </div>
+              </div>
+              <CardContent className="p-2 sm:p-3 flex flex-col gap-1 sm:gap-2 h-full">
+                <div className="space-y-0.5 flex-grow">
+                  <h3 className="font-medium text-xs sm:text-sm line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
+                  <p className="text-[9px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2">{item.description}</p>
+                </div>
+                <div className="flex items-center justify-between mt-auto pt-1">
+                  <div className="flex items-center gap-1 text-[8px] sm:text-[9px] text-muted-foreground">
+                    <Badge variant="outline" className="h-3.5 px-1 text-[7px] sm:text-[8px] font-normal flex items-center gap-0.5">
+                      <Clock className="h-1.5 w-1.5 sm:h-2 sm:w-2" />
+                      {item.preparationTime}m
+                    </Badge>
+                    <Badge variant="outline" className="h-3.5 px-1 text-[7px] sm:text-[8px] font-normal flex items-center gap-0.5">
+                      <Utensils className="h-1.5 w-1.5 sm:h-2 sm:w-2" />
+                      {item.calories}cal
+                    </Badge>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => { e.stopPropagation(); addToCart(item); }}
+                    className="h-5 w-5 sm:h-6 sm:w-6 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0 relative overflow-hidden transition-transform hover:scale-110"
+                  >
+                    <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        },
+      })
+    }, 50)
+  })
+})
+
+const MenuItemFallback = () => (
+  <div className="overflow-hidden h-full rounded-lg border border-border/40 bg-background/60">
+    <div className="relative aspect-square sm:aspect-[4/3] bg-muted/40 animate-pulse rounded-t-lg"></div>
+    <div className="p-2 sm:p-3 space-y-1 sm:space-y-2">
+      <div className="h-3 bg-muted/40 animate-pulse rounded-md w-3/4"></div>
+      <div className="h-2 bg-muted/40 animate-pulse rounded-md w-full"></div>
+      <div className="pt-1 flex items-center justify-between">
+        <div className="h-3 bg-muted/40 animate-pulse rounded-md w-1/3"></div>
+        <div className="h-5 w-5 bg-muted/40 animate-pulse rounded-full"></div>
+      </div>
+    </div>
+  </div>
+)
+
+// Main Component
 export default function POSPage() {
   const router = useRouter()
   const [categories, setCategories] = useState<Category[]>([])
@@ -686,14 +866,18 @@ export default function POSPage() {
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [activeView, setActiveView] = useState<'grid' | 'list'>('grid')
   const [pendingTransfers, setPendingTransfers] = useState<Order[]>([])
+  const [tableAssignments, setTableAssignments] = useState<Order[]>([])
   const [isProcessingTransfer, setIsProcessingTransfer] = useState(false)
+  const [isProcessingAssignment, setIsProcessingAssignment] = useState(false)
   const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string; email: string } | null>(null)
   const [showNotification, setShowNotification] = useState(false)
   const [notificationData, setNotificationData] = useState({ title: '', message: '' })
   
   // Use refs to store data that shouldn't trigger re-renders
   const lastRequestIdsRef = useRef<string[]>([]);
+  const lastAssignmentIdsRef = useRef<string[]>([]);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const assignmentPollingRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef<boolean>(true);
   
   // Sound hook
@@ -790,88 +974,159 @@ export default function POSPage() {
     fetchData();
   }, []);
 
-  // CRITICAL FIX: Polling function that doesn't depend on state
+  // Fetch table assignments
+  const fetchTableAssignments = useCallback(async () => {
+    if (!currentUser?.id) return;
+    
+    try {
+      const response = await fetch(`/api/order/table-assignments?waiterId=${currentUser.id}`);
+      const data = await response.json();
+      
+      if (data.success && isMountedRef.current) {
+        const newAssignments = (data.assignments || []) as Order[];
+        const newAssignmentIds = newAssignments.map(a => a.id);
+        
+        // Check for truly new assignments
+        const trulyNewAssignments = newAssignments.filter(a => !lastAssignmentIdsRef.current.includes(a.id));
+        
+        if (trulyNewAssignments.length > 0) {
+          console.log(`🎵 Found ${trulyNewAssignments.length} new table assignments!`);
+          
+          trulyNewAssignments.forEach(newAssignment => {
+            console.log(`🔊 Playing sound for table assignment - Order #${newAssignment.orderNumber}`);
+            playNotificationSound();
+            
+            if (isMountedRef.current) {
+              setNotificationData({
+                title: `New Table Assignment - Order #${newAssignment.orderNumber}`,
+                message: `Table ${newAssignment.tableNumber} | ${newAssignment.numberOfGuests} guests`
+              });
+              setShowNotification(true);
+              setTimeout(() => setShowNotification(false), 4000);
+              
+              toast.custom((t) => (
+                <div className={`bg-green-50 border-l-4 border-green-500 p-3 rounded shadow-lg ${t.visible ? 'animate-in slide-in-from-top-2' : 'animate-out slide-out-to-top-2'}`}>
+                  <div className="flex items-center gap-2">
+                    <Home className="h-4 w-4 text-green-600 animate-pulse" />
+                    <div>
+                      <p className="font-medium text-sm">New Table Assignment!</p>
+                      <p className="text-xs text-muted-foreground">
+                        Order #{newAssignment.orderNumber} - Table {newAssignment.tableNumber}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ), { duration: 4000 });
+            }
+          });
+        }
+        
+        // Update refs
+        lastAssignmentIdsRef.current = newAssignmentIds;
+        
+        // Update state
+        if (isMountedRef.current) {
+          setTableAssignments(newAssignments);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching table assignments:', error);
+    }
+  }, [currentUser?.id, playNotificationSound]);
+
+  // Fetch transfer requests
+  const fetchTransfers = useCallback(async () => {
+    if (!currentUser?.id) return;
+    
+    try {
+      const response = await fetch(`/api/order/pending-requests?waiterId=${currentUser.id}`);
+      const data = await response.json();
+      
+      if (data.success && isMountedRef.current) {
+        const newRequests = (data.requests || []) as Order[];
+        const newRequestIds = newRequests.map(r => r.id);
+        
+        // Check for truly new requests
+        const trulyNewRequests = newRequests.filter(r => !lastRequestIdsRef.current.includes(r.id));
+        
+        if (trulyNewRequests.length > 0) {
+          console.log(`🎵 Found ${trulyNewRequests.length} new transfer requests!`);
+          
+          trulyNewRequests.forEach(newRequest => {
+            console.log(`🔊 Playing sound for order #${newRequest.orderNumber}`);
+            playNotificationSound();
+            
+            if (isMountedRef.current) {
+              setNotificationData({
+                title: `New Transfer Request - Order #${newRequest.orderNumber}`,
+                message: `From: ${newRequest.editRequest?.requestedByName || 'Unknown'} | Table: ${newRequest.tableNumber}`
+              });
+              setShowNotification(true);
+              setTimeout(() => setShowNotification(false), 4000);
+              
+              toast.custom((t) => (
+                <div className={`bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded shadow-lg ${t.visible ? 'animate-in slide-in-from-top-2' : 'animate-out slide-out-to-top-2'}`}>
+                  <div className="flex items-center gap-2">
+                    <BellRing className="h-4 w-4 text-yellow-600 animate-pulse" />
+                    <div>
+                      <p className="font-medium text-sm">New Transfer Request!</p>
+                      <p className="text-xs text-muted-foreground">
+                        Order #{newRequest.orderNumber} from {newRequest.editRequest?.requestedByName}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ), { duration: 4000 });
+            }
+          });
+        }
+        
+        // Update refs
+        lastRequestIdsRef.current = newRequestIds;
+        
+        // Update state
+        if (isMountedRef.current) {
+          setPendingTransfers(newRequests);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching pending transfers:', error);
+    }
+  }, [currentUser?.id, playNotificationSound]);
+
+  // Start polling for both transfers and assignments
   const startPolling = useCallback(() => {
     if (!currentUser?.id) return;
     
-    // Clear existing interval
+    // Clear existing intervals
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
+    if (assignmentPollingRef.current) {
+      clearInterval(assignmentPollingRef.current);
+      assignmentPollingRef.current = null;
+    }
     
     console.log(`[Polling] Starting polling for waiter: ${currentUser.id}`);
     
-    // Function to fetch transfers (defined inside to access refs)
-    const fetchTransfers = async () => {
-      if (!isMountedRef.current) return;
-      
-      try {
-        const response = await fetch(`/api/order/pending-requests?waiterId=${currentUser.id}`);
-        const data = await response.json();
-        
-        if (data.success && isMountedRef.current) {
-          const newRequests = (data.requests || []) as Order[];
-          const newRequestIds = newRequests.map(r => r.id);
-          
-          // Check for truly new requests
-          const trulyNewRequests = newRequests.filter(r => !lastRequestIdsRef.current.includes(r.id));
-          
-          if (trulyNewRequests.length > 0) {
-            console.log(`🎵 Found ${trulyNewRequests.length} new transfer requests!`);
-            
-            trulyNewRequests.forEach(newRequest => {
-              console.log(`🔊 Playing sound for order #${newRequest.orderNumber}`);
-              playNotificationSound();
-              
-              if (isMountedRef.current) {
-                setNotificationData({
-                  title: `New Transfer Request - Order #${newRequest.orderNumber}`,
-                  message: `From: ${newRequest.editRequest?.requestedByName || 'Unknown'} | Table: ${newRequest.tableNumber}`
-                });
-                setShowNotification(true);
-                setTimeout(() => setShowNotification(false), 4000);
-                
-                toast.custom((t) => (
-                  <div className={`bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded shadow-lg ${t.visible ? 'animate-in slide-in-from-top-2' : 'animate-out slide-out-to-top-2'}`}>
-                    <div className="flex items-center gap-2">
-                      <BellRing className="h-4 w-4 text-yellow-600 animate-pulse" />
-                      <div>
-                        <p className="font-medium text-sm">New Transfer Request!</p>
-                        <p className="text-xs text-muted-foreground">
-                          Order #{newRequest.orderNumber} from {newRequest.editRequest?.requestedByName}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ), { duration: 4000 });
-              }
-            });
-          }
-          
-          // Update refs
-          lastRequestIdsRef.current = newRequestIds;
-          
-          // Update state
-          if (isMountedRef.current) {
-            setPendingTransfers(newRequests);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching pending transfers:', error);
-      }
-    };
-    
-    // Initial fetch
+    // Initial fetches
     fetchTransfers();
+    fetchTableAssignments();
     
-    // Set up interval (15 seconds)
+    // Set up intervals (15 seconds for both)
     pollingIntervalRef.current = setInterval(() => {
       if (isMountedRef.current) {
         fetchTransfers();
       }
     }, 15000);
-  }, [currentUser?.id, playNotificationSound]);
+    
+    assignmentPollingRef.current = setInterval(() => {
+      if (isMountedRef.current) {
+        fetchTableAssignments();
+      }
+    }, 15000);
+  }, [currentUser?.id, fetchTransfers, fetchTableAssignments]);
 
   // Start polling when user is loaded
   useEffect(() => {
@@ -883,6 +1138,10 @@ export default function POSPage() {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
+      }
+      if (assignmentPollingRef.current) {
+        clearInterval(assignmentPollingRef.current);
+        assignmentPollingRef.current = null;
       }
     };
   }, [currentUser?.id, startPolling]);
@@ -906,12 +1165,14 @@ export default function POSPage() {
       return;
     }
 
+    const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+    
     setCart((prev) => {
       const existing = prev.find((i) => i._id === item._id)
       if (existing) {
         return prev.map((i) => (i._id === item._id ? { ...i, quantity: i.quantity + 1 } : i))
       }
-      return [...prev, { ...item, quantity: 1 }]
+      return [...prev, { ...item, quantity: 1, originalPrice, taxAmount }]
     })
 
     toast.success(`Added ${item.name} to cart`);
@@ -930,11 +1191,26 @@ export default function POSPage() {
     setCart((prev) => prev.map((item) => (item._id === itemId ? { ...item, quantity: newQuantity } : item)))
   }, [removeFromCart])
 
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
-  const tax = subtotal * 0.15
-  const discount = applyDiscount ? subtotal * 0.1 : 0
-  const total = subtotal + tax - discount
+  // Calculate subtotal (original prices without tax)
+  const subtotal = cart.reduce((sum, item) => {
+    const originalPrice = item.originalPrice || (item.price / 1.15)
+    return sum + originalPrice * item.quantity
+  }, 0)
+  
+  // Calculate total tax (sum of tax from all items)
+  const tax = cart.reduce((sum, item) => {
+    const taxAmount = item.taxAmount || (item.price - (item.price / 1.15))
+    return sum + taxAmount * item.quantity
+  }, 0)
+  
+  // Calculate total with tax
+  const totalWithTax = subtotal + tax
+  
+  // Discount is applied to total with tax
+  const discount = applyDiscount ? totalWithTax * 0.1 : 0
+  const finalTotal = totalWithTax - discount
 
+  // Handle accept transfer
   const handleAcceptTransfer = useCallback(async (orderId: string) => {
     setIsProcessingTransfer(true);
     try {
@@ -949,14 +1225,7 @@ export default function POSPage() {
         toast.success('Transfer accepted! Order assigned to you.');
         if (soundEnabled) playNotificationSound();
         // Refresh transfers
-        if (currentUser?.id) {
-          const response = await fetch(`/api/order/pending-requests?waiterId=${currentUser.id}`);
-          const data = await response.json();
-          if (data.success && isMountedRef.current) {
-            setPendingTransfers(data.requests || []);
-            lastRequestIdsRef.current = (data.requests || []).map((r: Order) => r.id);
-          }
-        }
+        await fetchTransfers();
         window.location.reload();
       } else {
         throw new Error(data.error || 'Failed to accept transfer');
@@ -967,8 +1236,9 @@ export default function POSPage() {
     } finally {
       setIsProcessingTransfer(false);
     }
-  }, [currentUser?.id, soundEnabled, playNotificationSound]);
+  }, [currentUser?.id, soundEnabled, playNotificationSound, fetchTransfers]);
 
+  // Handle cancel transfer
   const handleCancelTransfer = useCallback(async (orderId: string) => {
     setIsProcessingTransfer(true);
     try {
@@ -982,14 +1252,7 @@ export default function POSPage() {
       if (data.success) {
         toast('Transfer request cancelled.', { icon: 'ℹ️' });
         // Refresh transfers
-        if (currentUser?.id) {
-          const response = await fetch(`/api/order/pending-requests?waiterId=${currentUser.id}`);
-          const data = await response.json();
-          if (data.success && isMountedRef.current) {
-            setPendingTransfers(data.requests || []);
-            lastRequestIdsRef.current = (data.requests || []).map((r: Order) => r.id);
-          }
-        }
+        await fetchTransfers();
       } else {
         throw new Error(data.error || 'Failed to cancel transfer');
       }
@@ -999,7 +1262,69 @@ export default function POSPage() {
     } finally {
       setIsProcessingTransfer(false);
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, fetchTransfers]);
+
+  // Handle accept table assignment
+  const handleAcceptAssignment = useCallback(async (orderId: string) => {
+    setIsProcessingAssignment(true);
+    try {
+      const response = await fetch('/api/order/accept-assignment', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, action: 'accept', waiterId: currentUser?.id }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast.success('Assignment accepted! Order added to your queue.');
+        if (soundEnabled) playNotificationSound();
+        // Refresh assignments
+        await fetchTableAssignments();
+        window.location.reload();
+      } else {
+        throw new Error(data.error || 'Failed to accept assignment');
+      }
+    } catch (error) {
+      console.error('Error accepting assignment:', error);
+      toast.error('Failed to accept assignment');
+    } finally {
+      setIsProcessingAssignment(false);
+    }
+  }, [currentUser?.id, soundEnabled, playNotificationSound, fetchTableAssignments]);
+
+  // Handle reject table assignment - FIXED: replaced toast.info with toast with custom style
+  const handleRejectAssignment = useCallback(async (orderId: string, reason?: string) => {
+    setIsProcessingAssignment(true);
+    try {
+      const response = await fetch('/api/order/accept-assignment', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, action: 'reject', waiterId: currentUser?.id, reason }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast('Assignment declined. The order will be reassigned.', {
+          icon: 'ℹ️',
+          style: {
+            borderRadius: '10px',
+            background: '#f59e0b',
+            color: '#fff',
+          },
+        });
+        if (soundEnabled) playNotificationSound();
+        // Refresh assignments
+        await fetchTableAssignments();
+      } else {
+        throw new Error(data.error || 'Failed to decline assignment');
+      }
+    } catch (error) {
+      console.error('Error rejecting assignment:', error);
+      toast.error('Failed to decline assignment');
+    } finally {
+      setIsProcessingAssignment(false);
+    }
+  }, [currentUser?.id, soundEnabled, playNotificationSound, fetchTableAssignments]);
 
   const handleNewRequest = useCallback((request: Order) => {
     if (soundEnabled) {
@@ -1019,20 +1344,35 @@ export default function POSPage() {
       return
     }
 
+    // Prepare items with proper tax breakdown
+    const itemsWithTax = cart.map(item => {
+      const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price)
+      return {
+        itemId: item._id,
+        quantity: item.quantity,
+        specialInstructions: item.specialInstructions || "",
+        priceWithTax: item.price,
+        priceWithoutTax: originalPrice,
+        taxAmount: taxAmount,
+        subtotal: originalPrice * item.quantity,
+        taxTotal: taxAmount * item.quantity,
+        total: item.price * item.quantity
+      }
+    })
+
     const orderData = {
       orderNumber,
       tableNumber,
       waiterId: selectedWaiter,
       customerId: "walk-in",
       numberOfGuests,
-      items: cart.map(item => ({
-        itemId: item._id,
-        quantity: item.quantity,
-        specialInstructions: item.specialInstructions || "",
-        status: "PENDING",
-      })),
+      items: itemsWithTax,
       status: "PENDING",
       discount: discount,
+      subtotal: subtotal,
+      tax: tax,
+      totalAmount: totalWithTax,
+      finalAmount: finalTotal,
       paymentMethod: "CARD",
       specialRequirements,
       isActive: true,
@@ -1053,6 +1393,7 @@ export default function POSPage() {
         toast.success("Order placed successfully!", { id: orderToast })
         setCart([])
         setOrderNumber(`ORD-${Date.now()}`)
+        setIsCartOpen(false)
         router.refresh()
 
         let progress = 0
@@ -1101,22 +1442,42 @@ export default function POSPage() {
           exit={{ opacity: 0, y: -50, x: '-50%' }}
           className="fixed top-4 left-1/2 z-50 w-[90%] max-w-md"
         >
-          <div className="bg-yellow-50 border-l-4 border-yellow-500 rounded-lg shadow-lg overflow-hidden">
+          <div className={`rounded-lg shadow-lg overflow-hidden ${
+            notificationData.title.includes('Table Assignment') 
+              ? 'bg-green-50 border-l-4 border-green-500' 
+              : 'bg-yellow-50 border-l-4 border-yellow-500'
+          }`}>
             <div className="p-4">
               <div className="flex items-start gap-3">
                 <div className="flex-shrink-0">
-                  <BellRing className="h-5 w-5 text-yellow-600 animate-pulse" />
+                  {notificationData.title.includes('Table Assignment') ? (
+                    <Home className="h-5 w-5 text-green-600 animate-pulse" />
+                  ) : (
+                    <BellRing className="h-5 w-5 text-yellow-600 animate-pulse" />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-yellow-800">{notificationData.title}</p>
-                  <p className="text-xs text-yellow-700 mt-1">{notificationData.message}</p>
+                  <p className={`text-sm font-medium ${
+                    notificationData.title.includes('Table Assignment') 
+                      ? 'text-green-800' 
+                      : 'text-yellow-800'
+                  }`}>{notificationData.title}</p>
+                  <p className={`text-xs mt-1 ${
+                    notificationData.title.includes('Table Assignment') 
+                      ? 'text-green-700' 
+                      : 'text-yellow-700'
+                  }`}>{notificationData.message}</p>
                 </div>
-                <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0 text-yellow-600 hover:text-yellow-800 hover:bg-yellow-100" onClick={() => setShowNotification(false)}>
+                <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => setShowNotification(false)}>
                   <X className="h-3 w-3" />
                 </Button>
               </div>
             </div>
-            <div className="h-1 bg-yellow-500 animate-progress" style={{ animationDuration: '4000ms' }} />
+            <div className={`h-1 animate-progress ${
+              notificationData.title.includes('Table Assignment') 
+                ? 'bg-green-500' 
+                : 'bg-yellow-500'
+            }`} style={{ animationDuration: '4000ms' }} />
           </div>
         </motion.div>
       )}
@@ -1195,7 +1556,7 @@ export default function POSPage() {
                     subtotal={subtotal}
                     tax={tax}
                     discount={discount}
-                    total={total}
+                    total={finalTotal}
                     applyDiscount={applyDiscount}
                     setApplyDiscount={setApplyDiscount}
                     numberOfGuests={numberOfGuests}
@@ -1212,6 +1573,37 @@ export default function POSPage() {
           </div>
         </header>
 
+        {/* Table Assignments Section */}
+        {tableAssignments.length > 0 && (
+          <div className="border-b bg-green-50/30 p-2 sm:p-3 max-h-[40vh] overflow-y-auto">
+            <div className="max-w-6xl mx-auto">
+              <div className="flex items-center justify-between mb-2 sm:mb-3 sticky top-0 bg-green-50/30 py-1">
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <Home className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
+                  <h2 className="font-semibold text-sm sm:text-base">New Table Assignments</h2>
+                  <Badge className="bg-green-100 text-green-800 text-[10px] sm:text-xs">{tableAssignments.length}</Badge>
+                </div>
+                <Button variant="ghost" size="sm" onClick={fetchTableAssignments} disabled={isProcessingAssignment} className="h-6 sm:h-7 text-[10px] sm:text-xs">
+                  <RefreshCw className={`h-3 w-3 sm:h-3.5 sm:w-3.5 mr-1 ${isProcessingAssignment ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
+              
+              <div className="space-y-3 sm:space-y-4">
+                {tableAssignments.map((order) => (
+                  <TableAssignmentCard
+                    key={order.id}
+                    order={order}
+                    onAccept={handleAcceptAssignment}
+                    onReject={handleRejectAssignment}
+                    isLoading={isProcessingAssignment}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Pending Transfer Requests Section */}
         {pendingTransfers.length > 0 && (
           <div className="border-b bg-yellow-50/30 p-2 sm:p-3 max-h-[40vh] overflow-y-auto">
@@ -1222,7 +1614,7 @@ export default function POSPage() {
                   <h2 className="font-semibold text-sm sm:text-base">Transfer Requests</h2>
                   <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs">{pendingTransfers.length}</Badge>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => startPolling()} disabled={isProcessingTransfer} className="h-6 sm:h-7 text-[10px] sm:text-xs">
+                <Button variant="ghost" size="sm" onClick={fetchTransfers} disabled={isProcessingTransfer} className="h-6 sm:h-7 text-[10px] sm:text-xs">
                   <RefreshCw className={`h-3 w-3 sm:h-3.5 sm:w-3.5 mr-1 ${isProcessingTransfer ? 'animate-spin' : ''}`} />
                   Refresh
                 </Button>

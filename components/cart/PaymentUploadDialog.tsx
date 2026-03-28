@@ -27,14 +27,24 @@ interface PaymentUploadDialogProps {
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
   transactionId: string
   onTransactionIdChange: (value: string) => void
-  subtotal: number
-  tax: number
+  subtotal: number  // Original price before tax (e.g., 869.57)
+  tax: number       // Tax amount (e.g., 130.43)
   orderType: string
   deliveryFee: number
-  total: number
+  total: number     // Total payment with tax (e.g., 1000)
   onFinalizeOrder: () => Promise<void>
   isPlacingOrder: boolean
-  // REMOVED appliedPromotion
+}
+
+// Helper function to safely format numbers
+const formatCurrency = (value: number | undefined | null): string => {
+  if (value === undefined || value === null || isNaN(value)) {
+    return '0'
+  }
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })
 }
 
 export const PaymentUploadDialog = memo(({
@@ -45,20 +55,25 @@ export const PaymentUploadDialog = memo(({
   onFileUpload,
   transactionId,
   onTransactionIdChange,
-  subtotal,
-  tax,
-  orderType,
-  deliveryFee,
-  total,
+  subtotal = 0,
+  tax = 0,
+  orderType = '',
+  deliveryFee = 0,
+  total = 0,
   onFinalizeOrder,
-  isPlacingOrder,
-  // REMOVED appliedPromotion
+  isPlacingOrder = false,
 }: PaymentUploadDialogProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileInputClick = () => {
     fileInputRef.current?.click()
   }
+
+  // Safely format all numeric values
+  const formattedSubtotal = formatCurrency(subtotal)
+  const formattedTax = formatCurrency(tax)
+  const formattedDeliveryFee = formatCurrency(deliveryFee)
+  const formattedTotal = formatCurrency(total)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -113,7 +128,7 @@ export const PaymentUploadDialog = memo(({
                 <div className="flex justify-between items-center py-2">
                   <span className="text-gray-600 font-medium">Amount to Pay:</span>
                   <div className="text-right">
-                    <span className="text-2xl font-bold text-purple-900">{total.toLocaleString()}</span>
+                    <span className="text-2xl font-bold text-purple-900">{formattedTotal}</span>
                     <span className="text-sm text-gray-500 ml-1">ETB</span>
                   </div>
                 </div>
@@ -248,28 +263,27 @@ export const PaymentUploadDialog = memo(({
               
               <div className="space-y-3">
                 <div className="flex justify-between items-center py-2 border-b border-purple-100">
-                  <span className="text-gray-600">Subtotal:</span>
-                  <span className="font-semibold text-purple-900">{subtotal.toLocaleString()} ETB</span>
+                  <span className="text-gray-600">Original Price (before tax):</span>
+                  <span className="font-semibold text-purple-900">{formattedSubtotal} ETB</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-purple-100">
                   <span className="text-gray-600">Tax (15%):</span>
-                  <span className="font-semibold text-purple-900">{tax.toLocaleString()} ETB</span>
+                  <span className="font-semibold text-purple-900">{formattedTax} ETB</span>
                 </div>
                 {orderType === 'delivery' && (
                   <div className="flex justify-between items-center py-2 border-b border-purple-100">
                     <span className="text-gray-600">Delivery Fee:</span>
-                    <span className="font-semibold text-purple-900">{deliveryFee.toLocaleString()} ETB</span>
+                    <span className="font-semibold text-purple-900">{formattedDeliveryFee} ETB</span>
                   </div>
                 )}
-                {/* REMOVED PROMOTION DISPLAY */}
                 
                 <Separator className="my-2 bg-gradient-to-r from-transparent via-purple-200 to-transparent" />
                 
                 <div className="flex justify-between items-center pt-2">
-                  <span className="text-base font-bold text-gray-800">Total:</span>
+                  <span className="text-base font-bold text-gray-800">Total (including tax):</span>
                   <div className="text-right">
                     <span className="text-2xl font-bold bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent">
-                      {total.toLocaleString()}
+                      {formattedTotal}
                     </span>
                     <span className="text-sm text-gray-500 ml-1">ETB</span>
                   </div>

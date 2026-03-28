@@ -79,7 +79,14 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { useNotificationSound } from '@/hooks/useNotificationSound';
 
-// Types (same as before)
+// Helper function to calculate price breakdown (extract tax from price that includes tax)
+const calculatePriceBreakdown = (priceWithTax: number, taxRate: number = 0.15) => {
+  const originalPrice = priceWithTax / (1 + taxRate);
+  const taxAmount = priceWithTax - originalPrice;
+  return { originalPrice, taxAmount };
+};
+
+// Types
 interface MenuItem {
   _id: string;
   name: string;
@@ -114,6 +121,8 @@ interface CartItem extends MenuItem {
   specialInstructions?: string;
   cartId: string;
   orderItemId?: string;
+  originalPrice?: number;
+  taxAmount?: number;
 }
 
 interface OrderItem {
@@ -243,81 +252,86 @@ const SoundToggleButton = ({ isEnabled, onToggle }: { isEnabled: boolean; onTogg
   </Button>
 );
 
-// Menu Item Component
-const MenuItemComponent = ({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) => (
-  <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/30 group">
-    <div className="relative aspect-square sm:aspect-[4/3] overflow-hidden rounded-t-lg">
-      <Image
-        src={item.imageUrl || "/placeholder.svg"}
-        alt={item.name}
-        fill
-        sizes="(max-width: 640px) 150px, (max-width: 1200px) 200px, 250px"
-        className="object-cover transition-transform duration-500 group-hover:scale-110"
-        loading="lazy"
-      />
-      <div className="absolute top-2 right-2 bg-black/75 text-white text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm">
-        ${item.price.toFixed(2)}
-      </div>
-      
-      {item.tags?.includes('bestseller') && (
-        <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-[9px] font-medium px-1.5 py-0.5 rounded-md backdrop-blur-sm flex items-center gap-1">
-          <Sparkles className="h-2.5 w-2.5" />
-          Best
-        </div>
-      )}
-      
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-        <Button
-          variant="default"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            addToCart(item);
-          }}
-          className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm"
-        >
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          Add to cart
-        </Button>
-      </div>
-    </div>
-    
-    <CardContent className="p-2 sm:p-3 flex flex-col gap-1 sm:gap-2 h-full">
-      <div className="space-y-0.5 flex-grow">
-        <h3 className="font-medium text-xs sm:text-sm line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
-        <p className="text-[10px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2">{item.description}</p>
-      </div>
-
-      <div className="flex items-center justify-between mt-auto pt-1">
-        <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
-          <Badge variant="outline" className="h-4 px-1 text-[8px] font-normal flex items-center gap-0.5">
-            <Clock className="h-2 w-2" />
-            {item.preparationTime}m
-          </Badge>
-          <Badge variant="outline" className="h-4 px-1 text-[8px] font-normal flex items-center gap-0.5">
-            <Utensils className="h-2 w-2" />
-            {item.calories}cal
-          </Badge>
+// Menu Item Component with tax info
+const MenuItemComponent = ({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) => {
+  const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+  
+  return (
+    <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/30 group">
+      <div className="relative aspect-square sm:aspect-[4/3] overflow-hidden rounded-t-lg">
+        <Image
+          src={item.imageUrl || "/placeholder.svg"}
+          alt={item.name}
+          fill
+          sizes="(max-width: 640px) 150px, (max-width: 1200px) 200px, 250px"
+          className="object-cover transition-transform duration-500 group-hover:scale-110"
+          loading="lazy"
+        />
+        <div className="absolute top-2 right-2 bg-black/75 text-white text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm flex flex-col items-end">
+          <span>${item.price.toFixed(2)}</span>
+          <span className="text-[8px] opacity-80">incl. VAT</span>
         </div>
         
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            addToCart(item);
-          }}
-          className="h-6 w-6 sm:h-7 sm:w-7 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0 relative overflow-hidden transition-transform hover:scale-110"
-        >
-          <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-          <span className="sr-only">Add to cart</span>
-        </Button>
+        {item.tags?.includes('bestseller') && (
+          <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-[9px] font-medium px-1.5 py-0.5 rounded-md backdrop-blur-sm flex items-center gap-1">
+            <Sparkles className="h-2.5 w-2.5" />
+            Best
+          </div>
+        )}
+        
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              addToCart(item);
+            }}
+            className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm"
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add to cart
+          </Button>
+        </div>
       </div>
-    </CardContent>
-  </Card>
-);
+      
+      <CardContent className="p-2 sm:p-3 flex flex-col gap-1 sm:gap-2 h-full">
+        <div className="space-y-0.5 flex-grow">
+          <h3 className="font-medium text-xs sm:text-sm line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
+          <p className="text-[10px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2">{item.description}</p>
+        </div>
 
-// Cart Panel Component (simplified for brevity - same as before)
+        <div className="flex items-center justify-between mt-auto pt-1">
+          <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
+            <Badge variant="outline" className="h-4 px-1 text-[8px] font-normal flex items-center gap-0.5">
+              <Clock className="h-2 w-2" />
+              {item.preparationTime}m
+            </Badge>
+            <Badge variant="outline" className="h-4 px-1 text-[8px] font-normal flex items-center gap-0.5">
+              <Utensils className="h-2 w-2" />
+              {item.calories}cal
+            </Badge>
+          </div>
+          
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              addToCart(item);
+            }}
+            className="h-6 w-6 sm:h-7 sm:w-7 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0 relative overflow-hidden transition-transform hover:scale-110"
+          >
+            <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+            <span className="sr-only">Add to cart</span>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+// Cart Panel Component with correct tax calculation
 const CartPanel = ({
   cart,
   updateQuantity,
@@ -376,67 +390,83 @@ const CartPanel = ({
       <>
         <div className="flex-1 overflow-y-auto min-h-0">
           <div className="p-4 space-y-6">
-            {/* Cart Items */}
+            {/* Cart Items with Tax Breakdown */}
             <div className="space-y-3">
-              {cart.map((item: any) => (
-                <div key={item.cartId} className="group flex gap-3 bg-card p-2.5 rounded-xl border shadow-sm hover:shadow-md transition-all duration-200">
-                  <div className="relative h-20 w-20 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
-                    <Image
-                      src={item.imageUrl || "/placeholder.svg"}
-                      alt={item.name}
-                      fill
-                      sizes="80px"
-                      className="object-cover"
-                    />
-                  </div>
-                  
-                  <div className="flex-1 flex flex-col justify-between min-w-0">
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="min-w-0">
-                        <h4 className="font-medium text-sm truncate">{item.name}</h4>
-                        <p className="text-xs text-muted-foreground truncate">
-                          ${item.price.toFixed(2)}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeFromCart(item.cartId)}
-                        className="h-6 w-6 -mr-1 -mt-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
+              {cart.map((item: any) => {
+                const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+                const itemTotalOriginal = originalPrice * item.quantity;
+                const itemTotalTax = taxAmount * item.quantity;
+                
+                return (
+                  <div key={item.cartId} className="group flex gap-3 bg-card p-2.5 rounded-xl border shadow-sm hover:shadow-md transition-all duration-200">
+                    <div className="relative h-20 w-20 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
+                      <Image
+                        src={item.imageUrl || "/placeholder.svg"}
+                        alt={item.name}
+                        fill
+                        sizes="80px"
+                        className="object-cover"
+                      />
                     </div>
+                    
+                    <div className="flex-1 flex flex-col justify-between min-w-0">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <h4 className="font-medium text-sm truncate">{item.name}</h4>
+                          <div className="flex flex-col">
+                            <p className="text-xs text-muted-foreground">
+                              ${originalPrice.toFixed(2)} <span className="text-[10px]">(excl. VAT)</span>
+                            </p>
+                            <p className="text-[10px] text-primary">
+                              + VAT: ${taxAmount.toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeFromCart(item.cartId)}
+                          className="h-6 w-6 -mr-1 -mt-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
 
-                    <div className="flex items-end justify-between mt-2">
-                      <div className="flex items-center bg-muted/50 rounded-lg border p-0.5">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => updateQuantity(item.cartId, item.quantity - 1)}
-                          className="h-6 w-6 rounded-md hover:bg-background shadow-sm"
-                        >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <span className="w-8 text-center text-xs font-medium tabular-nums">
-                          {item.quantity}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => updateQuantity(item.cartId, item.quantity + 1)}
-                          className="h-6 w-6 rounded-md hover:bg-background shadow-sm"
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
+                      <div className="flex items-end justify-between mt-2">
+                        <div className="flex items-center bg-muted/50 rounded-lg border p-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => updateQuantity(item.cartId, item.quantity - 1)}
+                            className="h-6 w-6 rounded-md hover:bg-background shadow-sm"
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="w-8 text-center text-xs font-medium tabular-nums">
+                            {item.quantity}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => updateQuantity(item.cartId, item.quantity + 1)}
+                            className="h-6 w-6 rounded-md hover:bg-background shadow-sm"
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-semibold text-sm">
+                            ${itemTotalOriginal.toFixed(2)}
+                          </span>
+                          <p className="text-[9px] text-muted-foreground">
+                            + VAT: ${itemTotalTax.toFixed(2)}
+                          </p>
+                        </div>
                       </div>
-                      <span className="font-semibold text-sm">
-                        ${(item.price * item.quantity).toFixed(2)}
-                      </span>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               
               <Button 
                 variant="ghost" 
@@ -515,7 +545,7 @@ const CartPanel = ({
               </div>
             </div>
 
-            {/* Bill Summary */}
+            {/* Bill Summary with correct tax display */}
             <div className="bg-card rounded-xl border shadow-sm p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <Label htmlFor="apply-discount" className="text-sm font-normal">Apply Discount (10%)</Label>
@@ -530,11 +560,11 @@ const CartPanel = ({
               
               <div className="space-y-1.5 text-sm">
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Subtotal</span>
+                  <span>Subtotal (excl. VAT)</span>
                   <span>${subtotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Tax (15%)</span>
+                  <span>VAT (15%)</span>
                   <span>${tax.toFixed(2)}</span>
                 </div>
                 {discount > 0 && (
@@ -544,7 +574,7 @@ const CartPanel = ({
                   </div>
                 )}
                 <div className="flex justify-between pt-2 font-bold text-lg">
-                  <span>Total</span>
+                  <span>Total (incl. VAT)</span>
                   <span>${total.toFixed(2)}</span>
                 </div>
               </div>
@@ -649,7 +679,6 @@ function TransferRequestDialog({
   const cooldownMinutes = Math.floor(cooldownRemaining / 60000);
   const cooldownSeconds = Math.ceil((cooldownRemaining % 60000) / 1000);
   
-  // Check who cancelled the previous request
   const isCancelledByOriginalRequester = order?.editRequest?.cancelledByRole === 'original_requester';
   const isCancelledByTargetWaiter = order?.editRequest?.cancelledByRole === 'target_waiter';
 
@@ -900,7 +929,7 @@ export default function OrderEditPage() {
     }
   }, []);
 
-  // Poll for new orders - 3 second interval
+  // Poll for new orders - 15 second interval
   useEffect(() => {
     if (status === 'authenticated' && session?.user?.id && !isPollingActiveRef.current) {
       isPollingActiveRef.current = true;
@@ -922,7 +951,7 @@ export default function OrderEditPage() {
     }
   }, [status, session, fetchOrders]);
 
-  // Initialize cart from order
+  // Initialize cart from order with tax breakdown
   const initializeCartFromOrder = useCallback((order: Order) => {
     const cartItems: CartItem[] = [];
     const orderItemsArray = getOrderItemsArray(order);
@@ -944,6 +973,8 @@ export default function OrderEditPage() {
       if (!itemId) return;
       
       const menuItem = menuItems.find(m => m._id === itemId);
+      const price = orderItem.price || menuItem?.price || 0;
+      const { originalPrice, taxAmount } = calculatePriceBreakdown(price);
       
       if (menuItem) {
         cartItems.push({
@@ -951,14 +982,16 @@ export default function OrderEditPage() {
           quantity: orderItem.quantity,
           specialInstructions: orderItem.specialInstructions,
           cartId: `order-item-${orderItem.id || `temp-${index}`}`,
-          orderItemId: orderItem.id
+          orderItemId: orderItem.id,
+          originalPrice,
+          taxAmount
         });
       } else {
         cartItems.push({
           _id: itemId,
           name: orderItem.name,
           description: orderItem.description || 'Item not found in current menu',
-          price: orderItem.price,
+          price: price,
           imageUrl: '/placeholder.svg',
           categoryId: '',
           preparationTime: 0,
@@ -967,7 +1000,9 @@ export default function OrderEditPage() {
           quantity: orderItem.quantity,
           specialInstructions: orderItem.specialInstructions,
           cartId: `order-item-${orderItem.id || `temp-${index}`}`,
-          orderItemId: orderItem.id
+          orderItemId: orderItem.id,
+          originalPrice,
+          taxAmount
         });
       }
     });
@@ -1034,6 +1069,8 @@ export default function OrderEditPage() {
       return;
     }
 
+    const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+    
     setCart((prev) => {
       const existing = prev.find((i) => i._id === item._id);
       if (existing) {
@@ -1046,7 +1083,9 @@ export default function OrderEditPage() {
       return [...prev, { 
         ...item, 
         quantity: 1, 
-        cartId: `cart-item-${Date.now()}-${Math.random()}` 
+        cartId: `cart-item-${Date.now()}-${Math.random()}`,
+        originalPrice,
+        taxAmount
       }];
     });
 
@@ -1082,6 +1121,7 @@ export default function OrderEditPage() {
     setCart(prev => prev.map(item => {
       const menuItem = menuItems.find(m => m._id === item._id);
       if (menuItem) {
+        const { originalPrice, taxAmount } = calculatePriceBreakdown(menuItem.price);
         return {
           ...item,
           name: menuItem.name,
@@ -1092,7 +1132,9 @@ export default function OrderEditPage() {
           preparationTime: menuItem.preparationTime,
           calories: menuItem.calories,
           tags: menuItem.tags,
-          stock: menuItem.stock
+          stock: menuItem.stock,
+          originalPrice,
+          taxAmount
         };
       }
       return item;
@@ -1103,16 +1145,26 @@ export default function OrderEditPage() {
     });
   }, [menuItems]);
 
+  // Calculate subtotal (original prices without tax)
   const calculateSubtotal = () => {
-    return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    return cart.reduce((sum, item) => {
+      const originalPrice = item.originalPrice || (item.price / 1.15);
+      return sum + (originalPrice * item.quantity);
+    }, 0);
   };
 
-  const calculateTotal = () => {
-    const subtotal = calculateSubtotal();
-    const tax = subtotal * 0.15;
-    const discount = applyDiscount ? subtotal * 0.1 : 0;
-    return subtotal + tax - discount;
+  // Calculate total tax
+  const calculateTax = () => {
+    return cart.reduce((sum, item) => {
+      const taxAmount = item.taxAmount || (item.price - (item.price / 1.15));
+      return sum + (taxAmount * item.quantity);
+    }, 0);
   };
+
+  const subtotal = calculateSubtotal();
+  const tax = calculateTax();
+  const discount = applyDiscount ? subtotal * 0.1 : 0;
+  const total = subtotal + tax - discount;
 
   const handleSaveOrder = async () => {
     if (!session?.user?.id) return;
@@ -1161,19 +1213,24 @@ export default function OrderEditPage() {
         const menuItem = menuItems.find(m => m._id === item._id);
         const finalPrice = menuItem ? menuItem.price : item.price;
         const finalName = menuItem ? menuItem.name : item.name;
+        const { originalPrice, taxAmount } = calculatePriceBreakdown(finalPrice);
         
         return {
           menuItemId: item._id,
           name: finalName,
           price: finalPrice,
+          priceWithoutTax: originalPrice,
+          taxAmount: taxAmount,
           quantity: item.quantity,
           specialInstructions: item.specialInstructions || '',
+          subtotal: originalPrice * item.quantity,
+          taxTotal: taxAmount * item.quantity,
           total: finalPrice * item.quantity
         };
       });
 
-      const newSubtotal = processedOrderItems.reduce((sum, item) => sum + item.total, 0);
-      const newTax = newSubtotal * 0.15;
+      const newSubtotal = processedOrderItems.reduce((sum, item) => sum + item.subtotal, 0);
+      const newTax = processedOrderItems.reduce((sum, item) => sum + item.taxTotal, 0);
       const newDiscount = applyDiscount ? newSubtotal * 0.1 : 0;
       const newTotal = newSubtotal + newTax - newDiscount;
 
@@ -1187,7 +1244,8 @@ export default function OrderEditPage() {
         numberOfGuests: numberOfGuests || 1,
         discount: newDiscount,
         tax: newTax,
-        totalAmount: newSubtotal,
+        subtotal: newSubtotal,
+        totalAmount: newSubtotal + newTax,
         finalAmount: newTotal,
         waiterId: session.user.id
       };
@@ -1280,7 +1338,6 @@ export default function OrderEditPage() {
             duration: 5000,
           });
         } else {
-          // throw new Error(data.error || data.message || 'Failed to send transfer request');
           toast({
             title: 'Error',
             description: data.error || data.message || 'Failed to send transfer request',
@@ -1350,11 +1407,6 @@ export default function OrderEditPage() {
     router.push('/login');
     return null;
   }
-
-  const subtotal = calculateSubtotal();
-  const tax = subtotal * 0.15;
-  const discount = applyDiscount ? subtotal * 0.1 : 0;
-  const total = subtotal + tax - discount;
 
   return (
     <div className="container mx-auto p-4 md:p-6">
@@ -1641,7 +1693,7 @@ export default function OrderEditPage() {
                     </div>
                   </div>
 
-                  {/* Order Items */}
+                  {/* Order Items with Tax Breakdown */}
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <h3 className="text-lg font-semibold">Order Items ({cart.length})</h3>
@@ -1670,67 +1722,77 @@ export default function OrderEditPage() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Item</TableHead>
-                              <TableHead className="text-right">Price</TableHead>
+                              <TableHead className="text-right">Price (excl. VAT)</TableHead>
                               <TableHead className="text-center">Qty</TableHead>
-                              <TableHead className="text-right">Total</TableHead>
+                              <TableHead className="text-right">Subtotal (excl. VAT)</TableHead>
+                              <TableHead className="text-right">VAT</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {cart.map((item) => (
-                              <TableRow key={item.cartId}>
-                                <TableCell>
-                                  <div>
-                                    <p className="font-medium">{item.name}</p>
-                                    {item.specialInstructions && (
-                                      <p className="text-xs text-muted-foreground">
-                                        Note: {item.specialInstructions}
-                                      </p>
-                                    )}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  ${item.price.toFixed(2)}
-                                </TableCell>
-                                <TableCell>
-                                  <div className="flex items-center justify-center gap-2">
+                            {cart.map((item) => {
+                              const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+                              const itemSubtotal = originalPrice * item.quantity;
+                              const itemTaxTotal = taxAmount * item.quantity;
+                              
+                              return (
+                                <TableRow key={item.cartId}>
+                                  <TableCell>
+                                    <div>
+                                      <p className="font-medium">{item.name}</p>
+                                      {item.specialInstructions && (
+                                        <p className="text-xs text-muted-foreground">
+                                          Note: {item.specialInstructions}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    ${originalPrice.toFixed(2)}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center justify-center gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => updateQuantity(item.cartId, item.quantity - 1)}
+                                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
+                                      >
+                                        -
+                                      </Button>
+                                      <span className="w-8 text-center">{item.quantity}</span>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => updateQuantity(item.cartId, item.quantity + 1)}
+                                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
+                                      >
+                                        +
+                                      </Button>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    ${itemSubtotal.toFixed(2)}
+                                  </TableCell>
+                                  <TableCell className="text-right text-primary">
+                                    +${itemTaxTotal.toFixed(2)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
                                     <Button
                                       size="sm"
-                                      variant="outline"
-                                      className="h-6 w-6 p-0"
-                                      onClick={() => updateQuantity(item.cartId, item.quantity - 1)}
+                                      variant="ghost"
+                                      className="h-8 w-8 p-0 text-destructive"
+                                      onClick={() => removeFromCart(item.cartId)}
                                       disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
                                     >
-                                      -
+                                      <Trash2 className="h-4 w-4" />
                                     </Button>
-                                    <span className="w-8 text-center">{item.quantity}</span>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-6 w-6 p-0"
-                                      onClick={() => updateQuantity(item.cartId, item.quantity + 1)}
-                                      disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
-                                    >
-                                      +
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  ${(item.price * item.quantity).toFixed(2)}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-8 w-8 p-0 text-destructive"
-                                    onClick={() => removeFromCart(item.cartId)}
-                                    disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                            ))}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
                           </TableBody>
                         </Table>
                       </div>
@@ -1750,7 +1812,7 @@ export default function OrderEditPage() {
                     />
                   </div>
 
-                  {/* Order Summary */}
+                  {/* Order Summary with correct tax display */}
                   <Card>
                     <CardHeader>
                       <CardTitle>Order Summary</CardTitle>
@@ -1758,8 +1820,12 @@ export default function OrderEditPage() {
                     <CardContent>
                       <div className="space-y-2">
                         <div className="flex justify-between">
-                          <span>Subtotal</span>
+                          <span>Subtotal (excl. VAT)</span>
                           <span>${subtotal.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-primary">
+                          <span>VAT (15%)</span>
+                          <span>+${tax.toFixed(2)}</span>
                         </div>
                         {discount > 0 && (
                           <div className="flex justify-between text-green-600">
@@ -1767,13 +1833,9 @@ export default function OrderEditPage() {
                             <span>-${discount.toFixed(2)}</span>
                           </div>
                         )}
-                        <div className="flex justify-between">
-                          <span>Tax (15%)</span>
-                          <span>${tax.toFixed(2)}</span>
-                        </div>
                         <Separator />
                         <div className="flex justify-between text-lg font-bold">
-                          <span>Total</span>
+                          <span>Total (incl. VAT)</span>
                           <span>${total.toFixed(2)}</span>
                         </div>
                       </div>

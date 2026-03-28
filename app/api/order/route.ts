@@ -1,4 +1,4 @@
-// app/api/orders/route.ts - COMPLETE UPDATED VERSION with 2-hour filter
+// app/api/order/route.ts - COMPLETE UPDATED VERSION with assignmentRequest support
 if (process.env.NODE_ENV === 'development') {
   import('../../../lib/localCron');
 }
@@ -11,6 +11,19 @@ import {
 } from "../utils/orderHelpers";
 import { registerOrderActivity, registerWaitressActivity } from "../utils/activityHelpers";
 
+// Type guard for activity result success
+function isSuccessResult(result: any): result is { 
+  success: true; 
+  pointsAwarded: number; 
+  completedOrdersIncremented: boolean;
+  totalOrdersIncremented: boolean;
+  employeeId: any;
+  isNew: boolean;
+  message: string;
+} {
+  return result?.success === true && typeof result?.pointsAwarded === 'number';
+}
+
 // GET endpoint - Fetch orders (FAST - no stock processing)
 export async function GET(req: NextRequest) {
   try {
@@ -20,12 +33,55 @@ export async function GET(req: NextRequest) {
     const orderId = url.searchParams.get("id");
     const status = url.searchParams.get("status");
     const after = url.searchParams.get("after");
+    const action = url.searchParams.get("action");
 
     debugLog("GET request received (fast mode):", {
       orderId,
       status,
+      action,
       pathname: url.pathname
     });
+
+    // Handle employee rankings request
+    if (action === "employeeRank") {
+      const limit = parseInt(url.searchParams.get("limit") || "10");
+      const sortBy = url.searchParams.get("sortBy") || "points";
+      const role = url.searchParams.get("role");
+
+      let query = {};
+      if (role) {
+        query = { role: { $regex: new RegExp(`^${role}$`, 'i') } };
+      }
+
+      const rankings = await db.collection("employee_rank")
+        .find(query)
+        .sort({ [sortBy]: -1 })
+        .limit(limit)
+        .toArray();
+
+      const stats = await db.collection("employee_rank").aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            totalEmployees: { $sum: 1 },
+            totalCompletedOrders: { $sum: "$completedOrders" },
+            totalOrders: { $sum: "$totalOrders" },
+            totalPoints: { $sum: "$points" },
+            averageCompletedOrders: { $avg: "$completedOrders" },
+            averagePoints: { $avg: "$points" }
+          }
+        }
+      ]).toArray();
+
+      return NextResponse.json({
+        success: true,
+        rankings,
+        stats: stats[0] || {},
+        count: rankings.length,
+        timestamp: new Date()
+      }, { status: 200 });
+    }
 
     // Build query based on parameters
     let query: any = {};
@@ -44,21 +100,19 @@ export async function GET(req: NextRequest) {
       query.status = { $regex: new RegExp(`^${status}$`, 'i') };
     }
 
-    // 🔥 NEW: Filter out completed orders older than 2 hours
+    // 🔥 Filter out completed orders older than 2 hours
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     
-    // Add condition: If order is completed AND older than 2 hours, don't fetch it
     const completedFilter = {
       $or: [
-        { status: { $not: { $regex: /^completed$/i } } }, // Not completed
+        { status: { $not: { $regex: /^completed$/i } } },
         { 
           status: { $regex: /^completed$/i },
-          updatedAt: { $gte: twoHoursAgo } // Completed but within last 2 hours
+          updatedAt: { $gte: twoHoursAgo }
         }
       ]
     };
 
-    // Apply the filter to the query
     if (Object.keys(query).length > 0) {
       query = { $and: [query, completedFilter] };
     } else {
@@ -78,7 +132,6 @@ export async function GET(req: NextRequest) {
 
     query = { $and: [query, deliveryRestriction] };
 
-    // Handle after parameter for pagination (get orders after a specific date)
     if (after) {
       const afterDate = new Date(after);
       if (!isNaN(afterDate.getTime())) {
@@ -86,23 +139,21 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Fetch orders - FAST operation
+    // Fetch orders
     const orders = await db.collection("orders")
       .find(query)
       .sort({ createdAt: -1 })
       .limit(100)
       .toArray();
 
-    // Get count of pending stock processing (for admin info)
-    // Only count orders that are still relevant (within 2 hours)
     const pendingStockCount = await db.collection("orders").countDocuments({
       status: { $regex: /^completed$/i },
       stockProcessed: { $ne: true },
       "items.0": { $exists: true },
-      updatedAt: { $gte: twoHoursAgo } // Only count recent completed orders
+      updatedAt: { $gte: twoHoursAgo }
     });
 
-    debugLog(`Found ${orders.length} orders, ${pendingStockCount} pending stock processing (excluding completed orders >2h old)`);
+    debugLog(`Found ${orders.length} orders, ${pendingStockCount} pending stock processing`);
 
     if (orders.length === 0) {
       return NextResponse.json(
@@ -129,7 +180,6 @@ export async function GET(req: NextRequest) {
         
         let additionalDetails = {};
 
-        // Logic for Table Orders: Fetch Waiter Details
         if ((order.inTable === true || order.waiterId) && (!order.delivery)) {
           try {
             if (order.waiterId && ObjectId.isValid(order.waiterId)) {
@@ -154,7 +204,6 @@ export async function GET(req: NextRequest) {
           }
         }
         
-        // Logic for Delivery Orders
         if (order.delivery === true && (!order.inTable)) {
           if (!order.deliveryInfo) {
             order.deliveryInfo = {};
@@ -201,7 +250,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST endpoint - Create new order
+// POST endpoint - Create new order with proper tax handling and assignmentRequest
 export async function POST(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
@@ -265,7 +314,13 @@ export async function POST(req: NextRequest) {
 
     const orderNumber = `ORD-${String(nextOrderNum).padStart(6, '0')}`;
 
-    let totalAmount = 0;
+    // Use values from frontend or calculate them
+    let subtotalAmount = body.subtotal || 0;      // Price without tax
+    let taxAmount = body.tax || 0;                // Tax amount
+    let totalAmount = body.totalAmount || 0;      // Price with tax
+    let deliveryFee = body.deliveryFee || 0;
+    let discount = Number(body.discount) || 0;
+    
     const processedItems = [];
 
     // Process each item
@@ -288,41 +343,76 @@ export async function POST(req: NextRequest) {
         );
       }
       
-      const subtotal = (Number(item.quantity) || 0) * (Number(itemData.price) || 0);
-      totalAmount += subtotal;
-
+      // Calculate original price and tax if not provided
+      const priceWithTax = Number(itemData.price);
+      const priceWithoutTax = priceWithTax / 1.15;
+      const itemTaxAmount = priceWithTax - priceWithoutTax;
+      
+      // Use frontend values if available, otherwise calculate
+      const quantity = Number(item.quantity) || 0;
+      const itemSubtotal = item.subtotal || (priceWithoutTax * quantity);
+      const itemTaxTotal = item.taxTotal || (itemTaxAmount * quantity);
+      const itemTotal = item.total || (priceWithTax * quantity);
+      
       const processedItem = {
         itemId: item.itemId,
         itemName: itemData.name,
-        quantity: Number(item.quantity) || 0,
-        unitPrice: itemData.price,
-        itemPrice: itemData.price,
-        subtotal: subtotal,
+        quantity: quantity,
+        unitPrice: priceWithTax,
+        priceWithTax: priceWithTax,
+        priceWithoutTax: priceWithoutTax,
+        taxAmount: itemTaxAmount,
+        subtotal: itemSubtotal,
+        taxTotal: itemTaxTotal,
+        total: itemTotal,
         notes: item.notes || ""
       };
 
       processedItems.push(processedItem);
     }
 
-    // Calculate amounts
-    const taxAmount = totalAmount * 0.15;
-    const finalAmount = totalAmount + taxAmount - (Number(body.discount) || 0);
+    // If frontend didn't send values, calculate them from processed items
+    if (!subtotalAmount || subtotalAmount === 0) {
+      subtotalAmount = processedItems.reduce((sum, item) => sum + item.subtotal, 0);
+    }
+    if (!taxAmount || taxAmount === 0) {
+      taxAmount = processedItems.reduce((sum, item) => sum + item.taxTotal, 0);
+    }
+    if (!totalAmount || totalAmount === 0) {
+      totalAmount = processedItems.reduce((sum, item) => sum + item.total, 0);
+    }
+
+    // Calculate final amount
+    const finalAmount = totalAmount + deliveryFee - discount;
 
     // Get current user data
     const userData = await getCurrentUserData(req);
 
-    // Create the order object
+    // Log assignmentRequest if present
+    if (body.assignmentRequest) {
+      debugLog("✅ Assignment request detected:", {
+        type: body.assignmentRequest.type,
+        status: body.assignmentRequest.status,
+        tableNumber: body.assignmentRequest.tableNumber,
+        orderNumber: body.assignmentRequest.orderNumber
+      });
+    }
+
+    // Create the order object with CORRECT values and INCLUDING assignmentRequest
     const orderData = {
       orderNumber,
       tableNumber: body.tableNumber || null,
       waiterId: body.waiterId || null,
+      waiterName: body.waiterName || null, // ✅ Added waiterName
       customerId: body.customerId || "walk-in",
       numberOfGuests: body.numberOfGuests || 1,
       items: processedItems,
-      totalAmount,
-      tax: taxAmount,
-      discount: Number(body.discount) || 0,
-      finalAmount,
+      subtotal: subtotalAmount,      // Price without tax
+      tax: taxAmount,                // Tax amount
+      totalAmount: totalAmount,      // Price with tax
+      discount: discount,
+      finalAmount: finalAmount,      // Total with delivery
+      deliveryFee: deliveryFee,
       paymentMethod: body.paymentMethod || "CARD",
       status: "PENDING",
       specialRequirements: body.specialRequirements || "",
@@ -332,21 +422,67 @@ export async function POST(req: NextRequest) {
       delivery: body.delivery || false,
       deliveryInfo: body.deliveryInfo || null,
       paymentScreenshotUrl: body.paymentScreenshotUrl || null,
+      // ✅ IMPORTANT: Include assignmentRequest if it exists
+      ...(body.assignmentRequest && {
+        assignmentRequest: {
+          status: body.assignmentRequest.status || 'pending',
+          type: body.assignmentRequest.type || 'table_assignment',
+          requestedAt: body.assignmentRequest.requestedAt || new Date().toISOString(),
+          tableNumber: body.assignmentRequest.tableNumber || body.tableNumber,
+          numberOfGuests: body.assignmentRequest.numberOfGuests || body.numberOfGuests,
+          orderNumber: body.assignmentRequest.orderNumber || orderNumber,
+          customerName: body.assignmentRequest.customerName || body.customerName || 'Walk-in',
+          itemsCount: body.assignmentRequest.itemsCount || processedItems.length,
+          totalAmount: body.assignmentRequest.totalAmount || finalAmount
+        }
+      }),
       createdAt: new Date(),
       updatedAt: new Date(),
       completedAt: null,
-      stockProcessedAt: null
+      stockProcessedAt: null,
+      createdBy: userData ? {
+        userId: userData.id,
+        name: userData.name,
+        email: userData.email,
+        role: userData.role,
+        createdAt: new Date()
+      } : null
     };
+
+    debugLog("Creating order with values:", {
+      orderNumber,
+      subtotal: orderData.subtotal,
+      tax: orderData.tax,
+      totalAmount: orderData.totalAmount,
+      deliveryFee: orderData.deliveryFee,
+      finalAmount: orderData.finalAmount,
+      itemsCount: processedItems.length,
+      hasAssignmentRequest: !!orderData.assignmentRequest,
+      assignmentRequest: orderData.assignmentRequest
+    });
 
     // Insert order
     const result = await db.collection("orders").insertOne(orderData as any);
     const insertedOrder = await db.collection("orders").findOne({ _id: result.insertedId });
 
-    // Register employee activity for order creation
+    // ✅ Register who created the order (but NO points for creation - just tracking)
     if (userData && insertedOrder) {
-      await registerOrderActivity(db, userData, insertedOrder, 'created');
-      if (insertedOrder.waiterId) {
-        await registerWaitressActivity(db, insertedOrder, 'created');
+      try {
+        debugLog("📝 Tracking order creator:", userData.name);
+        
+        // Register waitress as creator if order has waiter
+        if (insertedOrder.waiterId) {
+          debugLog("📝 Tracking waitress as creator...");
+          await registerWaitressActivity(db, insertedOrder, 'created');
+        }
+        
+        // Mark order as having creator tracked
+        await db.collection("orders").updateOne(
+          { _id: result.insertedId },
+          { $set: { creatorTracked: true, creatorTrackedAt: new Date() } }
+        );
+      } catch (error) {
+        debugError("❌ Failed to track order creator:", error);
       }
     }
 
@@ -355,12 +491,14 @@ export async function POST(req: NextRequest) {
         success: true, 
         orderId: result.insertedId,
         orderNumber,
-        finalAmount,
+        subtotal: subtotalAmount,
         tax: taxAmount,
+        totalAmount: totalAmount,
+        finalAmount: finalAmount,
         status: "pending",
-        userRegistered: !!userData,
+        createdBy: userData ? userData.name : null,
         createdAt: orderData.createdAt,
-        completedAt: null
+        hasAssignmentRequest: !!orderData.assignmentRequest // ✅ Confirm if saved
       },
       { status: 201 }
     );
@@ -378,7 +516,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PATCH endpoint - Update order status (OPTIMIZED - NO WAITING FOR STOCK)
+// PATCH endpoint - Update order status - AWARD POINTS ON COMPLETION
 export async function PATCH(req: NextRequest) {
   const startTime = Date.now();
   
@@ -415,10 +553,26 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
+    // Check if order already has completion registered (prevent duplicates)
+    if (normalizedStatus === "completed" && order.completionRegistered) {
+      debugLog(`⚠️ Order ${order.orderNumber} already has completion registered, skipping duplicate`);
+      return NextResponse.json({
+        success: true,
+        message: "Order already completed and points awarded",
+        orderId,
+        orderNumber: order.orderNumber,
+        alreadyProcessed: true,
+        pointsAwarded: order.employeePointsAwarded || 0
+      }, { status: 200 });
+    }
+
     const updateData: any = {
       status: normalizedStatus,
       updatedAt: new Date(),
     };
+
+    // Track if this is a completion
+    const isCompleting = normalizedStatus === "completed" && !isOrderCompleted(order);
 
     if (normalizedStatus === "completed") {
       updateData.completedAt = new Date();
@@ -428,12 +582,13 @@ export async function PATCH(req: NextRequest) {
           name: userData.name,
           email: userData.email,
           role: userData.role,
+          employeeId: userData.employeeId,
           completedAt: new Date()
         };
       }
     }
 
-    // Update order status (FAST - no waiting)
+    // Update order status
     const updateResult = await db.collection("orders").updateOne(
       { _id: new ObjectId(orderId) },
       { $set: updateData }
@@ -448,7 +603,6 @@ export async function PATCH(req: NextRequest) {
 
     const updatedOrder = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
     
-    // CRITICAL: Check if updatedOrder exists
     if (!updatedOrder) {
       return NextResponse.json(
         { success: false, error: "Failed to retrieve updated order" },
@@ -456,89 +610,94 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Register activity in background (don't wait)
-    if (userData) {
-      setImmediate(async () => {
-        try {
-          await registerOrderActivity(db, userData, updatedOrder, 'updated');
-        } catch (error) {
-          debugError("Failed to register update activity:", error);
-        }
-      });
-    }
-
-    // If order is completed, process stock in BACKGROUND
+    // 🔥 CRITICAL: AWARD POINTS ON COMPLETION (synchronously)
     if (normalizedStatus === "completed") {
-      // Store order data for background processing
-      const orderForBackground = {
-        _id: updatedOrder._id,
-        orderNumber: updatedOrder.orderNumber,
-        waiterId: updatedOrder.waiterId,
-        status: updatedOrder.status,
-        items: updatedOrder.items,
-        stockProcessed: updatedOrder.stockProcessed
-      };
+      let completionResult = null;
+      let waitressResult = null;
       
-      // Process in background - return immediately!
-      setImmediate(async () => {
-        try {
-          debugLog(`🔄 Background stock processing for order: ${orderForBackground.orderNumber}`);
+      try {
+        debugLog(`🎯 AWARDING POINTS for completed order: ${updatedOrder.orderNumber}`);
+        
+        // ✅ Award points to the user who completed the order (10-25 points)
+        if (userData) {
+          debugLog(`📝 Awarding completion points to: ${userData.name} (ID: ${userData.id})`);
+          completionResult = await registerOrderActivity(db, userData, updatedOrder, 'completed');
           
-          // Import dynamically to avoid circular dependencies
-          const { processOrderStockUsage } = await import("../utils/stockHelpers");
-          
-          const stockResult = await processOrderStockUsage(orderForBackground);
-          
-          if (stockResult.success) {
-            debugLog(`✅ Background stock processing succeeded for ${orderForBackground.orderNumber}`);
+          // Use type guard to safely access pointsAwarded
+          if (isSuccessResult(completionResult)) {
+            debugLog(`✅ ${completionResult.pointsAwarded} points awarded to ${userData.name}`);
+            debugLog(`📊 completedOrders incremented: ${completionResult.completedOrdersIncremented}`);
           } else {
-            debugLog(`⚠️ Background stock processing failed for ${orderForBackground.orderNumber}: ${stockResult.message}`);
+            debugError(`❌ Failed to award points: ${completionResult?.message}`, completionResult);
           }
-          
-          // Register completion activity
-          if (userData) {
-            await registerOrderActivity(db, userData, updatedOrder, 'completed');
-          }
-          
-          // Register waitress activity
-          if (orderForBackground.waiterId) {
-            await registerWaitressActivity(db, updatedOrder, 'completed');
-          }
-          
-        } catch (error) {
-          debugError(`❌ Background stock processing failed for order ${orderId}:`, error);
-          
-          // Mark order with error for retry (but don't block response)
-          try {
-            await db.collection("orders").updateOne(
-              { _id: new ObjectId(orderId) },
-              { 
-                $set: { 
-                  stockProcessingError: (error as Error).message,
-                  stockLastAttempt: new Date()
-                } 
-              }
-            );
-          } catch (updateError) {
-            debugError("Failed to mark order error:", updateError);
+        } else {
+          debugLog(`⚠️ WARNING: No user logged in - cannot award points for order ${updatedOrder.orderNumber}`);
+        }
+        
+        // ✅ Award points to waitress if order has waiter
+        if (updatedOrder.waiterId) {
+          debugLog(`📝 Awarding completion points to waitress for order ${updatedOrder.orderNumber}`);
+          waitressResult = await registerWaitressActivity(db, updatedOrder, 'completed');
+          if (waitressResult && isSuccessResult(waitressResult)) {
+            debugLog(`✅ ${waitressResult.pointsAwarded} points awarded to waitress`);
           }
         }
-      });
-      
-      const duration = Date.now() - startTime;
-      debugLog(`✅ Order completed in ${duration}ms (stock processing in background)`);
-      
-      // Return IMMEDIATELY - don't wait for stock processing
-      return NextResponse.json({
-        success: true,
-        message: "Order completed. Stock processing in background.",
-        orderId,
-        orderNumber: updatedOrder.orderNumber,
-        completedAt: updatedOrder.completedAt,
-        employeeRegistered: !!userData,
-        waitressRegistered: !!updatedOrder.waiterId,
-        responseTime: duration
-      }, { status: 200 });
+        
+        // ✅ Mark order as having completion registered (prevents duplicates)
+        await db.collection("orders").updateOne(
+          { _id: new ObjectId(orderId) },
+          { 
+            $set: { 
+              completionRegistered: true,
+              completionRegisteredAt: new Date(),
+              employeePointsAwarded: isSuccessResult(completionResult) ? completionResult.pointsAwarded : 0,
+              waitressPointsAwarded: isSuccessResult(waitressResult) ? waitressResult.pointsAwarded : 0,
+              completedOrdersIncremented: isSuccessResult(completionResult) ? completionResult.completedOrdersIncremented : false
+            } 
+          }
+        );
+        
+        // ✅ Process stock in BACKGROUND (don't wait for this)
+        setImmediate(async () => {
+          try {
+            const { processOrderStockUsage } = await import("../utils/stockHelpers");
+            await processOrderStockUsage(updatedOrder);
+            debugLog(`✅ Stock processing completed for ${updatedOrder.orderNumber}`);
+          } catch (stockError) {
+            debugError(`❌ Stock processing failed for ${updatedOrder.orderNumber}:`, stockError);
+          }
+        });
+        
+        const duration = Date.now() - startTime;
+        const pointsAwarded = isSuccessResult(completionResult) ? completionResult.pointsAwarded : 0;
+        debugLog(`✅ Order ${updatedOrder.orderNumber} completed in ${duration}ms - Points awarded: ${pointsAwarded}`);
+        
+        return NextResponse.json({
+          success: true,
+          message: `Order completed! ${pointsAwarded} points awarded to ${userData?.name || 'employee'}`,
+          orderId,
+          orderNumber: updatedOrder.orderNumber,
+          completedAt: updatedOrder.completedAt,
+          pointsAwarded: pointsAwarded,
+          completedOrdersIncremented: isSuccessResult(completionResult) ? completionResult.completedOrdersIncremented : false,
+          employeeRegistered: !!userData,
+          waitressRegistered: !!updatedOrder.waiterId,
+          responseTime: duration
+        }, { status: 200 });
+        
+      } catch (error) {
+        debugError("❌ Critical error during points award:", error);
+        
+        // Still return success for the order status update
+        return NextResponse.json({
+          success: true,
+          message: "Order completed but points award had issues. Will retry.",
+          orderId,
+          orderNumber: updatedOrder.orderNumber,
+          completedAt: updatedOrder.completedAt,
+          error: (error as Error).message
+        }, { status: 200 });
+      }
     }
 
     const duration = Date.now() - startTime;
@@ -562,6 +721,243 @@ export async function PATCH(req: NextRequest) {
         error: "Failed to update order", 
         details: errorMessage 
       },
+      { status: 500 }
+    );
+  }
+}
+
+// ✅ PUT endpoint for fixes and maintenance
+export async function PUT(req: NextRequest) {
+  try {
+    const dbClient = await clientPromise;
+    const db = dbClient.db("gold");
+    const body = await req.json();
+    const { action, orderId, userId, fixAll = false } = body;
+
+    // Action: Fix missing employee registration for specific order
+    if (action === "fixMissingRegistration" && orderId) {
+      if (!ObjectId.isValid(orderId)) {
+        return NextResponse.json(
+          { success: false, error: "Invalid order ID format" },
+          { status: 400 }
+        );
+      }
+
+      const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+      
+      if (!order) {
+        return NextResponse.json(
+          { success: false, error: "Order not found" },
+          { status: 404 }
+        );
+      }
+
+      const results = [];
+
+      // Fix employee registration if missing
+      if (order.completedBy && !order.completionRegistered) {
+        const userData = {
+          id: order.completedBy.userId,
+          name: order.completedBy.name,
+          email: order.completedBy.email,
+          role: order.completedBy.role || "employee",
+          employeeId: order.completedBy.employeeId
+        };
+
+        const activityResult = await registerOrderActivity(db, userData, order, 'completed');
+        results.push({ type: "employee", result: activityResult });
+      }
+
+      // Fix waitress registration if missing
+      if (order.waiterId && !order.waitressActivityRegistered) {
+        const waitressResult = await registerWaitressActivity(db, order, 'completed');
+        results.push({ type: "waitress", result: waitressResult });
+      }
+
+      // Mark order as fixed
+      await db.collection("orders").updateOne(
+        { _id: new ObjectId(orderId) },
+        { 
+          $set: { 
+            registrationFixed: true,
+            registrationFixedAt: new Date(),
+            completionRegistered: true
+          } 
+        }
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: "Missing registrations fixed",
+        orderId,
+        results
+      }, { status: 200 });
+    }
+
+    // Action: Fix all missing registrations
+    if (action === "fixAllMissingRegistrations" && fixAll) {
+      const completedOrders = await db.collection("orders").find({
+        status: { $regex: /^completed$/i },
+        $or: [
+          { completionRegistered: { $ne: true } },
+          { completionRegistered: { $exists: false } }
+        ]
+      }).toArray();
+
+      debugLog(`Found ${completedOrders.length} orders missing completion registration`);
+
+      const results = {
+        totalProcessed: 0,
+        pointsAwarded: 0,
+        employeesUpdated: new Set(),
+        ordersProcessed: [] as any[],
+        errors: [] as any[]
+      };
+
+      for (const order of completedOrders) {
+        try {
+          let orderPoints = 0;
+          
+          // Fix employee registration
+          if (order.completedBy && order.completedBy.userId) {
+            const userData = {
+              id: order.completedBy.userId,
+              name: order.completedBy.name,
+              email: order.completedBy.email,
+              role: order.completedBy.role || "employee",
+              employeeId: order.completedBy.employeeId
+            };
+
+            const activityResult = await registerOrderActivity(db, userData, order, 'completed');
+            if (isSuccessResult(activityResult)) {
+              orderPoints += activityResult.pointsAwarded || 0;
+              results.employeesUpdated.add(userData.id);
+              results.ordersProcessed.push({
+                orderId: order._id,
+                orderNumber: order.orderNumber,
+                type: "employee",
+                points: activityResult.pointsAwarded
+              });
+            }
+          }
+
+          // Fix waitress registration
+          if (order.waiterId) {
+            const waitressResult = await registerWaitressActivity(db, order, 'completed');
+            if (waitressResult && isSuccessResult(waitressResult)) {
+              orderPoints += waitressResult.pointsAwarded || 0;
+              results.ordersProcessed.push({
+                orderId: order._id,
+                orderNumber: order.orderNumber,
+                type: "waitress",
+                points: waitressResult.pointsAwarded
+              });
+            }
+          }
+
+          results.pointsAwarded += orderPoints;
+          results.totalProcessed++;
+
+          // Mark order as fixed
+          await db.collection("orders").updateOne(
+            { _id: order._id },
+            { 
+              $set: { 
+                registrationFixed: true,
+                registrationFixedAt: new Date(),
+                completionRegistered: true,
+                pointsAwardedOnFix: orderPoints
+              } 
+            }
+          );
+
+        } catch (error) {
+          debugError(`Error fixing order ${order._id}:`, error);
+          results.errors.push({
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            error: (error as Error).message
+          });
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Fixed ${results.totalProcessed} orders`,
+        results: {
+          ...results,
+          employeesUpdated: Array.from(results.employeesUpdated)
+        }
+      }, { status: 200 });
+    }
+
+    // Action: Recalculate employee points for specific employee
+    if (action === "recalculatePoints" && userId) {
+      const employee = await db.collection("employee_rank").findOne({ userId: userId });
+      
+      if (!employee) {
+        return NextResponse.json(
+          { success: false, error: "Employee not found" },
+          { status: 404 }
+        );
+      }
+
+      // Get all completed orders by this employee
+      const completedOrders = await db.collection("orders").find({
+        "completedBy.userId": userId,
+        status: { $regex: /^completed$/i }
+      }).toArray();
+
+      // Recalculate points
+      let totalPoints = 0;
+      let completedCount = 0;
+
+      for (const order of completedOrders) {
+        completedCount++;
+        
+        // Base points for completion
+        let points = 10;
+        
+        // Bonus points for large orders
+        const totalItems = order.items?.reduce((acc: number, item: any) => acc + (Number(item.quantity) || 0), 0) || 0;
+        if (totalItems > 5) {
+          points += Math.min(Math.floor(totalItems / 5), 15);
+        }
+        
+        totalPoints += points;
+      }
+
+      // Update employee record
+      const updateResult = await db.collection("employee_rank").updateOne(
+        { userId: userId },
+        {
+          $set: {
+            points: totalPoints,
+            completedOrders: completedCount,
+            recalculatedAt: new Date()
+          }
+        }
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: "Points recalculated",
+        userId,
+        completedOrders: completedCount,
+        totalPoints,
+        updateResult
+      }, { status: 200 });
+    }
+
+    return NextResponse.json(
+      { success: false, error: "Invalid action. Use 'fixMissingRegistration', 'fixAllMissingRegistrations', or 'recalculatePoints'" },
+      { status: 400 }
+    );
+
+  } catch (error) {
+    debugError("PUT endpoint error:", error);
+    return NextResponse.json(
+      { success: false, error: "Internal Server Error", details: (error as Error).message },
       { status: 500 }
     );
   }

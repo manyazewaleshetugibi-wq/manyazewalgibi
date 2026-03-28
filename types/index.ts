@@ -26,6 +26,8 @@ export interface Item {
 export interface CartItem extends Item {
   quantity: number
   specialInstructions?: string
+  originalPrice?: number  // Price without VAT (calculated from price / 1.15)
+  taxAmount?: number      // VAT amount for this item (calculated from price - originalPrice)
 }
 
 export interface Category {
