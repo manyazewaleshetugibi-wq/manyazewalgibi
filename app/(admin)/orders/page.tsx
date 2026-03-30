@@ -82,6 +82,8 @@ import {
   VolumeX,
   BellRing,
   Settings,
+  Home,
+  ShoppingBag,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { debounce } from 'lodash'
@@ -132,6 +134,7 @@ type Order = {
   notes?: string
   customerName?: string
   isEdited?: boolean
+  waiterName?: string
 }
 
 type Waitress = {
@@ -173,11 +176,30 @@ const statusColors: Record<OrderStatus, string> = {
   CANCELLED: "bg-red-100 text-red-800",
 }
 
-const BATCH_SIZE_LIMIT = 100 // Increased batch size
+// Order type badges configuration
+const orderTypeBadges = {
+  intable: {
+    icon: <Home className="h-3 w-3" />,
+    label: "In-Table",
+    color: "bg-green-100 text-green-800 border-green-200",
+  },
+  delivery: {
+    icon: <Truck className="h-3 w-3" />,
+    label: "Delivery",
+    color: "bg-blue-100 text-blue-800 border-blue-200",
+  },
+  pos: {
+    icon: <ShoppingBag className="h-3 w-3" />,
+    label: "POS",
+    color: "bg-purple-100 text-purple-800 border-purple-200",
+  },
+}
+
+const BATCH_SIZE_LIMIT = 100
 
 // Optimized: Cache for menu items
 const menuItemsCache = new Map<string, { data: Map<string, MenuItem>; timestamp: number }>()
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+const CACHE_DURATION = 5 * 60 * 1000
 
 // Optimized: Batch fetch items with caching
 const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>> => {
@@ -187,7 +209,6 @@ const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>
   const limitedIds = uniqueIds.slice(0, BATCH_SIZE_LIMIT)
   const cacheKey = limitedIds.sort().join(',')
   
-  // Check cache
   const cached = menuItemsCache.get(cacheKey)
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
     return cached.data
@@ -205,12 +226,22 @@ const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>
       }
     })
     
-    // Store in cache
     menuItemsCache.set(cacheKey, { data: itemsMap, timestamp: Date.now() })
     return itemsMap
   } catch (error) {
     console.error("Error fetching items batch:", error)
     return new Map()
+  }
+}
+
+// Get order type badge
+const getOrderTypeBadge = (order: Order) => {
+  if (order.inTable === true) {
+    return orderTypeBadges.intable
+  } else if (order.delivery === true) {
+    return orderTypeBadges.delivery
+  } else {
+    return orderTypeBadges.pos
   }
 }
 
@@ -247,9 +278,19 @@ const OrderCard = React.memo(({
   const waitress = waitresses.find((w) => w._id === order.waiterId)
   const hasSpecialRequirements = !!(order.specialRequirements || order.notes)
   const edited = order.isEdited || false
+  const orderTypeBadge = getOrderTypeBadge(order)
 
   return (
     <Card className="hover:shadow-lg transition-shadow duration-300 relative overflow-hidden">
+      {/* Order Type Badge - Top Left */}
+      <div className="absolute top-2 left-2 z-10">
+        <Badge className={orderTypeBadge.color}>
+          {orderTypeBadge.icon}
+          <span className="ml-1 text-xs">{orderTypeBadge.label}</span>
+        </Badge>
+      </div>
+
+      {/* Edited Badge - Top Right */}
       {edited && (
         <div className="absolute top-2 right-2 z-10">
           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
@@ -258,7 +299,8 @@ const OrderCard = React.memo(({
           </Badge>
         </div>
       )}
-      <CardHeader>
+
+      <CardHeader className="pt-12">
         <CardTitle className="flex justify-between items-center">
           <span className="text-lg font-bold">Order #{order.orderNumber}</span>
           <Badge variant="outline" className={statusColors[order.status]}>
@@ -288,7 +330,7 @@ const OrderCard = React.memo(({
                 <AvatarFallback>{waitress?.name?.charAt(0) || "W"}</AvatarFallback>
               </Avatar>
               <div>
-                <p className="font-medium">{waitress?.name || "Unknown Waitress"}</p>
+                <p className="font-medium">{waitress?.name || order.waiterName || "Unknown Waitress"}</p>
                 <p className="text-sm text-muted-foreground">{waitress?.shift || "Unknown"} Shift</p>
               </div>
             </div>
@@ -416,13 +458,14 @@ const DeleteOrderDialog = ({ orderId, onDelete }: { orderId: string; onDelete: (
   )
 }
 
-// Optimized: OrderDetailModal with caching
+// Optimized: OrderDetailModal with caching and order type display
 const OrderDetailModal = React.memo(({ order, waitresses }: { order: Order; waitresses: Waitress[] }) => {
   const [waitress, setWaitress] = useState<Waitress | null>(null)
   const [menuItems, setMenuItems] = useState<Map<string, MenuItem>>(new Map())
   const [loadingItems, setLoadingItems] = useState(true)
 
   const displayItems = order.orderItems || order.items
+  const orderTypeBadge = getOrderTypeBadge(order)
 
   useEffect(() => {
     const fetchWaitress = async () => {
@@ -465,16 +508,23 @@ const OrderDetailModal = React.memo(({ order, waitresses }: { order: Order; wait
       </DialogTrigger>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader className="flex-shrink-0">
-          <DialogTitle className="text-2xl font-bold flex items-center gap-2">
-            <Receipt className="h-6 w-6" />
-            Order Details
+          <div className="flex items-center gap-2 flex-wrap">
+            <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+              <Receipt className="h-6 w-6" />
+              Order Details
+            </DialogTitle>
+            {/* Order Type Badge */}
+            <Badge className={orderTypeBadge.color}>
+              {orderTypeBadge.icon}
+              <span className="ml-1">{orderTypeBadge.label}</span>
+            </Badge>
             {edited && (
-              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 ml-2">
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                 <Clock className="h-3 w-3 mr-1" />
                 Edited
               </Badge>
             )}
-          </DialogTitle>
+          </div>
           <DialogDescription>
             Order #{order.orderNumber} - {new Date(order.createdAt).toLocaleString()}
             {edited && (
@@ -518,6 +568,18 @@ const OrderDetailModal = React.memo(({ order, waitresses }: { order: Order; wait
                     <div className="flex items-center gap-2">
                       <User className="h-4 w-4 text-muted-foreground" />
                       <span>Customer: {order.customerName}</span>
+                    </div>
+                  )}
+                  {order.inTable === true && (
+                    <div className="flex items-center gap-2">
+                      <Home className="h-4 w-4 text-green-600" />
+                      <span className="text-green-700">In-Table Order</span>
+                    </div>
+                  )}
+                  {order.delivery === true && (
+                    <div className="flex items-center gap-2">
+                      <Truck className="h-4 w-4 text-blue-600" />
+                      <span className="text-blue-700">Delivery Order</span>
                     </div>
                   )}
                 </CardContent>
@@ -1021,14 +1083,16 @@ export default function OrderManagement() {
           trulyNewOrders.forEach((order: Order) => {
             playNotificationSound()
             
+            const orderType = order.inTable ? "In-Table" : (order.delivery ? "Delivery" : "POS")
+            
             setNotificationData({
-              title: `New Order #${order.orderNumber}`,
-              message: `Table ${order.tableNumber} | ${order.items?.length || 0} items`,
+              title: `New ${orderType} Order #${order.orderNumber}`,
+              message: `Table ${order.tableNumber} | ${order.items?.length || 0} items | ${order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}`,
             })
             setShowNotification(true)
             setTimeout(() => setShowNotification(false), 4000)
             
-            toast.success(`New order #${order.orderNumber} received!`, {
+            toast.success(`New ${orderType} order #${order.orderNumber} received!`, {
               duration: 5000,
               icon: '🔔',
             })
@@ -1066,10 +1130,10 @@ export default function OrderManagement() {
         fetchWaitresses()
       ])
       
-      // Start polling every 30 seconds instead of 20
+      // Start polling every 30 seconds
       pollingIntervalRef.current = setInterval(() => {
         pollNewOrders()
-      }, 30000) // 30 seconds polling
+      }, 30000)
     }
     
     initialize()
@@ -1179,8 +1243,34 @@ export default function OrderManagement() {
     []
   )
 
-  // Optimized: Memoized filter components
-  const filterBar = useMemo(() => (
+  // Get order type display for list view
+  const getOrderTypeDisplay = (order: Order) => {
+    if (order.inTable === true) {
+      return (
+        <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+          <Home className="h-3 w-3 mr-1" />
+          In-Table
+        </Badge>
+      )
+    } else if (order.delivery === true) {
+      return (
+        <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200">
+          <Truck className="h-3 w-3 mr-1" />
+          Delivery
+        </Badge>
+      )
+    } else {
+      return (
+        <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200">
+          <ShoppingBag className="h-3 w-3 mr-1" />
+          POS
+        </Badge>
+      )
+    }
+  }
+
+  // Filter Bar Component
+  const filterBar = (
     <Card>
       <CardContent className="p-6">
         <div className="flex flex-wrap gap-4 items-center">
@@ -1217,7 +1307,7 @@ export default function OrderManagement() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="All">All Types</SelectItem>
-              <SelectItem value="intable">In Table</SelectItem>
+              <SelectItem value="intable">In-Table</SelectItem>
               <SelectItem value="delivery">Delivery</SelectItem>
               <SelectItem value="pos">POS</SelectItem>
             </SelectContent>
@@ -1276,7 +1366,7 @@ export default function OrderManagement() {
         </div>
       </CardContent>
     </Card>
-  ), [statusFilter, orderTypeFilter, waitressFilter, dateFilter, viewMode, waitresses, searchTerm, handleSearchDebounced, handleClearFilters])
+  )
 
   // Optimized: Memoized order list view
   const orderListView = useMemo(() => {
@@ -1292,6 +1382,7 @@ export default function OrderManagement() {
                       Order #
                     </Button>
                   </TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead>Waitress</TableHead>
                   <TableHead>
@@ -1327,13 +1418,14 @@ export default function OrderManagement() {
                   return (
                     <TableRow key={order._id}>
                       <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                      <TableCell>{getOrderTypeDisplay(order)}</TableCell>
                       <TableCell>{order.customerName || "Walk-in"}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Avatar className="h-8 w-8">
                             <AvatarFallback>{waitress?.name?.charAt(0) || "W"}</AvatarFallback>
                           </Avatar>
-                          <span>{waitress?.name || "Unknown"}</span>
+                          <span>{waitress?.name || order.waiterName || "Unknown"}</span>
                         </div>
                       </TableCell>
                       <TableCell>{order.tableNumber}</TableCell>
@@ -1418,7 +1510,7 @@ export default function OrderManagement() {
         </div>
       )
     }
-  }, [viewMode, paginatedOrders, waitresses, handleSort, handleDeleteOrder, handleStatusUpdate])
+  }, [viewMode, paginatedOrders, waitresses, handleSort, handleDeleteOrder, handleStatusUpdate, getOrderTypeDisplay])
 
   return (
     <div className="container mx-auto p-4 space-y-6">
