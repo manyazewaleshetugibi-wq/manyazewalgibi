@@ -61,6 +61,7 @@ interface NavLinkProps {
   href: string
   icon: React.ComponentType<{ className?: string }>
   children: React.ReactNode
+  onClick?: () => void
 }
 
 const navLinks = [
@@ -82,6 +83,23 @@ export function NavBar() {
   // Cast session user to ExtendedUser type
   const user = session?.user as ExtendedUser | undefined
   const isUserRole = user?.role === "user"
+
+  // Close menu when route changes
+  useEffect(() => {
+    setIsMenuOpen(false)
+  }, [pathname])
+
+  // Prevent body scroll when menu is open
+  useEffect(() => {
+    if (isMenuOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = 'unset'
+    }
+    return () => {
+      document.body.style.overflow = 'unset'
+    }
+  }, [isMenuOpen])
 
   // Comprehensive user validation function
   const validateUserSession = async () => {
@@ -233,11 +251,12 @@ export function NavBar() {
     }
   }, [user])
 
-  const NavLink = ({ href, icon: Icon, children }: NavLinkProps) => {
+  const NavLink = ({ href, icon: Icon, children, onClick }: NavLinkProps) => {
     const isActive = pathname === href || (href === "/" && pathname === "/home")
     return (
       <Link
         href={href}
+        onClick={onClick}
         className={`relative flex items-center text-base font-medium transition-colors duration-200 whitespace-nowrap ${
           isActive ? "text-[#1a1942]" : "text-gray-600 hover:text-[#1a1942]"
         }`}
@@ -268,6 +287,9 @@ export function NavBar() {
       
       // Clear any validation error
       setValidationError(null)
+      
+      // Close mobile menu if open
+      setIsMenuOpen(false)
       
       // Sign out from NextAuth
       await signOut({ 
@@ -349,11 +371,13 @@ export function NavBar() {
 
   // Function to handle login button click
   const handleLoginClick = () => {
+    setIsMenuOpen(false)
     router.push("/login")
   }
 
   // Function to handle register button click
   const handleRegisterClick = () => {
+    setIsMenuOpen(false)
     router.push("/Register")
   }
 
@@ -529,197 +553,234 @@ export function NavBar() {
   }
 
   return (
-       <header className="sticky top-0 z-50 bg-purple-200/40 backdrop-blur-md supports-[backdrop-filter]:bg-purple-200/30 shadow-sm">      <div className="px-4 mx-auto max-w-7xl sm:px-6 lg:px-8">
-        <nav className="flex items-center justify-between h-16 md:h-20">
-          {/* Logo on the left */}
-          <div className="flex items-center flex-1">
-            <Link href="/" className="flex items-center group">
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                transition={{ type: "spring", stiffness: 400, damping: 10 }}
-              >
-                <Image 
-                  src="/man_logo.jpg" 
-                  alt="Manyazewal Logo" 
-                  width={80} 
-                  height={80} 
-                  className="w-auto h-10 md:h-12 transition-transform duration-300 group-hover:scale-105 rounded-xl border border-transparent group-hover:border-[#1a1942] shadow-sm group-hover:shadow-md" 
-                />
-              </motion.div>
-            </Link>
-          </div>
-
-          {/* Center navigation links */}
-          <div className="hidden md:flex md:items-center md:justify-center md:flex-1 md:gap-4 lg:gap-8">
-            {navLinks.map((link) => (
-              <NavLink key={link.href} href={link.href} icon={link.icon}>
-                {link.label}
-              </NavLink>
-            ))}
-            {/* {isUserRole && (
-              <NavLink href="/user/dashboard" icon={LayoutDashboard}>
-                Accounts
-              </NavLink>
-            )} */}
-          </div>
-
-          {/* Right side - User menu and mobile menu */}
-          <div className="flex items-center justify-end flex-1 gap-4">
-            {/* User menu / Auth buttons */}
-            <div className="hidden md:flex items-center">
-              {renderUserMenu()}
+    <>
+      <header className="sticky top-0 z-50 bg-purple-200/40 backdrop-blur-md supports-[backdrop-filter]:bg-purple-200/30 shadow-sm">
+        <div className="px-4 mx-auto max-w-7xl sm:px-6 lg:px-8">
+          <nav className="flex items-center justify-between h-16 md:h-20">
+            {/* Logo on the left */}
+            <div className="flex items-center flex-1">
+              <Link href="/" className="flex items-center group">
+                <motion.div
+                  whileHover={{ scale: 1.05 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 10 }}
+                >
+                  <Image 
+                    src="/man_logo.jpg" 
+                    alt="Manyazewal Logo" 
+                    width={80} 
+                    height={80} 
+                    className="w-auto h-10 md:h-12 transition-transform duration-300 group-hover:scale-105 rounded-xl border border-transparent group-hover:border-[#1a1942] shadow-sm group-hover:shadow-md" 
+                  />
+                </motion.div>
+              </Link>
             </div>
 
-            {/* Mobile menu button */}
-            <div className="md:hidden">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setIsMenuOpen(!isMenuOpen)}
-                aria-label="Toggle menu"
-                className="relative text-[#1a1942] hover:bg-[#1a1942]/10"
-              >
-                <AnimatePresence initial={false} mode="wait">
-                  <motion.div
-                    key={isMenuOpen ? "close" : "open"}
-                    initial={{ opacity: 0, rotate: -90 }}
-                    animate={{ opacity: 1, rotate: 0 }}
-                    exit={{ opacity: 0, rotate: 90 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-                  </motion.div>
-                </AnimatePresence>
-              </Button>
-            </div>
-          </div>
-        </nav>
-      </div>
-
-      {/* Mobile menu */}
-      <AnimatePresence>
-        {isMenuOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="md:hidden bg-white/95 backdrop-blur-sm border-t border-gray-100"
-          >
-            <div className="px-4 py-6 space-y-3">
+            {/* Center navigation links */}
+            <div className="hidden md:flex md:items-center md:justify-center md:flex-1 md:gap-4 lg:gap-8">
               {navLinks.map((link) => (
                 <NavLink key={link.href} href={link.href} icon={link.icon}>
                   {link.label}
                 </NavLink>
               ))}
-              {/* {isUserRole && (
-                <NavLink href="/user/dashboard" icon={LayoutDashboard}>
-                  Accounts
-                </NavLink>
-              )} */}
-              
-              {/* Mobile auth buttons */}
-              <div className="pt-4 mt-4 border-t border-gray-100 space-y-3">
-                {!user ? (
-                  <>
-                    {/* Mobile Login Button */}
-                    <Button 
-                      variant="default" 
-                      size="lg"
-                      className="w-full bg-gradient-to-r from-[#1a1942] to-[#3a378f] hover:from-[#3a378f] hover:to-[#1a1942]"
-                      onClick={() => {
-                        handleLoginClick()
-                        setIsMenuOpen(false)
-                      }}
-                    >
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      Login
-                    </Button>
-                    
-                    {/* Mobile Register Button */}
-                    <Button 
-                      variant="outline" 
-                      size="lg"
-                      className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
-                      onClick={() => {
-                        handleRegisterClick()
-                        setIsMenuOpen(false)
-                      }}
-                    >
-                      <UserPlus className="w-4 h-4 mr-2" />
-                      Register
-                    </Button>
-                  </>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                      <User className="w-5 h-5 text-[#1a1942]" />
-                      <div>
-                        <p className="font-medium text-gray-700">
-                          {user.name || user.email}
-                        </p>
-                        <p className="text-xs text-gray-500 capitalize">
-                          {user.role.toLowerCase().replace(/_/g, ' ') || 'user'}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Mobile dashboard link */}
-                    <Button 
-                      variant="outline" 
-                      size="lg"
-                      className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
-                      onClick={() => {
-                        const { path } = getDashboardLink(user.role)
-                        
-                        if (user.requiresPasswordChange) {
-                          router.push("/change-password")
-                        } else {
-                          router.push(path)
-                        }
-                        setIsMenuOpen(false)
-                      }}
-                    >
-                      <LayoutDashboard className="w-4 h-4 mr-2" />
-                      {getDashboardLink(user.role).label}
-                    </Button>
+            </div>
 
-                    {/* Change password if required */}
-                    {user.requiresPasswordChange && (
+            {/* Right side - User menu and mobile menu button */}
+            <div className="flex items-center justify-end flex-1 gap-4">
+              {/* User menu / Auth buttons */}
+              <div className="hidden md:flex items-center">
+                {renderUserMenu()}
+              </div>
+
+              {/* Mobile menu button */}
+              <div className="md:hidden">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsMenuOpen(true)}
+                  aria-label="Open menu"
+                  className="relative text-[#1a1942] hover:bg-[#1a1942]/10"
+                >
+                  <Menu className="w-6 h-6" />
+                </Button>
+              </div>
+            </div>
+          </nav>
+        </div>
+      </header>
+
+      {/* Mobile Side Menu - Overlay and Slide-in Panel */}
+      <AnimatePresence>
+        {isMenuOpen && (
+          <>
+            {/* Backdrop Overlay */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 md:hidden"
+              onClick={() => setIsMenuOpen(false)}
+            />
+            
+            {/* Slide-in Panel from Right */}
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed top-0 right-0 bottom-0 w-[85%] max-w-sm bg-white dark:bg-gray-900 shadow-2xl z-50 md:hidden overflow-y-auto"
+            >
+              {/* Header with close button */}
+              <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Image 
+                    src="/man_logo.jpg" 
+                    alt="Logo" 
+                    width={40} 
+                    height={40} 
+                    className="rounded-lg"
+                  />
+                  <span className="font-semibold text-[#1a1942] dark:text-purple-400">
+                    Menu
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              {/* Menu Content */}
+              <div className="px-4 py-6 space-y-6">
+                {/* Navigation Links */}
+                <div className="space-y-3">
+                  {navLinks.map((link) => (
+                    <NavLink 
+                      key={link.href} 
+                      href={link.href} 
+                      icon={link.icon}
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      {link.label}
+                    </NavLink>
+                  ))}
+                </div>
+                
+                {/* Divider */}
+                <div className="border-t border-gray-100 dark:border-gray-800"></div>
+                
+                {/* Auth Section */}
+                <div className="space-y-3">
+                  {!user ? (
+                    <>
+                      {/* Login Button */}
+                      <Button 
+                        variant="default" 
+                        size="lg"
+                        className="w-full bg-gradient-to-r from-[#1a1942] to-[#3a378f] hover:from-[#3a378f] hover:to-[#1a1942]"
+                        onClick={handleLoginClick}
+                      >
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Login
+                      </Button>
+                      
+                      {/* Register Button */}
                       <Button 
                         variant="outline" 
                         size="lg"
-                        className="w-full border-amber-200 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                        className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
+                        onClick={handleRegisterClick}
+                      >
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Register
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      {/* User Profile Card */}
+                      <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-gradient-to-r from-[#1a1942] to-[#3a378f] rounded-full flex items-center justify-center">
+                            <User className="w-5 h-5 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                              {user.name || user.email}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                              {user.role.toLowerCase().replace(/_/g, ' ') || 'user'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Dashboard Link */}
+                      <Button 
+                        variant="outline" 
+                        size="lg"
+                        className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
                         onClick={() => {
-                          router.push("/change-password")
+                          const { path } = getDashboardLink(user.role)
+                          if (user.requiresPasswordChange) {
+                            router.push("/change-password")
+                          } else {
+                            router.push(path)
+                          }
                           setIsMenuOpen(false)
                         }}
                       >
-                        <AlertCircle className="w-4 h-4 mr-2" />
-                        Change Password
+                        <LayoutDashboard className="w-4 h-4 mr-2" />
+                        {getDashboardLink(user.role).label}
                       </Button>
-                    )}
-                    
-                    {/* Mobile Logout Button */}
-                    <Button 
-                      variant="outline" 
-                      size="lg"
-                      className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                      onClick={() => {
-                        handleLogout(false)
-                        setIsMenuOpen(false)
-                      }}
-                    >
-                      <LogOut className="w-4 h-4 mr-2" />
-                      Logout
-                    </Button>
-                  </div>
-                )}
+
+                      {/* Change password if required */}
+                      {user.requiresPasswordChange && (
+                        <Button 
+                          variant="outline" 
+                          size="lg"
+                          className="w-full border-amber-200 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                          onClick={() => {
+                            router.push("/change-password")
+                            setIsMenuOpen(false)
+                          }}
+                        >
+                          <AlertCircle className="w-4 h-4 mr-2" />
+                          Change Password
+                        </Button>
+                      )}
+                      
+                      {/* Logout Button */}
+                      <Button 
+                        variant="outline" 
+                        size="lg"
+                        className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => {
+                          handleLogout(false)
+                          setIsMenuOpen(false)
+                        }}
+                      >
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Logout
+                      </Button>
+                    </>
+                  )}
+                </div>
+
+                {/* Footer Info */}
+                <div className="pt-4">
+                  <p className="text-xs text-center text-gray-500 dark:text-gray-400">
+                    © 2024 Manyazewal Restaurant
+                  </p>
+                </div>
               </div>
-            </div>
-          </motion.div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
-    </header>
+    </>
   )
 }

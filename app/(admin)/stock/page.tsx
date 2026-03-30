@@ -39,6 +39,12 @@ import {
   DollarSign,
   Eye,
   Loader2,
+  Table as TableIcon,
+  LayoutGrid,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Info,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -69,6 +75,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 // Types
 type Stock = {
@@ -98,6 +105,8 @@ type Purchase = {
   supplier: string
 }
 
+type StockStatus = 'critical' | 'low' | 'good' | 'overstock'
+
 // Schemas
 const stockSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -120,7 +129,7 @@ export default function StockManagementPage() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [purchases, setPurchases] = useState<Purchase[]>([])
-  const [isGridView, setIsGridView] = useState(true)
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
@@ -131,10 +140,12 @@ export default function StockManagementPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isStockDetailOpen, setIsStockDetailOpen] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<StockStatus | 'all'>('all')
   const [isDeleteWarningOpen, setIsDeleteWarningOpen] = useState(false)
   const [purchaseToDelete, setPurchaseToDelete] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
 
   // Forms
   const stockForm = useForm<z.infer<typeof stockSchema>>({
@@ -208,11 +219,75 @@ export default function StockManagementPage() {
     }
   }
 
-  // Filtered stocks based on selected category
+  // Stock status calculation
+  const getStockStatus = (stock: Stock): StockStatus => {
+    const ratio = stock.currentStock / stock.minimumStock
+    if (stock.currentStock === 0) return 'critical'
+    if (ratio <= 0.5) return 'critical'
+    if (ratio <= 1) return 'low'
+    if (ratio <= 2) return 'good'
+    return 'overstock'
+  }
+
+  // Get status color and icon
+  const getStatusConfig = (status: StockStatus) => {
+    switch (status) {
+      case 'critical':
+        return {
+          label: 'Critical',
+          color: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800',
+          icon: AlertCircle,
+          badgeVariant: 'destructive' as const
+        }
+      case 'low':
+        return {
+          label: 'Low Stock',
+          color: 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800',
+          icon: AlertTriangle,
+          badgeVariant: 'warning' as const
+        }
+      case 'good':
+        return {
+          label: 'Good',
+          color: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800',
+          icon: CheckCircle,
+          badgeVariant: 'success' as const
+        }
+      case 'overstock':
+        return {
+          label: 'Overstock',
+          color: 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800',
+          icon: Info,
+          badgeVariant: 'default' as const
+        }
+    }
+  }
+
+  // Filtered stocks based on category and status
   const filteredStocks = useMemo(() => {
-    if (!selectedCategory) return stocks
-    return stocks.filter((stock) => stock.categoryId === selectedCategory)
-  }, [stocks, selectedCategory])
+    let filtered = [...stocks]
+
+    // Apply category filter
+    if (selectedCategory) {
+      filtered = filtered.filter((stock) => stock.categoryId === selectedCategory)
+    }
+
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((stock) => getStockStatus(stock) === statusFilter)
+    }
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter((stock) => 
+        stock.name.toLowerCase().includes(query) ||
+        stock.unit.toLowerCase().includes(query)
+      )
+    }
+
+    return filtered
+  }, [stocks, selectedCategory, statusFilter, searchQuery])
 
   // Calculate total cost
   const calculateTotalCost = (stockId: string) => {
@@ -220,6 +295,26 @@ export default function StockManagementPage() {
       .filter((purchase) => purchase.stockId === stockId)
       .reduce((total, purchase) => total + purchase.quantity * purchase.unitPrice, 0)
   }
+
+  // Calculate stock statistics
+  const stockStats = useMemo(() => {
+    const stats = {
+      total: stocks.length,
+      critical: 0,
+      low: 0,
+      good: 0,
+      overstock: 0,
+      totalValue: 0
+    }
+
+    stocks.forEach(stock => {
+      const status = getStockStatus(stock)
+      stats[status]++
+      stats.totalValue += calculateTotalCost(stock._id)
+    })
+
+    return stats
+  }, [stocks, purchases])
 
   // Table columns
   const columns: ColumnDef<Stock>[] = [
@@ -252,7 +347,7 @@ export default function StockManagementPage() {
           </Button>
         )
       },
-      cell: ({ row }) => <div className="capitalize">{row.getValue("name")}</div>,
+      cell: ({ row }) => <div className="font-medium">{row.getValue("name")}</div>,
     },
     {
       accessorKey: "categoryId",
@@ -289,7 +384,19 @@ export default function StockManagementPage() {
           </Button>
         )
       },
-      cell: ({ row }) => <div>{row.getValue("currentStock")}</div>,
+      cell: ({ row }) => {
+        const stock = row.original
+        const status = getStockStatus(stock)
+        const config = getStatusConfig(status)
+        return (
+          <div className="flex items-center gap-2">
+            <span className={config.color.split(' ')[0]}>{row.getValue("currentStock")}</span>
+            <Badge variant="outline" className={config.color}>
+              {config.label}
+            </Badge>
+          </div>
+        )
+      },
     },
     {
       accessorKey: "totalCost",
@@ -305,6 +412,34 @@ export default function StockManagementPage() {
         const stock = row.original
         const totalCost = calculateTotalCost(stock._id)
         return <div>{totalCost.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</div>
+      },
+    },
+    {
+      id: "status",
+      header: "Stock Level",
+      cell: ({ row }) => {
+        const stock = row.original
+        const percentage = Math.min(100, (stock.currentStock / stock.minimumStock) * 100)
+        const status = getStockStatus(stock)
+        const config = getStatusConfig(status)
+        
+        return (
+          <div className="min-w-[150px]">
+            <Progress 
+              value={percentage} 
+              className={`h-2 ${
+                status === 'critical' ? 'bg-red-200 dark:bg-red-900' :
+                status === 'low' ? 'bg-amber-200 dark:bg-amber-900' :
+                status === 'good' ? 'bg-green-200 dark:bg-green-900' :
+                'bg-blue-200 dark:bg-blue-900'
+              }`}
+            />
+            <div className="flex justify-between mt-1">
+              <span className="text-xs text-muted-foreground">{percentage.toFixed(0)}%</span>
+              <span className="text-xs text-muted-foreground">of min stock</span>
+            </div>
+          </div>
+        )
       },
     },
     {
@@ -357,6 +492,11 @@ export default function StockManagementPage() {
     getFilteredRowModel: getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
+    initialState: {
+      pagination: {
+        pageSize: 10,
+      },
+    },
     state: {
       sorting,
       columnFilters,
@@ -485,6 +625,7 @@ export default function StockManagementPage() {
       if (data.success) {
         toast.success("Purchase added successfully")
         fetchPurchases()
+        fetchStocks() // Refresh stocks to update current stock
         setIsAddPurchaseOpen(false)
         purchaseForm.reset()
       } else {
@@ -519,6 +660,7 @@ export default function StockManagementPage() {
       if (data.success) {
         toast.success("Purchase deleted successfully")
         fetchPurchases()
+        fetchStocks() // Refresh stocks to update current stock
         setIsDeleteWarningOpen(false)
         setPurchaseToDelete(null)
       } else {
@@ -532,204 +674,333 @@ export default function StockManagementPage() {
     }
   }
 
+  // Reset all filters
+  const resetFilters = () => {
+    setSelectedCategory(null)
+    setStatusFilter('all')
+    setSearchQuery("")
+    table.resetColumnFilters()
+  }
+
   // Render
   return (
     <div className="container mx-auto py-10">
       <Toaster position="top-right" />
+      
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/20 dark:to-blue-900/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Total Items</p>
+                <p className="text-2xl font-bold">{stockStats.total}</p>
+              </div>
+              <Package className="h-8 w-8 text-blue-500" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950/20 dark:to-red-900/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Critical Stock</p>
+                <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stockStats.critical}</p>
+              </div>
+              <AlertCircle className="h-8 w-8 text-red-500" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950/20 dark:to-amber-900/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Low Stock</p>
+                <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{stockStats.low}</p>
+              </div>
+              <AlertTriangle className="h-8 w-8 text-amber-500" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/20 dark:to-green-900/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Good Stock</p>
+                <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stockStats.good}</p>
+              </div>
+              <CheckCircle className="h-8 w-8 text-green-500" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/20 dark:to-purple-900/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Total Value</p>
+                <p className="text-2xl font-bold">
+                  {stockStats.totalValue.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
+                </p>
+              </div>
+              <DollarSign className="h-8 w-8 text-purple-500" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card className="mb-8">
         <CardHeader>
           <CardTitle className="text-2xl font-bold flex items-center">
             <Package className="mr-2 h-6 w-6" />
             Stock Management
           </CardTitle>
-          <CardDescription>Manage your inventory and purchases with ease</CardDescription>
+          <CardDescription>Manage your inventory, track stock levels, and record purchases</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col md:flex-row justify-between mb-4 space-y-4 md:space-y-0 md:space-x-4">
-            <div className="flex items-center space-x-2">
-              <Input
-                placeholder="Search stocks..."
-                value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
-                onChange={(event) => table.getColumn("name")?.setFilterValue(event.target.value)}
-                className="max-w-sm"
-                icon={<Search className="h-4 w-4 text-muted-foreground" />}
-              />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="ml-auto">
-                    <Filter className="mr-2 h-4 w-4" /> Filter
+          {/* Filters Section */}
+          <div className="flex flex-col space-y-4 mb-6">
+            <div className="flex flex-col md:flex-row justify-between gap-4">
+              <div className="flex flex-1 gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search stocks by name or unit..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                
+                <Select value={selectedCategory || "all"} onValueChange={(value) => setSelectedCategory(value === "all" ? null : value)}>
+                  <SelectTrigger className="w-[180px]">
+                    <Filter className="mr-2 h-4 w-4" />
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {categories.map((category) => (
+                      <SelectItem key={category._id} value={category._id}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                <Select value={statusFilter} onValueChange={(value: StockStatus | 'all') => setStatusFilter(value)}>
+                  <SelectTrigger className="w-[150px]">
+                    <AlertTriangle className="mr-2 h-4 w-4" />
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="critical">Critical</SelectItem>
+                    <SelectItem value="low">Low Stock</SelectItem>
+                    <SelectItem value="good">Good</SelectItem>
+                    <SelectItem value="overstock">Overstock</SelectItem>
+                  </SelectContent>
+                </Select>
+                
+                {(selectedCategory || statusFilter !== 'all' || searchQuery) && (
+                  <Button variant="outline" onClick={resetFilters}>
+                    Clear Filters
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Filter by Category</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setSelectedCategory(null)}>All Categories</DropdownMenuItem>
-                  {categories.map((category) => (
-                    <DropdownMenuItem key={category._id} onClick={() => setSelectedCategory(category._id)}>
-                      {category.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="ml-auto">
-                    <ChevronDown className="ml-2 h-4 w-4" /> Columns
+                )}
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <div className="flex border rounded-md overflow-hidden">
+                  <Button
+                    variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                    size="sm"
+                    className="rounded-none px-3"
+                    onClick={() => setViewMode('grid')}
+                  >
+                    <LayoutGrid className="h-4 w-4 mr-2" />
+                    Grid
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {table
-                    .getAllColumns()
-                    .filter((column) => column.getCanHide())
-                    .map((column) => {
-                      return (
-                        <DropdownMenuCheckboxItem
-                          key={column.id}
-                          className="capitalize"
-                          checked={column.getIsVisible()}
-                          onCheckedChange={(value) => column.toggleVisibility(!!value)}
-                        >
-                          {column.id}
-                        </DropdownMenuCheckboxItem>
-                      )
-                    })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Button variant="outline" size="icon" onClick={() => setIsGridView(!isGridView)}>
-                {isGridView ? <List className="h-4 w-4" /> : <Grid className="h-4 w-4" />}
-              </Button>
-              <Button variant="outline" size="icon" onClick={fetchStocks}>
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-              <Dialog open={isAddStockOpen} onOpenChange={setIsAddStockOpen}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="mr-2 h-4 w-4" /> Add Stock
+                  <Button
+                    variant={viewMode === 'table' ? 'default' : 'ghost'}
+                    size="sm"
+                    className="rounded-none px-3"
+                    onClick={() => setViewMode('table')}
+                  >
+                    <TableIcon className="h-4 w-4 mr-2" />
+                    Table
                   </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                  <DialogHeader>
-                    <DialogTitle>{selectedStock ? "Edit Stock" : "Add New Stock"}</DialogTitle>
-                    <DialogDescription>
-                      {selectedStock ? "Edit the details of the selected stock." : "Add a new stock to your inventory."}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <Form {...stockForm}>
-                    <form
-                      onSubmit={stockForm.handleSubmit(selectedStock ? handleUpdateStock : handleAddStock)}
-                      className="space-y-8"
-                    >
-                      <FormField
-                        control={stockForm.control}
-                        name="name"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Name</FormLabel>
-                            <FormControl>
-                              <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={stockForm.control}
-                        name="categoryId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Category</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                </div>
+                
+                <Button variant="outline" size="icon" onClick={fetchStocks}>
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+                
+                <Dialog open={isAddStockOpen} onOpenChange={setIsAddStockOpen}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <Plus className="mr-2 h-4 w-4" /> Add Stock
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle>{selectedStock ? "Edit Stock" : "Add New Stock"}</DialogTitle>
+                      <DialogDescription>
+                        {selectedStock ? "Edit the details of the selected stock." : "Add a new stock to your inventory."}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <Form {...stockForm}>
+                      <form
+                        onSubmit={stockForm.handleSubmit(selectedStock ? handleUpdateStock : handleAddStock)}
+                        className="space-y-6"
+                      >
+                        <FormField
+                          control={stockForm.control}
+                          name="name"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Name</FormLabel>
                               <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select a category" />
-                                </SelectTrigger>
+                                <Input {...field} />
                               </FormControl>
-                              <SelectContent>
-                                {categories.map((category) => (
-                                  <SelectItem key={category._id} value={category._id}>
-                                    {category.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={stockForm.control}
-                        name="unit"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Unit</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select a unit" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {["kg", "g", "liter", "ml", "piece", "box", "pack", "tray", "bottle", "can"].map(
-                                  (unit) => (
-                                    <SelectItem key={unit} value={unit}>
-                                      {unit}
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={stockForm.control}
+                          name="categoryId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Category</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select a category" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {categories.map((category) => (
+                                    <SelectItem key={category._id} value={category._id}>
+                                      {category.name}
                                     </SelectItem>
-                                  ),
-                                )}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={stockForm.control}
-                        name="minimumStock"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Minimum Stock</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                {...field}
-                                onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={stockForm.control}
-                        name="currentStock"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Current Stock</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                {...field}
-                                onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <Button type="submit" disabled={isSubmitting}>
-                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {selectedStock ? "Update Stock" : "Add Stock"}
-                      </Button>
-                    </form>
-                  </Form>
-                </DialogContent>
-              </Dialog>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={stockForm.control}
+                          name="unit"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Unit</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select a unit" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {["kg", "g", "liter", "ml", "piece", "box", "pack", "tray", "bottle", "can"].map(
+                                    (unit) => (
+                                      <SelectItem key={unit} value={unit}>
+                                        {unit}
+                                      </SelectItem>
+                                    ),
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={stockForm.control}
+                          name="minimumStock"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Minimum Stock</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  {...field}
+                                  onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={stockForm.control}
+                          name="currentStock"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Current Stock</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  {...field}
+                                  onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <Button type="submit" disabled={isSubmitting} className="w-full">
+                          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          {selectedStock ? "Update Stock" : "Add Stock"}
+                        </Button>
+                      </form>
+                    </Form>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
+            
+            {/* Active Filters Display */}
+            {(selectedCategory || statusFilter !== 'all' || searchQuery) && (
+              <div className="flex flex-wrap gap-2">
+                <span className="text-sm text-muted-foreground">Active filters:</span>
+                {selectedCategory && (
+                  <Badge variant="secondary" className="gap-1">
+                    Category: {categories.find(c => c._id === selectedCategory)?.name}
+                    <XCircle 
+                      className="h-3 w-3 ml-1 cursor-pointer" 
+                      onClick={() => setSelectedCategory(null)}
+                    />
+                  </Badge>
+                )}
+                {statusFilter !== 'all' && (
+                  <Badge variant="secondary" className="gap-1">
+                    Status: {statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
+                    <XCircle 
+                      className="h-3 w-3 ml-1 cursor-pointer" 
+                      onClick={() => setStatusFilter('all')}
+                    />
+                  </Badge>
+                )}
+                {searchQuery && (
+                  <Badge variant="secondary" className="gap-1">
+                    Search: {searchQuery}
+                    <XCircle 
+                      className="h-3 w-3 ml-1 cursor-pointer" 
+                      onClick={() => setSearchQuery("")}
+                    />
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* Content */}
           {isLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[...Array(6)].map((_, index) => (
@@ -739,8 +1010,8 @@ export default function StockManagementPage() {
                     <Skeleton className="h-4 w-[200px]" />
                   </CardHeader>
                   <CardContent>
-                    <Skeleton className="h-4 w-[150px]" />
-                    <Skeleton className="h-4 w-[100px]" />
+                    <Skeleton className="h-4 w-[150px] mb-2" />
+                    <Skeleton className="h-4 w-[100px] mb-2" />
                     <Skeleton className="h-4 w-[180px]" />
                   </CardContent>
                   <CardFooter>
@@ -750,140 +1021,193 @@ export default function StockManagementPage() {
                 </Card>
               ))}
             </div>
-          ) : isGridView ? (
+          ) : filteredStocks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Package className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No stocks found</h3>
+              <p className="text-muted-foreground mb-4">
+                {searchQuery || selectedCategory || statusFilter !== 'all' 
+                  ? "Try adjusting your filters"
+                  : "Get started by adding your first stock item"}
+              </p>
+              {!searchQuery && !selectedCategory && statusFilter === 'all' && (
+                <Button onClick={() => setIsAddStockOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Stock
+                </Button>
+              )}
+            </div>
+          ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {table.getRowModel().rows.map((row) => (
-                <Card key={row.id} className="hover:shadow-lg transition-shadow duration-300">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <Package className="mr-2 h-5 w-5" />
-                        {row.getValue("name")}
+              {filteredStocks.map((stock) => {
+                const status = getStockStatus(stock)
+                const config = getStatusConfig(status)
+                const Icon = config.icon
+                const percentage = Math.min(100, (stock.currentStock / stock.minimumStock) * 100)
+                
+                return (
+                  <Card key={stock._id} className="hover:shadow-lg transition-shadow duration-300">
+                    <CardHeader>
+                      <CardTitle className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Package className="h-5 w-5 text-primary" />
+                          <span className="truncate">{stock.name}</span>
+                        </div>
+                        <Badge variant="outline" className={config.color}>
+                          <Icon className="h-3 w-3 mr-1" />
+                          {config.label}
+                        </Badge>
+                      </CardTitle>
+                      <CardDescription>
+                        Category: {categories.find((cat) => cat._id === stock.categoryId)?.name || "Unknown"}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Unit:</span>
+                          <span className="font-medium">{stock.unit}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Min Stock:</span>
+                          <span className="font-medium">{stock.minimumStock}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Current Stock:</span>
+                          <span className={`font-medium ${
+                            status === 'critical' ? 'text-red-600 dark:text-red-400' :
+                            status === 'low' ? 'text-amber-600 dark:text-amber-400' :
+                            'text-green-600 dark:text-green-400'
+                          }`}>
+                            {stock.currentStock}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Total Cost:</span>
+                          <span className="font-medium">
+                            {calculateTotalCost(stock._id).toLocaleString("en-ET", {
+                              style: "currency",
+                              currency: "ETB",
+                            })}
+                          </span>
+                        </div>
+                        <div className="pt-2">
+                          <Progress 
+                            value={percentage} 
+                            className={`h-2 ${
+                              status === 'critical' ? 'bg-red-200 dark:bg-red-900' :
+                              status === 'low' ? 'bg-amber-200 dark:bg-amber-900' :
+                              'bg-green-200 dark:bg-green-900'
+                            }`}
+                          />
+                          <p className="text-xs text-muted-foreground mt-1 text-right">
+                            {percentage.toFixed(0)}% of minimum stock
+                          </p>
+                        </div>
                       </div>
-                      <Badge
-                        variant={row.original.currentStock > row.original.minimumStock ? "success" : "destructive"}
+                    </CardContent>
+                    <CardFooter className="flex justify-between gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleViewStockDetail(stock)} className="flex-1">
+                        <Eye className="mr-2 h-4 w-4" />
+                        View
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleEditStock(stock)} className="flex-1">
+                        <PenSquare className="mr-2 h-4 w-4" />
+                        Edit
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleAddPurchase(stock._id)} className="flex-1">
+                        <Plus className="mr-2 h-4 w-4" />
+                        Buy
+                      </Button>
+                      <Button 
+                        variant="destructive" 
+                        size="sm" 
+                        onClick={() => handleDeleteStock(stock._id)} 
+                        disabled={deletingId === stock._id}
+                        className="flex-1"
                       >
-                        {row.original.currentStock > row.original.minimumStock ? "In Stock" : "Low Stock"}
-                      </Badge>
-                    </CardTitle>
-                    <CardDescription>
-                      Category: {categories.find((cat) => cat._id === row.getValue("categoryId"))?.name || "Unknown"}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <DollarSign className="mr-2 h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">Unit:</span> {row.getValue("unit")}
-                        </div>
-                        <div className="flex items-center">
-                          <BarChart2 className="mr-2 h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">Min Stock:</span> {row.getValue("minimumStock")}
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <ShoppingCart className="mr-2 h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">Current Stock:</span> {row.getValue("currentStock")}
-                        </div>
-                        <div className="flex items-center">
-                          <TrendingUp className="mr-2 h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">Total Cost:</span>{" "}
-                          {calculateTotalCost(row.original._id).toLocaleString("en-ET", {
-                            style: "currency",
-                            currency: "ETB",
-                          })}
-                        </div>
-                      </div>
-                      <Progress
-                        value={(row.original.currentStock / row.original.minimumStock) * 100}
-                        className="w-full"
-                      />
-                    </div>
-                  </CardContent>
-                  <CardFooter className="flex justify-between">
-                    <Button variant="outline" size="sm" onClick={() => handleViewStockDetail(row.original)}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      View
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleEditStock(row.original)}>
-                      <PenSquare className="mr-2 h-4 w-4" />
-                      Edit
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleAddPurchase(row.original._id)}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Purchase
-                    </Button>
-                    <Button variant="destructive" size="sm" onClick={() => handleDeleteStock(row.original._id)} disabled={deletingId === row.original._id}>
-                      {deletingId === row.original._id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash className="mr-2 h-4 w-4" />}
-                      Delete
-                    </Button>
-                  </CardFooter>
-                </Card>
-              ))}
+                        {deletingId === stock._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash className="h-4 w-4" />}
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                )
+              })}
             </div>
           ) : (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  {table.getHeaderGroups().map((headerGroup) => (
-                    <TableRow key={headerGroup.id}>
-                      {headerGroup.headers.map((header) => {
-                        return (
-                          <TableHead key={header.id}>
-                            {header.isPlaceholder
-                              ? null
-                              : flexRender(header.column.columnDef.header, header.getContext())}
-                          </TableHead>
-                        )
-                      })}
-                    </TableRow>
-                  ))}
-                </TableHeader>
-                <TableBody>
-                  {table.getRowModel().rows?.length ? (
-                    table.getRowModel().rows.map((row) => (
-                      <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
-                        {row.getVisibleCells().map((cell) => (
-                          <TableCell key={cell.id}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableCell>
-                        ))}
+            <>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    {table.getHeaderGroups().map((headerGroup) => (
+                      <TableRow key={headerGroup.id}>
+                        {headerGroup.headers.map((header) => {
+                          return (
+                            <TableHead key={header.id}>
+                              {header.isPlaceholder
+                                ? null
+                                : flexRender(header.column.columnDef.header, header.getContext())}
+                            </TableHead>
+                          )
+                        })}
                       </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={columns.length} className="h-24 text-center">
-                        No results.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                    ))}
+                  </TableHeader>
+                  <TableBody>
+                    {table.getRowModel().rows?.length ? (
+                      table.getRowModel().rows.map((row) => (
+                        <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
+                          {row.getVisibleCells().map((cell) => (
+                            <TableCell key={cell.id}>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={columns.length} className="h-24 text-center">
+                          No results.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="flex items-center justify-between space-x-2 py-4">
+                <div className="flex-1 text-sm text-muted-foreground">
+                  {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s)
+                  selected.
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => table.previousPage()}
+                    disabled={!table.getCanPreviousPage()}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </Button>
+                  <span className="text-sm">
+                    Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => table.nextPage()}
+                    disabled={!table.getCanNextPage()}
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
-          <div className="flex items-center justify-end space-x-2 py-4">
-            <div className="flex-1 text-sm text-muted-foreground">
-              {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s)
-              selected.
-            </div>
-            <div className="space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => table.previousPage()}
-                disabled={!table.getCanPreviousPage()}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
         </CardContent>
       </Card>
+
+      {/* Purchase Dialog */}
       <Dialog open={isAddPurchaseOpen} onOpenChange={setIsAddPurchaseOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -891,7 +1215,7 @@ export default function StockManagementPage() {
             <DialogDescription>Add a new purchase for the selected stock.</DialogDescription>
           </DialogHeader>
           <Form {...purchaseForm}>
-            <form onSubmit={purchaseForm.handleSubmit(handleSubmitPurchase)} className="space-y-8">
+            <form onSubmit={purchaseForm.handleSubmit(handleSubmitPurchase)} className="space-y-6">
               <FormField
                 control={purchaseForm.control}
                 name="stockId"
@@ -977,7 +1301,7 @@ export default function StockManagementPage() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting} className="w-full">
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Add Purchase
               </Button>
@@ -985,6 +1309,8 @@ export default function StockManagementPage() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* Stock Detail Dialog */}
       <Dialog open={isStockDetailOpen} onOpenChange={setIsStockDetailOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
@@ -998,110 +1324,143 @@ export default function StockManagementPage() {
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <h3 className="text-lg font-semibold flex items-center">
-                      <Package className="mr-2 h-5 w-5" /> Name
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <Package className="h-5 w-5" /> Name
                     </h3>
                     <p>{selectedStock.name}</p>
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold flex items-center">
-                      <Filter className="mr-2 h-5 w-5" /> Category
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <Filter className="h-5 w-5" /> Category
                     </h3>
                     <p>{categories.find((cat) => cat._id === selectedStock.categoryId)?.name || "Unknown"}</p>
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold flex items-center">
-                      <DollarSign className="mr-2 h-5 w-5" /> Unit
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <DollarSign className="h-5 w-5" /> Unit
                     </h3>
                     <p>{selectedStock.unit}</p>
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold flex items-center">
-                      <BarChart2 className="mr-2 h-5 w-5" /> Minimum Stock
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <BarChart2 className="h-5 w-5" /> Minimum Stock
                     </h3>
                     <p>{selectedStock.minimumStock}</p>
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold flex items-center">
-                      <ShoppingCart className="mr-2 h-5 w-5" /> Current Stock
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <ShoppingCart className="h-5 w-5" /> Current Stock
                     </h3>
                     <p>{selectedStock.currentStock}</p>
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold flex items-center">
-                      <AlertTriangle className="mr-2 h-5 w-5" /> Status
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <AlertTriangle className="h-5 w-5" /> Status
                     </h3>
-                    <Badge
-                      variant={selectedStock.currentStock > selectedStock.minimumStock ? "success" : "destructive"}
-                    >
-                      {selectedStock.currentStock > selectedStock.minimumStock ? "In Stock" : "Low Stock"}
+                    <Badge variant="outline" className={getStatusConfig(getStockStatus(selectedStock)).color}>
+                      {getStatusConfig(getStockStatus(selectedStock)).label}
                     </Badge>
                   </div>
                 </div>
+                
                 <div>
-                  <h3 className="text-xl font-semibold mb-2 flex items-center">
-                    <TrendingUp className="mr-2 h-6 w-6" /> Purchase History
+                  <h3 className="text-xl font-semibold mb-2 flex items-center gap-2">
+                    <TrendingUp className="h-6 w-6" />
+                    Purchase History
                   </h3>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Quantity</TableHead>
-                        <TableHead>Unit Price (ETB)</TableHead>
-                        <TableHead>Supplier</TableHead>
-                        <TableHead>Total (ETB)</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {purchases
-                        .filter((purchase) => purchase.stockId === selectedStock._id)
-                        .map((purchase) => (
-                          <TableRow key={purchase._id}>
-                            <TableCell>{new Date(purchase.purchaseDate).toLocaleDateString()}</TableCell>
-                            <TableCell>{purchase.quantity}</TableCell>
-                            <TableCell>
-                              {purchase.unitPrice.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
-                            </TableCell>
-                            <TableCell>{purchase.supplier}</TableCell>
-                            <TableCell>
-                              {(purchase.quantity * purchase.unitPrice).toLocaleString("en-ET", {
-                                style: "currency",
-                                currency: "ETB",
-                              })}
-                            </TableCell>
-                            <TableCell>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => handleDeletePurchase(purchase._id)}
-                              >
-                                <Trash className="h-4 w-4" />
-                              </Button>
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Quantity</TableHead>
+                          <TableHead>Unit Price (ETB)</TableHead>
+                          <TableHead>Supplier</TableHead>
+                          <TableHead>Total (ETB)</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {purchases
+                          .filter((purchase) => purchase.stockId === selectedStock._id)
+                          .map((purchase) => (
+                            <TableRow key={purchase._id}>
+                              <TableCell>{new Date(purchase.purchaseDate).toLocaleDateString()}</TableCell>
+                              <TableCell>{purchase.quantity}</TableCell>
+                              <TableCell>
+                                {purchase.unitPrice.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
+                              </TableCell>
+                              <TableCell>{purchase.supplier}</TableCell>
+                              <TableCell>
+                                {(purchase.quantity * purchase.unitPrice).toLocaleString("en-ET", {
+                                  style: "currency",
+                                  currency: "ETB",
+                                })}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => handleDeletePurchase(purchase._id)}
+                                >
+                                  <Trash className="h-4 w-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        {purchases.filter(p => p.stockId === selectedStock._id).length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center py-8">
+                              <Package className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                              <p className="text-muted-foreground">No purchase records found</p>
                             </TableCell>
                           </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
+                
                 <div>
-                  <h3 className="text-xl font-semibold mb-2 flex items-center">
-                    <BarChart2 className="mr-2 h-6 w-6" /> Stock Level
+                  <h3 className="text-xl font-semibold mb-2 flex items-center gap-2">
+                    <BarChart2 className="h-6 w-6" /> Stock Level Analysis
                   </h3>
-                  <Progress
-                    value={(selectedStock.currentStock / selectedStock.minimumStock) * 100}
-                    className="w-full"
-                  />
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Current stock level: {((selectedStock.currentStock / selectedStock.minimumStock) * 100).toFixed(2)}%
-                    of minimum stock
-                  </p>
+                  <div className="space-y-2">
+                    <Progress 
+                      value={Math.min(100, (selectedStock.currentStock / selectedStock.minimumStock) * 100)} 
+                      className={`h-3 ${
+                        getStockStatus(selectedStock) === 'critical' ? 'bg-red-200 dark:bg-red-900' :
+                        getStockStatus(selectedStock) === 'low' ? 'bg-amber-200 dark:bg-amber-900' :
+                        getStockStatus(selectedStock) === 'good' ? 'bg-green-200 dark:bg-green-900' :
+                        'bg-blue-200 dark:bg-blue-900'
+                      }`}
+                    />
+                    <div className="flex justify-between text-sm">
+                      <span>Current: {selectedStock.currentStock}</span>
+                      <span>Minimum: {selectedStock.minimumStock}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Current stock level is {((selectedStock.currentStock / selectedStock.minimumStock) * 100).toFixed(2)}% of minimum stock
+                    </p>
+                    {selectedStock.currentStock < selectedStock.minimumStock && (
+                      <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 mt-2">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                          <span className="text-sm text-amber-800 dark:text-amber-300">
+                            This item needs to be reordered. Current stock is below minimum requirement.
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
           </ScrollArea>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteWarningOpen} onOpenChange={setIsDeleteWarningOpen}>
         <DialogContent>
           <DialogHeader>
