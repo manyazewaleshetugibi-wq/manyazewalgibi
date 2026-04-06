@@ -57,7 +57,7 @@ const roleBasedNavigation = {
         icon: Package,
         items: [
           { title: "Stock", url: "/stock" },
-          { title: "Categories", url: "/stock/category" },
+          { title: "Categories", url: "/scategory" },
           { title: "stockReport", url: "/stockReport" },
         ],
       },
@@ -67,7 +67,7 @@ const roleBasedNavigation = {
         icon: ClipboardList,
         items: [
           { title: "Items", url: "/items" },
-          { title: "Item Categories", url: "/items/catagory" },
+          { title: "Item Categories", url: "/catagory" },
         ],
       },
       {
@@ -76,7 +76,7 @@ const roleBasedNavigation = {
         icon: ShoppingCart,
         items: [
           { title: "In-Restaurant", url: "/orders" },
-          { title: "Pending Delivery", url: "/orders/delivery" },
+          { title: "Pending Delivery", url: "/delivery" },
         ],
       },
       {
@@ -128,7 +128,7 @@ const roleBasedNavigation = {
         icon: ShoppingCart,
         items: [
           { title: "In-Restaurant", url: "/orders" },
-          { title: "Pending Delivery", url: "/orders/delivery" },
+          { title: "Pending Delivery", url: "/delivery" },
         ],
       },
     ],
@@ -144,7 +144,7 @@ const roleBasedNavigation = {
         icon: ClipboardList,
         items: [
           { title: "Items", url: "/items" },
-          { title: "Item Categories", url: "/items/catagory" },
+          { title: "Item Categories", url: "/catagory" },
         ],
       },
     ],
@@ -177,7 +177,7 @@ const roleBasedNavigation = {
         icon: Package,
         items: [
           { title: "Stock", url: "/stock" },
-          { title: "Categories", url: "/stock/category" },
+          { title: "Categories", url: "/scategory" },
           { title: "stockReport", url: "/stockReport" },
         ],
       },
@@ -205,7 +205,7 @@ const roleBasedNavigation = {
         icon: Package,
         items: [
           { title: "Stock", url: "/stock" },
-          { title: "Categories", url: "/stock/category" },
+          { title: "Categories", url: "/scategory" },
           { title: "stockReport", url: "/stockReport" },
         ],
       },
@@ -222,8 +222,8 @@ const roleBasedNavigation = {
         icon: ShoppingCart,
         items: [
           { title: "POs", url: "/pos"  },
-           { title: "edit", url: "/orders/edit"  },
-           { title: "myorders", url: "/orders/myorders"  },
+           { title: "edit", url: "/edit"  },
+           { title: "myorders", url: "/myorders"  },
         ],
       },
     ],
@@ -280,7 +280,7 @@ const getNavigationForRole = (role: string) => {
 const addEditProfileForAllRoles = (projects: Array<{ name: string; url: string; icon: any }>) => {
   return [
     // Add Edit Profile at the top for easy access for ALL roles
-    { name: "Edit Profile", url: "/profile/edit", icon: Settings },
+    { name: "Edit Profile", url: "/profile", icon: Settings },
     // Then the existing projects
     ...projects,
   ];
