@@ -117,5 +117,8 @@
     "cookie": "^0.7.2",
     "fast-xml-parser": "^5.2.0",
     "immutable": "^4.3.7"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
