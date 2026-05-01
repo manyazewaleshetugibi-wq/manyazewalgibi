@@ -124,9 +124,11 @@ export async function POST(req: NextRequest) {
     const totalAmountFromFrontend = body.totalAmount || 0; // Price with tax
     const deliveryFee = body.deliveryFee || 0;
     const discount = body.discount || 0;
+    const packagingCharge = body.packagingCharge || 0;
+    const categoryChargesTotal = body.categoryChargesTotal || 0;
     
     // Calculate final amount using frontend values
-    const finalAmount = totalAmountFromFrontend + deliveryFee - discount;
+    const finalAmount = totalAmountFromFrontend + deliveryFee + packagingCharge - discount;
 
     // Process items with their correct tax breakdown
     const itemsWithDetails = [];
@@ -199,6 +201,8 @@ export async function POST(req: NextRequest) {
       paymentScreenshotUrl: paymentScreenshotUrl,
       transactionId: body.transactionId || `TXN-${Date.now()}`,
       deliveryFee: deliveryFee,
+      packagingCharge: packagingCharge,
+      categoryChargesTotal: categoryChargesTotal,
       discount: discount,
       subtotal: subtotalFromFrontend,        // Use frontend value (excl. tax)
       tax: taxFromFrontend,                  // Use frontend value (tax amount)

@@ -25,6 +25,7 @@ import {
   PieChart,
   Sliders,
   RefreshCw,
+  ThumbsUp,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -95,12 +96,12 @@ const postTypes: PostTypeInfo[] = [
   { name: "video", icon: <Video className="h-6 w-6" /> },
 ]
 
-const postStatuses = ["Pending", "Posted", "Failed"]
+const postStatuses = ["Pending", "Recorded", "Edited", "Accepted", "Posted", "Failed"]
 
 export default function Page() {
   const [contents, setContents] = useState<Content[]>([])
   const [filteredContents, setFilteredContents] = useState<Content[]>([])
-  const [stats, setStats] = useState({ total: 0, pending: 0, posted: 0, failed: 0 })
+  const [stats, setStats] = useState({ total: 0, pending: 0, recorded: 0, edited: 0, accepted: 0, posted: 0, failed: 0 })
   const [platformStats, setPlatformStats] = useState<Record<string, number>>({})
   const [postTypeStats, setPostTypeStats] = useState<Record<string, number>>({})
   const [editingContent, setEditingContent] = useState<Content | null>(null)
@@ -142,6 +143,9 @@ export default function Page() {
     const newStats = {
       total: data.length,
       pending: data.filter((c) => c.status === "Pending").length,
+      recorded: data.filter((c) => c.status === "Recorded").length,
+      edited: data.filter((c) => c.status === "Edited").length,
+      accepted: data.filter((c) => c.status === "Accepted").length,
       posted: data.filter((c) => c.status === "Posted").length,
       failed: data.filter((c) => c.status === "Failed").length,
     }
@@ -312,7 +316,7 @@ export default function Page() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
         <StatCard title="Total Posts" value={stats.total} color="bg-blue-500" icon={<FileText className="h-6 w-6" />} />
         <StatCard
           title="Pending"
@@ -320,6 +324,19 @@ export default function Page() {
           color="bg-yellow-500"
           icon={<AlertCircle className="h-6 w-6" />}
         />
+        <StatCard
+          title="Recorded"
+          value={stats.recorded}
+          color="bg-slate-500"
+          icon={<FileText className="h-6 w-6" />}
+        />
+        <StatCard
+          title="Edited"
+          value={stats.edited}
+          color="bg-purple-500"
+          icon={<AlertCircle className="h-6 w-6" />}
+        />
+        <StatCard title="Accepted" value={stats.accepted} color="bg-teal-500" icon={<ThumbsUp className="h-6 w-6" />} />
         <StatCard title="Posted" value={stats.posted} color="bg-green-500" icon={<CheckCircle className="h-6 w-6" />} />
         <StatCard title="Failed" value={stats.failed} color="bg-red-500" icon={<XCircle className="h-6 w-6" />} />
       </div>
@@ -384,6 +401,30 @@ export default function Page() {
                               <div className="flex items-center">
                                 {type.icon}
                                 <span className="ml-2">{type.name.charAt(0).toUpperCase() + type.name.slice(1)}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="status">Initial Status</Label>
+                  <Controller
+                    name="status"
+                    control={control}
+                    defaultValue="Pending"
+                    render={({ field }) => (
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {postStatuses.map((status) => (
+                            <SelectItem key={status} value={status}>
+                              <div className="flex items-center">
+                                <span>{status}</span>
                               </div>
                             </SelectItem>
                           ))}
@@ -690,6 +731,9 @@ function ContentCard({
 
   const statusIcon = {
     Pending: <AlertCircle className="h-5 w-5 text-yellow-500" />,
+    Recorded: <FileText className="h-5 w-5 text-slate-500" />,
+    Edited: <Edit2 className="h-5 w-5 text-purple-500" />,
+    Accepted: <ThumbsUp className="h-5 w-5 text-teal-500" />,
     Posted: <CheckCircle className="h-5 w-5 text-green-500" />,
     Failed: <XCircle className="h-5 w-5 text-red-500" />,
   }[content.status]
@@ -747,12 +791,12 @@ function ContentCard({
           </div>
           <div className="flex items-center space-x-2">
             <Label htmlFor={`status-${content._id}`} className="text-sm">
-              Mark as Posted
+              Posted
             </Label>
             <Switch
               id={`status-${content._id}`}
               checked={content.status === "Posted"}
-              onCheckedChange={(checked) => onStatusChange(checked ? "Posted" : "Pending")}
+              onCheckedChange={(checked) => onStatusChange(checked ? "Posted" : "Accepted")}
             />
           </div>
         </div>

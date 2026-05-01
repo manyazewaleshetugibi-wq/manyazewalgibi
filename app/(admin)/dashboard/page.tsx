@@ -2123,7 +2123,7 @@ function Dashboard() {
                   </Card>
                 </motion.div>
 
-                {/* Employee Performance Ranking section */}
+                {/* Employee Performance Ranking section
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
@@ -2334,7 +2334,7 @@ function Dashboard() {
                       )}
                     </CardContent>
                   </Card>
-                </motion.div>
+                </motion.div> */}
               </TabsContent>
             </Tabs>
           </motion.div>

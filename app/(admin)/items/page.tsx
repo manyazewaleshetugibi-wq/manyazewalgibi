@@ -34,7 +34,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Search, Plus, Edit, Trash2, Clock, Star, Save, X, Tag, Loader2, Eye, ChefHat, Menu, Filter, Coffee, XCircle, AlertCircle, Package, Check } from 'lucide-react'
 import { useDebouncedCallback } from "use-debounce"
-import { api } from "@/utils/api"
+import { api } from "@/types/utils/api"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
@@ -1486,16 +1486,6 @@ export default function RestaurantMenuManagement() {
                     <div className="space-y-4 pt-3">
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="text-sm font-medium">Required Stock Items</h3>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => append({ stockId: "", quantity: 0 })}
-                          className="text-xs h-8"
-                          disabled={isSubmitting || isUploading}
-                        >
-                          <Plus className="mr-1 h-3 w-3" /> Add Ingredient
-                        </Button>
                       </div>
                       {fields.length === 0 && (
                         <div className="text-center py-4 bg-gray-50 rounded-md">
@@ -1552,6 +1542,16 @@ export default function RestaurantMenuManagement() {
                           </div>
                         </div>
                       ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => append({ stockId: "", quantity: 0 })}
+                        className="text-xs h-9 w-full border-dashed mt-2"
+                        disabled={isSubmitting || isUploading}
+                      >
+                        <Plus className="mr-2 h-4 w-4" /> Add Ingredient
+                      </Button>
                     </div>
                   </TabsContent>
                   <TabsContent value="nutrition">

@@ -46,6 +46,10 @@ export function FAQSection() {
               {
                 question: "Do you offer vegetarian options?",
                 answer: "Yes, we have a wide selection of vegetarian dishes on our menu."
+              },
+              {
+                question: "Where is the second branch ManyazewalEshetuGibi2 Restaurant located?",
+                answer: "ManyazewalEshetuGibi2 Restaurant is located at Bole Subcity, Woreda 03, near Friendship Park, Addis Ababa, Ethiopia."
               }
             ].map((faq, index) => (
               <AccordionItem 

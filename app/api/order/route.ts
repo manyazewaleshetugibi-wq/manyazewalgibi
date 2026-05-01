@@ -1,15 +1,37 @@
-// app/api/order/route.ts - COMPLETE UPDATED VERSION with assignmentRequest support
-if (process.env.NODE_ENV === 'development') {
-  import('../../../lib/localCron');
-}
 import { NextRequest, NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import clientPromise from "@/lib/mongodb";
 import { 
-  debugLog, debugError, normalizeStatus, getCurrentUserData, uploadToCloudinary,
-  isOrderCompleted
+  debugLog, 
+  debugError, 
+  normalizeStatus, 
+  getCurrentUserData, 
+  isOrderCompleted 
 } from "../utils/orderHelpers";
 import { registerOrderActivity, registerWaitressActivity } from "../utils/activityHelpers";
+
+// Cloudinary upload helper function (inline to avoid import issues)
+async function uploadToCloudinary(file: File): Promise<string> {
+  const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
+  const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
+  
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+    { method: 'POST', body: formData }
+  );
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Cloudinary upload failed: ${error.error?.message || 'Unknown error'}`);
+  }
+  
+  const data = await response.json();
+  return data.secure_url;
+}
 
 // Type guard for activity result success
 function isSuccessResult(result: any): result is { 
@@ -24,7 +46,13 @@ function isSuccessResult(result: any): result is {
   return result?.success === true && typeof result?.pointsAwarded === 'number';
 }
 
-// GET endpoint - Fetch orders (FAST - no stock processing)
+// Helper function to check if a user role is admin
+const isAdminRole = (role: string | undefined): boolean => {
+  if (!role) return false;
+  return ['ADMIN', 'admin', 'Admin', 'SUPER_ADMIN'].includes(role);
+}
+
+// GET endpoint - Fetch orders with role-based time filtering
 export async function GET(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
@@ -32,13 +60,16 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const orderId = url.searchParams.get("id");
     const status = url.searchParams.get("status");
+    const restaurantId = url.searchParams.get("restaurantId");
     const after = url.searchParams.get("after");
     const action = url.searchParams.get("action");
+    const allParam = url.searchParams.get("all"); // New parameter for admin to see all orders
 
     debugLog("GET request received (fast mode):", {
       orderId,
       status,
       action,
+      allParam,
       pathname: url.pathname
     });
 
@@ -83,6 +114,28 @@ export async function GET(req: NextRequest) {
       }, { status: 200 });
     }
 
+    // Get current user to determine role
+    const userData = await getCurrentUserData(req);
+    const isAdmin = isAdminRole(userData?.role);
+    
+    // Determine time filter based on role and parameters
+    let timeFilterHours: number | null = null;
+    let cutoffTime: Date | null = null;
+    let filterMessage: string = "";
+    
+    if (isAdmin && allParam === "true") {
+      // Admin with "all=true" - show all orders from last 24 hours
+      timeFilterHours = 24;
+      cutoffTime = new Date(Date.now() - timeFilterHours * 60 * 60 * 1000);
+      filterMessage = `Admin view: Showing orders from last 24 hours (since ${cutoffTime.toISOString()})`;
+      debugLog(`Admin mode: Showing orders from last ${timeFilterHours} hours`);
+    } else {
+      // Regular user or admin without all=true - use existing filtering
+      timeFilterHours = null;
+      filterMessage = "Regular view: Showing non-completed orders + completed orders from last 2 hours";
+      debugLog(`Regular mode: Using standard filtering`);
+    }
+
     // Build query based on parameters
     let query: any = {};
     
@@ -100,37 +153,78 @@ export async function GET(req: NextRequest) {
       query.status = { $regex: new RegExp(`^${status}$`, 'i') };
     }
 
-    // 🔥 Filter out completed orders older than 2 hours
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    
-    const completedFilter = {
-      $or: [
-        { status: { $not: { $regex: /^completed$/i } } },
-        { 
-          status: { $regex: /^completed$/i },
-          updatedAt: { $gte: twoHoursAgo }
-        }
-      ]
-    };
-
-    if (Object.keys(query).length > 0) {
-      query = { $and: [query, completedFilter] };
-    } else {
-      query = completedFilter;
+    if (restaurantId) {
+      // If Manyazewal 1 is selected, include delivery orders as well
+      if (restaurantId === "manyazewal1") {
+        query.$or = [{ restaurantId: "manyazewal1" }, { delivery: true }];
+      } else {
+        query.restaurantId = restaurantId;
+      }
     }
 
-    // Enforce delivery order visibility rule
-    const deliveryRestriction = {
-      $or: [
-        { delivery: { $ne: true } },
-        { 
-          delivery: true, 
-          status: { $regex: /^confirmed$/i } 
-        }
-      ]
-    };
+    // Apply different filtering based on user role
+    if (isAdmin && allParam === "true") {
+      // ADMIN VIEW: Show all orders (pending, completed, etc.) from last 24 hours
+      // Apply time filter to all orders
+      query.createdAt = { $gte: cutoffTime };
+      
+      // Still enforce delivery order visibility rule
+      const deliveryRestriction = {
+        $or: [
+          { delivery: { $ne: true } },
+          { 
+            delivery: true, 
+            status: { $regex: /^confirmed$/i } 
+          }
+        ]
+      };
+      
+      if (Object.keys(query).length > 0 && query.$or) {
+        // Handle existing $or from restaurant filter
+        const existingOr = query.$or;
+        delete query.$or;
+        query.$and = [
+          { $or: existingOr },
+          deliveryRestriction,
+          { createdAt: { $gte: cutoffTime } }
+        ];
+      } else {
+        query = { $and: [query, deliveryRestriction] };
+      }
+    } else {
+      // REGULAR VIEW: Non-admin users or admin without all=true
+      // Filter out completed orders older than 2 hours
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      
+      const completedFilter = {
+        $or: [
+          { status: { $not: { $regex: /^completed$/i } } },
+          { 
+            status: { $regex: /^completed$/i },
+            updatedAt: { $gte: twoHoursAgo }
+          }
+        ]
+      };
 
-    query = { $and: [query, deliveryRestriction] };
+      if (Object.keys(query).length > 0) {
+        query = { $and: [query, completedFilter] };
+      } else {
+        query = completedFilter;
+      }
+
+      // Enforce delivery order visibility rule
+      const deliveryRestriction = {
+        $or: [
+          { delivery: { $ne: true } },
+          { 
+            delivery: true, 
+            status: { $regex: /^confirmed$/i } 
+          }
+        ]
+      };
+
+      query = { $and: [query, deliveryRestriction] };
+    }
 
     if (after) {
       const afterDate = new Date(after);
@@ -146,11 +240,12 @@ export async function GET(req: NextRequest) {
       .limit(100)
       .toArray();
 
+    const twoHoursAgoForStock = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const pendingStockCount = await db.collection("orders").countDocuments({
       status: { $regex: /^completed$/i },
       stockProcessed: { $ne: true },
       "items.0": { $exists: true },
-      updatedAt: { $gte: twoHoursAgo }
+      updatedAt: { $gte: twoHoursAgoForStock }
     });
 
     debugLog(`Found ${orders.length} orders, ${pendingStockCount} pending stock processing`);
@@ -163,8 +258,11 @@ export async function GET(req: NextRequest) {
           orders: [],
           pendingStockProcessing: pendingStockCount,
           filterInfo: {
-            completedOrdersOlderThan2HoursExcluded: true,
-            cutoffTime: twoHoursAgo.toISOString()
+            userRole: userData?.role,
+            isAdmin: isAdmin,
+            timeFilterHours: timeFilterHours,
+            cutoffTime: cutoffTime?.toISOString() || null,
+            message: filterMessage
           }
         },
         { status: 200 }
@@ -229,8 +327,13 @@ export async function GET(req: NextRequest) {
         count: orders.length,
         pendingStockProcessing: pendingStockCount,
         filterInfo: {
-          completedOrdersOlderThan2HoursExcluded: true,
-          cutoffTime: twoHoursAgo.toISOString()
+          userRole: userData?.role,
+          isAdmin: isAdmin,
+          timeFilterHours: timeFilterHours,
+          cutoffTime: cutoffTime?.toISOString() || null,
+          message: filterMessage,
+          regularView: !(isAdmin && allParam === "true"),
+          completedOrdersOlderThan2HoursExcluded: !(isAdmin && allParam === "true")
         }
       },
       { status: 200 }
@@ -315,11 +418,13 @@ export async function POST(req: NextRequest) {
     const orderNumber = `ORD-${String(nextOrderNum).padStart(6, '0')}`;
 
     // Use values from frontend or calculate them
-    let subtotalAmount = body.subtotal || 0;      // Price without tax
-    let taxAmount = body.tax || 0;                // Tax amount
-    let totalAmount = body.totalAmount || 0;      // Price with tax
+    let subtotalAmount = body.subtotal || 0;
+    let taxAmount = body.tax || 0;
+    let totalAmount = body.totalAmount || 0;
     let deliveryFee = body.deliveryFee || 0;
     let discount = Number(body.discount) || 0;
+    let packagingCharge = Number(body.packagingCharge) || 0;
+    let categoryChargesTotal = Number(body.categoryChargesTotal) || 0;
     
     const processedItems = [];
 
@@ -365,7 +470,11 @@ export async function POST(req: NextRequest) {
         subtotal: itemSubtotal,
         taxTotal: itemTaxTotal,
         total: itemTotal,
-        notes: item.notes || ""
+        notes: item.notes || "",
+        // Initialize uneditable fields for new items
+        isUneditable: false,
+        uneditableAt: null,
+        uneditableBy: null
       };
 
       processedItems.push(processedItem);
@@ -383,7 +492,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Calculate final amount
-    const finalAmount = totalAmount + deliveryFee - discount;
+    const finalAmount = totalAmount + deliveryFee + packagingCharge - discount;
 
     // Get current user data
     const userData = await getCurrentUserData(req);
@@ -398,21 +507,32 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Create the order object with CORRECT values and INCLUDING assignmentRequest
+    // Create the order object
     const orderData = {
       orderNumber,
       tableNumber: body.tableNumber || null,
+      tableId: body.tableId || null,
+      restaurantId: body.restaurantId || null,
+      restaurantName: body.restaurantName || null,
+      floor: body.floor || null,
+      arrangementId: body.arrangementId || null,
+      tableCapacity: body.tableCapacity || null,
+      tableLocation: body.tableLocation || null,
+      tableFeatures: body.tableFeatures || null,
+      tableShape: body.tableShape || null,
       waiterId: body.waiterId || null,
-      waiterName: body.waiterName || null, // ✅ Added waiterName
+      waiterName: body.waiterName || null,
       customerId: body.customerId || "walk-in",
       numberOfGuests: body.numberOfGuests || 1,
       items: processedItems,
-      subtotal: subtotalAmount,      // Price without tax
-      tax: taxAmount,                // Tax amount
-      totalAmount: totalAmount,      // Price with tax
+      subtotal: subtotalAmount,
+      tax: taxAmount,
+      totalAmount: totalAmount,
       discount: discount,
-      finalAmount: finalAmount,      // Total with delivery
+      finalAmount: finalAmount,
       deliveryFee: deliveryFee,
+      packagingCharge: packagingCharge,
+      categoryChargesTotal: categoryChargesTotal,
       paymentMethod: body.paymentMethod || "CARD",
       status: "PENDING",
       specialRequirements: body.specialRequirements || "",
@@ -422,13 +542,28 @@ export async function POST(req: NextRequest) {
       delivery: body.delivery || false,
       deliveryInfo: body.deliveryInfo || null,
       paymentScreenshotUrl: body.paymentScreenshotUrl || null,
-      // ✅ IMPORTANT: Include assignmentRequest if it exists
+      // Mark for deletion fields (initial state)
+      markedForDeletion: false,
+      deletionRequestReason: null,
+      deletionRequestedBy: null,
+      deletionRequestedAt: null,
+      deletedAt: null,
+      deletedBy: null,
+      deletionReason: null,
+      // Include assignmentRequest if it exists
       ...(body.assignmentRequest && {
         assignmentRequest: {
           status: body.assignmentRequest.status || 'pending',
           type: body.assignmentRequest.type || 'table_assignment',
           requestedAt: body.assignmentRequest.requestedAt || new Date().toISOString(),
           tableNumber: body.assignmentRequest.tableNumber || body.tableNumber,
+          tableId: body.assignmentRequest.tableId || body.tableId || null,
+          restaurantId: body.assignmentRequest.restaurantId || body.restaurantId || null,
+          restaurantName: body.assignmentRequest.restaurantName || body.restaurantName || null,
+          floor: body.assignmentRequest.floor || body.floor || null,
+          arrangementId: body.assignmentRequest.arrangementId || body.arrangementId || null,
+          waiterId: body.assignmentRequest.waiterId || body.waiterId || null,
+          waiterName: body.assignmentRequest.waiterName || body.waiterName || null,
           numberOfGuests: body.assignmentRequest.numberOfGuests || body.numberOfGuests,
           orderNumber: body.assignmentRequest.orderNumber || orderNumber,
           customerName: body.assignmentRequest.customerName || body.customerName || 'Walk-in',
@@ -465,7 +600,7 @@ export async function POST(req: NextRequest) {
     const result = await db.collection("orders").insertOne(orderData as any);
     const insertedOrder = await db.collection("orders").findOne({ _id: result.insertedId });
 
-    // ✅ Register who created the order (but NO points for creation - just tracking)
+    // Register who created the order (but NO points for creation - just tracking)
     if (userData && insertedOrder) {
       try {
         debugLog("📝 Tracking order creator:", userData.name);
@@ -498,7 +633,7 @@ export async function POST(req: NextRequest) {
         status: "pending",
         createdBy: userData ? userData.name : null,
         createdAt: orderData.createdAt,
-        hasAssignmentRequest: !!orderData.assignmentRequest // ✅ Confirm if saved
+        hasAssignmentRequest: !!orderData.assignmentRequest
       },
       { status: 201 }
     );
@@ -516,7 +651,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PATCH endpoint - Update order status - AWARD POINTS ON COMPLETION
+// PATCH endpoint - Update order status, mark for deletion, or toggle item uneditable
 export async function PATCH(req: NextRequest) {
   const startTime = Date.now();
   
@@ -525,8 +660,150 @@ export async function PATCH(req: NextRequest) {
     const db = dbClient.db("gold");
     const body = await req.json();
 
-    const { orderId, status } = body;
+    const { orderId, status, action, reason, requestedBy, requestedAt, itemIndex, isUneditable, uneditableBy } = body;
 
+    // Handle "toggle-item-uneditable" action (new)
+    if (action === "toggle-item-uneditable") {
+      if (!orderId || itemIndex === undefined) {
+        return NextResponse.json(
+          { success: false, error: "Order ID and item index are required" },
+          { status: 400 }
+        );
+      }
+
+      if (!ObjectId.isValid(orderId)) {
+        return NextResponse.json(
+          { success: false, error: "Valid order ID is required" },
+          { status: 400 }
+        );
+      }
+
+      const userData = await getCurrentUserData(req);
+      const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+      
+      if (!order) {
+        return NextResponse.json(
+          { success: false, error: "Order not found" },
+          { status: 404 }
+        );
+      }
+
+      const items = order.items || [];
+      if (itemIndex < 0 || itemIndex >= items.length) {
+        return NextResponse.json(
+          { success: false, error: "Invalid item index" },
+          { status: 400 }
+        );
+      }
+
+      const updateFields: any = {};
+      const itemPath = `items.${itemIndex}`;
+      
+      updateFields[`${itemPath}.isUneditable`] = isUneditable;
+      
+      if (isUneditable) {
+        updateFields[`${itemPath}.uneditableAt`] = new Date().toISOString();
+        updateFields[`${itemPath}.uneditableBy`] = uneditableBy || userData?.name || userData?.email || "Unknown";
+      } else {
+        updateFields[`${itemPath}.uneditableAt`] = null;
+        updateFields[`${itemPath}.uneditableBy`] = null;
+      }
+      
+      updateFields.updatedAt = new Date();
+
+      const updateResult = await db.collection("orders").updateOne(
+        { _id: new ObjectId(orderId) },
+        { $set: updateFields }
+      );
+
+      if (updateResult.matchedCount === 0) {
+        return NextResponse.json(
+          { success: false, error: "Order not found" },
+          { status: 404 }
+        );
+      }
+
+      const updatedOrder = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+      const updatedItems = updatedOrder?.items || [];
+      const allItemsUneditable = updatedItems.length > 0 && updatedItems.every((item: any) => item.isUneditable === true);
+
+      debugLog(`📝 Item ${itemIndex} in order ${orderId} marked as ${isUneditable ? 'uneditable' : 'editable'} by ${updateFields[`${itemPath}.uneditableBy`] || userData?.name}`);
+
+      return NextResponse.json({
+        success: true,
+        message: isUneditable ? "Item marked as uneditable" : "Item marked as editable",
+        allItemsUneditable,
+        itemIndex,
+        isUneditable
+      }, { status: 200 });
+    }
+
+    // Handle "mark-for-deletion" action
+    if (action === "mark-for-deletion") {
+      if (!orderId || !reason) {
+        return NextResponse.json(
+          { success: false, error: "Order ID and deletion reason are required" },
+          { status: 400 }
+        );
+      }
+
+      if (!ObjectId.isValid(orderId)) {
+        return NextResponse.json(
+          { success: false, error: "Valid order ID is required" },
+          { status: 400 }
+        );
+      }
+
+      const userData = await getCurrentUserData(req);
+      
+      // Update order with deletion request
+      const updateResult = await db.collection("orders").updateOne(
+        { _id: new ObjectId(orderId) },
+        { 
+          $set: { 
+            markedForDeletion: true,
+            deletionRequestReason: reason,
+            deletionRequestedBy: requestedBy || userData?.name || userData?.email || "Unknown User",
+            deletionRequestedAt: requestedAt || new Date().toISOString(),
+            updatedAt: new Date()
+          } 
+        }
+      );
+
+      if (updateResult.matchedCount === 0) {
+        return NextResponse.json(
+          { success: false, error: "Order not found" },
+          { status: 404 }
+        );
+      }
+
+      // Log the deletion request
+      debugLog(`📝 Order ${orderId} marked for deletion by ${requestedBy || userData?.name}`, {
+        reason,
+        timestamp: new Date().toISOString()
+      });
+
+      // Create a log entry in a separate collection for audit trail
+      await db.collection("deletion_requests").insertOne({
+        orderId: new ObjectId(orderId),
+        reason: reason,
+        requestedBy: requestedBy || userData?.name || userData?.email || "Unknown User",
+        requestedAt: new Date(),
+        status: "pending",
+        createdAt: new Date()
+      });
+
+      const updatedOrder = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+
+      return NextResponse.json({
+        success: true,
+        message: "Order has been marked for deletion. Admin will review your request.",
+        order: updatedOrder,
+        markedForDeletion: true
+      }, { status: 200 });
+    }
+
+    // Handle regular status update
     if (!orderId || !status) {
       return NextResponse.json(
         { success: false, error: "Invalid request. Provide orderId and status" },
@@ -610,7 +887,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // 🔥 CRITICAL: AWARD POINTS ON COMPLETION (synchronously)
+    // Award points on completion
     if (normalizedStatus === "completed") {
       let completionResult = null;
       let waitressResult = null;
@@ -618,23 +895,19 @@ export async function PATCH(req: NextRequest) {
       try {
         debugLog(`🎯 AWARDING POINTS for completed order: ${updatedOrder.orderNumber}`);
         
-        // ✅ Award points to the user who completed the order (10-25 points)
+        // Award points to the user who completed the order
         if (userData) {
           debugLog(`📝 Awarding completion points to: ${userData.name} (ID: ${userData.id})`);
           completionResult = await registerOrderActivity(db, userData, updatedOrder, 'completed');
           
-          // Use type guard to safely access pointsAwarded
           if (isSuccessResult(completionResult)) {
             debugLog(`✅ ${completionResult.pointsAwarded} points awarded to ${userData.name}`);
-            debugLog(`📊 completedOrders incremented: ${completionResult.completedOrdersIncremented}`);
           } else {
             debugError(`❌ Failed to award points: ${completionResult?.message}`, completionResult);
           }
-        } else {
-          debugLog(`⚠️ WARNING: No user logged in - cannot award points for order ${updatedOrder.orderNumber}`);
         }
         
-        // ✅ Award points to waitress if order has waiter
+        // Award points to waitress if order has waiter
         if (updatedOrder.waiterId) {
           debugLog(`📝 Awarding completion points to waitress for order ${updatedOrder.orderNumber}`);
           waitressResult = await registerWaitressActivity(db, updatedOrder, 'completed');
@@ -643,7 +916,7 @@ export async function PATCH(req: NextRequest) {
           }
         }
         
-        // ✅ Mark order as having completion registered (prevents duplicates)
+        // Mark order as having completion registered
         await db.collection("orders").updateOne(
           { _id: new ObjectId(orderId) },
           { 
@@ -657,7 +930,7 @@ export async function PATCH(req: NextRequest) {
           }
         );
         
-        // ✅ Process stock in BACKGROUND (don't wait for this)
+        // Process stock in BACKGROUND
         setImmediate(async () => {
           try {
             const { processOrderStockUsage } = await import("../utils/stockHelpers");
@@ -688,7 +961,6 @@ export async function PATCH(req: NextRequest) {
       } catch (error) {
         debugError("❌ Critical error during points award:", error);
         
-        // Still return success for the order status update
         return NextResponse.json({
           success: true,
           message: "Order completed but points award had issues. Will retry.",
@@ -726,7 +998,128 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// ✅ PUT endpoint for fixes and maintenance
+// DELETE endpoint - Admin only, requires mark-for-deletion first or admin role
+export async function DELETE(req: NextRequest) {
+  try {
+    const dbClient = await clientPromise;
+    const db = dbClient.db("gold");
+    const url = new URL(req.url);
+    const orderId = url.searchParams.get("id");
+    
+    if (!orderId) {
+      return NextResponse.json(
+        { success: false, error: "Order ID is required" },
+        { status: 400 }
+      );
+    }
+
+    if (!ObjectId.isValid(orderId)) {
+      return NextResponse.json(
+        { success: false, error: "Invalid order ID format" },
+        { status: 400 }
+      );
+    }
+
+    const userData = await getCurrentUserData(req);
+    
+    // Check if user is admin using helper function
+    const isAdmin = isAdminRole(userData?.role);
+    
+    if (!isAdmin) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized. Only administrators can delete orders." },
+        { status: 403 }
+      );
+    }
+
+    // Check if order exists
+    const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+    
+    if (!order) {
+      return NextResponse.json(
+        { success: false, error: "Order not found" },
+        { status: 404 }
+      );
+    }
+
+    // Log the deletion with reason if available
+    const deletionReason = url.searchParams.get("reason") || "Admin deletion";
+    
+    // Soft delete - mark as deleted instead of removing
+    const updateResult = await db.collection("orders").updateOne(
+      { _id: new ObjectId(orderId) },
+      { 
+        $set: { 
+          deletedAt: new Date(),
+          deletedBy: userData?.name || userData?.email || "Unknown Admin",
+          deletionReason: deletionReason,
+          isActive: false,
+          updatedAt: new Date()
+        } 
+      }
+    );
+
+    if (updateResult.matchedCount === 0) {
+      return NextResponse.json(
+        { success: false, error: "Order not found" },
+        { status: 404 }
+      );
+    }
+
+    // Log deletion in audit collection
+    await db.collection("deletion_logs").insertOne({
+      orderId: new ObjectId(orderId),
+      orderNumber: order.orderNumber,
+      deletedBy: userData?.name || userData?.email || "Unknown Admin",
+      deletedByRole: userData?.role,
+      deletionReason: deletionReason,
+      orderData: {
+        orderNumber: order.orderNumber,
+        finalAmount: order.finalAmount,
+        status: order.status,
+        createdAt: order.createdAt
+      },
+      deletedAt: new Date()
+    });
+
+    debugLog(`✅ Order ${order.orderNumber} deleted by admin ${userData?.name}`);
+    
+    // If order was marked for deletion, also update that status
+    if (order.markedForDeletion) {
+      await db.collection("deletion_requests").updateOne(
+        { orderId: new ObjectId(orderId), status: "pending" },
+        { 
+          $set: { 
+            status: "approved",
+            approvedBy: userData?.name,
+            approvedAt: new Date()
+          } 
+        }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Order ${order.orderNumber} has been deleted`,
+      deletedAt: new Date().toISOString(),
+      deletedBy: userData?.name || "Unknown Admin"
+    }, { status: 200 });
+    
+  } catch (error) {
+    debugError("Order deletion error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    return NextResponse.json(
+      { 
+        success: false,
+        error: "Failed to delete order", 
+        details: errorMessage 
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// PUT endpoint for fixes and maintenance
 export async function PUT(req: NextRequest) {
   try {
     const dbClient = await clientPromise;

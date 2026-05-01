@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcrypt'
 import clientPromise from '@/lib/mongodb'
@@ -168,7 +169,7 @@ const generateWelcomeEmail = (firstName: string, lastName: string, referralCode:
                 </div>
                 
                 <div style="text-align: center;">
-                    <a href="https://www.manyazewaleshetugibi.com/menu" class="cta-button">Browse Our Menu</a>
+                    <a href="https://www.manyazewaleshetugibi.com" class="cta-button">Browse Our Menu</a>
                 </div>
                 
                 <hr>
@@ -217,7 +218,7 @@ Your account has been successfully created. You can now:
 - Track your order history
 - Receive birthday specials
 
-🎁 YOUR WELCOME GIFT: Enjoy 5% off on your next visit! Just mention this offer when you dine with us.
+🎁 YOUR WELCOME GIFT: ሰው ደስ ይለናል — your happiness means everything to us 😊 Enjoy a special treat through our service on your next visit.
 
 Visit us at:
 Bole behind Selam City Mall

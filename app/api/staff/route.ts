@@ -3,7 +3,7 @@ import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
 import bcrypt from 'bcrypt';
 
-// Define role-based permissions
+// Define role-based permissions (complete mapping)
 const rolePermissions: Record<string, string[]> = {
   admin: [
     'manage_users',
@@ -86,8 +86,6 @@ const hashPassword = async (password: string): Promise<string> => {
 
 // Check if password is already hashed with bcrypt format
 const isAlreadyHashed = (password: string): boolean => {
-  // BCrypt hash format: $2a$[cost]$[salt][hash]
-  // Example: $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
   const bcryptRegex = /^\$2[ayb]\$\d{2}\$[A-Za-z0-9./]{53}$/;
   return bcryptRegex.test(password);
 };
@@ -156,11 +154,24 @@ export async function GET(request: NextRequest) {
 // POST create new user
 export async function POST(request: NextRequest) {
   try {
+    console.log('=== STAFF REGISTRATION API CALLED ===');
+    
     const client = await clientPromise;
+    if (!client) {
+      console.error('MongoDB client failed to connect');
+      return NextResponse.json(
+        { success: false, message: 'Database connection failed' },
+        { status: 500 }
+      );
+    }
+    
+    console.log('Database connected successfully');
     const db = client.db('gold');
     const usersCollection = db.collection('users');
     
     const body = await request.json();
+    console.log('Request body received:', JSON.stringify(body, null, 2));
+    
     const {
       name,
       email,
@@ -169,13 +180,26 @@ export async function POST(request: NextRequest) {
       role,
       password,
       status = 'active',
-      permissions = []
+      permissions = [],
+      requiresPasswordChange = true
     } = body;
     
-    // Validation
-    if (!name || !email || !phone || !employeeId || !role || !password) {
+    // Enhanced validation with detailed error messages
+    const missingFields = [];
+    if (!name) missingFields.push('name');
+    if (!email) missingFields.push('email');
+    if (!phone) missingFields.push('phone');
+    if (!employeeId) missingFields.push('employeeId');
+    if (!role) missingFields.push('role');
+    if (!password) missingFields.push('password');
+    
+    if (missingFields.length > 0) {
+      console.log('Missing fields:', missingFields);
       return NextResponse.json(
-        { success: false, message: 'Missing required fields' },
+        { 
+          success: false, 
+          message: `Missing required fields: ${missingFields.join(', ')}` 
+        },
         { status: 400 }
       );
     }
@@ -183,6 +207,7 @@ export async function POST(request: NextRequest) {
     // Validate email format
     const emailRegex = /^\S+@\S+\.\S+$/;
     if (!emailRegex.test(email)) {
+      console.log('Invalid email format:', email);
       return NextResponse.json(
         { success: false, message: 'Invalid email format' },
         { status: 400 }
@@ -192,6 +217,7 @@ export async function POST(request: NextRequest) {
     // Check if email already exists
     const existingUserByEmail = await usersCollection.findOne({ email: email.toLowerCase() });
     if (existingUserByEmail) {
+      console.log('Email already exists:', email);
       return NextResponse.json(
         { success: false, message: 'Email already registered' },
         { status: 400 }
@@ -199,19 +225,21 @@ export async function POST(request: NextRequest) {
     }
     
     // Check if employeeId already exists
-    const existingUserById = await usersCollection.findOne({ employeeId });
+    const existingUserById = await usersCollection.findOne({ employeeId: employeeId.toUpperCase() });
     if (existingUserById) {
+      console.log('Employee ID already exists:', employeeId);
       return NextResponse.json(
         { success: false, message: 'Employee ID already exists' },
         { status: 400 }
       );
     }
     
-    // Validate role
+    // Validate role (support all roles including waitress)
     const validRoles = ['admin', 'kitchen', 'stock_manager', 'fb', 'marketing', 'finance', 'pos', 'waitress'];
     if (!validRoles.includes(role)) {
+      console.log('Invalid role:', role);
       return NextResponse.json(
-        { success: false, message: 'Invalid role' },
+        { success: false, message: `Invalid role. Must be one of: ${validRoles.join(', ')}` },
         { status: 400 }
       );
     }
@@ -219,6 +247,7 @@ export async function POST(request: NextRequest) {
     // Validate status
     const validStatuses = ['active', 'inactive', 'suspended'];
     if (status && !validStatuses.includes(status)) {
+      console.log('Invalid status:', status);
       return NextResponse.json(
         { success: false, message: 'Invalid status' },
         { status: 400 }
@@ -228,11 +257,13 @@ export async function POST(request: NextRequest) {
     // Get permissions based on role, or use provided ones
     const rolePerms = rolePermissions[role] || [];
     const finalPermissions = permissions.length > 0 ? permissions : rolePerms;
+    console.log('Assigned permissions:', finalPermissions);
     
     // Hash password using bcrypt
     const hashedPassword = await hashPassword(password);
+    console.log('Password hashed successfully');
     
-    // Create new user document - ADD requiresPasswordChange: true
+    // Create new user document with all fields
     const newUser = {
       name: name.trim(),
       email: email.toLowerCase().trim(),
@@ -242,21 +273,23 @@ export async function POST(request: NextRequest) {
       password: hashedPassword,
       status,
       permissions: finalPermissions,
-      requiresPasswordChange: true, // ← CRITICAL: Force password change on first login
+      requiresPasswordChange: requiresPasswordChange, // Force password change on first login
       loginAttempts: 0,
       lastLogin: null,
       createdAt: new Date(),
       updatedAt: new Date()
     };
     
+    console.log('Inserting user into database...');
     const result = await usersCollection.insertOne(newUser);
+    console.log('User inserted successfully with ID:', result.insertedId);
     
     // Remove password from response
     const { password: _, ...userResponse } = newUser;
     
     return NextResponse.json({
       success: true,
-      message: 'User registered successfully. User will be required to change password on first login.',
+      message: 'Staff registered successfully. User will be required to change password on first login.',
       data: {
         _id: result.insertedId,
         ...userResponse
@@ -266,7 +299,106 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error creating user:', error);
     return NextResponse.json(
-      { success: false, message: 'Failed to create user', error: error.message },
+      { 
+        success: false, 
+        message: 'Failed to create user', 
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// PUT update user
+export async function PUT(request: NextRequest) {
+  try {
+    const client = await clientPromise;
+    const db = client.db('gold');
+    const usersCollection = db.collection('users');
+    
+    const body = await request.json();
+    const { id, ...updateData } = body;
+    
+    if (!id) {
+      return NextResponse.json(
+        { success: false, message: 'User ID is required' },
+        { status: 400 }
+      );
+    }
+    
+    // Remove sensitive fields that shouldn't be updated directly
+    delete updateData.password;
+    delete updateData.createdAt;
+    
+    // If role is being updated, update permissions too
+    if (updateData.role && rolePermissions[updateData.role]) {
+      updateData.permissions = rolePermissions[updateData.role];
+    }
+    
+    updateData.updatedAt = new Date();
+    
+    const result = await usersCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+    
+    if (result.matchedCount === 0) {
+      return NextResponse.json(
+        { success: false, message: 'User not found' },
+        { status: 404 }
+      );
+    }
+    
+    return NextResponse.json({
+      success: true,
+      message: 'User updated successfully'
+    });
+    
+  } catch (error: any) {
+    console.error('Error updating user:', error);
+    return NextResponse.json(
+      { success: false, message: 'Failed to update user', error: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE user
+export async function DELETE(request: NextRequest) {
+  try {
+    const client = await clientPromise;
+    const db = client.db('gold');
+    const usersCollection = db.collection('users');
+    
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json(
+        { success: false, message: 'User ID is required' },
+        { status: 400 }
+      );
+    }
+    
+    const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+    
+    if (result.deletedCount === 0) {
+      return NextResponse.json(
+        { success: false, message: 'User not found' },
+        { status: 404 }
+      );
+    }
+    
+    return NextResponse.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+    
+  } catch (error: any) {
+    console.error('Error deleting user:', error);
+    return NextResponse.json(
+      { success: false, message: 'Failed to delete user', error: error.message },
       { status: 500 }
     );
   }

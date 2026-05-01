@@ -265,41 +265,52 @@ export function StaffRegistrationForm() {
     setIsSubmitting(true);
     try {
       const staffData = {
-        ...values,
+        name: values.name,
+        email: values.email,
+        phone: values.phone,
+        employeeId: values.employeeId,
+        role: values.role,
+        password: values.password,
+        status: values.status,
+        requiresPasswordChange: values.requiresPasswordChange,
         permissions: rolePermissions[values.role] || [],
-        requiresPasswordChange: values.requiresPasswordChange ?? true, // Force password change on first login
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       };
 
-      // Remove confirmPassword from the data
-      const { confirmPassword, ...submitData } = staffData;
+      console.log("Sending staff data:", staffData);
 
-      const response = await axios.post("/api/staff", submitData);
+      const response = await axios.post("/api/staff", staffData);
+      
+      if (response.data.success) {
+        toast({
+          title: "Staff Registered Successfully",
+          description: (
+            <div className="space-y-2">
+              <p>{values.name} has been added to the system.</p>
+              <Alert className="mt-2">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="text-sm">
+                  <strong>Important:</strong> User will be required to change their password on first login.
+                </AlertDescription>
+              </Alert>
+            </div>
+          ),
+          variant: "default",
+        });
+
+        form.reset();
+        setGeneratedPassword("");
+        setOpen(false);
+      }
+    } catch (error: any) {
+      console.error("Registration error:", error.response?.data);
+      
+      // Show detailed error message
+      const errorMessage = error.response?.data?.message || "An error occurred while registering staff.";
+      const errorDetails = error.response?.data?.error;
       
       toast({
-        title: "Staff Registered Successfully",
-        description: (
-          <div className="space-y-2">
-            <p>{values.name} has been added to the system.</p>
-            <Alert className="mt-2">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription className="text-sm">
-                <strong>Important:</strong> User will be required to change their password on first login.
-              </AlertDescription>
-            </Alert>
-          </div>
-        ),
-        variant: "default",
-      });
-
-      form.reset();
-      setGeneratedPassword("");
-      setOpen(false);
-    } catch (error: any) {
-      toast({
         title: "Registration Failed",
-        description: error.response?.data?.message || "An error occurred while registering staff.",
+        description: errorDetails ? `${errorMessage}\nDetails: ${errorDetails}` : errorMessage,
         variant: "destructive",
       });
     } finally {

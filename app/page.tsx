@@ -1,3 +1,4 @@
+
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
@@ -45,27 +46,19 @@ import { useCart } from '@/hooks/useCart'
 import { CartPanel } from '@/components/cart/CartPanel'
 import { PaymentUploadDialog } from '@/components/cart/PaymentUploadDialog'
 import { LoginPromptDialog } from '@/components/auth/LoginPromptDialog'
+import { TableSelector, TableData as TableSelectorTableData } from '@/components/menu/TableSelector'
 
 // Utils
-import { EnhancedDeliveryCalculator, DeliveryError } from '@/utils/enhancedDeliveryCalculator'
+import { EnhancedDeliveryCalculator, DeliveryError } from '@/types/utils/enhancedDeliveryCalculator'
 
 // Types
 import {
-  Category, Item, Waiter, UserData, PaginationInfo,
-  DeliveryFeeDetails, PaymentScreenshot, OrderData,
-  OrderItem
+  Category, Item, Waiter, UserData,
+  DeliveryFeeDetails, PaymentScreenshot
 } from '@/types'
 
 // Constants
-const DEFAULT_PAGINATION: PaginationInfo = {
-  page: 1,
-  limit: 12,
-  total: 0,
-  totalPages: 0,
-  hasMore: false
-}
-
-const API_TIMEOUT = 30000 // 30 seconds
+const API_TIMEOUT = 30000
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo'
 const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload'
 
@@ -97,7 +90,14 @@ interface ApiResponse<T> {
   error?: string
 }
 
-// Utility Functions
+interface TableData extends TableSelectorTableData {
+  restaurantId?: string;
+  restaurantName?: string;
+  floor?: string;
+}
+
+// ============ UTILITY FUNCTIONS ============
+
 const getCategoryIcon = (type: string, className?: string) => {
   switch (type?.toLowerCase()) {
     case 'food': return <Utensils className={className || "h-4 w-4"} />
@@ -125,31 +125,19 @@ const preloadImages = (urls: string[]) => {
   })
 }
 
-// Helper function to calculate VAT (extract tax from price that includes tax)
-const calculateVAT = (priceWithTax: number, taxRate: number = 0.15) => {
-  const originalPrice = priceWithTax / (1 + taxRate)
-  const vatAmount = priceWithTax - originalPrice
-  return { originalPrice, vatAmount }
-}
-
-// Helper function to auto-assign waiter based on table number
 const autoAssignWaiter = (tableNumber: string, waiters: Waiter[]): string => {
   if (!tableNumber || waiters.length === 0) return ''
   
-  // Extract numeric part from table number (e.g., "1F" -> 1, "30" -> 30)
   const tableNumberMatch = tableNumber.match(/\d+/)
   const tableNum = tableNumberMatch ? parseInt(tableNumberMatch[0]) : 0
   
   if (tableNum === 0) return waiters[0]?._id || ''
   
-  // Divide tables among waiters based on table number
-  // For example: if there are 30 tables and 3 waiters, waiter 1 gets tables 1-10, waiter 2 gets 11-20, waiter 3 gets 21-30
   const waiterCount = waiters.length
-  const tablesPerWaiter = Math.ceil(30 / waiterCount) // Assuming max 30 tables
+  const tablesPerWaiter = Math.ceil(30 / waiterCount)
   
   let assignedWaiterIndex = Math.floor((tableNum - 1) / tablesPerWaiter)
   
-  // Ensure index is within bounds
   if (assignedWaiterIndex >= waiterCount) {
     assignedWaiterIndex = waiterCount - 1
   }
@@ -160,7 +148,64 @@ const autoAssignWaiter = (tableNumber: string, waiters: Waiter[]): string => {
   return waiters[assignedWaiterIndex]?._id || ''
 }
 
-// Enhanced Item Card Component with Purple-900 UI and VAT info
+// Check if category should be hidden (packaging category)
+const shouldHideCategory = (category: Category): boolean => {
+  const name = category.name?.toLowerCase() || ''
+  const type = category.type?.toLowerCase() || ''
+  return name.includes('packaging') || type === 'packaging' || 
+         name.includes('packing') || name.includes('package')
+}
+
+// Get category additional charge (only for delivery orders)
+const getCategoryAdditionalCharge = (categoryName: string, categoryType?: string): number => {
+  const name = categoryName?.toLowerCase() || ''
+  const type = categoryType?.toLowerCase() || ''
+  
+  if (name.includes('food') || type === 'food' || name.includes('main course') || name.includes('appetizer')) {
+    return 60
+  }
+  if (name.includes('juice') || type === 'juice') {
+    return 60
+  }
+  if (name.includes('mocktail') || type === 'mocktail') {
+    return 60
+  }
+  if (name.includes('hot drink') || name.includes('coffee') || name.includes('tea') || type === 'hot drink') {
+    return 30
+  }
+  return 0
+}
+
+// Check if item is a food item (for packaging charge)
+const isFoodItem = (category: Category | undefined): boolean => {
+  if (!category) return false
+  const name = category.name?.toLowerCase() || ''
+  const type = category.type?.toLowerCase() || ''
+  return name.includes('food') || type === 'food' || 
+         name.includes('main course') || name.includes('appetizer')
+}
+
+// Calculate packaging charge (only for delivery) - 100 ETB per 4 food items
+const calculatePackagingCharge = (cartItems: any[], categories: Category[], isDelivery: boolean): number => {
+  if (!isDelivery) return 0
+  
+  const foodItemCount = cartItems.reduce((count, item) => {
+    const category = categories.find(c => c._id === item.categoryId)
+    if (isFoodItem(category)) {
+      return count + (item.quantity || 1)
+    }
+    return count
+  }, 0)
+  
+  if (foodItemCount === 0) return 0
+  
+  // Calculate number of "4-item groups" and charge 100 ETB per group
+  // Example: 1-4 items = 100, 5-8 items = 200, 9-12 items = 300, etc.
+  const groupsOfFour = Math.ceil(foodItemCount / 4)
+  return groupsOfFour * 100
+}
+
+// ============ ITEM CARD COMPONENT ============
 const ItemCard = ({
   item,
   categoryName,
@@ -181,10 +226,7 @@ const ItemCard = ({
   const [isHovered, setIsHovered] = useState(false)
   const [isImageLoaded, setIsImageLoaded] = useState(false)
   
-  // Calculate VAT information
-  const taxRate = 0.15 // 15% VAT
   const priceWithTax = Number(item.price)
-  const { originalPrice, vatAmount } = calculateVAT(priceWithTax, taxRate)
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -217,14 +259,11 @@ const ItemCard = ({
       onHoverEnd={() => setIsHovered(false)}
     >
       <Card className="group relative overflow-hidden border-0 bg-white/90 backdrop-blur-sm shadow-xl hover:shadow-2xl transition-all duration-500 rounded-3xl">
-        {/* Gradient overlay on hover - purple-900 */}
         <div className="absolute inset-0 bg-gradient-to-t from-purple-900/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 z-10 rounded-3xl" />
 
-        {/* Image container with purple effect */}
         <div className="relative h-56 overflow-hidden rounded-t-3xl">
           <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent z-10 mix-blend-overlay" />
 
-          {/* Skeleton loader with purple shimmer */}
           {!isImageLoaded && (
             <Skeleton className="absolute inset-0 bg-gradient-to-r from-gray-200 via-purple-100 to-gray-200 animate-shimmer" />
           )}
@@ -241,15 +280,12 @@ const ItemCard = ({
             }}
           />
 
-          {/* Decorative elements - purple-900 */}
           <div className="absolute top-0 left-0 w-32 h-32 bg-gradient-to-br from-purple-900/20 to-transparent rounded-full -translate-x-16 -translate-y-16 blur-2xl" />
           <div className="absolute bottom-0 right-0 w-40 h-40 bg-gradient-to-tl from-purple-900/20 to-transparent rounded-full translate-x-20 translate-y-20 blur-2xl" />
 
-          {/* Price tag with purple style */}
           <div className="absolute top-4 right-4 z-20">
             <div className="bg-white/95 backdrop-blur-sm text-purple-900 font-bold px-4 py-2 rounded-full shadow-lg border border-purple-200 flex flex-col items-end">
               <div className="flex items-center gap-1">
-                <DollarSign className="h-4 w-4 text-purple-700" />
                 <span>{priceWithTax.toLocaleString()} ETB</span>
               </div>
               <div className="text-xs text-gray-500 font-normal mt-0.5">
@@ -258,7 +294,6 @@ const ItemCard = ({
             </div>
           </div>
 
-          {/* Featured badge - purple gradient */}
           {item.isFeatured && (
             <div className="absolute top-4 left-4 z-20">
               <div className="bg-gradient-to-r from-purple-800 to-purple-900 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 backdrop-blur-sm">
@@ -268,7 +303,6 @@ const ItemCard = ({
             </div>
           )}
 
-          {/* Quick view overlay */}
           <div className={`absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center gap-3 transition-all duration-300 z-30 ${isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
             }`}>
             <TooltipProvider>
@@ -336,18 +370,6 @@ const ItemCard = ({
             </Badge>
           </div>
 
-          {/* VAT Information Section */}
-          <div className="bg-purple-50/50 rounded-lg p-2 mb-3">
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-gray-600">Price (excl. VAT):</span>
-              <span className="font-medium text-purple-900">{originalPrice.toFixed(2)} ETB</span>
-            </div>
-            <div className="flex justify-between items-center text-xs mt-1">
-              <span className="text-gray-600">VAT (15%):</span>
-              <span className="font-medium text-purple-700">{vatAmount.toFixed(2)} ETB</span>
-            </div>
-          </div>
-
           <Separator className="my-3 bg-gradient-to-r from-transparent via-purple-200 to-transparent" />
 
           <div className="flex items-center justify-between pt-2">
@@ -376,14 +398,13 @@ const ItemCard = ({
           </div>
         </CardContent>
 
-        {/* Decorative corner - purple-900 */}
         <div className="absolute bottom-0 right-0 w-16 h-16 bg-gradient-to-tl from-purple-900/20 to-transparent rounded-tl-full" />
       </Card>
     </motion.div>
   )
 }
 
-// Enhanced List View Item Component with Purple-900 and VAT info
+// ============ LIST VIEW COMPONENT ============
 const ListViewItem = ({
   item,
   categoryName,
@@ -403,10 +424,7 @@ const ListViewItem = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false)
   
-  // Calculate VAT information
-  const taxRate = 0.15 // 15% VAT
   const priceWithTax = Number(item.price)
-  const { originalPrice, vatAmount } = calculateVAT(priceWithTax, taxRate)
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -441,7 +459,6 @@ const ListViewItem = ({
       <Card className={`relative overflow-hidden border-0 bg-white/90 backdrop-blur-sm shadow-md hover:shadow-xl transition-all duration-500 rounded-2xl ${isHovered ? 'border-l-4 border-l-purple-900' : ''
         }`}>
         <div className="flex flex-col md:flex-row">
-          {/* Image section */}
           <div className="relative md:w-48 h-48 md:h-auto overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent z-10 mix-blend-overlay" />
             <img
@@ -453,7 +470,6 @@ const ListViewItem = ({
               }}
             />
 
-            {/* Featured badge for list view - purple gradient */}
             {item.isFeatured && (
               <div className="absolute top-3 left-3 z-20">
                 <Badge className="bg-gradient-to-r from-purple-800 to-purple-900 text-white border-0 shadow-lg">
@@ -464,7 +480,6 @@ const ListViewItem = ({
             )}
           </div>
 
-          {/* Content section */}
           <div className="flex-1 p-6">
             <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
               <div className="flex-1">
@@ -498,19 +513,6 @@ const ListViewItem = ({
                   </Badge>
                 </div>
 
-                {/* VAT Information Section for List View */}
-                <div className="bg-purple-50/50 rounded-lg p-3 mb-4 max-w-xs">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-600">Price (excl. VAT):</span>
-                    <span className="font-medium text-purple-900">{originalPrice.toFixed(2)} ETB</span>
-                  </div>
-                  <div className="flex justify-between items-center text-sm mt-1">
-                    <span className="text-gray-600">VAT (15%):</span>
-                    <span className="font-medium text-purple-700">{vatAmount.toFixed(2)} ETB</span>
-                  </div>
-                </div>
-
-                {/* Nutritional info pills */}
                 <div className="flex flex-wrap gap-2">
                   <div className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
                     🔥 {item.nutritionalInfo?.calories || 0} cal
@@ -577,7 +579,6 @@ const ListViewItem = ({
           </div>
         </div>
 
-        {/* Hover effect overlay - purple-900 */}
         <div className={`absolute inset-0 bg-gradient-to-r from-purple-900/5 to-transparent pointer-events-none transition-opacity duration-500 ${isHovered ? 'opacity-100' : 'opacity-0'
           }`} />
       </Card>
@@ -585,7 +586,7 @@ const ListViewItem = ({
   )
 }
 
-// Item Detail Dialog with Purple-900 UI (updated with VAT info)
+// ============ ITEM DETAIL DIALOG ============
 const ItemDetailDialog = ({
   item,
   categoryName,
@@ -610,10 +611,7 @@ const ItemDetailDialog = ({
     fat: 0
   }
   
-  // Calculate VAT information
-  const taxRate = 0.15
   const priceWithTax = Number(item.price)
-  const { originalPrice, vatAmount } = calculateVAT(priceWithTax, taxRate)
 
   const handleAddToCartClick = () => {
     if (!isUserLoggedIn) {
@@ -636,7 +634,6 @@ const ItemDetailDialog = ({
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto p-0 bg-gradient-to-br from-white to-purple-50/30 border-0 shadow-2xl rounded-3xl">
         <div className="relative">
-          {/* Decorative header gradient - purple-900 */}
           <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-purple-900/20 to-transparent rounded-t-3xl" />
 
           <DialogHeader className="p-6 pb-0 relative">
@@ -684,16 +681,6 @@ const ItemDetailDialog = ({
                     <p className="text-3xl font-bold text-purple-900">
                       {priceWithTax.toFixed(2)} <span className="text-sm font-normal text-gray-500">ETB</span>
                     </p>
-                    <div className="mt-2 pt-2 border-t border-purple-200">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Price (excl. VAT):</span>
-                        <span className="font-medium text-purple-900">{originalPrice.toFixed(2)} ETB</span>
-                      </div>
-                      <div className="flex justify-between text-sm mt-1">
-                        <span className="text-gray-600">VAT (15%):</span>
-                        <span className="font-medium text-purple-700">{vatAmount.toFixed(2)} ETB</span>
-                      </div>
-                    </div>
                   </div>
 
                   <div className="bg-gradient-to-br from-blue-50 to-white p-5 rounded-xl shadow-md border border-blue-100">
@@ -778,18 +765,17 @@ const ItemDetailDialog = ({
   )
 }
 
-// Main Component
+// ============ MAIN COMPONENT ============
 export default function MenuPage() {
   const router = useRouter()
-  const { userData, isLoggedIn, isLoading: isLoadingUser } = useUserData()
+  const { userData, isLoggedIn } = useUserData()
   const {
     cart,
     addToCart,
     removeFromCart,
     updateQuantity,
     clearCart,
-    subtotal,
-    tax,
+    subtotal: baseSubtotal,
     totalItems
   } = useCart()
 
@@ -819,9 +805,10 @@ export default function MenuPage() {
 
   const [orderType, setOrderType] = useState<'table' | 'delivery' | ''>('')
   const [tableNumber, setTableNumber] = useState('')
-  // Removed selectedWaiter state since it will be auto-assigned
+  const [selectedTableData, setSelectedTableData] = useState<TableData | null>(null)
   const [numberOfGuests, setNumberOfGuests] = useState(1)
   const [specialRequirements, setSpecialRequirements] = useState('')
+  const [arrangementId, setArrangementId] = useState('')
 
   const [paymentScreenshot, setPaymentScreenshot] = useState<PaymentScreenshot>({
     file: null,
@@ -832,7 +819,6 @@ export default function MenuPage() {
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
   const [showPaymentUpload, setShowPaymentUpload] = useState(false)
 
-  // Enhanced Delivery States
   const [deliveryFee, setDeliveryFee] = useState<DeliveryFeeDetails | null>(null)
   const [isCalculatingDelivery, setIsCalculatingDelivery] = useState(false)
 
@@ -841,7 +827,87 @@ export default function MenuPage() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Fetch menu data
+  // Calculate packaging charge (only for delivery)
+  const packagingCharge = useMemo(() => {
+    return calculatePackagingCharge(cart, categories, orderType === 'delivery')
+  }, [cart, categories, orderType])
+
+  // Calculate category additional charges total (only for delivery)
+  const categoryChargesTotal = useMemo(() => {
+    if (orderType !== 'delivery') return 0
+    
+    return cart.reduce((total, cartItem) => {
+      const category = categories.find(c => c._id === cartItem.categoryId)
+      const charge = getCategoryAdditionalCharge(category?.name || '', category?.type)
+      return total + (charge * (cartItem.quantity || 1))
+    }, 0)
+  }, [cart, categories, orderType])
+
+  // Calculate adjusted subtotal with category charges (only for delivery)
+  const adjustedSubtotal = useMemo(() => {
+    if (orderType !== 'delivery') return baseSubtotal
+    return baseSubtotal + categoryChargesTotal
+  }, [baseSubtotal, categoryChargesTotal, orderType])
+
+  // Calculate tax (15% VAT)
+  const calculatedTax = useMemo(() => {
+    return adjustedSubtotal * 0.15
+  }, [adjustedSubtotal])
+
+  // Fetch arrangement ID - FIXED: Silently handle 404
+  useEffect(() => {
+    const fetchArrangementId = async () => {
+      try {
+        const response = await api.get('/api/tables/arrangement', {
+          params: { 
+            restaurantId: 'manyazewal1', 
+            floor: 'Ground Floor' 
+          }
+        })
+        if (response.data?.data?._id) {
+          setArrangementId(response.data.data._id)
+        }
+      } catch (error: any) {
+        // Silently handle 404 - arrangement not configured yet
+        if (error.response?.status === 404) {
+          console.log('Table arrangement not configured yet')
+        } else {
+          console.error('Error fetching arrangement:', error)
+        }
+      }
+    }
+    fetchArrangementId()
+  }, [])
+
+  const handleTableSelect = useCallback((table: TableData | null, restaurantId?: string, floor?: string) => {
+    if (!table) {
+      setSelectedTableData(null)
+      setTableNumber('')
+      setOrderType('')
+      toast.success('Table unselected')
+      return
+    }
+    
+    const tableWithDetails: TableData = {
+      ...table,
+      restaurantId: restaurantId || table.restaurantId,
+      restaurantName: table.restaurantName,
+      floor: floor || table.floor
+    }
+    
+    setSelectedTableData(tableWithDetails)
+    setTableNumber(table.number.toString())
+    setOrderType('table')
+    
+    toast.success(`Table ${table.number} selected! ${tableWithDetails.restaurantName ? `Restaurant: ${tableWithDetails.restaurantName}, ` : ''}Capacity: ${table.capacity} seats`)
+    
+    if (table.capacity && table.capacity < numberOfGuests) {
+      setNumberOfGuests(table.capacity)
+      toast(`Number of guests adjusted to table capacity (${table.capacity})`, { icon: 'ℹ️' })
+    }
+  }, [numberOfGuests])
+
+  // Fetch menu data - Filter out packaging categories
   const fetchMenuData = useCallback(async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -912,7 +978,9 @@ export default function MenuPage() {
         else if (catData?.data && Array.isArray(catData.data)) categoriesData = catData.data
         else if (catData?.categories && Array.isArray(catData.categories)) categoriesData = catData.categories
 
-        setCategories(categoriesData)
+        // Filter out packaging categories
+        const visibleCategories = categoriesData.filter(cat => !shouldHideCategory(cat))
+        setCategories(visibleCategories)
       }
 
       if (itemsRes.status === 'fulfilled') {
@@ -962,12 +1030,8 @@ export default function MenuPage() {
       }
 
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        console.log('🛑 Request aborted')
-        return
-      }
-
-      console.error('❌ Fetch error:', err)
+      if (err.name === 'AbortError') return
+      console.error('Fetch error:', err)
 
       if (err.message === 'Request timeout') {
         toast.error('Connection timeout. Please try again.', {
@@ -988,7 +1052,6 @@ export default function MenuPage() {
     }
   }, [])
 
-  // Preload images
   useEffect(() => {
     if (items.length > 0 && !imagesPreloaded) {
       const imageUrls = items
@@ -1004,7 +1067,6 @@ export default function MenuPage() {
     }
   }, [items, imagesPreloaded])
 
-  // Initial load
   useEffect(() => {
     fetchMenuData()
     return () => {
@@ -1013,11 +1075,14 @@ export default function MenuPage() {
     }
   }, [fetchMenuData])
 
-  // Filter and sort items
   useEffect(() => {
     if (items.length === 0) return
 
     let result = [...items]
+
+    // Filter out items from hidden categories
+    const visibleCategoryIds = categories.map(c => c._id)
+    result = result.filter(item => visibleCategoryIds.includes(item.categoryId))
 
     if (selectedCategory) {
       result = result.filter(item => item.categoryId === selectedCategory)
@@ -1044,12 +1109,12 @@ export default function MenuPage() {
     })
 
     setFilteredItems(result)
-  }, [items, selectedCategory, searchTerm, sortField, sortDirection])
+  }, [items, categories, selectedCategory, searchTerm, sortField, sortDirection])
 
-  // Enhanced delivery fee calculation
+  // Delivery fee calculation
   useEffect(() => {
     const calculateDeliveryFee = async () => {
-      if (orderType === 'delivery' && userData && subtotal > 0) {
+      if (orderType === 'delivery' && userData && adjustedSubtotal > 0) {
         setIsCalculatingDelivery(true)
 
         try {
@@ -1071,7 +1136,7 @@ export default function MenuPage() {
             feeDetails = await deliveryCalculator.calculateDeliveryFeeFromCoordinates(
               lat,
               lng,
-              subtotal,
+              adjustedSubtotal,
               new Date().getHours()
             )
 
@@ -1080,7 +1145,7 @@ export default function MenuPage() {
             feeDetails = deliveryCalculator.calculateEstimatedDeliveryFee(
               'Addis Ababa',
               area,
-              subtotal
+              adjustedSubtotal
             )
           } else {
             setDeliveryFee(null)
@@ -1101,7 +1166,7 @@ export default function MenuPage() {
           }
 
         } catch (error: unknown) {
-          console.error('❌ Delivery calculation error:', error)
+          console.error('Delivery calculation error:', error)
 
           if (error instanceof DeliveryError) {
             switch (error.code) {
@@ -1133,13 +1198,14 @@ export default function MenuPage() {
     }
 
     calculateDeliveryFee()
-  }, [orderType, userData, subtotal, deliveryCalculator])
+  }, [orderType, userData, adjustedSubtotal, deliveryCalculator])
 
   const finalTotal = useMemo(() => {
-    return subtotal + tax + (deliveryFee?.fee || 0)
-  }, [subtotal, tax, deliveryFee])
+    const deliveryFeeAmount = orderType === 'delivery' ? deliveryFee?.fee || 0 : 0
+    const packagingFeeAmount = orderType === 'delivery' ? packagingCharge : 0
+    return adjustedSubtotal + calculatedTax + deliveryFeeAmount + packagingFeeAmount
+  }, [adjustedSubtotal, calculatedTax, deliveryFee, packagingCharge, orderType])
 
-  // Handlers
   const handleSort = (field: 'name' | 'price' | 'preparationTime') => {
     if (field === sortField) {
       setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
@@ -1164,7 +1230,6 @@ export default function MenuPage() {
     setShowItemDetail(true)
   }
 
-  // Auto-assign waiter based on table number
   const getAutoAssignedWaiter = useCallback(() => {
     if (orderType === 'table' && tableNumber && waiters.length > 0) {
       return autoAssignWaiter(tableNumber, waiters)
@@ -1189,12 +1254,11 @@ export default function MenuPage() {
     }
 
     if (orderType === 'table') {
-      if (!tableNumber) {
-        toast.error('Please enter a table number')
+      if (!selectedTableData) {
+        toast.error('Please select a table')
         return
       }
       
-      // Check if waiter auto-assignment works (just for validation, not required to show to user)
       const assignedWaiter = getAutoAssignedWaiter()
       if (!assignedWaiter && waiters.length === 0) {
         toast.error('No waiters available. Please try again later.')
@@ -1273,57 +1337,86 @@ export default function MenuPage() {
 
     try {
       const deliveryFeeAmount = orderType === 'delivery' ? deliveryFee?.fee || 0 : 0
-      const totalAmount = subtotal + tax
-      const finalAmount = totalAmount + deliveryFeeAmount
-
-      // Get auto-assigned waiter for table orders
+      const packagingFeeAmount = orderType === 'delivery' ? packagingCharge : 0
       const assignedWaiterId = orderType === 'table' ? getAutoAssignedWaiter() : ''
       const assignedWaiterName = waiters.find(w => w._id === assignedWaiterId)?.name || ''
 
+      // Prepare items with proper pricing
+      const orderItems = cart.map(cartItem => {
+        const category = categories.find(c => c._id === cartItem.categoryId)
+        const basePrice = Number(cartItem.price)
+        const categoryCharge = orderType === 'delivery' 
+          ? getCategoryAdditionalCharge(category?.name || '', category?.type)
+          : 0
+        const finalItemPrice = basePrice + categoryCharge
+        
+        return {
+          itemId: cartItem._id,
+          itemName: cartItem.name,
+          quantity: cartItem.quantity,
+          notes: cartItem.specialInstructions || '',
+          basePrice: basePrice,
+          categoryCharge: categoryCharge,
+          price: finalItemPrice,
+          total: finalItemPrice * cartItem.quantity
+        }
+      })
+
       const orderData = {
         orderNumber,
+        orderType,
         paymentMethod: 'ONLINE',
+        restaurantId: selectedTableData?.restaurantId || 'manyazewal1',
+        restaurantName: selectedTableData?.restaurantName || 'Manyazewal Restaurant',
+        floor: selectedTableData?.floor || 'Ground Floor',
+        arrangementId: arrangementId,
         numberOfGuests: orderType === 'table' ? numberOfGuests : 1,
-        items: cart.map(item => {
-          const { originalPrice, vatAmount } = calculateVAT(Number(item.price))
-          return {
-            itemId: item._id,
-            quantity: item.quantity,
-            notes: item.specialInstructions || '',
-            priceWithTax: Number(item.price),
-            priceWithoutTax: originalPrice,
-            taxAmount: vatAmount,
-            subtotal: originalPrice * item.quantity,
-            taxTotal: vatAmount * item.quantity,
-            total: Number(item.price) * item.quantity
-          }
-        }),
+        items: orderItems,
         discount: 0,
         specialRequirements,
         transactionId: transactionId || `TXN-${Date.now()}`,
         customerId: userData?.id || userData?._id || 'walk-in',
+        customerName: `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim() || 'Walk-in',
+        customerPhone: userData?.phone || '',
+        customerEmail: userData?.email || '',
         deliveryFee: deliveryFeeAmount,
-        subtotal: subtotal,
-        tax: tax,
-        totalAmount: totalAmount,
-        finalAmount: finalAmount,
+        packagingCharge: packagingFeeAmount,
+        categoryChargesTotal: orderType === 'delivery' ? categoryChargesTotal : 0,
+        subtotal: baseSubtotal,
+        adjustedSubtotal: adjustedSubtotal,
+        tax: calculatedTax,
+        totalAmount: adjustedSubtotal + calculatedTax,
+        finalAmount: finalTotal,
         ...(orderType === 'table' && {
-          tableNumber,
-          waiterId: assignedWaiterId, // Auto-assigned waiter ID
+          tableNumber: selectedTableData?.number.toString() || tableNumber,
+          tableId: selectedTableData?.id,
+          tableCapacity: selectedTableData?.capacity,
+          tableLocation: selectedTableData?.location,
+          tableFeatures: selectedTableData?.features,
+          tableShape: selectedTableData?.shape,
+          waiterId: assignedWaiterId,
           waiterName: assignedWaiterName,
           inTable: true,
           delivery: false,
-          // Add assignment request to notify the waiter
           assignmentRequest: {
             status: 'pending',
             type: 'table_assignment',
             requestedAt: new Date().toISOString(),
-            tableNumber: tableNumber,
+            tableNumber: selectedTableData?.number.toString() || tableNumber,
+            tableId: selectedTableData?.id,
+            restaurantId: selectedTableData?.restaurantId || 'manyazewal1',
+            restaurantName: selectedTableData?.restaurantName || 'Manyazewal Restaurant',
+            floor: selectedTableData?.floor || 'Ground Floor',
+            arrangementId: arrangementId,
+            waiterId: assignedWaiterId,
+            waiterName: assignedWaiterName,
             numberOfGuests: numberOfGuests,
             orderNumber: orderNumber,
+            customerId: userData?.id || userData?._id || 'walk-in',
             customerName: `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim() || 'Walk-in',
+            customerPhone: userData?.phone || '',
             itemsCount: cart.length,
-            totalAmount: finalAmount
+            totalAmount: finalTotal
           }
         })
       }
@@ -1337,7 +1430,7 @@ export default function MenuPage() {
           }
         }
 
-        (orderData as any).deliveryInfo = {
+        ;(orderData as any).deliveryInfo = {
           fullName: `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim() || 'Customer',
           phoneNumber: userData?.phone || '',
           email: userData?.email || '',
@@ -1348,9 +1441,9 @@ export default function MenuPage() {
           location: locationData,
           latitude: locationData?.coordinates?.[1],
           longitude: locationData?.coordinates?.[0]
-        };
-        (orderData as any).delivery = true;
-        (orderData as any).inTable = false;
+        }
+        ;(orderData as any).delivery = true
+        ;(orderData as any).inTable = false
       }
 
       const formData = new FormData()
@@ -1372,19 +1465,18 @@ export default function MenuPage() {
       setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`)
       setOrderType('')
       setTableNumber('')
-      // No need to reset selectedWaiter as it's removed
+      setSelectedTableData(null)
       setPaymentScreenshot({ file: null, previewUrl: '', uploaded: false })
       setTransactionId('')
       setSpecialRequirements('')
       setShowPaymentUpload(false)
       setIsCartOpen(false)
 
-      toast.success(
-        orderType === 'delivery'
-          ? 'Your order has been placed and will be delivered soon!'
-          : `Order placed! ${assignedWaiterName || 'A server'} has been notified and will serve you shortly.`,
-        { id: orderToast, duration: 5000 }
-      )
+      const successMessage = orderType === 'delivery'
+        ? 'Your order has been placed and will be delivered soon!'
+        : `Order placed! Restaurant: ${selectedTableData?.restaurantName || 'Manyazewal'}, Table ${selectedTableData?.number || tableNumber}. ${assignedWaiterName || 'A server'} has been notified and will serve you shortly.`
+
+      toast.success(successMessage, { id: orderToast, duration: 5000 })
 
       let progress = 0
       const interval = setInterval(() => {
@@ -1412,7 +1504,6 @@ export default function MenuPage() {
     }, {} as Record<string, number>)
   }, [items])
 
-  // Enhanced loading skeleton with purple-900 style
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30">
@@ -1476,14 +1567,11 @@ export default function MenuPage() {
       <NavBar />
 
       <main className="container mx-auto px-4 py-6">
-        {/* Header with Purple-900 UI */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="sticky top-0 z-20 bg-gradient-to-b from-purple-50/80 via-white/80 to-transparent backdrop-blur-xl pt-2 pb-1 mt-3"
         >
-
-          {/* Search and Filter with Purple-900 UI */}
           <div className="space-y-1">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="relative flex-grow">
@@ -1511,7 +1599,9 @@ export default function MenuPage() {
                       All Categories
                     </div>
                   </SelectItem>
-                  {categories.map((category) => (
+                  {categories
+                    .filter(cat => !shouldHideCategory(cat))
+                    .map((category) => (
                     <SelectItem key={category._id} value={category._id} className="py-3 text-base">
                       <div className="flex items-center gap-3">
                         <div className="p-1.5 bg-purple-100 rounded-lg">
@@ -1660,16 +1750,20 @@ export default function MenuPage() {
                         onOrderTypeChange={setOrderType}
                         tableNumber={tableNumber}
                         onTableNumberChange={setTableNumber}
+                        selectedTableData={selectedTableData}
+                        onTableSelect={handleTableSelect}
                         waiters={waiters}
-                        selectedWaiter={getAutoAssignedWaiter()} // Pass auto-assigned waiter for display
-                        onWaiterChange={() => {}} // Empty function since we're auto-assigning
+                        selectedWaiter={getAutoAssignedWaiter()}
+                        onWaiterChange={() => {}}
                         numberOfGuests={numberOfGuests}
                         onGuestsChange={setNumberOfGuests}
                         specialRequirements={specialRequirements}
                         onSpecialRequirementsChange={setSpecialRequirements}
-                        subtotal={subtotal}
-                        tax={tax}
+                        subtotal={adjustedSubtotal}
+                        tax={calculatedTax}
                         deliveryFee={deliveryFee}
+                        packagingCharge={packagingCharge}
+                        categoryChargesTotal={categoryChargesTotal}
                         total={finalTotal}
                         orderNumber={orderNumber}
                         onPlaceOrder={handlePlaceOrder}
@@ -1679,6 +1773,9 @@ export default function MenuPage() {
                         userData={userData as UserData | null}
                         onNavigateToProfile={handleNavigateToProfile}
                         isCalculatingDelivery={isCalculatingDelivery}
+                        restaurantId="manyazewal1"
+                        floor="Ground Floor"
+                        arrangementId={arrangementId}
                       />
                     </SheetContent>
                   </Sheet>
@@ -1688,7 +1785,6 @@ export default function MenuPage() {
           </div>
         </motion.div>
 
-        {/* Menu Items with Purple-900 UI */}
         <AnimatePresence mode="wait">
           {filteredItems.length === 0 ? (
             <motion.div
@@ -1791,7 +1887,6 @@ export default function MenuPage() {
         </AnimatePresence>
       </main>
 
-      {/* Dialogs */}
       <LoginPromptDialog
         open={showLoginPrompt}
         onOpenChange={setShowLoginPrompt}
@@ -1819,16 +1914,16 @@ export default function MenuPage() {
         onFileUpload={handleFileUpload}
         transactionId={transactionId}
         onTransactionIdChange={setTransactionId}
-        subtotal={subtotal}
-        tax={tax}
+        subtotal={adjustedSubtotal}
+        tax={calculatedTax}
         orderType={orderType}
         deliveryFee={deliveryFee?.fee || 0}
+        packagingCharge={packagingCharge}
         total={finalTotal}
         onFinalizeOrder={handleFinalizeOrder}
         isPlacingOrder={isPlacingOrder}
       />
 
-      {/* Order Progress with Purple-900 UI */}
       <AnimatePresence>
         {orderProgress > 0 && orderProgress < 100 && (
           <motion.div
@@ -1860,6 +1955,6 @@ export default function MenuPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </div> 
   )
 }

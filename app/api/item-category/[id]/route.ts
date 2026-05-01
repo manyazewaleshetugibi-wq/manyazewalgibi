@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { validateItemCategoryData } from "@/models/Item";
-import { uploadImage } from "@/utils/uploadImages";
+import { uploadImage } from "@/types/utils/uploadImages";
 import { ObjectId } from "mongodb";
 
 const createResponse = (status: number, success: boolean, message: string, data: any = null) => {

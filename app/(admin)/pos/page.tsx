@@ -34,7 +34,8 @@ import {
   BellRing,
   Volume2,
   VolumeX,
-  Home
+  Home,
+  Building2
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -92,6 +93,8 @@ interface Waiter {
   avatar?: string
   email?: string
   role?: string
+  restaurantId?: string
+  restaurantName?: string
 }
 
 interface OrderItem {
@@ -153,6 +156,8 @@ interface Order {
   paymentStatus: string
   paymentMethod: string
   waiterId: string
+  restaurantId?: string
+  restaurantName?: string
   waiterInfo?: {
     id: string
     name: string
@@ -162,6 +167,12 @@ interface Order {
   assignmentRequest?: AssignmentRequest
   _id?: string
 }
+
+// Restaurant options
+const RESTAURANTS = [
+  { id: "manyazewal1", name: "Manyazewal Eshetu Gibi 1", shortName: "Manyazewal 1", color: "indigo" },
+  { id: "manyazewal2", name: "Manyazewal Eshetu Gibi 2", shortName: "Manyazewal 2", color: "rose" }
+]
 
 // Helper function to calculate price breakdown
 const calculatePriceBreakdown = (priceWithTax: number, taxRate: number = 0.15) => {
@@ -329,6 +340,12 @@ function TableAssignmentCard({
                 <Home className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 animate-pulse" />
                 <h3 className="font-semibold text-sm sm:text-base">New Table Assignment - Order #{order.orderNumber}</h3>
                 <Badge className="bg-green-100 text-green-800 text-[10px] sm:text-xs">Table {order.tableNumber}</Badge>
+                {order.restaurantName && (
+                  <Badge variant="outline" className="bg-indigo-50 text-indigo-800 text-[10px] sm:text-xs">
+                    <Building2 className="h-2.5 w-2.5 mr-1" />
+                    {order.restaurantName}
+                  </Badge>
+                )}
               </div>
               <div className="text-xs sm:text-sm font-semibold text-green-600">
                 {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(order.finalAmount)}
@@ -489,6 +506,12 @@ function PendingTransferRequests({
                     <h3 className="font-semibold text-sm sm:text-base">Order #{order.orderNumber}</h3>
                     <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs">Transfer Request</Badge>
                     <Badge variant="outline" className="bg-blue-50 text-[10px] sm:text-xs">Table {order.tableNumber}</Badge>
+                    {order.restaurantName && (
+                      <Badge variant="outline" className="bg-indigo-50 text-indigo-800 text-[10px] sm:text-xs">
+                        <Building2 className="h-2.5 w-2.5 mr-1" />
+                        {order.restaurantName}
+                      </Badge>
+                    )}
                   </div>
                   <div className="text-xs sm:text-sm font-semibold text-green-600">
                     {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(order.finalAmount)}
@@ -854,6 +877,7 @@ export default function POSPage() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedWaiter, setSelectedWaiter] = useState("")
+  const [selectedRestaurant, setSelectedRestaurant] = useState("")
   const [tableNumber, setTableNumber] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const [orderNumber, setOrderNumber] = useState(`ORD-${Date.now()}`)
@@ -869,7 +893,7 @@ export default function POSPage() {
   const [tableAssignments, setTableAssignments] = useState<Order[]>([])
   const [isProcessingTransfer, setIsProcessingTransfer] = useState(false)
   const [isProcessingAssignment, setIsProcessingAssignment] = useState(false)
-  const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string; email: string } | null>(null)
+  const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string; email: string; restaurantId?: string; restaurantName?: string } | null>(null)
   const [showNotification, setShowNotification] = useState(false)
   const [notificationData, setNotificationData] = useState({ title: '', message: '' })
   
@@ -883,6 +907,9 @@ export default function POSPage() {
   // Sound hook
   const { play: playNotificationSound, isEnabled: soundEnabled, setIsEnabled: setSoundEnabled } = useNotificationSound()
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
+
+  // Get selected restaurant details
+  const selectedRestaurantDetails = RESTAURANTS.find(r => r.id === selectedRestaurant);
 
   // Set mounted flag
   useEffect(() => {
@@ -908,7 +935,7 @@ export default function POSPage() {
     return () => { document.head.removeChild(style); };
   }, []);
 
-  // Fetch current user info
+  // Fetch current user info (waiter with their assigned restaurant)
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
@@ -924,45 +951,92 @@ export default function POSPage() {
           );
           
           if (matchingWaiter && matchingWaiter._id) {
+            const waiterRestaurantId = matchingWaiter.restaurantId || "manyazewal1";
+            const waiterRestaurant = RESTAURANTS.find(r => r.id === waiterRestaurantId);
+            
             setCurrentUser({
               id: matchingWaiter._id,
               name: matchingWaiter.name,
               role: matchingWaiter.role || sessionData.user.role,
-              email: matchingWaiter.email
+              email: matchingWaiter.email,
+              restaurantId: waiterRestaurantId,
+              restaurantName: waiterRestaurant?.name || matchingWaiter.restaurantName || "Manyazewal Eshetu Gibi 1"
             });
+            
+            // Auto-select the waiter's assigned restaurant
+            setSelectedRestaurant(waiterRestaurantId);
+            // Auto-select the waiter themselves
+            setSelectedWaiter(matchingWaiter._id);
           } else {
+            // Fallback: use first restaurant
             setCurrentUser({
               id: sessionData.user.id,
               name: sessionData.user.name,
               role: sessionData.user.role,
-              email: sessionData.user.email
+              email: sessionData.user.email,
+              restaurantId: "manyazewal1",
+              restaurantName: "Manyazewal Eshetu Gibi 1"
             });
+            setSelectedRestaurant("manyazewal1");
           }
         }
       } catch (error) {
         console.error('Error fetching user:', error);
+        // Fallback
+        setSelectedRestaurant("manyazewal1");
       }
     };
     fetchCurrentUser();
   }, []);
 
-  // Initial data fetch
+  // Fetch waiters (filtered by selected restaurant for display)
+  useEffect(() => {
+    const fetchWaiters = async () => {
+      try {
+        const response = await fetch("/api/waitress");
+        const data = await response.json();
+        
+        // Filter waiters by selected restaurant if needed
+        let filteredWaiters = data || [];
+        if (selectedRestaurant) {
+          filteredWaiters = filteredWaiters.filter((waiter: Waiter) => 
+            !waiter.restaurantId || waiter.restaurantId === selectedRestaurant
+          );
+        }
+        
+        setWaiters(filteredWaiters);
+        
+        // If current user is a waiter and is in the filtered list, keep them selected
+        if (currentUser?.id && filteredWaiters.some((w: Waiter) => w._id === currentUser.id)) {
+          setSelectedWaiter(currentUser.id);
+        } else if (filteredWaiters.length > 0 && !selectedWaiter) {
+          setSelectedWaiter(filteredWaiters[0]._id);
+        }
+      } catch (error) {
+        console.error("Error fetching waiters:", error);
+      }
+    };
+    
+    if (selectedRestaurant) {
+      fetchWaiters();
+    }
+  }, [selectedRestaurant, currentUser?.id]);
+
+  // Fetch items and categories (no filtering by restaurant - just fetch all)
   useEffect(() => {
     const fetchData = async () => {
+      setIsLoading(true);
       try {
-        const [itemsRes, categoriesRes, waitersRes] = await Promise.all([
+        const [itemsRes, categoriesRes] = await Promise.all([
           fetch("/api/items"),
           fetch("/api/item-category"),
-          fetch("/api/waitress"),
         ]);
 
         const itemsData = await itemsRes.json();
         const categoriesData = await categoriesRes.json();
-        const waitersData = await waitersRes.json();
 
         setItems(itemsData.items || []);
         setCategories(categoriesData.data || []);
-        setWaiters(waitersData || []);
       } catch (error) {
         console.error("Error fetching data:", error);
         toast.error("Failed to load menu data");
@@ -974,7 +1048,7 @@ export default function POSPage() {
     fetchData();
   }, []);
 
-  // Fetch table assignments
+  // Fetch table assignments (for the logged-in waiter only)
   const fetchTableAssignments = useCallback(async () => {
     if (!currentUser?.id) return;
     
@@ -1034,7 +1108,7 @@ export default function POSPage() {
     }
   }, [currentUser?.id, playNotificationSound]);
 
-  // Fetch transfer requests
+  // Fetch transfer requests (for the logged-in waiter only)
   const fetchTransfers = useCallback(async () => {
     if (!currentUser?.id) return;
     
@@ -1224,7 +1298,6 @@ export default function POSPage() {
       if (data.success) {
         toast.success('Transfer accepted! Order assigned to you.');
         if (soundEnabled) playNotificationSound();
-        // Refresh transfers
         await fetchTransfers();
         window.location.reload();
       } else {
@@ -1251,7 +1324,6 @@ export default function POSPage() {
       const data = await response.json();
       if (data.success) {
         toast('Transfer request cancelled.', { icon: 'ℹ️' });
-        // Refresh transfers
         await fetchTransfers();
       } else {
         throw new Error(data.error || 'Failed to cancel transfer');
@@ -1278,7 +1350,6 @@ export default function POSPage() {
       if (data.success) {
         toast.success('Assignment accepted! Order added to your queue.');
         if (soundEnabled) playNotificationSound();
-        // Refresh assignments
         await fetchTableAssignments();
         window.location.reload();
       } else {
@@ -1292,7 +1363,7 @@ export default function POSPage() {
     }
   }, [currentUser?.id, soundEnabled, playNotificationSound, fetchTableAssignments]);
 
-  // Handle reject table assignment - FIXED: replaced toast.info with toast with custom style
+  // Handle reject table assignment
   const handleRejectAssignment = useCallback(async (orderId: string, reason?: string) => {
     setIsProcessingAssignment(true);
     try {
@@ -1313,7 +1384,6 @@ export default function POSPage() {
           },
         });
         if (soundEnabled) playNotificationSound();
-        // Refresh assignments
         await fetchTableAssignments();
       } else {
         throw new Error(data.error || 'Failed to decline assignment');
@@ -1344,6 +1414,11 @@ export default function POSPage() {
       return
     }
 
+    if (!selectedRestaurant) {
+      toast.error("Please select a restaurant")
+      return
+    }
+
     // Prepare items with proper tax breakdown
     const itemsWithTax = cart.map(item => {
       const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price)
@@ -1360,10 +1435,14 @@ export default function POSPage() {
       }
     })
 
+    const selectedRestaurantInfo = RESTAURANTS.find(r => r.id === selectedRestaurant);
+    const selectedWaiterInfo = waiters.find(w => w._id === selectedWaiter);
+    
     const orderData = {
       orderNumber,
       tableNumber,
       waiterId: selectedWaiter,
+      waiterName: selectedWaiterInfo?.name || "",
       customerId: "walk-in",
       numberOfGuests,
       items: itemsWithTax,
@@ -1376,6 +1455,10 @@ export default function POSPage() {
       paymentMethod: "CARD",
       specialRequirements,
       isActive: true,
+      restaurantId: selectedRestaurant,
+      restaurantName: selectedRestaurantInfo?.name || selectedRestaurant,
+      inTable: true,
+      delivery: false
     }
 
     const orderToast = toast.loading("Placing your order...")
@@ -1414,7 +1497,7 @@ export default function POSPage() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading && !items.length) {
     return (
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-primary/5 via-background to-background/80">
         <motion.div className="text-center space-y-3 sm:space-y-4 w-full max-w-xs px-4" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
@@ -1495,6 +1578,23 @@ export default function POSPage() {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
+              {/* Restaurant Selector - Pre-filled with waiter's assigned restaurant */}
+              <Select value={selectedRestaurant} onValueChange={setSelectedRestaurant}>
+                <SelectTrigger className="w-[110px] sm:w-[140px] lg:w-[160px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
+                  <SelectValue placeholder="Select Restaurant" />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESTAURANTS.map((restaurant) => (
+                    <SelectItem key={restaurant.id} value={restaurant.id}>
+                      <div className="flex items-center gap-1 sm:gap-2">
+                        <Building2 className={`h-3 w-3 sm:h-3.5 sm:w-3.5 text-${restaurant.color}-600`} />
+                        <span className="truncate text-[10px] sm:text-xs">{restaurant.shortName}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               <Select value={tableNumber} onValueChange={setTableNumber}>
                 <SelectTrigger className="w-[70px] sm:w-[90px] lg:w-[110px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
                   <SelectValue placeholder="Table" />

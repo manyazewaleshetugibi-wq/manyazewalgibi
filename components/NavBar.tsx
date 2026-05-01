@@ -65,8 +65,8 @@ interface NavLinkProps {
 }
 
 const navLinks = [
-  { href: "/", icon: Home, label: "Menu", className: "hidden md:inline-flex text-purple-900" },
-  { href: "/menu", icon: UtensilsCrossed, label: "Home", className: "hidden md:inline-flex " },
+  { href: "/", icon: UtensilsCrossed, label: "Menu", className: "hidden md:inline-flex text-purple-900" },
+  { href: "/menu", icon: Home, label: "Home", className: "hidden md:inline-flex " },
   { href: "/about", icon: Info, label: "About Us", className: "hidden md:inline-flex " },
   { href: "/blogs", icon: BookOpen, label: "Blogs", className: "hidden md:inline-flex " },
   { href: "/contact", icon: PhoneCall, label: "Contact Us", className: "hidden md:inline-flex " },

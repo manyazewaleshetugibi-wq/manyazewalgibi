@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { BlogSchema } from "@/models/Blogs";
-import { uploadImage } from "@/utils/uploadImages";
+import { uploadImage } from "@/types/utils/uploadImages";
 import { ObjectId } from "mongodb";
 
 // Cloudinary Configuration (for thumbnail generation)

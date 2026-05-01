@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
-import { TableOrderSchema, OrderStatus } from "@/models/Orders"; // Ensure correct schema import
+import { getCurrentUserData } from "../../utils/orderHelpers";
+
+// Helper function to check if a user role is admin
+const isAdminRole = (role: string | undefined): boolean => {
+  if (!role) return false;
+  return ['ADMIN', 'admin', 'Admin', 'SUPER_ADMIN'].includes(role);
+};
 
 // GET: Retrieve an order by ID
 export async function GET(
@@ -15,12 +21,10 @@ export async function GET(
 
     const orderId = params.id;
 
-    // Validate the order ID
     if (!ObjectId.isValid(orderId)) {
       return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
     }
 
-    // Find the order by ID
     const order = await db
       .collection("orders")
       .findOne({ _id: new ObjectId(orderId) });
@@ -29,7 +33,6 @@ export async function GET(
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
-    // Fetch waiter details if it's a table order
     let additionalDetails = {};
     if (order.inTable === true && (!order.delivery) && order.waiterId) {
       try {
@@ -47,7 +50,6 @@ export async function GET(
       }
     }
 
-    // Return the order
     return NextResponse.json({ success: true, order: { ...order, ...additionalDetails } }, { status: 200 });
   } catch (error) {
     console.error("Error fetching order:", error);
@@ -70,26 +72,18 @@ export async function PUT(
 
     const orderId = params.id;
 
-    // Validate the order ID
     if (!ObjectId.isValid(orderId)) {
       return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
     }
 
     const body = await req.json();
 
-    // Validate the updated order data
-    const validatedOrder = TableOrderSchema.parse({
-      ...body,
-      _id: undefined, // Ensure _id is not part of the body
-    });
-
-    // Update the order in the database
     const result = await db.collection("orders").updateOne(
       { _id: new ObjectId(orderId) },
       {
         $set: {
-          ...validatedOrder,
-          updatedAt: new Date(), // Update the updatedAt field
+          ...body,
+          updatedAt: new Date(),
         },
       }
     );
@@ -98,7 +92,6 @@ export async function PUT(
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
-    // Return success response
     return NextResponse.json(
       { success: true, message: "Order updated successfully" },
       { status: 200 }
@@ -112,7 +105,7 @@ export async function PUT(
   }
 }
 
-// DELETE: Delete an order by ID
+// DELETE: Delete an order (Admin only)
 export async function DELETE(
   req: NextRequest,
   props: { params: Promise<{ id: string }> }
@@ -123,24 +116,86 @@ export async function DELETE(
     const db = dbClient.db("gold");
 
     const orderId = params.id;
+    const url = new URL(req.url);
+    const reason = url.searchParams.get("reason") || "Admin deletion";
 
-    // Validate the order ID
     if (!ObjectId.isValid(orderId)) {
       return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
     }
 
-    // Delete the order from the database
-    const result = await db
-      .collection("orders")
-      .deleteOne({ _id: new ObjectId(orderId) });
+    const userData = await getCurrentUserData(req);
+    
+    // Check if user is admin
+    const isAdmin = isAdminRole(userData?.role);
+    
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: "Unauthorized. Only administrators can delete orders." },
+        { status: 403 }
+      );
+    }
 
-    if (result.deletedCount === 0) {
+    const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+    
+    if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
-    // Return success response
+    // Soft delete - mark as deleted
+    const updateResult = await db.collection("orders").updateOne(
+      { _id: new ObjectId(orderId) },
+      { 
+        $set: { 
+          deletedAt: new Date(),
+          deletedBy: userData?.name || userData?.email || "Unknown Admin",
+          deletionReason: reason,
+          isActive: false,
+          updatedAt: new Date()
+        } 
+      }
+    );
+
+    if (updateResult.matchedCount === 0) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    // Log deletion
+    await db.collection("deletion_logs").insertOne({
+      orderId: new ObjectId(orderId),
+      orderNumber: order.orderNumber,
+      deletedBy: userData?.name || userData?.email || "Unknown Admin",
+      deletedByRole: userData?.role,
+      deletionReason: reason,
+      orderData: {
+        orderNumber: order.orderNumber,
+        finalAmount: order.finalAmount,
+        status: order.status,
+        createdAt: order.createdAt
+      },
+      deletedAt: new Date()
+    });
+
+    // Update deletion request status if exists
+    if (order.markedForDeletion) {
+      await db.collection("deletion_requests").updateOne(
+        { orderId: new ObjectId(orderId), status: "pending" },
+        { 
+          $set: { 
+            status: "approved",
+            approvedBy: userData?.name,
+            approvedAt: new Date()
+          } 
+        }
+      );
+    }
+
     return NextResponse.json(
-      { success: true, message: "Order deleted successfully" },
+      { 
+        success: true, 
+        message: `Order ${order.orderNumber} deleted successfully`,
+        deletedBy: userData?.name || "Unknown Admin",
+        deletedAt: new Date().toISOString()
+      },
       { status: 200 }
     );
   } catch (error) {
@@ -151,6 +206,8 @@ export async function DELETE(
     );
   }
 }
+
+// PATCH: Update order status or mark for deletion
 export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   try {
     const params = await props.params;
@@ -162,13 +219,61 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
     }
 
-    const { status } = await req.json();
+    const body = await req.json();
+    const { status, action, reason, requestedBy, requestedAt } = body;
 
-    if (!Array.isArray(OrderStatus.options) || !OrderStatus.options.includes(status)) {
-      return NextResponse.json({ error: "Invalid order status" }, { status: 400 });
+    // Handle mark for deletion
+    if (action === "mark-for-deletion") {
+      if (!reason) {
+        return NextResponse.json(
+          { error: "Deletion reason is required" },
+          { status: 400 }
+        );
+      }
+
+      const userData = await getCurrentUserData(req);
+
+      const updateResult = await ordersCollection.updateOne(
+        { _id: new ObjectId(params.id) },
+        { 
+          $set: { 
+            markedForDeletion: true,
+            deletionRequestReason: reason,
+            deletionRequestedBy: requestedBy || userData?.name || userData?.email || "Unknown User",
+            deletionRequestedAt: requestedAt || new Date().toISOString(),
+            updatedAt: new Date()
+          } 
+        }
+      );
+
+      if (updateResult.matchedCount === 0) {
+        return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      }
+
+      // Create audit log
+      await db.collection("deletion_requests").insertOne({
+        orderId: new ObjectId(params.id),
+        reason: reason,
+        requestedBy: requestedBy || userData?.name || userData?.email || "Unknown User",
+        requestedAt: new Date(),
+        status: "pending",
+        createdAt: new Date()
+      });
+
+      const updatedOrder = await ordersCollection.findOne({ _id: new ObjectId(params.id) });
+
+      return NextResponse.json({ 
+        message: "Order marked for deletion successfully", 
+        order: updatedOrder,
+        markedForDeletion: true
+      }, { status: 200 });
     }
 
-    // Update the order
+    // Handle regular status update
+    if (!status) {
+      return NextResponse.json({ error: "Status is required" }, { status: 400 });
+    }
+
     const updateResult = await ordersCollection.updateOne(
       { _id: new ObjectId(params.id) },
       { $set: { status, updatedAt: new Date() } }
@@ -178,10 +283,12 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
-    // Fetch the updated order
     const updatedOrder = await ordersCollection.findOne({ _id: new ObjectId(params.id) });
 
-    return NextResponse.json({ message: "Order status updated", order: updatedOrder }, { status: 200 });
+    return NextResponse.json({ 
+      message: "Order status updated", 
+      order: updatedOrder 
+    }, { status: 200 });
 
   } catch (error) {
     console.error("Error updating order:", error);

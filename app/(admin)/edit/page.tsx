@@ -1,4 +1,3 @@
-// app/waitress/orders/[id]/edit/page.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -74,7 +73,9 @@ import {
   Send,
   AlertTriangle,
   Volume2,
-  BellRing
+  BellRing,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useNotificationSound } from '@/hooks/useNotificationSound';
@@ -123,6 +124,10 @@ interface CartItem extends MenuItem {
   orderItemId?: string;
   originalPrice?: number;
   taxAmount?: number;
+  isUneditable?: boolean;
+  uneditableAt?: string;
+  uneditableBy?: string;
+  itemStatus?: string;
 }
 
 interface OrderItem {
@@ -136,6 +141,10 @@ interface OrderItem {
   specialInstructions?: string;
   total?: number;
   subtotal?: number;
+  isUneditable?: boolean;
+  uneditableAt?: string;
+  uneditableBy?: string;
+  itemStatus?: string;
 }
 
 interface EditRequest {
@@ -239,6 +248,11 @@ const getOrderItemsArray = (order: Order): OrderItem[] => {
   return [];
 };
 
+// Check if item is uneditable (locked/served) - CORRECTED to use isUneditable
+const isItemUneditable = (item: CartItem | OrderItem): boolean => {
+  return item.isUneditable === true;
+};
+
 // Sound Toggle Button Component
 const SoundToggleButton = ({ isEnabled, onToggle }: { isEnabled: boolean; onToggle: () => void }) => (
   <Button
@@ -253,7 +267,7 @@ const SoundToggleButton = ({ isEnabled, onToggle }: { isEnabled: boolean; onTogg
 );
 
 // Menu Item Component with tax info
-const MenuItemComponent = ({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) => {
+const MenuItemComponent = ({ item, addToCart, isOrderLocked }: { item: MenuItem; addToCart: (item: MenuItem) => void; isOrderLocked: boolean }) => {
   const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
   
   return (
@@ -285,9 +299,18 @@ const MenuItemComponent = ({ item, addToCart }: { item: MenuItem; addToCart: (it
             size="sm"
             onClick={(e) => {
               e.stopPropagation();
-              addToCart(item);
+              if (!isOrderLocked) {
+                addToCart(item);
+              } else {
+                toast({
+                  title: "Cannot Add Items",
+                  description: "This order has uneditable items or is completed. Cannot add new items.",
+                  variant: "destructive",
+                });
+              }
             }}
             className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm"
+            disabled={isOrderLocked}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
             Add to cart
@@ -318,9 +341,18 @@ const MenuItemComponent = ({ item, addToCart }: { item: MenuItem; addToCart: (it
             size="sm"
             onClick={(e) => {
               e.stopPropagation();
-              addToCart(item);
+              if (!isOrderLocked) {
+                addToCart(item);
+              } else {
+                toast({
+                  title: "Cannot Add Items",
+                  description: "This order has uneditable items or is completed.",
+                  variant: "destructive",
+                });
+              }
             }}
             className="h-6 w-6 sm:h-7 sm:w-7 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0 relative overflow-hidden transition-transform hover:scale-110"
+            disabled={isOrderLocked}
           >
             <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
             <span className="sr-only">Add to cart</span>
@@ -331,7 +363,7 @@ const MenuItemComponent = ({ item, addToCart }: { item: MenuItem; addToCart: (it
   );
 };
 
-// Cart Panel Component with correct tax calculation
+// Cart Panel Component with correct tax calculation and uneditable support
 const CartPanel = ({
   cart,
   updateQuantity,
@@ -358,276 +390,330 @@ const CartPanel = ({
   setTableNumber,
   onAddItems,
   onRefreshCart,
-  isSaving
-}: any) => (
-  <div className="flex flex-col h-full bg-gray-50/50 dark:bg-gray-900/50">
-    <div className="flex items-center justify-between px-4 py-3 border-b bg-background sticky top-0 z-20">
-      <div className="flex flex-col">
-        <h3 className="font-semibold text-lg flex items-center gap-2">
-          Edit Order
-          <Badge variant="secondary" className="rounded-full px-2.5">
-            {cart.length}
+  isSaving,
+  isOrderLocked
+}: any) => {
+  // Check if any item is uneditable
+  const hasUneditableItems = cart.some((item: CartItem) => isItemUneditable(item));
+  const isFullyUneditable = cart.length > 0 && cart.every((item: CartItem) => isItemUneditable(item));
+  
+  return (
+    <div className="flex flex-col h-full bg-gray-50/50 dark:bg-gray-900/50">
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-background sticky top-0 z-20">
+        <div className="flex flex-col">
+          <h3 className="font-semibold text-lg flex items-center gap-2">
+            Edit Order
+            <Badge variant="secondary" className="rounded-full px-2.5">
+              {cart.length}
+            </Badge>
+          </h3>
+          <span className="text-xs text-muted-foreground font-mono">#{orderNumber}</span>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={onRefreshCart} title="Refresh Prices" className="h-8 w-8" disabled={isOrderLocked}>
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+          <Badge variant="outline" className={`h-8 px-3 flex items-center justify-center border-0 ring-1 ring-inset ${
+            orderStatus === 'COMPLETED' ? 'bg-green-50 text-green-700 ring-green-600/20' :
+            orderStatus === 'PENDING' ? 'bg-yellow-50 text-yellow-700 ring-yellow-600/20' :
+            'bg-gray-50 text-gray-700 ring-gray-600/20'
+          }`}>
+            {orderStatus}
           </Badge>
-        </h3>
-        <span className="text-xs text-muted-foreground font-mono">#{orderNumber}</span>
+        </div>
       </div>
-      
-      <div className="flex items-center gap-2">
-        <Button variant="outline" size="icon" onClick={onRefreshCart} title="Refresh Prices" className="h-8 w-8">
-          <RefreshCw className="h-3.5 w-3.5" />
-        </Button>
-        <Badge variant="outline" className={`h-8 px-3 flex items-center justify-center border-0 ring-1 ring-inset ${
-          orderStatus === 'COMPLETED' ? 'bg-green-50 text-green-700 ring-green-600/20' :
-          orderStatus === 'PENDING' ? 'bg-yellow-50 text-yellow-700 ring-yellow-600/20' :
-          'bg-gray-50 text-gray-700 ring-gray-600/20'
-        }`}>
-          {orderStatus}
-        </Badge>
-      </div>
-    </div>
 
-    {cart.length > 0 ? (
-      <>
-        <div className="flex-1 overflow-y-auto min-h-0">
-          <div className="p-4 space-y-6">
-            {/* Cart Items with Tax Breakdown */}
-            <div className="space-y-3">
-              {cart.map((item: any) => {
-                const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
-                const itemTotalOriginal = originalPrice * item.quantity;
-                const itemTotalTax = taxAmount * item.quantity;
-                
-                return (
-                  <div key={item.cartId} className="group flex gap-3 bg-card p-2.5 rounded-xl border shadow-sm hover:shadow-md transition-all duration-200">
-                    <div className="relative h-20 w-20 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
-                      <Image
-                        src={item.imageUrl || "/placeholder.svg"}
-                        alt={item.name}
-                        fill
-                        sizes="80px"
-                        className="object-cover"
-                      />
-                    </div>
-                    
-                    <div className="flex-1 flex flex-col justify-between min-w-0">
-                      <div className="flex justify-between items-start gap-2">
-                        <div className="min-w-0">
-                          <h4 className="font-medium text-sm truncate">{item.name}</h4>
-                          <div className="flex flex-col">
-                            <p className="text-xs text-muted-foreground">
-                              ${originalPrice.toFixed(2)} <span className="text-[10px]">(excl. VAT)</span>
-                            </p>
-                            <p className="text-[10px] text-primary">
-                              + VAT: ${taxAmount.toFixed(2)}
+      {/* Uneditable items warning */}
+      {hasUneditableItems && (
+        <Alert className="mx-4 mt-4 bg-yellow-50 border-yellow-200">
+          <Lock className="h-4 w-4 text-yellow-600" />
+          <AlertDescription className="text-yellow-800 text-sm">
+            {isFullyUneditable 
+              ? "All items in this order are uneditable (served/locked) and cannot be modified." 
+              : "Some items in this order are uneditable (served/locked). Uneditable items cannot be modified."}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {cart.length > 0 ? (
+        <>
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <div className="p-4 space-y-6">
+              {/* Cart Items with Tax Breakdown */}
+              <div className="space-y-3">
+                {cart.map((item: CartItem) => {
+                  const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+                  const itemTotalOriginal = originalPrice * item.quantity;
+                  const itemTotalTax = taxAmount * item.quantity;
+                  const uneditable = isItemUneditable(item);
+                  
+                  return (
+                    <div key={item.cartId} className={`group flex gap-3 bg-card p-2.5 rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 ${uneditable ? 'bg-yellow-50/30 border-yellow-200' : ''}`}>
+                      <div className="relative h-20 w-20 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
+                        <Image
+                          src={item.imageUrl || "/placeholder.svg"}
+                          alt={item.name}
+                          fill
+                          sizes="80px"
+                          className="object-cover"
+                        />
+                        {uneditable && (
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                            <Lock className="h-6 w-6 text-white" />
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="flex-1 flex flex-col justify-between min-w-0">
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="min-w-0">
+                            <h4 className="font-medium text-sm truncate flex items-center gap-1">
+                              {item.name}
+                              {uneditable && (
+                                <Badge variant="outline" className="bg-yellow-100 text-yellow-700 text-[9px] h-4 px-1">
+                                  <Lock className="h-2 w-2 mr-0.5" />
+                                  Uneditable
+                                </Badge>
+                              )}
+                            </h4>
+                            <div className="flex flex-col">
+                              <p className="text-xs text-muted-foreground">
+                                ${originalPrice.toFixed(2)} <span className="text-[10px]">(excl. VAT)</span>
+                              </p>
+                              <p className="text-[10px] text-primary">
+                                + VAT: ${taxAmount.toFixed(2)}
+                              </p>
+                            </div>
+                            {uneditable && item.uneditableBy && (
+                              <p className="text-[9px] text-muted-foreground mt-0.5">
+                                Locked by: {item.uneditableBy}
+                              </p>
+                            )}
+                          </div>
+                          {!uneditable && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeFromCart(item.cartId)}
+                              className="h-6 w-6 -mr-1 -mt-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+
+                        <div className="flex items-end justify-between mt-2">
+                          <div className="flex items-center bg-muted/50 rounded-lg border p-0.5">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => !uneditable && updateQuantity(item.cartId, item.quantity - 1)}
+                              className="h-6 w-6 rounded-md hover:bg-background shadow-sm"
+                              disabled={uneditable}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <span className="w-8 text-center text-xs font-medium tabular-nums">
+                              {item.quantity}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => !uneditable && updateQuantity(item.cartId, item.quantity + 1)}
+                              className="h-6 w-6 rounded-md hover:bg-background shadow-sm"
+                              disabled={uneditable}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-semibold text-sm">
+                              ${itemTotalOriginal.toFixed(2)}
+                            </span>
+                            <p className="text-[9px] text-muted-foreground">
+                              + VAT: ${itemTotalTax.toFixed(2)}
                             </p>
                           </div>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeFromCart(item.cartId)}
-                          className="h-6 w-6 -mr-1 -mt-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-
-                      <div className="flex items-end justify-between mt-2">
-                        <div className="flex items-center bg-muted/50 rounded-lg border p-0.5">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => updateQuantity(item.cartId, item.quantity - 1)}
-                            className="h-6 w-6 rounded-md hover:bg-background shadow-sm"
-                          >
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                          <span className="w-8 text-center text-xs font-medium tabular-nums">
-                            {item.quantity}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => updateQuantity(item.cartId, item.quantity + 1)}
-                            className="h-6 w-6 rounded-md hover:bg-background shadow-sm"
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        <div className="text-right">
-                          <span className="font-semibold text-sm">
-                            ${itemTotalOriginal.toFixed(2)}
-                          </span>
-                          <p className="text-[9px] text-muted-foreground">
-                            + VAT: ${itemTotalTax.toFixed(2)}
+                        
+                        {item.specialInstructions && (
+                          <p className="text-[10px] text-muted-foreground mt-1 italic">
+                            Note: {item.specialInstructions}
                           </p>
-                        </div>
+                        )}
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-              
-              <Button 
-                variant="ghost" 
-                className="w-full border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 hover:bg-primary/5 text-muted-foreground hover:text-primary h-12 rounded-xl gap-2" 
-                onClick={onAddItems}
-              >
-                <Plus className="h-4 w-4" />
-                Add More Items
-              </Button>
-            </div>
+                  );
+                })}
+                
+                {!isOrderLocked && !isFullyUneditable && (
+                  <Button 
+                    variant="ghost" 
+                    className="w-full border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 hover:bg-primary/5 text-muted-foreground hover:text-primary h-12 rounded-xl gap-2" 
+                    onClick={onAddItems}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add More Items
+                  </Button>
+                )}
+              </div>
 
-            {/* Order Details Card */}
-            <div className="bg-card rounded-xl border shadow-sm p-4 space-y-4">
-              <h4 className="font-medium text-sm flex items-center gap-2 text-muted-foreground">
-                <FileText className="h-4 w-4" />
-                Order Details
-              </h4>
-              
-              <div className="grid grid-cols-2 gap-3">
+              {/* Order Details Card */}
+              <div className="bg-card rounded-xl border shadow-sm p-4 space-y-4">
+                <h4 className="font-medium text-sm flex items-center gap-2 text-muted-foreground">
+                  <FileText className="h-4 w-4" />
+                  Order Details
+                </h4>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="table-number" className="text-xs text-muted-foreground">Table</Label>
+                    <div className="relative">
+                      <MapPin className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        id="table-number"
+                        value={tableNumber}
+                        onChange={(e) => setTableNumber(e.target.value)}
+                        className="h-9 pl-8 text-sm bg-muted/30"
+                        placeholder="Table No."
+                        disabled={isOrderLocked}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="guests" className="text-xs text-muted-foreground">Guests</Label>
+                    <div className="relative">
+                      <Users className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <Select value={numberOfGuests.toString()} onValueChange={(v) => !isOrderLocked && setNumberOfGuests(parseInt(v))} disabled={isOrderLocked}>
+                        <SelectTrigger id="guests" className="h-9 pl-8 text-sm bg-muted/30">
+                          <SelectValue placeholder="Guests" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 10 }, (_, i) => (
+                            <SelectItem key={i} value={(i + 1).toString()}>
+                              {i + 1} {i === 0 ? 'Guest' : 'Guests'}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="space-y-1.5">
-                  <Label htmlFor="table-number" className="text-xs text-muted-foreground">Table</Label>
+                  <Label htmlFor="customer-name" className="text-xs text-muted-foreground">Customer</Label>
                   <div className="relative">
-                    <MapPin className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <UserIcon className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
                     <Input
-                      id="table-number"
-                      value={tableNumber}
-                      onChange={(e) => setTableNumber(e.target.value)}
+                      id="customer-name"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
                       className="h-9 pl-8 text-sm bg-muted/30"
-                      placeholder="Table No."
+                      placeholder="Customer Name"
+                      disabled={isOrderLocked}
                     />
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="guests" className="text-xs text-muted-foreground">Guests</Label>
-                  <div className="relative">
-                    <Users className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                    <Select value={numberOfGuests.toString()} onValueChange={(v) => setNumberOfGuests(parseInt(v))}>
-                      <SelectTrigger id="guests" className="h-9 pl-8 text-sm bg-muted/30">
-                        <SelectValue placeholder="Guests" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 10 }, (_, i) => (
-                          <SelectItem key={i} value={(i + 1).toString()}>
-                            {i + 1} {i === 0 ? 'Guest' : 'Guests'}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="customer-name" className="text-xs text-muted-foreground">Customer</Label>
-                <div className="relative">
-                  <UserIcon className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                  <Input
-                    id="customer-name"
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    className="h-9 pl-8 text-sm bg-muted/30"
-                    placeholder="Customer Name"
+                <div className="space-y-1.5">
+                  <Label htmlFor="special-requirements" className="text-xs text-muted-foreground">Notes</Label>
+                  <Textarea
+                    id="special-requirements"
+                    placeholder="Kitchen notes, allergies, etc..."
+                    className="min-h-[60px] text-sm bg-muted/30 resize-none"
+                    value={specialRequirements}
+                    onChange={(e) => setSpecialRequirements(e.target.value)}
+                    disabled={isOrderLocked}
                   />
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="special-requirements" className="text-xs text-muted-foreground">Notes</Label>
-                <Textarea
-                  id="special-requirements"
-                  placeholder="Kitchen notes, allergies, etc..."
-                  className="min-h-[60px] text-sm bg-muted/30 resize-none"
-                  value={specialRequirements}
-                  onChange={(e) => setSpecialRequirements(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* Bill Summary with correct tax display */}
-            <div className="bg-card rounded-xl border shadow-sm p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="apply-discount" className="text-sm font-normal">Apply Discount (10%)</Label>
-                <Switch
-                  id="apply-discount"
-                  checked={applyDiscount}
-                  onCheckedChange={setApplyDiscount}
-                />
-              </div>
-              
-              <Separator className="bg-border/50" />
-              
-              <div className="space-y-1.5 text-sm">
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Subtotal (excl. VAT)</span>
-                  <span>${subtotal.toFixed(2)}</span>
+              {/* Bill Summary with correct tax display */}
+              <div className="bg-card rounded-xl border shadow-sm p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="apply-discount" className="text-sm font-normal">Apply Discount (10%)</Label>
+                  <Switch
+                    id="apply-discount"
+                    checked={applyDiscount}
+                    onCheckedChange={setApplyDiscount}
+                    disabled={isOrderLocked}
+                  />
                 </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>VAT (15%)</span>
-                  <span>${tax.toFixed(2)}</span>
-                </div>
-                {discount > 0 && (
-                  <div className="flex justify-between text-green-600 font-medium">
-                    <span>Discount</span>
-                    <span>-${discount.toFixed(2)}</span>
+                
+                <Separator className="bg-border/50" />
+                
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Subtotal (excl. VAT)</span>
+                    <span>${subtotal.toFixed(2)}</span>
                   </div>
-                )}
-                <div className="flex justify-between pt-2 font-bold text-lg">
-                  <span>Total (incl. VAT)</span>
-                  <span>${total.toFixed(2)}</span>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>VAT (15%)</span>
+                    <span>${tax.toFixed(2)}</span>
+                  </div>
+                  {discount > 0 && (
+                    <div className="flex justify-between text-green-600 font-medium">
+                      <span>Discount</span>
+                      <span>-${discount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between pt-2 font-bold text-lg">
+                    <span>Total (incl. VAT)</span>
+                    <span>${total.toFixed(2)}</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 bg-background border-t space-y-3 z-20">
-          <div className="flex gap-3">
-            <Button 
-              variant="outline" 
-              onClick={cancelEdit}
-              className="flex-1 h-11 rounded-xl border-muted-foreground/20"
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleSaveOrder} 
-              className="flex-1 h-11 rounded-xl shadow-lg shadow-primary/20"
-              disabled={cart.length === 0 || isSaving}
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Updating...
-                </>
-              ) : (
-                <>
-                  <Save className="mr-2 h-4 w-4" />
-                  Update Order
-                </>
-              )}
-            </Button>
+          {/* Footer Actions */}
+          <div className="p-4 bg-background border-t space-y-3 z-20">
+            <div className="flex gap-3">
+              <Button 
+                variant="outline" 
+                onClick={cancelEdit}
+                className="flex-1 h-11 rounded-xl border-muted-foreground/20"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSaveOrder} 
+                className="flex-1 h-11 rounded-xl shadow-lg shadow-primary/20"
+                disabled={cart.length === 0 || isSaving || isOrderLocked || isFullyUneditable}
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Update Order
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
+        </>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-muted/5">
+          <div className="h-20 w-20 rounded-full bg-muted/50 flex items-center justify-center mb-4 animate-in zoom-in duration-300">
+            <ShoppingBag className="h-10 w-10 text-muted-foreground/50" />
+          </div>
+          <h3 className="text-xl font-semibold mb-2">Empty Order</h3>
+          <p className="text-sm text-muted-foreground max-w-[200px] mb-6">
+            Select items from the menu to update the order.
+          </p>
+          <Button onClick={onAddItems} className="rounded-full px-8" disabled={isOrderLocked}>
+            Browse Menu
+          </Button>
         </div>
-      </>
-    ) : (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-muted/5">
-        <div className="h-20 w-20 rounded-full bg-muted/50 flex items-center justify-center mb-4 animate-in zoom-in duration-300">
-          <ShoppingBag className="h-10 w-10 text-muted-foreground/50" />
-        </div>
-        <h3 className="text-xl font-semibold mb-2">Empty Order</h3>
-        <p className="text-sm text-muted-foreground max-w-[200px] mb-6">
-          Select items from the menu to update the order.
-        </p>
-        <Button onClick={onAddItems} className="rounded-full px-8">
-          Browse Menu
-        </Button>
-      </div>
-    )}
-  </div>
-);
+      )}
+    </div>
+  );
+};
 
 // Transfer Request Dialog Component
 function TransferRequestDialog({
@@ -830,6 +916,26 @@ export default function OrderEditPage() {
   
   const { play: playNotificationSound, isEnabled: soundEnabled, setIsEnabled: setSoundEnabled } = useNotificationSound();
 
+  // Check if order has any uneditable items - CORRECTED to use isUneditable
+  const hasUneditableItems = useMemo(() => {
+    if (!selectedOrder) return false;
+    const items = getOrderItemsArray(selectedOrder);
+    return items.some(item => item.isUneditable === true);
+  }, [selectedOrder]);
+
+  // Check if order is fully uneditable (all items uneditable) - CORRECTED
+  const isOrderFullyUneditable = useMemo(() => {
+    if (!selectedOrder) return false;
+    const items = getOrderItemsArray(selectedOrder);
+    if (items.length === 0) return false;
+    return items.every(item => item.isUneditable === true);
+  }, [selectedOrder]);
+
+  // Determine if order editing is disabled
+  const isOrderEditDisabled = useMemo(() => {
+    return selectedOrder?.status === 'COMPLETED' || hasPendingRequest || isOrderFullyUneditable;
+  }, [selectedOrder, hasPendingRequest, isOrderFullyUneditable]);
+
   // Cooldown timer effect
   useEffect(() => {
     if (cooldownRemaining > 0) {
@@ -951,7 +1057,7 @@ export default function OrderEditPage() {
     }
   }, [status, session, fetchOrders]);
 
-  // Initialize cart from order with tax breakdown
+  // Initialize cart from order with tax breakdown and uneditable status - CORRECTED to use isUneditable
   const initializeCartFromOrder = useCallback((order: Order) => {
     const cartItems: CartItem[] = [];
     const orderItemsArray = getOrderItemsArray(order);
@@ -984,7 +1090,10 @@ export default function OrderEditPage() {
           cartId: `order-item-${orderItem.id || `temp-${index}`}`,
           orderItemId: orderItem.id,
           originalPrice,
-          taxAmount
+          taxAmount,
+          isUneditable: orderItem.isUneditable === true,
+          uneditableAt: orderItem.uneditableAt,
+          uneditableBy: orderItem.uneditableBy,
         });
       } else {
         cartItems.push({
@@ -1002,7 +1111,10 @@ export default function OrderEditPage() {
           cartId: `order-item-${orderItem.id || `temp-${index}`}`,
           orderItemId: orderItem.id,
           originalPrice,
-          taxAmount
+          taxAmount,
+          isUneditable: orderItem.isUneditable === true,
+          uneditableAt: orderItem.uneditableAt,
+          uneditableBy: orderItem.uneditableBy,
         });
       }
     });
@@ -1025,6 +1137,29 @@ export default function OrderEditPage() {
       });
       return;
     }
+    
+    // Check if order has uneditable items
+    const items = getOrderItemsArray(order);
+    const hasUneditable = items.some(item => item.isUneditable === true);
+    const allUneditable = items.length > 0 && items.every(item => item.isUneditable === true);
+    
+    if (allUneditable) {
+      toast({
+        title: "Cannot Edit",
+        description: "All items in this order are uneditable (served/locked). This order cannot be edited.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (hasUneditable) {
+      toast({
+        title: "Partial Editing Only",
+        description: "Some items in this order are uneditable and cannot be modified.",
+        variant: "default",
+      });
+    }
+    
     setSelectedOrder(order);
     setShowSuccessMessage(false);
     
@@ -1059,6 +1194,15 @@ export default function OrderEditPage() {
       return;
     }
 
+    if (isOrderFullyUneditable) {
+      toast({
+        title: "Cannot Edit",
+        description: "All items in this order are uneditable (served/locked). Cannot add new items.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (item.stock !== undefined && item.stock <= 0) {
       toast({
         title: "Out of Stock",
@@ -1072,10 +1216,10 @@ export default function OrderEditPage() {
     const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
     
     setCart((prev) => {
-      const existing = prev.find((i) => i._id === item._id);
+      const existing = prev.find((i) => i._id === item._id && !isItemUneditable(i));
       if (existing) {
         return prev.map((i) => 
-          i.cartId === existing.cartId 
+          i.cartId === existing.cartId && !isItemUneditable(i)
             ? { ...i, quantity: i.quantity + 1 } 
             : i
         );
@@ -1085,7 +1229,8 @@ export default function OrderEditPage() {
         quantity: 1, 
         cartId: `cart-item-${Date.now()}-${Math.random()}`,
         originalPrice,
-        taxAmount
+        taxAmount,
+        isUneditable: false,
       }];
     });
 
@@ -1093,34 +1238,52 @@ export default function OrderEditPage() {
       title: "Added to Cart",
       description: `${item.name} added to order.`,
     });
-  }, [selectedOrder, hasPendingRequest]);
+  }, [selectedOrder, hasPendingRequest, isOrderFullyUneditable]);
 
   const removeFromCart = useCallback((cartId: string) => {
+    const item = cart.find(i => i.cartId === cartId);
+    if (item && isItemUneditable(item)) {
+      toast({
+        title: "Cannot Remove",
+        description: `${item.name} is uneditable (served/locked) and cannot be removed.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setCart((prev) => prev.filter((item) => item.cartId !== cartId));
     toast({
       title: "Item Removed",
       description: "Item removed from order",
     });
-  }, []);
+  }, [cart]);
 
   const updateQuantity = useCallback((cartId: string, newQuantity: number) => {
+    const item = cart.find(i => i.cartId === cartId);
+    if (item && isItemUneditable(item)) {
+      toast({
+        title: "Cannot Update",
+        description: `${item.name} is uneditable (served/locked) and quantity cannot be changed.`,
+        variant: "destructive",
+      });
+      return;
+    }
     if (newQuantity < 1) {
       removeFromCart(cartId);
       return;
     }
     setCart((prev) => 
       prev.map((item) => 
-        item.cartId === cartId 
+        item.cartId === cartId && !isItemUneditable(item)
           ? { ...item, quantity: newQuantity } 
           : item
       )
     );
-  }, [removeFromCart]);
+  }, [cart, removeFromCart]);
 
   const refreshCartItems = useCallback(() => {
     setCart(prev => prev.map(item => {
       const menuItem = menuItems.find(m => m._id === item._id);
-      if (menuItem) {
+      if (menuItem && !isItemUneditable(item)) {
         const { originalPrice, taxAmount } = calculatePriceBreakdown(menuItem.price);
         return {
           ...item,
@@ -1145,17 +1308,19 @@ export default function OrderEditPage() {
     });
   }, [menuItems]);
 
-  // Calculate subtotal (original prices without tax)
+  // Calculate subtotal (original prices without tax) - only for editable items
   const calculateSubtotal = () => {
     return cart.reduce((sum, item) => {
+      if (isItemUneditable(item)) return sum;
       const originalPrice = item.originalPrice || (item.price / 1.15);
       return sum + (originalPrice * item.quantity);
     }, 0);
   };
 
-  // Calculate total tax
+  // Calculate total tax - only for editable items
   const calculateTax = () => {
     return cart.reduce((sum, item) => {
+      if (isItemUneditable(item)) return sum;
       const taxAmount = item.taxAmount || (item.price - (item.price / 1.15));
       return sum + (taxAmount * item.quantity);
     }, 0);
@@ -1205,38 +1370,66 @@ export default function OrderEditPage() {
       return;
     }
 
+    if (isOrderFullyUneditable) {
+      toast({
+        title: "Cannot Edit",
+        description: "All items in this order are uneditable (served/locked). Cannot save changes.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setIsSaving(true);
       setApiError(null);
 
-      const processedOrderItems = cart.map(item => {
-        const menuItem = menuItems.find(m => m._id === item._id);
-        const finalPrice = menuItem ? menuItem.price : item.price;
-        const finalName = menuItem ? menuItem.name : item.name;
-        const { originalPrice, taxAmount } = calculatePriceBreakdown(finalPrice);
-        
-        return {
+      // Only include editable items in the update (preserve uneditable items as they are)
+      const processedOrderItems = cart
+        .filter(item => !isItemUneditable(item))
+        .map(item => {
+          const menuItem = menuItems.find(m => m._id === item._id);
+          const finalPrice = menuItem ? menuItem.price : item.price;
+          const finalName = menuItem ? menuItem.name : item.name;
+          const { originalPrice, taxAmount } = calculatePriceBreakdown(finalPrice);
+          
+          return {
+            menuItemId: item._id,
+            name: finalName,
+            price: finalPrice,
+            priceWithoutTax: originalPrice,
+            taxAmount: taxAmount,
+            quantity: item.quantity,
+            specialInstructions: item.specialInstructions || '',
+            subtotal: originalPrice * item.quantity,
+            taxTotal: taxAmount * item.quantity,
+            total: finalPrice * item.quantity
+          };
+        });
+
+      // Keep uneditable items with their original data (preserve isUneditable flag)
+      const uneditableOrderItems = cart
+        .filter(item => isItemUneditable(item))
+        .map(item => ({
           menuItemId: item._id,
-          name: finalName,
-          price: finalPrice,
-          priceWithoutTax: originalPrice,
-          taxAmount: taxAmount,
+          name: item.name,
+          price: item.price,
           quantity: item.quantity,
           specialInstructions: item.specialInstructions || '',
-          subtotal: originalPrice * item.quantity,
-          taxTotal: taxAmount * item.quantity,
-          total: finalPrice * item.quantity
-        };
-      });
+          isUneditable: true,
+          uneditableAt: item.uneditableAt,
+          uneditableBy: item.uneditableBy
+        }));
 
+      // Calculate totals (only include editable items for new totals)
       const newSubtotal = processedOrderItems.reduce((sum, item) => sum + item.subtotal, 0);
       const newTax = processedOrderItems.reduce((sum, item) => sum + item.taxTotal, 0);
       const newDiscount = applyDiscount ? newSubtotal * 0.1 : 0;
-      const newTotal = newSubtotal + newTax - newDiscount;
+      const uneditableTotal = uneditableOrderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const newTotal = newSubtotal + newTax + uneditableTotal - newDiscount;
 
       const orderData = {
         orderId: selectedOrder.id || selectedOrder._id,
-        orderItems: processedOrderItems,
+        orderItems: [...uneditableOrderItems, ...processedOrderItems],
         notes: notes || '',
         tableNumber: tableNumber || '',
         customerName: customerName || 'Walk-in Customer',
@@ -1245,7 +1438,7 @@ export default function OrderEditPage() {
         discount: newDiscount,
         tax: newTax,
         subtotal: newSubtotal,
-        totalAmount: newSubtotal + newTax,
+        totalAmount: newSubtotal + newTax + uneditableTotal,
         finalAmount: newTotal,
         waiterId: session.user.id
       };
@@ -1408,6 +1601,9 @@ export default function OrderEditPage() {
     return null;
   }
 
+  // Get uneditable items count for display
+  const uneditableItemsCount = cart.filter(item => isItemUneditable(item)).length;
+
   return (
     <div className="container mx-auto p-4 md:p-6">
       {/* Notification Toast */}
@@ -1503,18 +1699,22 @@ export default function OrderEditPage() {
                   <div className="space-y-2 max-h-[500px] overflow-y-auto pr-4">
                     {orders.map(order => {
                       const itemsCount = getOrderItemsArray(order).length;
+                      const items = getOrderItemsArray(order);
+                      const hasUneditable = items.some(item => item.isUneditable === true);
+                      const allUneditable = items.length > 0 && items.every(item => item.isUneditable === true);
+                      
                       return (
                         <Card
                           key={order.id}
                           className={`cursor-pointer transition-all hover:shadow-md ${
                             selectedOrder?.id === order.id ? 'border-primary ring-2 ring-primary/20' : ''
-                          }`}
+                          } ${allUneditable ? 'opacity-75 bg-gray-50' : ''}`}
                           onClick={() => handleSelectOrder(order)}
                         >
                           <CardContent className="p-4">
                             <div className="flex justify-between items-start">
                               <div className="space-y-1">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <h3 className="font-semibold">#{order.orderNumber}</h3>
                                   <Badge 
                                     className={`${getStatusColor(order.status)} text-xs flex items-center gap-1`}
@@ -1522,6 +1722,12 @@ export default function OrderEditPage() {
                                     {getStatusIcon(order.status)}
                                     {order.status}
                                   </Badge>
+                                  {hasUneditable && (
+                                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 text-xs">
+                                      <Lock className="h-2 w-2 mr-1" />
+                                      {allUneditable ? 'Fully Locked' : 'Partially Locked'}
+                                    </Badge>
+                                  )}
                                   {order.editRequest?.status === 'pending' && (
                                     <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 text-xs">
                                       Transfer Pending
@@ -1567,6 +1773,12 @@ export default function OrderEditPage() {
                           <span>Status: {selectedOrder.status}</span>
                           <span>• Table: {selectedOrder.tableNumber || 'N/A'}</span>
                           <span>• Customer: {selectedOrder.customerName || 'N/A'}</span>
+                          {hasUneditableItems && (
+                            <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+                              <Lock className="h-3 w-3 mr-1" />
+                              {uneditableItemsCount} Locked Item{uneditableItemsCount !== 1 ? 's' : ''}
+                            </Badge>
+                          )}
                           {selectedOrder.editRequest?.status === 'pending' && (
                             <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
                               Transfer Request Pending
@@ -1576,7 +1788,7 @@ export default function OrderEditPage() {
                       )}
                     </CardDescription>
                   </div>
-                  {selectedOrder && selectedOrder.status !== 'COMPLETED' && !hasPendingRequest && (
+                  {selectedOrder && selectedOrder.status !== 'COMPLETED' && !hasPendingRequest && !isOrderFullyUneditable && (
                     <div className="flex gap-2">
                       <Button 
                         variant="outline" 
@@ -1597,15 +1809,20 @@ export default function OrderEditPage() {
                       </Button>
                     </div>
                   )}
-                  {selectedOrder && selectedOrder.status !== 'COMPLETED' && hasPendingRequest && (
+                  {selectedOrder && (selectedOrder.status === 'COMPLETED' || hasPendingRequest || isOrderFullyUneditable) && (
                     <Button 
                       variant="outline" 
                       size="sm" 
                       disabled
-                      className="bg-yellow-50"
+                      className={isOrderFullyUneditable ? "bg-yellow-50" : "bg-yellow-50"}
                     >
-                      <Clock3 className="h-4 w-4 mr-2" />
-                      Transfer Pending
+                      {isOrderFullyUneditable ? (
+                        <><Lock className="h-4 w-4 mr-2" />Order Locked</>
+                      ) : hasPendingRequest ? (
+                        <><Clock3 className="h-4 w-4 mr-2" />Transfer Pending</>
+                      ) : (
+                        <><CheckCircle className="h-4 w-4 mr-2" />Completed</>
+                      )}
                     </Button>
                   )}
                 </div>
@@ -1618,6 +1835,15 @@ export default function OrderEditPage() {
                       <AlertCircle className="h-4 w-4" />
                       <AlertDescription>
                         This order is completed and cannot be edited. View only mode.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {isOrderFullyUneditable && (
+                    <Alert className="bg-yellow-50 border-yellow-200 mb-4">
+                      <Lock className="h-4 w-4 text-yellow-600" />
+                      <AlertDescription className="text-yellow-800">
+                        All items in this order are uneditable (served/locked). This order cannot be edited.
                       </AlertDescription>
                     </Alert>
                   )}
@@ -1648,7 +1874,7 @@ export default function OrderEditPage() {
                         }}
                         className="w-full gap-2"
                         variant="default"
-                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
+                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest || isOrderFullyUneditable}
                       >
                         <ShoppingBag className="h-4 w-4" />
                         Add More Items
@@ -1666,7 +1892,7 @@ export default function OrderEditPage() {
                         value={tableNumber}
                         onChange={(e) => setTableNumber(e.target.value)}
                         placeholder="e.g., T-5, Takeaway"
-                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
+                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest || isOrderFullyUneditable}
                       />
                     </div>
                     <div className="space-y-2">
@@ -1676,7 +1902,7 @@ export default function OrderEditPage() {
                         value={customerName}
                         onChange={(e) => setCustomerName(e.target.value)}
                         placeholder="Walk-in Customer"
-                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
+                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest || isOrderFullyUneditable}
                       />
                     </div>
                     <div className="space-y-2">
@@ -1693,17 +1919,23 @@ export default function OrderEditPage() {
                     </div>
                   </div>
 
-                  {/* Order Items with Tax Breakdown */}
+                  {/* Order Items with Tax Breakdown and Lock Status */}
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <h3 className="text-lg font-semibold">Order Items ({cart.length})</h3>
+                      {uneditableItemsCount > 0 && (
+                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+                          <Lock className="h-3 w-3 mr-1" />
+                          {uneditableItemsCount} Locked Item{uneditableItemsCount !== 1 ? 's' : ''}
+                        </Badge>
+                      )}
                     </div>
 
                     {cart.length === 0 ? (
                       <div className="text-center py-8 border-2 border-dashed rounded-lg">
                         <ShoppingCart className="h-12 w-12 mx-auto text-muted-foreground" />
                         <p className="mt-2 text-muted-foreground">No items in this order</p>
-                        {selectedOrder.status !== 'COMPLETED' && !hasPendingRequest && (
+                        {selectedOrder.status !== 'COMPLETED' && !hasPendingRequest && !isOrderFullyUneditable && (
                           <Button 
                             onClick={() => {
                               setActiveTab('menu');
@@ -1726,6 +1958,7 @@ export default function OrderEditPage() {
                               <TableHead className="text-center">Qty</TableHead>
                               <TableHead className="text-right">Subtotal (excl. VAT)</TableHead>
                               <TableHead className="text-right">VAT</TableHead>
+                              <TableHead className="text-right">Status</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -1734,15 +1967,29 @@ export default function OrderEditPage() {
                               const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
                               const itemSubtotal = originalPrice * item.quantity;
                               const itemTaxTotal = taxAmount * item.quantity;
+                              const uneditable = isItemUneditable(item);
                               
                               return (
-                                <TableRow key={item.cartId}>
+                                <TableRow key={item.cartId} className={uneditable ? "bg-yellow-50/50" : ""}>
                                   <TableCell>
                                     <div>
-                                      <p className="font-medium">{item.name}</p>
+                                      <div className="font-medium flex items-center gap-1">
+                                        {item.name}
+                                        {uneditable && (
+                                          <Badge variant="outline" className="bg-yellow-100 text-yellow-700 text-[10px] h-4">
+                                            <Lock className="h-2 w-2 mr-0.5" />
+                                            Locked
+                                          </Badge>
+                                        )}
+                                      </div>
                                       {item.specialInstructions && (
                                         <p className="text-xs text-muted-foreground">
                                           Note: {item.specialInstructions}
+                                        </p>
+                                      )}
+                                      {uneditable && item.uneditableBy && (
+                                        <p className="text-[9px] text-muted-foreground">
+                                          Locked by: {item.uneditableBy}
                                         </p>
                                       )}
                                     </div>
@@ -1757,7 +2004,7 @@ export default function OrderEditPage() {
                                         variant="outline"
                                         className="h-6 w-6 p-0"
                                         onClick={() => updateQuantity(item.cartId, item.quantity - 1)}
-                                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
+                                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest || uneditable || isOrderFullyUneditable}
                                       >
                                         -
                                       </Button>
@@ -1767,7 +2014,7 @@ export default function OrderEditPage() {
                                         variant="outline"
                                         className="h-6 w-6 p-0"
                                         onClick={() => updateQuantity(item.cartId, item.quantity + 1)}
-                                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
+                                        disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest || uneditable || isOrderFullyUneditable}
                                       >
                                         +
                                       </Button>
@@ -1780,12 +2027,18 @@ export default function OrderEditPage() {
                                     +${itemTaxTotal.toFixed(2)}
                                   </TableCell>
                                   <TableCell className="text-right">
+                                    <Badge variant="outline" className={uneditable ? "bg-yellow-100 text-yellow-700" : "bg-green-100 text-green-700"}>
+                                      {uneditable ? <Lock className="h-3 w-3 mr-1" /> : <Unlock className="h-3 w-3 mr-1" />}
+                                      {uneditable ? "Uneditable" : "Editable"}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-right">
                                     <Button
                                       size="sm"
                                       variant="ghost"
                                       className="h-8 w-8 p-0 text-destructive"
                                       onClick={() => removeFromCart(item.cartId)}
-                                      disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
+                                      disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest || uneditable || isOrderFullyUneditable}
                                     >
                                       <Trash2 className="h-4 w-4" />
                                     </Button>
@@ -1808,7 +2061,7 @@ export default function OrderEditPage() {
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       rows={3}
-                      disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest}
+                      disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest || isOrderFullyUneditable}
                     />
                   </div>
 
@@ -1840,7 +2093,7 @@ export default function OrderEditPage() {
                         </div>
                       </div>
                     </CardContent>
-                    {selectedOrder.status !== 'COMPLETED' && !hasPendingRequest && (
+                    {selectedOrder.status !== 'COMPLETED' && !hasPendingRequest && !isOrderFullyUneditable && cart.filter(item => !isItemUneditable(item)).length > 0 && (
                       <CardFooter className="flex gap-3 border-t pt-6">
                         <Button 
                           variant="outline" 
@@ -1852,7 +2105,7 @@ export default function OrderEditPage() {
                         <Button 
                           className="flex-1"
                           onClick={handleSaveOrder}
-                          disabled={isSaving || cart.length === 0}
+                          disabled={isSaving || cart.filter(item => !isItemUneditable(item)).length === 0}
                         >
                           {isSaving ? (
                             <>
@@ -1866,6 +2119,13 @@ export default function OrderEditPage() {
                             </>
                           )}
                         </Button>
+                      </CardFooter>
+                    )}
+                    {selectedOrder.status !== 'COMPLETED' && !hasPendingRequest && isOrderFullyUneditable && (
+                      <CardFooter className="border-t pt-6">
+                        <p className="text-sm text-muted-foreground text-center w-full">
+                          This order cannot be edited because all items are uneditable (served/locked).
+                        </p>
                       </CardFooter>
                     )}
                   </Card>
@@ -1969,7 +2229,7 @@ export default function OrderEditPage() {
                         variants={fadeInUp}
                         transition={{ duration: 0.25, delay: index * 0.02 }}
                       >
-                        <MenuItemComponent item={item} addToCart={addToCart} />
+                        <MenuItemComponent item={item} addToCart={addToCart} isOrderLocked={isOrderFullyUneditable || !!hasPendingRequest || selectedOrder?.status === 'COMPLETED'} />
                       </motion.div>
                     ))}
                   </AnimatePresence>
@@ -2029,6 +2289,7 @@ export default function OrderEditPage() {
             }}
             onRefreshCart={refreshCartItems}
             isSaving={isSaving}
+            isOrderLocked={isOrderFullyUneditable || hasPendingRequest || selectedOrder?.status === 'COMPLETED'}
           />
         </DialogContent>
       </Dialog>

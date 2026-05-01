@@ -32,6 +32,8 @@ import {
   UserSquare2Icon,
   User,
   Settings,
+  
+  SearchCheckIcon,
 } from "lucide-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -118,6 +120,7 @@ const roleBasedNavigation = {
       { name: "Expenses", url: "/expenses", icon: DollarSign },
       { name: "Feedback", url: "/feedback", icon: Pen },
       { name: "Waitress", url: "/waitress", icon: UserSquare2Icon },
+      {name: "search", url: "/search", icon: SearchCheckIcon}
     ],
   },
   KITCHEN: {
@@ -129,6 +132,32 @@ const roleBasedNavigation = {
         items: [
           { title: "In-Restaurant", url: "/orders" },
           { title: "Pending Delivery", url: "/delivery" },
+        ],
+      },
+       {
+        title: "stockReport",
+        url: "#",
+        icon: Package,
+        items: [
+          { title: "stockReport", url: "/stockReport" },
+        ],
+      },
+       {
+        title: "Sales",
+        url: "#",
+        icon: FileText,
+        items: [
+          
+          { title: "Sales", url: "/sales" },
+        ],
+      },
+       {
+        title: "Table Management",
+        url: "#",
+        icon: FileText,
+        items: [
+          
+          { title: "Table Management", url: "/table-arrangement" },
         ],
       },
     ],
@@ -224,6 +253,15 @@ const roleBasedNavigation = {
           { title: "POs", url: "/pos"  },
            { title: "edit", url: "/edit"  },
            { title: "myorders", url: "/myorders"  },
+        ],
+      },
+       {
+        title: "Table Management",
+        url: "#",
+        icon: FileText,
+        items: [
+          
+          { title: "Table Management", url: "/table-arrangement" },
         ],
       },
     ],

@@ -65,6 +65,13 @@ interface OrderItem {
     price: number;
   }>;
   total?: number;
+  // Uneditable/locked fields
+  isUneditable?: boolean;
+  uneditableAt?: string;
+  uneditableBy?: string;
+  isLocked?: boolean; // For backward compatibility
+  lockedAt?: string;
+  lockedBy?: string;
 }
 
 interface Order {
@@ -214,6 +221,58 @@ function extractItemIdsFromOrder(order: Order): string[] {
   return [...new Set(itemIds)]; // Remove duplicates
 }
 
+// Helper function to preserve uneditable status when updating items
+function preserveUneditableStatus(existingItems: any[], newItems: any[]): any[] {
+  // Create a map of existing items by their ID for quick lookup
+  const existingItemsMap = new Map();
+  
+  existingItems.forEach((item: any) => {
+    const itemId = item.menuItemId || item.itemId || item.id;
+    if (itemId) {
+      existingItemsMap.set(itemId.toString(), {
+        isUneditable: item.isUneditable === true,
+        uneditableAt: item.uneditableAt,
+        uneditableBy: item.uneditableBy,
+        isLocked: item.isLocked === true, // For backward compatibility
+        lockedAt: item.lockedAt,
+        lockedBy: item.lockedBy
+      });
+    }
+  });
+  
+  // Apply preserved uneditable status to new items if they existed before
+  return newItems.map((item: any) => {
+    const itemId = item.menuItemId || item.itemId || item.id;
+    const existingStatus = itemId ? existingItemsMap.get(itemId.toString()) : null;
+    
+    if (existingStatus && existingStatus.isUneditable) {
+      // Preserve the uneditable status from existing item
+      return {
+        ...item,
+        isUneditable: true,
+        uneditableAt: existingStatus.uneditableAt,
+        uneditableBy: existingStatus.uneditableBy,
+        // For backward compatibility
+        isLocked: true,
+        lockedAt: existingStatus.lockedAt || existingStatus.uneditableAt,
+        lockedBy: existingStatus.lockedBy || existingStatus.uneditableBy
+      };
+    }
+    
+    // Keep the new item's status (default to false if not specified)
+    return {
+      ...item,
+      isUneditable: item.isUneditable === true || false,
+      uneditableAt: item.uneditableAt || null,
+      uneditableBy: item.uneditableBy || null,
+      // For backward compatibility
+      isLocked: item.isLocked === true || item.isUneditable === true,
+      lockedAt: item.lockedAt || item.uneditableAt || null,
+      lockedBy: item.lockedBy || item.uneditableBy || null
+    };
+  });
+}
+
 // GET: Fetch all orders for current waitress with full item details
 export async function GET(
   request: NextRequest,
@@ -318,8 +377,8 @@ export async function GET(
     
     // Transform orders with full item details
     const transformedOrders = await Promise.all(orders.map(async (order: Order) => {
-      // Extract order items with full details
-      const orderItems = await Promise.all((order.items || order.orderItems || []).map(async (item: any) => {
+      // Extract order items with full details and preserve uneditable status
+      const orderItems = await Promise.all((order.items || order.orderItems || []).map(async (item: any, index: number) => {
         // Try to find the item by different ID fields
         let menuItem: MenuItem | undefined;
         const possibleIds = [
@@ -355,6 +414,9 @@ export async function GET(
         const calories = menuItem?.calories || 0;
         const preparationTime = menuItem?.preparationTime || menuItem?.item?.preparationTime || 0;
         
+        // Preserve uneditable status (check both isUneditable and isLocked for backward compatibility)
+        const isUneditable = item.isUneditable === true || item.isLocked === true;
+        
         return {
           id: item.id || item._id?.toString() || itemId,
           menuItemId: itemId, // This is the key field for frontend
@@ -375,13 +437,20 @@ export async function GET(
           image: image,
           imageUrl: image,
           isAvailable: isAvailable,
-          // Add any customizations/modifiers
+          // Add customizations/modifiers
           customizations: item.customizations || [],
           cookingInstructions: item.cookingInstructions || '',
           allergens: menuItem?.allergens || menuItem?.item?.allergens || [],
           preparationTime: preparationTime,
           tags: tags,
           calories: calories,
+          // Uneditable/locked fields
+          isUneditable: isUneditable,
+          uneditableAt: item.uneditableAt || item.lockedAt || null,
+          uneditableBy: item.uneditableBy || item.lockedBy || null,
+          isLocked: isUneditable, // For backward compatibility
+          lockedAt: item.lockedAt || item.uneditableAt || null,
+          lockedBy: item.lockedBy || item.uneditableBy || null,
           // Include all original data
           originalData: item
         };
@@ -567,7 +636,7 @@ export async function POST(
     // Fetch menu item details
     const menuItemMap = await fetchMenuItemDetails(db, itemIds);
     
-    // Transform order items with full details including name and image
+    // Transform order items with full details including name and image, preserving uneditable status
     const orderItems = await Promise.all((order.items || order.orderItems || []).map(async (item: any) => {
       // Try to find the item by different ID fields
       let menuItem: MenuItem | undefined;
@@ -600,6 +669,9 @@ export async function POST(
       const calories = menuItem?.calories || 0;
       const preparationTime = menuItem?.preparationTime || menuItem?.item?.preparationTime || 0;
       
+      // Preserve uneditable status
+      const isUneditable = item.isUneditable === true || item.isLocked === true;
+      
       return {
         id: item.id || item._id?.toString() || itemId,
         menuItemId: itemId, // This is the key field for frontend
@@ -626,6 +698,13 @@ export async function POST(
         preparationTime: preparationTime,
         tags: tags,
         calories: calories,
+        // Uneditable/locked fields
+        isUneditable: isUneditable,
+        uneditableAt: item.uneditableAt || item.lockedAt || null,
+        uneditableBy: item.uneditableBy || item.lockedBy || null,
+        isLocked: isUneditable, // For backward compatibility
+        lockedAt: item.lockedAt || item.uneditableAt || null,
+        lockedBy: item.lockedBy || item.uneditableBy || null,
         // Include all original data
         originalData: item
       };
@@ -695,7 +774,7 @@ export async function POST(
   }
 }
 
-// PUT: Update an order with proper item structure
+// PUT: Update an order with proper item structure and preserve uneditable status
 export async function PUT(
   request: NextRequest,
   props: { params: Promise<{ id: string }> }
@@ -807,8 +886,11 @@ export async function PUT(
     if (orderItems && Array.isArray(orderItems)) {
       console.log(`[API] Processing ${orderItems.length} order items for update`);
       
-      // Transform order items to database format
-      const dbOrderItems = orderItems.map((item: any) => {
+      // Get existing items to preserve uneditable status
+      const existingItems = existingOrder.items || existingOrder.orderItems || [];
+      
+      // Transform order items to database format with preserved uneditable status
+      const dbOrderItems = preserveUneditableStatus(existingItems, orderItems.map((item: any) => {
         const menuItemId = item.menuItemId || item._id || item.id;
         const quantity = item.quantity || 1;
         const price = item.price || item.unitPrice || 0;
@@ -831,9 +913,16 @@ export async function PUT(
           imageUrl: item.image || item.imageUrl || '',
           description: item.description || '',
           category: item.category || '',
-          categoryId: item.categoryId || ''
+          categoryId: item.categoryId || '',
+          // Preserve uneditable status from existing items
+          isUneditable: item.isUneditable === true,
+          uneditableAt: item.uneditableAt || null,
+          uneditableBy: item.uneditableBy || null,
+          isLocked: item.isLocked === true || item.isUneditable === true,
+          lockedAt: item.lockedAt || item.uneditableAt || null,
+          lockedBy: item.lockedBy || item.uneditableBy || null
         };
-      });
+      }));
 
       updateData.orderItems = dbOrderItems;
       updateData.items = dbOrderItems; // For backward compatibility
@@ -934,7 +1023,7 @@ export async function PUT(
     const itemIds = extractItemIdsFromOrder(updatedOrder);
     const menuItemMap = await fetchMenuItemDetails(db, itemIds);
     
-    // Transform order items with full details
+    // Transform order items with full details and preserve uneditable status
     const transformedOrderItems = await Promise.all((updatedOrder.items || updatedOrder.orderItems || []).map(async (item: any) => {
       // Try to find the item by different ID fields
       let menuItem: MenuItem | undefined;
@@ -967,6 +1056,9 @@ export async function PUT(
       const calories = menuItem?.calories || 0;
       const preparationTime = menuItem?.preparationTime || menuItem?.item?.preparationTime || 0;
       
+      // Preserve uneditable status
+      const isUneditable = item.isUneditable === true || item.isLocked === true;
+      
       return {
         id: item.id || item._id?.toString() || itemId,
         menuItemId: itemId, // This is the key field for frontend
@@ -992,7 +1084,14 @@ export async function PUT(
         allergens: menuItem?.allergens || menuItem?.item?.allergens || [],
         preparationTime: preparationTime,
         tags: tags,
-        calories: calories
+        calories: calories,
+        // Uneditable/locked fields
+        isUneditable: isUneditable,
+        uneditableAt: item.uneditableAt || item.lockedAt || null,
+        uneditableBy: item.uneditableBy || item.lockedBy || null,
+        isLocked: isUneditable, // For backward compatibility
+        lockedAt: item.lockedAt || item.uneditableAt || null,
+        lockedBy: item.lockedBy || item.uneditableBy || null
       };
     }));
 
@@ -1131,6 +1230,169 @@ export async function DELETE(
       { 
         success: false,
         error: 'Failed to delete order',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// Add a new PATCH endpoint for marking items as uneditable
+export async function PATCH(
+  request: NextRequest,
+  props: { params: Promise<{ id: string }> }
+) {
+  const params = await props.params;
+  try {
+    const session = await getServerSession(authOptions);
+    
+    if (!session || !session.user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const waitressId = params.id;
+    const body = await request.json();
+    const { orderId, itemIndex, isUneditable, uneditableBy, uneditableAt } = body;
+
+    if (!orderId) {
+      return NextResponse.json(
+        { error: 'Order ID is required' },
+        { status: 400 }
+      );
+    }
+
+    if (itemIndex === undefined) {
+      return NextResponse.json(
+        { error: 'Item index is required' },
+        { status: 400 }
+      );
+    }
+
+    // Verify the current user matches the requested waitress ID
+    if (session.user.id !== waitressId) {
+      return NextResponse.json(
+        { error: 'Access denied. You can only update your own orders.' },
+        { status: 403 }
+      );
+    }
+
+    // Connect to MongoDB
+    const dbClient = await clientPromise;
+    const db = dbClient.db("gold");
+    
+    // Get waitress by email
+    const waitress = await db.collection("waitresses").findOne(
+      { email: session.user.email }
+    ) as Waitress | null;
+
+    if (!waitress) {
+      return NextResponse.json(
+        { error: 'Waitress not found' },
+        { status: 404 }
+      );
+    }
+
+    const waitressDbId = waitress._id.toString();
+
+    // Find the order
+    let order: Order | null = null;
+    let updateQuery: any;
+
+    if (ObjectId.isValid(orderId)) {
+      updateQuery = { _id: new ObjectId(orderId), waiterId: waitressDbId };
+      order = await db.collection("orders").findOne(updateQuery) as Order | null;
+    } else {
+      updateQuery = { orderNumber: orderId, waiterId: waitressDbId };
+      order = await db.collection("orders").findOne(updateQuery) as Order | null;
+    }
+
+    if (!order) {
+      return NextResponse.json(
+        { error: 'Order not found or access denied' },
+        { status: 404 }
+      );
+    }
+
+    // Get the items array
+    const items = order.items || order.orderItems || [];
+    
+    if (itemIndex < 0 || itemIndex >= items.length) {
+      return NextResponse.json(
+        { error: 'Invalid item index' },
+        { status: 400 }
+      );
+    }
+
+    // Prepare update fields
+    const updateFields: any = {};
+    const itemPath = `items.${itemIndex}`;
+    
+    updateFields[`${itemPath}.isUneditable`] = isUneditable;
+    
+    if (isUneditable) {
+      updateFields[`${itemPath}.uneditableAt`] = uneditableAt || new Date().toISOString();
+      updateFields[`${itemPath}.uneditableBy`] = uneditableBy || waitress.name || waitress.email || "Unknown";
+      // Also update isLocked for backward compatibility
+      updateFields[`${itemPath}.isLocked`] = true;
+      updateFields[`${itemPath}.lockedAt`] = uneditableAt || new Date().toISOString();
+      updateFields[`${itemPath}.lockedBy`] = uneditableBy || waitress.name || waitress.email || "Unknown";
+    } else {
+      updateFields[`${itemPath}.uneditableAt`] = null;
+      updateFields[`${itemPath}.uneditableBy`] = null;
+      updateFields[`${itemPath}.isLocked`] = false;
+      updateFields[`${itemPath}.lockedAt`] = null;
+      updateFields[`${itemPath}.lockedBy`] = null;
+    }
+    
+    updateFields.updatedAt = new Date();
+
+    // Update the order
+    const result = await db.collection("orders").updateOne(
+      updateQuery,
+      { $set: updateFields }
+    );
+
+    if (result.matchedCount === 0) {
+      return NextResponse.json(
+        { error: 'Order not found' },
+        { status: 404 }
+      );
+    }
+
+    // Fetch the updated order
+    const updatedOrder = await db.collection("orders").findOne(updateQuery) as Order | null;
+    
+    // Check if all items are now uneditable
+    const updatedItems = updatedOrder?.items || updatedOrder?.orderItems || [];
+    const allItemsUneditable = updatedItems.length > 0 && updatedItems.every((item: any) => 
+      item.isUneditable === true || item.isLocked === true
+    );
+
+    // If all items are uneditable, optionally update order status
+    if (allItemsUneditable && updatedOrder?.status !== 'COMPLETED' && updatedOrder?.status !== 'SERVED') {
+      await db.collection("orders").updateOne(
+        updateQuery,
+        { $set: { status: 'SERVED', updatedAt: new Date() } }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: isUneditable ? 'Item marked as uneditable' : 'Item marked as editable',
+      allItemsUneditable,
+      itemIndex,
+      isUneditable
+    }, { status: 200 });
+
+  } catch (error) {
+    console.error('Error updating item uneditable status:', error);
+    return NextResponse.json(
+      { 
+        success: false,
+        error: 'Failed to update item status',
         message: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }

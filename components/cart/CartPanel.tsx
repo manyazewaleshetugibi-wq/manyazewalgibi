@@ -1,9 +1,9 @@
 'use client'
 
-import React, { memo } from 'react'
+import React, { memo, useState } from 'react'
 import { 
   ShoppingCart, X, Minus, Plus, MapPin, Home, Users, Receipt,
-  Clock, AlertCircle, Navigation, Truck, ChevronRight
+  Clock, AlertCircle, Navigation, Truck, ChevronRight, Armchair
 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +22,20 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { CartItem, UserData, Waiter, DeliveryFeeDetails } from '@/types'
 import { motion, AnimatePresence } from 'framer-motion'
+import { TableSelector } from '@/components/menu/TableSelector'
+
+// Table type from database
+interface TableData {
+  id: string
+  number: number
+  capacity: number
+  status: 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance'
+  shape: string
+  location?: string
+  description?: string
+  features?: string[]
+  tags?: string[]
+}
 
 // Helper function to calculate original price and tax
 const calculatePriceBreakdown = (priceWithTax: number, taxRate: number = 0.15) => {
@@ -40,6 +54,8 @@ interface CartPanelProps {
   onOrderTypeChange: (type: 'table' | 'delivery' | '') => void
   tableNumber: string
   onTableNumberChange: (num: string) => void
+  selectedTableData?: TableData | null
+  onTableSelect?: (table: TableData | null) => void
   waiters: Waiter[]
   selectedWaiter: string
   onWaiterChange: (id: string) => void
@@ -59,6 +75,9 @@ interface CartPanelProps {
   userData: UserData | null
   onNavigateToProfile?: () => void
   isCalculatingDelivery?: boolean
+  restaurantId?: string
+  floor?: string
+  arrangementId?: string
 }
 
 // Helper function to safely format numbers
@@ -82,6 +101,8 @@ export const CartPanel = memo(({
   onOrderTypeChange,
   tableNumber,
   onTableNumberChange,
+  selectedTableData = null,
+  onTableSelect,
   waiters,
   selectedWaiter,
   onWaiterChange,
@@ -100,8 +121,13 @@ export const CartPanel = memo(({
   onLoginRequired,
   userData,
   onNavigateToProfile,
-  isCalculatingDelivery = false
+  isCalculatingDelivery = false,
+  restaurantId = 'manyazewal1',
+  floor = 'Ground Floor',
+  arrangementId,
 }: CartPanelProps) => {
+  const [showTableSelector, setShowTableSelector] = useState(false)
+
   const handlePlaceOrder = () => {
     if (!isUserLoggedIn) {
       onLoginRequired('Please login to place an order')
@@ -129,7 +155,7 @@ export const CartPanel = memo(({
 
   return (
     <div className="flex flex-col h-full bg-gradient-to-br from-white to-purple-50/30">
-      {/* Header with Purple-900 - Fixed at top */}
+      {/* Header */}
       <div className="flex items-center justify-between p-5 border-b border-purple-100 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
         <motion.h3 
           initial={{ x: -20, opacity: 0 }}
@@ -163,16 +189,13 @@ export const CartPanel = memo(({
 
       {cart.length > 0 ? (
         <>
-          {/* Scrollable Content Area */}
           <div className="flex-1 overflow-y-auto">
             <div className="p-5 space-y-6 pb-32">
-              {/* Cart Items with Purple-900 styling */}
+              {/* Cart Items */}
               <AnimatePresence>
                 <div className="space-y-3">
                   {cart.map((item, index) => {
-                    // Calculate original price and tax for each item
                     const { originalPrice, taxAmount } = calculatePriceBreakdown(Number(item.price))
-                    const itemTotalWithTax = Number(item.price) * item.quantity
                     const itemTotalOriginal = originalPrice * item.quantity
                     const itemTotalTax = taxAmount * item.quantity
                     
@@ -187,26 +210,21 @@ export const CartPanel = memo(({
                         className="group relative"
                       >
                         <div className="flex border-2 border-purple-100 rounded-2xl overflow-hidden bg-white hover:shadow-xl transition-all duration-300 hover:border-purple-300">
-                          {/* Purple accent on hover */}
                           <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-purple-800 to-purple-900 opacity-0 group-hover:opacity-100 transition-opacity" />
                           
-                          {/* Image section */}
                           <div className="relative h-28 w-28 flex-shrink-0 bg-gradient-to-br from-purple-50 to-gray-50">
-                            <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent" />
                             <img
                               src={getImageSrc(item.imageUrl)}
                               alt={item.name}
                               className="object-cover w-full h-full transition-transform duration-500 group-hover:scale-110"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = '/placeholder.svg'
-                              }}
+                              onError={(e) => (e.target as HTMLImageElement).src = '/placeholder.svg'}
                             />
                           </div>
                           
                           <div className="flex-1 p-4">
                             <div className="flex items-start justify-between">
                               <div>
-                                <h4 className="font-bold text-gray-800 line-clamp-1 group-hover:text-purple-900 transition-colors">
+                                <h4 className="font-bold text-gray-800 line-clamp-1 group-hover:text-purple-900">
                                   {item.name}
                                 </h4>
                                 <div className="flex flex-col mt-1">
@@ -224,10 +242,7 @@ export const CartPanel = memo(({
                                   </p>
                                 )}
                               </div>
-                              <motion.div
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                              >
+                              <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -241,35 +256,25 @@ export const CartPanel = memo(({
                             
                             <div className="mt-3 flex items-center justify-between">
                               <div className="flex items-center border-2 border-purple-100 rounded-xl overflow-hidden bg-white">
-                                <motion.div
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => onUpdateQuantity(item._id, item.quantity - 1)}
+                                  className="h-9 w-9 rounded-none hover:bg-purple-50 hover:text-purple-900"
                                 >
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => onUpdateQuantity(item._id, item.quantity - 1)}
-                                    className="h-9 w-9 rounded-none hover:bg-purple-50 hover:text-purple-900"
-                                  >
-                                    <Minus className="h-3 w-3" />
-                                  </Button>
-                                </motion.div>
+                                  <Minus className="h-3 w-3" />
+                                </Button>
                                 <span className="w-12 text-center text-sm font-bold text-purple-900">
                                   {item.quantity}
                                 </span>
-                                <motion.div
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => onUpdateQuantity(item._id, item.quantity + 1)}
+                                  className="h-9 w-9 rounded-none hover:bg-purple-50 hover:text-purple-900"
                                 >
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => onUpdateQuantity(item._id, item.quantity + 1)}
-                                    className="h-9 w-9 rounded-none hover:bg-purple-50 hover:text-purple-900"
-                                  >
-                                    <Plus className="h-3 w-3" />
-                                  </Button>
-                                </motion.div>
+                                  <Plus className="h-3 w-3" />
+                                </Button>
                               </div>
                               
                               <div className="text-right">
@@ -302,7 +307,7 @@ export const CartPanel = memo(({
 
               <Separator className="bg-gradient-to-r from-transparent via-purple-200 to-transparent" />
 
-              {/* Order Type Selection with Purple-900 */}
+              {/* Order Type Selection */}
               <div className="space-y-5">
                 <div className="space-y-4">
                   <Label className="text-base font-bold flex items-center gap-2 text-purple-900">
@@ -326,9 +331,9 @@ export const CartPanel = memo(({
                       <RadioGroupItem value="table" id="table" className="peer sr-only" />
                       <Label
                         htmlFor="table"
-                        className="flex flex-col items-center justify-between rounded-2xl border-2 border-purple-200 bg-white p-5 hover:bg-purple-50 hover:border-purple-900 peer-data-[state=checked]:border-purple-900 peer-data-[state=checked]:bg-purple-50 [&:has([data-state=checked])]:border-purple-900 [&:has([data-state=checked])]:bg-purple-50 cursor-pointer transition-all group"
+                        className="flex flex-col items-center justify-between rounded-2xl border-2 border-purple-200 bg-white p-5 hover:bg-purple-50 hover:border-purple-900 peer-data-[state=checked]:border-purple-900 peer-data-[state=checked]:bg-purple-50 cursor-pointer transition-all group"
                       >
-                        <div className="p-3 bg-purple-100 rounded-full mb-3 group-hover:bg-purple-200 transition-colors">
+                        <div className="p-3 bg-purple-100 rounded-full mb-3 group-hover:bg-purple-200">
                           <Home className="h-6 w-6 text-purple-900" />
                         </div>
                         <span className="text-sm font-medium text-gray-700 group-hover:text-purple-900">Dine In</span>
@@ -338,9 +343,9 @@ export const CartPanel = memo(({
                       <RadioGroupItem value="delivery" id="delivery" className="peer sr-only" />
                       <Label
                         htmlFor="delivery"
-                        className="flex flex-col items-center justify-between rounded-2xl border-2 border-purple-200 bg-white p-5 hover:bg-purple-50 hover:border-purple-900 peer-data-[state=checked]:border-purple-900 peer-data-[state=checked]:bg-purple-50 [&:has([data-state=checked])]:border-purple-900 [&:has([data-state=checked])]:bg-purple-50 cursor-pointer transition-all group"
+                        className="flex flex-col items-center justify-between rounded-2xl border-2 border-purple-200 bg-white p-5 hover:bg-purple-50 hover:border-purple-900 peer-data-[state=checked]:border-purple-900 peer-data-[state=checked]:bg-purple-50 cursor-pointer transition-all group"
                       >
-                        <div className="p-3 bg-purple-100 rounded-full mb-3 group-hover:bg-purple-200 transition-colors">
+                        <div className="p-3 bg-purple-100 rounded-full mb-3 group-hover:bg-purple-200">
                           <Truck className="h-6 w-6 text-purple-900" />
                         </div>
                         <span className="text-sm font-medium text-gray-700 group-hover:text-purple-900">Delivery</span>
@@ -349,7 +354,7 @@ export const CartPanel = memo(({
                   </RadioGroup>
                 </div>
 
-                {/* Table Order Fields with Purple-900 */}
+                {/* Table Order Fields */}
                 <AnimatePresence>
                   {orderType === 'table' && (
                     <motion.div
@@ -359,22 +364,44 @@ export const CartPanel = memo(({
                       className="space-y-4 overflow-hidden"
                     >
                       <div className="space-y-2">
-                        <Label htmlFor="table-number" className="text-sm font-medium text-purple-900 flex items-center gap-2">
+                        <Label className="text-sm font-medium text-purple-900 flex items-center gap-2">
                           <span className="p-1 bg-purple-100 rounded-md">🍽️</span>
                           Table Number <span className="text-red-500">*</span>
                         </Label>
-                        <Select value={tableNumber} onValueChange={onTableNumberChange}>
-                          <SelectTrigger id="table-number" className="border-2 border-purple-200 focus:border-purple-900 focus:ring-2 focus:ring-purple-200 rounded-xl">
-                            <SelectValue placeholder="Select Table" />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-xl border-purple-200">
-                            {Array.from({ length: 30 }, (_, i) => (
-                              <SelectItem key={i} value={`T${i + 1}`} className="hover:bg-purple-50">
-                                Table {i + 1}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        
+                        {/* Selected Table Display */}
+                        {selectedTableData ? (
+                          <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <Armchair className="w-5 h-5 text-purple-600" />
+                                <div>
+                                  <div className="font-bold text-purple-900">Table {selectedTableData.number}</div>
+                                  <div className="text-sm text-gray-600">
+                                    {selectedTableData.capacity} seats
+                                    {selectedTableData.location && ` • ${selectedTableData.location}`}
+                                  </div>
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setShowTableSelector(true)}
+                              >
+                                Change
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            className="w-full border-2 border-purple-200 hover:border-purple-900 hover:bg-purple-50 rounded-xl h-12"
+                            onClick={() => setShowTableSelector(true)}
+                          >
+                            <Armchair className="w-4 h-4 mr-2" />
+                            Select a Table
+                          </Button>
+                        )}
                       </div>
                       
                       <div className="space-y-2">
@@ -390,18 +417,24 @@ export const CartPanel = memo(({
                             <SelectValue placeholder="Select guests" />
                           </SelectTrigger>
                           <SelectContent className="rounded-xl border-purple-200">
-                            {Array.from({ length: 10 }, (_, i) => (
+                            {Array.from({ length: Math.min(20, selectedTableData?.capacity || 10) }, (_, i) => (
                               <SelectItem key={i} value={(i + 1).toString()} className="hover:bg-purple-50">
                                 {i + 1} {i === 0 ? 'Guest' : 'Guests'}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
+                        {selectedTableData && numberOfGuests > selectedTableData.capacity && (
+                          <p className="text-xs text-red-500 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            Guests exceed table capacity ({selectedTableData.capacity})
+                          </p>
+                        )}
                       </div>
                     </motion.div>
                   )}
 
-                  {/* Delivery Order Fields with Purple-900 */}
+                  {/* Delivery Fields */}
                   {orderType === 'delivery' && (
                     <motion.div
                       initial={{ opacity: 0, height: 0 }}
@@ -413,7 +446,7 @@ export const CartPanel = memo(({
                         <Alert variant="destructive" className="rounded-xl border-red-200 bg-red-50">
                           <AlertCircle className="h-4 w-4 text-red-600" />
                           <AlertDescription className="text-red-700">
-                            Please complete your profile with phone and address for delivery
+                            Please complete your profile with phone and address
                             {onNavigateToProfile && (
                               <Button
                                 variant="link"
@@ -428,40 +461,20 @@ export const CartPanel = memo(({
                       ) : (
                         <>
                           <Alert className={`rounded-xl border-2 ${
-                            hasCoordinates 
-                              ? 'bg-purple-50 border-purple-200' 
-                              : 'bg-yellow-50 border-yellow-200'
+                            hasCoordinates ? 'bg-purple-50 border-purple-200' : 'bg-yellow-50 border-yellow-200'
                           }`}>
-                            {hasCoordinates 
-                              ? <Navigation className="h-4 w-4 text-purple-900" /> 
-                              : <MapPin className="h-4 w-4 text-yellow-600" />
-                            }
+                            {hasCoordinates ? <Navigation className="h-4 w-4 text-purple-900" /> : <MapPin className="h-4 w-4 text-yellow-600" />}
                             <AlertDescription>
                               <div className="space-y-2">
-                                <div className="font-bold flex items-center gap-2 text-gray-800">
-                                  {hasCoordinates ? '📍 Precise Location Available' : '📍 Approximate Location'}
-                                  {hasCoordinates && (
-                                    <Badge variant="outline" className="bg-purple-100 text-purple-900 border-purple-200 rounded-full">
-                                      GPS Enabled
-                                    </Badge>
-                                  )}
-                                </div>
                                 <div className="bg-white/80 rounded-lg p-3 space-y-1 text-sm">
                                   <p><span className="font-medium text-purple-900">Name:</span> {userFullName}</p>
                                   <p><span className="font-medium text-purple-900">Phone:</span> {userData?.phone}</p>
                                   <p><span className="font-medium text-purple-900">Address:</span> {userData?.address}</p>
-                                  {hasCoordinates && (
-                                    <p className="text-xs text-purple-700 flex items-center gap-1 mt-2">
-                                      <Navigation className="h-3 w-3" />
-                                      Coordinates: {userData.location?.coordinates[1]}, {userData.location?.coordinates[0]}
-                                    </p>
-                                  )}
                                 </div>
                               </div>
                             </AlertDescription>
                           </Alert>
 
-                          {/* Delivery Fee Status with Purple-900 */}
                           {isCalculatingDelivery ? (
                             <div className="flex items-center justify-center py-6 bg-purple-50 rounded-xl border-2 border-purple-200">
                               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-900 mr-3"></div>
@@ -478,34 +491,15 @@ export const CartPanel = memo(({
                                   <Truck className="h-4 w-4" />
                                   Delivery Fee
                                 </span>
-                                <Badge className={deliveryFee.fee === 0 
-                                  ? "bg-green-100 text-green-700 border-green-200" 
-                                  : "bg-purple-900 text-white"
-                                }>
+                                <Badge className={deliveryFee.fee === 0 ? "bg-green-100 text-green-700" : "bg-purple-900 text-white"}>
                                   {deliveryFee.fee === 0 ? 'FREE' : `${formattedDeliveryFee} ETB`}
                                 </Badge>
                               </div>
                               <div className="space-y-2 text-sm">
-                                <div className="flex justify-between items-center">
+                                <div className="flex justify-between">
                                   <span className="text-gray-600">Distance:</span>
                                   <span className="font-semibold text-purple-900">{deliveryFee.distance} km</span>
                                 </div>
-                                <div className="flex justify-between items-center">
-                                  <span className="text-gray-600">Zone:</span>
-                                  <span className="font-semibold text-purple-900">{deliveryFee.zone}</span>
-                                </div>
-                                {deliveryFee.breakdown.surgeMultiplier && (
-                                  <div className="flex justify-between items-center text-orange-600">
-                                    <span>Surge pricing:</span>
-                                    <span className="font-semibold">{deliveryFee.breakdown.surgeMultiplier}x</span>
-                                  </div>
-                                )}
-                                {deliveryFee.breakdown.externalMultiplier && deliveryFee.breakdown.externalMultiplier > 1 && (
-                                  <div className="flex justify-between items-center text-orange-600">
-                                    <span>Weather/Traffic:</span>
-                                    <span className="font-semibold">+{Math.round((deliveryFee.breakdown.externalMultiplier - 1) * 100)}%</span>
-                                  </div>
-                                )}
                               </div>
                             </motion.div>
                           )}
@@ -515,14 +509,13 @@ export const CartPanel = memo(({
                   )}
                 </AnimatePresence>
 
-                {/* Special Requirements with Purple-900 */}
+                {/* Special Requirements */}
                 <div className="space-y-2">
-                  <Label htmlFor="special-requirements" className="text-sm font-medium text-purple-900 flex items-center gap-2">
+                  <Label className="text-sm font-medium text-purple-900 flex items-center gap-2">
                     <span className="p-1 bg-purple-100 rounded-md">📝</span>
                     Special Requirements
                   </Label>
                   <Textarea
-                    id="special-requirements"
                     placeholder="Any special requests or notes..."
                     value={specialRequirements}
                     onChange={(e) => onSpecialRequirementsChange(e.target.value)}
@@ -534,8 +527,17 @@ export const CartPanel = memo(({
             </div>
           </div>
 
-          {/* Fixed Bottom Order Summary with Proceed to Pay Button */}
+          {/* Fixed Bottom Order Summary */}
           <div className="sticky bottom-0 border-t-2 border-purple-100 p-5 space-y-4 bg-gradient-to-b from-white/95 to-purple-50/95 backdrop-blur-md shadow-lg">
+            {/* Selected Table Summary */}
+            {orderType === 'table' && selectedTableData && (
+              <div className="bg-purple-50 rounded-lg p-2 text-center">
+                <span className="text-sm text-purple-900">
+                  <span className="font-bold">Table {selectedTableData.number}</span> • {selectedTableData.capacity} seats
+                </span>
+              </div>
+            )}
+            
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Subtotal (excl. VAT):</span>
@@ -563,13 +565,13 @@ export const CartPanel = memo(({
             <div className="text-xs text-center">
               <Badge variant="outline" className="bg-purple-50 text-purple-900 border-purple-200 rounded-full px-3 py-1">
                 Order #: <span className="font-mono font-bold">{orderNumber}</span>
+                {orderType === 'table' && selectedTableData && (
+                  <span className="ml-2">| Table: {selectedTableData.number}</span>
+                )}
               </Badge>
             </div>
             
-            <motion.div
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
+            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <Button 
                 onClick={handlePlaceOrder} 
                 className="w-full h-14 text-base font-bold bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border-0 rounded-xl shadow-lg hover:shadow-xl transition-all"
@@ -577,7 +579,7 @@ export const CartPanel = memo(({
                   cart.length === 0 || 
                   !orderType || 
                   isPlacingOrder ||
-                  (orderType === 'table' && (!tableNumber || !selectedWaiter)) ||
+                  (orderType === 'table' && !selectedTableData) ||
                   (orderType === 'delivery' && (!hasCompleteProfile || isCalculatingDelivery))
                 }
               >
@@ -597,7 +599,6 @@ export const CartPanel = memo(({
           </div>
         </>
       ) : (
-        // Empty Cart State with Purple-900
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -611,28 +612,43 @@ export const CartPanel = memo(({
           </div>
           <h3 className="text-2xl font-bold text-gray-800 mb-3">Your cart is empty</h3>
           <p className="text-gray-600 max-w-md mb-8">
-            {!isUserLoggedIn 
-              ? 'Please login to add items to your cart and place orders.'
-              : 'Add some delicious items from the menu to get started.'
-            }
+            {!isUserLoggedIn ? 'Please login to add items to your cart.' : 'Add items from the menu to get started.'}
           </p>
-          <motion.div
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Button 
-              variant="outline" 
-              onClick={onClose} 
-              size="lg"
-              className="rounded-full px-8 py-6 text-lg border-2 border-purple-200 hover:border-purple-900 hover:bg-purple-50"
-            >
-              Browse Menu
-            </Button>
-          </motion.div>
+          <Button variant="outline" onClick={onClose} size="lg" className="rounded-full px-8 py-6 text-lg border-2 border-purple-200 hover:border-purple-900 hover:bg-purple-50">
+            Browse Menu
+          </Button>
         </motion.div>
       )}
+
+      {/* Table Selector Dialog - FIXED: Handle null table (unselect) */}
+      <TableSelector
+        open={showTableSelector}
+        onOpenChange={setShowTableSelector}
+        restaurantId={restaurantId}
+        floor={floor}
+        onTableSelect={(table, _restaurantId, _floor) => {
+          // FIXED: Handle null case (when user unselects a table)
+          if (!table || table === null) {
+            // Unselect case
+            onTableSelect?.(null)
+            onTableNumberChange('')
+          } else {
+            // Select case
+            onTableSelect?.(table)
+            onTableNumberChange(table.number.toString())
+          }
+          setShowTableSelector(false)
+        }}
+        selectedTable={selectedTableData}
+        isUserLoggedIn={isUserLoggedIn}
+        onLoginRequired={() => onLoginRequired('Please login to select a table')}
+        arrangementId={arrangementId}
+        allowUnselect={true}
+      />
     </div>
   )
 })
 
 CartPanel.displayName = 'CartPanel'
+
+export default CartPanel
