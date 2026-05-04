@@ -1457,7 +1457,7 @@ export default function POSPage() {
       isActive: true,
       restaurantId: selectedRestaurant,
       restaurantName: selectedRestaurantInfo?.name || selectedRestaurant,
-      inTable: true,
+      inTable: false,
       delivery: false
     }
 

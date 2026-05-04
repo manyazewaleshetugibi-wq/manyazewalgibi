@@ -117,6 +117,7 @@ import {
   Lock,
   Unlock,
   Info,
+  FileText,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { debounce } from "lodash"
@@ -631,6 +632,46 @@ const OrderDetailModal = React.memo(
           </DialogHeader>
           <ScrollArea className="flex-1 pr-4 overflow-y-auto">
             <div className="space-y-6 pb-4">
+              {/* Deletion Request Section - Show prominently if marked for deletion */}
+              {markedForDeletion && order.deletionRequestReason && (
+                <Card className="border-yellow-500 bg-yellow-50/50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-lg font-semibold flex items-center text-yellow-800">
+                      <AlertTriangle className="mr-2 h-5 w-5 text-yellow-600" />
+                      Deletion Request Information
+                    </CardTitle>
+                    <CardDescription className="text-yellow-700">
+                      This order has been marked for deletion by staff
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="bg-white/70 rounded-lg p-4 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <FileText className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-yellow-800">Reason for deletion:</p>
+                          <p className="text-sm text-yellow-700 mt-1 whitespace-pre-wrap">
+                            {order.deletionRequestReason}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-yellow-600 pt-2 border-t border-yellow-200">
+                        <User className="h-3 w-3" />
+                        <span>Requested by: {order.deletionRequestedBy || "Unknown"}</span>
+                        {order.deletionRequestedAt && (
+                          <>
+                            <Clock className="h-3 w-3 ml-2" />
+                            <span>
+                              Requested on: {new Date(order.deletionRequestedAt).toLocaleString()}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <Card>
                   <CardHeader className="pb-2">
@@ -1061,7 +1102,27 @@ const OrderCard = React.memo(
             </div>
           )}
 
-          {hasSpecialRequirements && (
+          {/* Deletion Request Reason - Show prominently when marked for deletion */}
+          {markedForDeletion && order.deletionRequestReason && (
+            <div className="bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-yellow-700 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-yellow-800 mb-1">Deletion Request Reason:</p>
+                  <p className="text-xs text-yellow-700 line-clamp-2">
+                    {order.deletionRequestReason}
+                  </p>
+                  {order.deletionRequestedBy && (
+                    <p className="text-xs text-yellow-600 mt-1">
+                      Requested by: {order.deletionRequestedBy}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {hasSpecialRequirements && !markedForDeletion && (
             <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 rounded-lg p-3">
               <div className="flex items-start gap-2">
                 <MessageSquare className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
@@ -1913,6 +1974,7 @@ export default function OrderManagement() {
                   <TableHead>Table</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Locked</TableHead>
+                  <TableHead>Deletion Req</TableHead>
                   <TableHead>Total</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -1946,6 +2008,18 @@ export default function OrderManagement() {
                         ) : (
                           <Badge variant="outline" className="bg-gray-50 text-gray-400">
                             0
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {order.markedForDeletion && order.deletionRequestReason ? (
+                          <Badge variant="outline" className="bg-yellow-100 text-yellow-800 cursor-help" title={order.deletionRequestReason}>
+                            <Flag className="h-3 w-3 mr-1" />
+                            Yes
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-gray-50 text-gray-400">
+                            No
                           </Badge>
                         )}
                       </TableCell>
