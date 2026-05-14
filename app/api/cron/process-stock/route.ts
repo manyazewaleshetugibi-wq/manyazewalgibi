@@ -4,7 +4,7 @@ import { debugLog, debugError } from "../../utils/orderHelpers";
 
 // Track last run time to prevent too frequent executions
 let lastRunTime = 0;
-const MIN_INTERVAL_MS = 60000; // 1 minute minimum between runs
+const MIN_INTERVAL_MS = 900000; 
 
 export async function GET(req: NextRequest) {
   try {
