@@ -3,7 +3,28 @@ import clientPromise from "@/lib/mongodb";
 import { debugLog, debugError, isOrderCompleted, normalizeStatus } from "./orderHelpers";
 import { NextRequest } from "next/server";
 
+// Helper to check if stock already processed for this order
+async function isStockAlreadyProcessed(db: any, orderId: ObjectId, stockId: ObjectId): Promise<boolean> {
+  const existing = await db.collection("used_stock").findOne({
+    orderId: orderId,
+    stockId: stockId
+  });
+  return !!existing;
+}
+
+// Helper to get all processed stock for an order
+async function getProcessedStocksForOrder(db: any, orderId: ObjectId): Promise<string[]> {
+  const records = await db.collection("used_stock")
+    .find({ orderId: orderId })
+    .project({ stockId: 1 })
+    .toArray();
+  return records.map((r: { stockId: ObjectId }) => r.stockId.toString());
+}
+
 export async function processOrderStockUsage(order: any) {
+  // Use a lock to prevent concurrent processing
+  const lockKey = `processing_lock_${order._id}`;
+  
   try {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
@@ -12,17 +33,44 @@ export async function processOrderStockUsage(order: any) {
       orderId: order._id,
       orderNumber: order.orderNumber,
       status: order.status,
-      normalizedStatus: normalizeStatus(order.status),
-      stockProcessed: order.stockProcessed,
       itemsCount: order.items?.length || 0
     });
 
+    // CRITICAL FIX #1: Check both order flag AND existing records
     if (order.stockProcessed) {
-      debugLog(`Stock already processed for order: ${order._id}`);
+      debugLog(`Order ${order._id} marked as processed, checking for actual records...`);
+      
+      // Verify records actually exist
+      const existingRecords = await db.collection("used_stock")
+        .countDocuments({ orderId: order._id });
+      
+      if (existingRecords > 0) {
+        debugLog(`Stock already processed for order: ${order._id} with ${existingRecords} records`);
+        return { 
+          success: true, 
+          message: "Stock already processed", 
+          alreadyProcessed: true,
+          recordsCount: existingRecords
+        };
+      } else {
+        // Flag is true but no records - fix the flag
+        debugLog(`Order ${order._id} has stockProcessed=true but no records. Fixing flag.`);
+        await db.collection("orders").updateOne(
+          { _id: order._id },
+          { $set: { stockProcessed: false, stockProcessingNote: "Flag reset due to missing records" } }
+        );
+      }
+    }
+
+    // CRITICAL FIX #2: Check if already partially processed
+    const existingProcessedStocks = await getProcessedStocksForOrder(db, order._id);
+    if (existingProcessedStocks.length > 0) {
+      debugLog(`Order ${order._id} already has ${existingProcessedStocks.length} stock records. Skipping to prevent duplicates.`);
       return { 
         success: true, 
-        message: "Stock already processed", 
-        alreadyProcessed: true 
+        message: `Stock already partially processed with ${existingProcessedStocks.length} records`,
+        alreadyProcessed: true,
+        recordsCount: existingProcessedStocks.length
       };
     }
 
@@ -88,7 +136,7 @@ export async function processOrderStockUsage(order: any) {
       for (const ingredient of itemData.requiredStock) {
         if (!ingredient.stockId || !ObjectId.isValid(ingredient.stockId)) continue;
 
-        const stockIdString = ingredient.stockId;
+        const stockIdString = ingredient.stockId.toString();
         const quantityPerUnit = Number(ingredient.quantity) || 0;
         if (quantityPerUnit <= 0) continue;
 
@@ -111,7 +159,7 @@ export async function processOrderStockUsage(order: any) {
             stockName: stockItem.name || "Unknown Stock",
             stockCategory: stockItem.category || "General",
             stockUnit: stockItem.unit || "pcs",
-            unitCost: Number(stockItem.unitCost) || 0,
+            unitCost: Number(stockItem.unitCost) || Number(stockItem.costPerUnit) || 0,
             totalQuantityUsed: totalQuantityNeeded,
             items: [{
               itemId: itemId,
@@ -145,62 +193,51 @@ export async function processOrderStockUsage(order: any) {
       };
     }
 
-    // Process each ingredient
-    const stockUsageRecords = [];
-    const processedStockIds = [];
+    // CRITICAL FIX #3: Use transaction for atomic operations
+    const session = dbClient.startSession();
     
-    for (const [stockIdString, ingredientData] of allIngredients.entries()) {
-      const stockId = new ObjectId(stockIdString);
-      const { totalQuantityUsed, stockName } = ingredientData;
+    try {
+      session.startTransaction();
+      
+      // Process each ingredient within transaction
+      const stockUsageRecords = [];
+      const processedStockIds = [];
+      
+      for (const [stockIdString, ingredientData] of allIngredients.entries()) {
+        const stockId = new ObjectId(stockIdString);
+        const { totalQuantityUsed, stockName } = ingredientData;
 
-      try {
-        const stockItem = await db.collection("stocks").findOne({ _id: stockId });
+        // CRITICAL FIX #4: Check if this stock was already processed for this order
+        const alreadyProcessed = await isStockAlreadyProcessed(db, order._id, stockId);
+        if (alreadyProcessed) {
+          debugLog(`Stock ${stockName} already processed for order ${order._id}, skipping`);
+          continue;
+        }
+
+        const stockItem = await db.collection("stocks").findOne({ _id: stockId }, { session });
         if (!stockItem) continue;
 
         const currentStock = Number(stockItem.currentStock) || 0;
         
         if (currentStock < totalQuantityUsed) {
-          // Rollback
-          for (const processedId of processedStockIds) {
-            await db.collection("stocks").updateOne(
-              { _id: new ObjectId(processedId) },
-              { $inc: { currentStock: allIngredients.get(processedId)?.totalQuantityUsed || 0 } }
-            );
-          }
-          
-          return { 
-            success: false, 
-            message: `Insufficient stock for ${stockName}. Available: ${currentStock}, Required: ${totalQuantityUsed}`,
-            stockName,
-            available: currentStock,
-            required: totalQuantityUsed
-          };
+          throw new Error(`Insufficient stock for ${stockName}. Available: ${currentStock}, Required: ${totalQuantityUsed}`);
         }
 
         const updateResult = await db.collection("stocks").updateOne(
           { _id: stockId, currentStock: { $gte: totalQuantityUsed } },
           {
-            $inc: { currentStock: -totalQuantityUsed, stockUsed: totalQuantityUsed },
+            $inc: { currentStock: -totalQuantityUsed },
             $set: {
               lastUsed: new Date(),
-              lastUsedInOrder: order.orderNumber
+              lastUsedInOrder: order.orderNumber,
+              updatedAt: new Date()
             }
-          }
+          },
+          { session }
         );
 
         if (updateResult.modifiedCount === 0) {
-          // Rollback
-          for (const processedId of processedStockIds) {
-            await db.collection("stocks").updateOne(
-              { _id: new ObjectId(processedId) },
-              { $inc: { currentStock: allIngredients.get(processedId)?.totalQuantityUsed || 0 } }
-            );
-          }
-          
-          return { 
-            success: false, 
-            message: `Concurrent stock update failed for ${stockName}` 
-          };
+          throw new Error(`Concurrent stock update failed for ${stockName}`);
         }
 
         processedStockIds.push(stockIdString);
@@ -219,44 +256,62 @@ export async function processOrderStockUsage(order: any) {
           usedAt: new Date(),
           processedAt: new Date(),
           notes: `Used in ${ingredientData.items.length} item type(s) for order ${order.orderNumber}`,
+          createdAt: new Date(),
+          updatedAt: new Date()
         };
 
-        await db.collection("used_stock").insertOne(stockUsageRecord);
-        stockUsageRecords.push(stockUsageRecord);
-
-      } catch (dbError) {
-        // Rollback
-        for (const processedId of processedStockIds) {
-          await db.collection("stocks").updateOne(
-            { _id: new ObjectId(processedId) },
-            { $inc: { currentStock: allIngredients.get(processedId)?.totalQuantityUsed || 0 } }
-          );
+        // CRITICAL FIX #5: Check again before insert to prevent race conditions
+        const existingRecord = await db.collection("used_stock").findOne({
+          orderId: order._id,
+          stockId: stockId
+        }, { session });
+        
+        if (existingRecord) {
+          debugLog(`Record already exists for stock ${stockName}, skipping insert`);
+          continue;
         }
-        throw dbError;
+        
+        await db.collection("used_stock").insertOne(stockUsageRecord, { session });
+        stockUsageRecords.push(stockUsageRecord);
       }
-    }
 
-    // Mark order as processed
-    await db.collection("orders").updateOne(
-      { _id: order._id },
-      {
-        $set: {
-          stockProcessed: true,
-          stockProcessedAt: new Date(),
-          updatedAt: new Date(),
-          stockProcessingNote: `Processed ${stockUsageRecords.length} stock records from ${aggregatedItems.size} items`
+      // Mark order as processed
+      await db.collection("orders").updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            stockProcessed: true,
+            stockProcessedAt: new Date(),
+            updatedAt: new Date(),
+            stockProcessingNote: `Processed ${stockUsageRecords.length} stock records from ${aggregatedItems.size} items`,
+            stockProcessedCount: (order.stockProcessedCount || 0) + 1
+          },
         },
-      }
-    );
+        { session }
+      );
 
-    return { 
-      success: true, 
-      message: `Processed ${stockUsageRecords.length} stock records from ${aggregatedItems.size} unique item types`,
-      recordsProcessed: stockUsageRecords.length,
-      itemsProcessed: aggregatedItems.size,
-      stockUsageRecords,
-      processedStockIds
-    };
+      // Commit transaction
+      await session.commitTransaction();
+      
+      debugLog(`Successfully processed order ${order._id} with ${stockUsageRecords.length} stock records`);
+      
+      return { 
+        success: true, 
+        message: `Processed ${stockUsageRecords.length} stock records from ${aggregatedItems.size} unique item types`,
+        recordsProcessed: stockUsageRecords.length,
+        itemsProcessed: aggregatedItems.size,
+        stockUsageRecords,
+        processedStockIds
+      };
+      
+    } catch (error) {
+      // Rollback transaction on error
+      await session.abortTransaction();
+      debugError(`Transaction failed for order ${order._id}:`, error);
+      throw error;
+    } finally {
+      await session.endSession();
+    }
 
   } catch (error) {
     debugError(`Error processing stock for order ${order._id}:`, error);
@@ -271,7 +326,8 @@ export async function processOrderStockUsage(order: any) {
           $set: {
             stockProcessed: false,
             stockProcessingError: (error as Error).message,
-            stockLastAttempt: new Date()
+            stockLastAttempt: new Date(),
+            stockAttemptCount: (order.stockAttemptCount || 0) + 1
           },
         }
       );
@@ -284,19 +340,52 @@ export async function processOrderStockUsage(order: any) {
 }
 
 export async function processAllCompletedOrders(req?: NextRequest) {
+  // CRITICAL FIX #6: Use a global lock to prevent concurrent runs
+  const globalLock = await getGlobalLock();
+  if (!globalLock) {
+    debugLog("Another cron job is already running, skipping...");
+    return {
+      totalOrders: 0,
+      processedOrders: 0,
+      failedOrders: 0,
+      message: "Skipped - another instance is already running"
+    };
+  }
+  
   try {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
 
     debugLog("Looking for completed orders to process...");
 
-    const completedOrders = await db.collection("orders").find({
-      status: { $regex: /^completed$/i },
-      stockProcessed: { $ne: true },
-      "items.0": { $exists: true }
-    }).toArray();
+    // Only get orders that haven't been processed AND don't have existing used_stock records
+    const completedOrders = await db.collection("orders").aggregate([
+      {
+        $match: {
+          status: { $regex: /^completed$/i },
+          stockProcessed: { $ne: true },
+          "items.0": { $exists: true }
+        }
+      },
+      {
+        $lookup: {
+          from: "used_stock",
+          localField: "_id",
+          foreignField: "orderId",
+          as: "existingStock"
+        }
+      },
+      {
+        $match: {
+          "existingStock": { $size: 0 } // Only orders with NO stock records
+        }
+      },
+      {
+        $limit: 100 // Process in batches to prevent overload
+      }
+    ]).toArray();
 
-    debugLog(`Found ${completedOrders.length} completed orders to process`);
+    debugLog(`Found ${completedOrders.length} completed orders to process (no existing stock records)`);
 
     const results = [];
     
@@ -330,5 +419,20 @@ export async function processAllCompletedOrders(req?: NextRequest) {
   } catch (error) {
     debugError("Error in processAllCompletedOrders:", error);
     throw error;
+  } finally {
+    await releaseGlobalLock();
   }
+}
+
+// Global lock mechanism to prevent concurrent cron runs
+let isProcessing = false;
+
+async function getGlobalLock(): Promise<boolean> {
+  if (isProcessing) return false;
+  isProcessing = true;
+  return true;
+}
+
+async function releaseGlobalLock(): Promise<void> {
+  isProcessing = false;
 }

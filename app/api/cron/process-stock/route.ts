@@ -1,13 +1,29 @@
-// app/api/cron/process-stock/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { processAllCompletedOrders } from "../../utils/stockHelpers";
 import { debugLog, debugError } from "../../utils/orderHelpers";
 
+// Track last run time to prevent too frequent executions
+let lastRunTime = 0;
+const MIN_INTERVAL_MS = 60000; // 1 minute minimum between runs
+
 export async function GET(req: NextRequest) {
   try {
+    // Prevent too frequent runs
+    const now = Date.now();
+    if (now - lastRunTime < MIN_INTERVAL_MS) {
+      debugLog(`Cron job skipped - last run was ${(now - lastRunTime) / 1000}s ago`);
+      return NextResponse.json({
+        success: true,
+        message: "Skipped - too frequent",
+        lastRun: new Date(lastRunTime).toISOString()
+      }, { status: 200 });
+    }
+    
+    lastRunTime = now;
+    
     debugLog("🕐 Cron job triggered - processing pending orders...");
     
-    // Process in background to respond quickly
+    // Process in background
     setImmediate(async () => {
       try {
         const startTime = Date.now();
@@ -19,17 +35,11 @@ export async function GET(req: NextRequest) {
           processedOrders: result.processedOrders,
           failedOrders: result.failedOrders
         });
-        
-        // Optional: Log if there were failures
-        if (result.failedOrders > 0) {
-          debugLog(`⚠️ ${result.failedOrders} orders failed to process`);
-        }
       } catch (error) {
         debugError("❌ Cron job processing failed:", error);
       }
     });
     
-    // Return immediately
     return NextResponse.json({
       success: true,
       message: "Stock processing triggered",
@@ -49,7 +59,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST endpoint for manual trigger (admin only)
 export async function POST(req: NextRequest) {
   try {
     // Verify admin access
@@ -65,7 +74,6 @@ export async function POST(req: NextRequest) {
     
     debugLog(`👨‍💼 Manual stock processing triggered by admin: ${userData.name}`);
     
-    // Process immediately (not background for manual trigger)
     const result = await processAllCompletedOrders();
     
     return NextResponse.json({
