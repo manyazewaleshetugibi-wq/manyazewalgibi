@@ -21,10 +21,63 @@ async function getProcessedStocksForOrder(db: any, orderId: ObjectId): Promise<s
   return records.map((r: { stockId: ObjectId }) => r.stockId.toString());
 }
 
-export async function processOrderStockUsage(order: any) {
-  // Use a lock to prevent concurrent processing
-  const lockKey = `processing_lock_${order._id}`;
+// Helper function for transaction retry logic
+async function withTransactionRetry<T>(
+  dbClient: any,
+  callback: (session: any) => Promise<T>,
+  maxRetries: number = 3
+): Promise<T> {
+  let lastError: any;
   
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const session = dbClient.startSession();
+    
+    try {
+      session.startTransaction({
+        readConcern: { level: 'snapshot' },
+        writeConcern: { w: 'majority' },
+        maxCommitTimeMS: 10000
+      });
+      
+      const result = await callback(session);
+      await session.commitTransaction();
+      
+      if (attempt > 1) {
+        debugLog(`Transaction succeeded on attempt ${attempt}`);
+      }
+      
+      return result;
+      
+    } catch (error: any) {
+      await session.abortTransaction();
+      lastError = error;
+      
+      // Check if retryable error
+      const isRetryable = 
+        error.code === 112 || // WriteConflict
+        error.code === 225 || // TransactionAborted
+        error.code === 50 || // MaxTimeMSExpired
+        error.message?.includes('WriteConflict') ||
+        error.message?.includes('aborted') ||
+        error.message?.includes('timeout');
+      
+      if (isRetryable && attempt < maxRetries) {
+        const delay = Math.min(100 * Math.pow(2, attempt), 1000);
+        debugLog(`Transaction attempt ${attempt} failed, retrying in ${delay}ms... Error: ${error.message}`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+  }
+  
+  throw lastError;
+}
+
+export async function processOrderStockUsage(order: any) {
   try {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
@@ -85,6 +138,16 @@ export async function processOrderStockUsage(order: any) {
 
     if (!order.items || !Array.isArray(order.items) || order.items.length === 0) {
       debugLog(`Order ${order._id} has no items to process`);
+      await db.collection("orders").updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            stockProcessed: true,
+            stockProcessedAt: new Date(),
+            stockProcessingNote: "No items to process"
+          }
+        }
+      );
       return { 
         success: true, 
         message: "Order has no items to process",
@@ -111,6 +174,16 @@ export async function processOrderStockUsage(order: any) {
 
     if (aggregatedItems.size === 0) {
       debugLog(`No valid items to process for order ${order._id}`);
+      await db.collection("orders").updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            stockProcessed: true,
+            stockProcessedAt: new Date(),
+            stockProcessingNote: "No valid items to process"
+          }
+        }
+      );
       return { 
         success: true, 
         message: "No valid items to process",
@@ -119,7 +192,7 @@ export async function processOrderStockUsage(order: any) {
       };
     }
 
-    // Collect all ingredients
+    // Collect all ingredients (outside transaction for performance)
     const allIngredients = new Map<string, any>();
     let itemsWithIngredients = 0;
     
@@ -193,11 +266,20 @@ export async function processOrderStockUsage(order: any) {
       };
     }
 
-    // CRITICAL FIX #3: Use transaction for atomic operations
-    const session = dbClient.startSession();
-    
-    try {
-      session.startTransaction();
+    // CRITICAL FIX #3: Use transaction with retry for atomic operations
+    return await withTransactionRetry(dbClient, async (session) => {
+      debugLog(`Processing order ${order._id} within transaction...`);
+      
+      // Re-check within transaction to ensure no race condition
+      const stillPending = await db.collection("orders").findOne(
+        { _id: order._id, stockProcessed: { $ne: true } },
+        { session }
+      );
+      
+      if (!stillPending) {
+        debugLog(`Order ${order._id} was already processed, skipping`);
+        return { success: true, alreadyProcessed: true };
+      }
       
       // Process each ingredient within transaction
       const stockUsageRecords = [];
@@ -207,7 +289,7 @@ export async function processOrderStockUsage(order: any) {
         const stockId = new ObjectId(stockIdString);
         const { totalQuantityUsed, stockName } = ingredientData;
 
-        // CRITICAL FIX #4: Check if this stock was already processed for this order
+        // Check if this stock was already processed for this order (within transaction)
         const alreadyProcessed = await isStockAlreadyProcessed(db, order._id, stockId);
         if (alreadyProcessed) {
           debugLog(`Stock ${stockName} already processed for order ${order._id}, skipping`);
@@ -215,7 +297,10 @@ export async function processOrderStockUsage(order: any) {
         }
 
         const stockItem = await db.collection("stocks").findOne({ _id: stockId }, { session });
-        if (!stockItem) continue;
+        if (!stockItem) {
+          debugLog(`Stock ${stockName} not found, skipping`);
+          continue;
+        }
 
         const currentStock = Number(stockItem.currentStock) || 0;
         
@@ -260,7 +345,7 @@ export async function processOrderStockUsage(order: any) {
           updatedAt: new Date()
         };
 
-        // CRITICAL FIX #5: Check again before insert to prevent race conditions
+        // Check again before insert to prevent race conditions
         const existingRecord = await db.collection("used_stock").findOne({
           orderId: order._id,
           stockId: stockId
@@ -286,12 +371,10 @@ export async function processOrderStockUsage(order: any) {
             stockProcessingNote: `Processed ${stockUsageRecords.length} stock records from ${aggregatedItems.size} items`,
             stockProcessedCount: (order.stockProcessedCount || 0) + 1
           },
+          $unset: { stockProcessingError: "" }
         },
         { session }
       );
-
-      // Commit transaction
-      await session.commitTransaction();
       
       debugLog(`Successfully processed order ${order._id} with ${stockUsageRecords.length} stock records`);
       
@@ -304,15 +387,8 @@ export async function processOrderStockUsage(order: any) {
         processedStockIds
       };
       
-    } catch (error) {
-      // Rollback transaction on error
-      await session.abortTransaction();
-      debugError(`Transaction failed for order ${order._id}:`, error);
-      throw error;
-    } finally {
-      await session.endSession();
-    }
-
+    }, 5); // 5 retry attempts
+    
   } catch (error) {
     debugError(`Error processing stock for order ${order._id}:`, error);
     
@@ -339,8 +415,8 @@ export async function processOrderStockUsage(order: any) {
   }
 }
 
-export async function processAllCompletedOrders(req?: NextRequest) {
-  // CRITICAL FIX #6: Use a global lock to prevent concurrent runs
+export async function processAllCompletedOrders(req?: NextRequest, batchSize: number = 10) {
+  // Global lock to prevent concurrent runs
   const globalLock = await getGlobalLock();
   if (!globalLock) {
     debugLog("Another cron job is already running, skipping...");
@@ -348,6 +424,7 @@ export async function processAllCompletedOrders(req?: NextRequest) {
       totalOrders: 0,
       processedOrders: 0,
       failedOrders: 0,
+      alreadyProcessed: 0,
       message: "Skipped - another instance is already running"
     };
   }
@@ -356,9 +433,9 @@ export async function processAllCompletedOrders(req?: NextRequest) {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
 
-    debugLog("Looking for completed orders to process...");
+    debugLog(`Looking for up to ${batchSize} completed orders to process...`);
 
-    // Only get orders that haven't been processed AND don't have existing used_stock records
+    // Get orders that are completed and NOT yet processed
     const completedOrders = await db.collection("orders").aggregate([
       {
         $match: {
@@ -377,21 +454,48 @@ export async function processAllCompletedOrders(req?: NextRequest) {
       },
       {
         $match: {
-          "existingStock": { $size: 0 } // Only orders with NO stock records
+          "existingStock": { $size: 0 }
         }
       },
       {
-        $limit: 100 // Process in batches to prevent overload
+        $limit: batchSize
       }
     ]).toArray();
 
-    debugLog(`Found ${completedOrders.length} completed orders to process (no existing stock records)`);
+    debugLog(`Found ${completedOrders.length} orders to process (batch size limit: ${batchSize})`);
+
+    if (completedOrders.length === 0) {
+      return {
+        totalOrders: 0,
+        processedOrders: 0,
+        failedOrders: 0,
+        alreadyProcessed: 0,
+        message: "No pending orders found"
+      };
+    }
 
     const results = [];
+    let processedCount = 0;
+    let alreadyProcessedCount = 0;
+    let failedCount = 0;
     
     for (const order of completedOrders) {
+      // Add delay between orders to prevent overwhelming
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       try {
         const stockResult = await processOrderStockUsage(order);
+        
+        if (stockResult.success) {
+          if (stockResult.alreadyProcessed) {
+            alreadyProcessedCount++;
+          } else {
+            processedCount++;
+          }
+        } else {
+          failedCount++;
+        }
+        
         results.push({
           orderId: order._id,
           orderNumber: order.orderNumber,
@@ -399,6 +503,7 @@ export async function processAllCompletedOrders(req?: NextRequest) {
           ...stockResult
         });
       } catch (error) {
+        failedCount++;
         debugError(`Failed to process order ${order._id}:`, error);
         results.push({
           orderId: order._id,
@@ -411,9 +516,11 @@ export async function processAllCompletedOrders(req?: NextRequest) {
 
     return {
       totalOrders: completedOrders.length,
-      processedOrders: results.filter(r => r.success).length,
-      failedOrders: results.filter(r => !r.success).length,
-      results
+      processedOrders: processedCount,
+      alreadyProcessed: alreadyProcessedCount,
+      failedOrders: failedCount,
+      results,
+      batchSize
     };
 
   } catch (error) {
