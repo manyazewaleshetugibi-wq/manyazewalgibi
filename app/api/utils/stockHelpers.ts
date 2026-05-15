@@ -86,45 +86,54 @@ export async function processOrderStockUsage(order: any) {
       orderId: order._id,
       orderNumber: order.orderNumber,
       status: order.status,
-      itemsCount: order.items?.length || 0
+      itemsCount: order.items?.length || 0,
+      stockProcessed: order.stockProcessed
     });
 
-    // CRITICAL FIX #1: Check both order flag AND existing records
-    if (order.stockProcessed) {
-      debugLog(`Order ${order._id} marked as processed, checking for actual records...`);
+    // FIXED: Better check for existing records
+    const existingRecords = await db.collection("used_stock")
+      .countDocuments({ orderId: order._id });
+    
+    if (existingRecords > 0) {
+      debugLog(`Order ${order._id} already has ${existingRecords} stock records. Marking as processed.`);
       
-      // Verify records actually exist
-      const existingRecords = await db.collection("used_stock")
-        .countDocuments({ orderId: order._id });
-      
-      if (existingRecords > 0) {
-        debugLog(`Stock already processed for order: ${order._id} with ${existingRecords} records`);
-        return { 
-          success: true, 
-          message: "Stock already processed", 
-          alreadyProcessed: true,
-          recordsCount: existingRecords
-        };
-      } else {
-        // Flag is true but no records - fix the flag
-        debugLog(`Order ${order._id} has stockProcessed=true but no records. Fixing flag.`);
+      // Fix inconsistent state
+      if (!order.stockProcessed) {
         await db.collection("orders").updateOne(
           { _id: order._id },
-          { $set: { stockProcessed: false, stockProcessingNote: "Flag reset due to missing records" } }
+          { 
+            $set: { 
+              stockProcessed: true,
+              stockProcessedAt: new Date(),
+              stockProcessingNote: `Already had ${existingRecords} records`
+            },
+            $unset: { stockProcessingError: "" }
+          }
         );
       }
-    }
-
-    // CRITICAL FIX #2: Check if already partially processed
-    const existingProcessedStocks = await getProcessedStocksForOrder(db, order._id);
-    if (existingProcessedStocks.length > 0) {
-      debugLog(`Order ${order._id} already has ${existingProcessedStocks.length} stock records. Skipping to prevent duplicates.`);
+      
       return { 
         success: true, 
-        message: `Stock already partially processed with ${existingProcessedStocks.length} records`,
+        message: "Stock already processed", 
         alreadyProcessed: true,
-        recordsCount: existingProcessedStocks.length
+        recordsCount: existingRecords
       };
+    }
+
+    // If order is marked as processed but no records exist, fix the flag
+    if (order.stockProcessed === true && existingRecords === 0) {
+      debugLog(`Order ${order._id} has stockProcessed=true but no records. Fixing flag.`);
+      await db.collection("orders").updateOne(
+        { _id: order._id },
+        { 
+          $set: { 
+            stockProcessed: false,
+            stockProcessingNote: "Flag reset - had true but no records"
+          },
+          $unset: { stockProcessingError: "" }
+        }
+      );
+      // Continue processing - don't return yet
     }
 
     if (!isOrderCompleted(order)) {
@@ -202,7 +211,10 @@ export async function processOrderStockUsage(order: any) {
       const itemId = new ObjectId(itemIdString);
       const itemData = await db.collection("items").findOne({ _id: itemId });
 
-      if (!itemData || !itemData.requiredStock?.length) continue;
+      if (!itemData || !itemData.requiredStock?.length) {
+        debugLog(`Item ${aggregatedItem.itemName} has no requiredStock defined`);
+        continue;
+      }
 
       itemsWithIngredients++;
 
@@ -214,7 +226,10 @@ export async function processOrderStockUsage(order: any) {
         if (quantityPerUnit <= 0) continue;
 
         const stockItem = await db.collection("stocks").findOne({ _id: new ObjectId(stockIdString) });
-        if (!stockItem) continue;
+        if (!stockItem) {
+          debugLog(`Stock ${ingredient.stockId} not found for item ${aggregatedItem.itemName}`);
+          continue;
+        }
 
         const totalQuantityNeeded = quantityPerUnit * aggregatedItem.quantity;
         if (totalQuantityNeeded <= 0) continue;
@@ -245,6 +260,10 @@ export async function processOrderStockUsage(order: any) {
     }
 
     if (allIngredients.size === 0) {
+      const note = itemsWithIngredients === 0 
+        ? "No items have ingredients defined" 
+        : "Items have ingredients but stocks not found";
+      
       await db.collection("orders").updateOne(
         { _id: order._id },
         {
@@ -252,21 +271,21 @@ export async function processOrderStockUsage(order: any) {
             stockProcessed: true,
             stockProcessedAt: new Date(),
             updatedAt: new Date(),
-            stockProcessingNote: "No ingredients defined for items"
+            stockProcessingNote: note
           },
         }
       );
       
       return { 
         success: true, 
-        message: "No ingredients defined for order items",
+        message: note,
         itemsProcessed: aggregatedItems.size,
         recordsProcessed: 0,
         noIngredients: true
       };
     }
 
-    // CRITICAL FIX #3: Use transaction with retry for atomic operations
+    // Use transaction with retry for atomic operations
     return await withTransactionRetry(dbClient, async (session) => {
       debugLog(`Processing order ${order._id} within transaction...`);
       
@@ -440,7 +459,6 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
       {
         $match: {
           status: { $regex: /^completed$/i },
-          stockProcessed: { $ne: true },
           "items.0": { $exists: true }
         }
       },
@@ -454,7 +472,7 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
       },
       {
         $match: {
-          "existingStock": { $size: 0 }
+          "existingStock": { $size: 0 }  // No existing stock records
         }
       },
       {
@@ -465,6 +483,16 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
     debugLog(`Found ${completedOrders.length} orders to process (batch size limit: ${batchSize})`);
 
     if (completedOrders.length === 0) {
+      // Check for inconsistent orders (marked processed but no records)
+      const inconsistentOrders = await db.collection("orders").countDocuments({
+        status: { $regex: /^completed$/i },
+        stockProcessed: true
+      });
+      
+      if (inconsistentOrders > 0) {
+        debugLog(`⚠️ Found ${inconsistentOrders} orders with stockProcessed=true. They may need reset.`);
+      }
+      
       return {
         totalOrders: 0,
         processedOrders: 0,
