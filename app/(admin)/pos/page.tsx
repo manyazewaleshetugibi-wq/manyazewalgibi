@@ -1,4 +1,5 @@
-// app/pos/page.tsx
+// app/pos/page.tsx (FIXED - Restaurant dropdown always visible, Waiter auto for POS)
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy, useRef } from "react"
@@ -181,6 +182,28 @@ const calculatePriceBreakdown = (priceWithTax: number, taxRate: number = 0.15) =
   return { originalPrice, taxAmount }
 }
 
+// Helper to normalize role
+const normalizeRole = (role: string | undefined): string => {
+  if (!role) return 'DEFAULT';
+  return role.toUpperCase().trim();
+};
+
+const isAdminUser = (role: string | undefined): boolean => {
+  if (!role) return false;
+  const adminRoles = ["ADMIN", "admin", "Admin", "SUPER_ADMIN"];
+  return adminRoles.includes(role);
+};
+
+const isPOSUser = (role: string | undefined): boolean => {
+  if (!role) return false;
+  return role.toUpperCase() === "POS";
+};
+
+const isKitchenUser = (role: string | undefined): boolean => {
+  if (!role) return false;
+  return role.toUpperCase() === "KITCHEN";
+};
+
 // Custom debounce function
 const useDebounce = <T,>(value: T, delay: number): T => {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -194,7 +217,6 @@ const useDebounce = <T,>(value: T, delay: number): T => {
 // Sound notification hook
 const useNotificationSound = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
   const [isEnabled, setIsEnabled] = useState(true);
   const [isReady, setIsReady] = useState(false);
   const [audioLoaded, setAudioLoaded] = useState(false);
@@ -217,70 +239,24 @@ const useNotificationSound = () => {
     
     audioRef.current = audio;
     
-    if (typeof window !== 'undefined') {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioContext) {
-        audioContextRef.current = new AudioContext();
-      }
-    }
-    
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.src = '';
         audioRef.current = null;
       }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
     };
-  }, []);
-
-  const playFallbackBeep = useCallback(() => {
-    try {
-      if (!audioContextRef.current) {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContext) return;
-        audioContextRef.current = new AudioContext();
-      }
-      
-      if (audioContextRef.current.state === 'suspended') {
-        audioContextRef.current.resume();
-      }
-      
-      const oscillator = audioContextRef.current.createOscillator();
-      const gainNode = audioContextRef.current.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContextRef.current.destination);
-      
-      oscillator.frequency.value = 800;
-      gainNode.gain.value = 0.3;
-      
-      oscillator.start();
-      gainNode.gain.exponentialRampToValueAtTime(0.00001, audioContextRef.current.currentTime + 0.3);
-      oscillator.stop(audioContextRef.current.currentTime + 0.3);
-    } catch (error) {
-      console.error('Failed to play fallback beep:', error);
-    }
   }, []);
 
   const play = useCallback(() => {
     if (!isEnabled) return;
-    if (!isReady) return;
-    
     if (audioRef.current && audioLoaded) {
       audioRef.current.currentTime = 0;
-      const playPromise = audioRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => playFallbackBeep());
-      }
-      return;
+      audioRef.current.play().catch(() => {});
     }
-    playFallbackBeep();
-  }, [isEnabled, isReady, audioLoaded, playFallbackBeep]);
+  }, [isEnabled, audioLoaded]);
 
-  return { play, isEnabled, setIsEnabled, isReady };
+  return { play, isEnabled, setIsEnabled };
 };
 
 // Sound Toggle Button
@@ -897,7 +873,12 @@ export default function POSPage() {
   const [showNotification, setShowNotification] = useState(false)
   const [notificationData, setNotificationData] = useState({ title: '', message: '' })
   
-  // Use refs to store data that shouldn't trigger re-renders
+  // Get user role
+  const userRole = currentUser?.role;
+  const isAdmin = isAdminUser(userRole);
+  const isPOS = isPOSUser(userRole);
+  
+  // Use refs to store data
   const lastRequestIdsRef = useRef<string[]>([]);
   const lastAssignmentIdsRef = useRef<string[]>([]);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -907,9 +888,6 @@ export default function POSPage() {
   // Sound hook
   const { play: playNotificationSound, isEnabled: soundEnabled, setIsEnabled: setSoundEnabled } = useNotificationSound()
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-
-  // Get selected restaurant details
-  const selectedRestaurantDetails = RESTAURANTS.find(r => r.id === selectedRestaurant);
 
   // Set mounted flag
   useEffect(() => {
@@ -935,7 +913,7 @@ export default function POSPage() {
     return () => { document.head.removeChild(style); };
   }, []);
 
-  // Fetch current user info (waiter with their assigned restaurant)
+  // Fetch current user info
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
@@ -952,7 +930,6 @@ export default function POSPage() {
           
           if (matchingWaiter && matchingWaiter._id) {
             const waiterRestaurantId = matchingWaiter.restaurantId || "manyazewal1";
-            const waiterRestaurant = RESTAURANTS.find(r => r.id === waiterRestaurantId);
             
             setCurrentUser({
               id: matchingWaiter._id,
@@ -960,15 +937,18 @@ export default function POSPage() {
               role: matchingWaiter.role || sessionData.user.role,
               email: matchingWaiter.email,
               restaurantId: waiterRestaurantId,
-              restaurantName: waiterRestaurant?.name || matchingWaiter.restaurantName || "Manyazewal Eshetu Gibi 1"
+              restaurantName: matchingWaiter.restaurantName
             });
             
-            // Auto-select the waiter's assigned restaurant
+            // Auto-select restaurant from user's assigned restaurant
             setSelectedRestaurant(waiterRestaurantId);
-            // Auto-select the waiter themselves
-            setSelectedWaiter(matchingWaiter._id);
+            
+            // For POS users, auto-select themselves as waiter
+            if (isPOSUser(matchingWaiter.role || sessionData.user.role)) {
+              setSelectedWaiter(matchingWaiter._id);
+            }
           } else {
-            // Fallback: use first restaurant
+            // Fallback: default to restaurant 1
             setCurrentUser({
               id: sessionData.user.id,
               name: sessionData.user.name,
@@ -982,47 +962,34 @@ export default function POSPage() {
         }
       } catch (error) {
         console.error('Error fetching user:', error);
-        // Fallback
         setSelectedRestaurant("manyazewal1");
       }
     };
     fetchCurrentUser();
   }, []);
 
-  // Fetch waiters (filtered by selected restaurant for display)
+  // Fetch waiters (for Admin/Kitchen dropdown - POS users don't need this dropdown)
   useEffect(() => {
     const fetchWaiters = async () => {
       try {
         const response = await fetch("/api/waitress");
         const data = await response.json();
         
-        // Filter waiters by selected restaurant if needed
-        let filteredWaiters = data || [];
-        if (selectedRestaurant) {
-          filteredWaiters = filteredWaiters.filter((waiter: Waiter) => 
-            !waiter.restaurantId || waiter.restaurantId === selectedRestaurant
-          );
-        }
+        setWaiters(data || []);
         
-        setWaiters(filteredWaiters);
-        
-        // If current user is a waiter and is in the filtered list, keep them selected
-        if (currentUser?.id && filteredWaiters.some((w: Waiter) => w._id === currentUser.id)) {
-          setSelectedWaiter(currentUser.id);
-        } else if (filteredWaiters.length > 0 && !selectedWaiter) {
-          setSelectedWaiter(filteredWaiters[0]._id);
+        // For non-POS users, select first waiter if none selected
+        if (!isPOS && !selectedWaiter && (data || []).length > 0) {
+          setSelectedWaiter(data[0]._id);
         }
       } catch (error) {
         console.error("Error fetching waiters:", error);
       }
     };
     
-    if (selectedRestaurant) {
-      fetchWaiters();
-    }
-  }, [selectedRestaurant, currentUser?.id]);
+    fetchWaiters();
+  }, [isPOS, selectedWaiter]);
 
-  // Fetch items and categories (no filtering by restaurant - just fetch all)
+  // Fetch items and categories
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
@@ -1048,9 +1015,9 @@ export default function POSPage() {
     fetchData();
   }, []);
 
-  // Fetch table assignments (for the logged-in waiter only)
+  // Fetch table assignments (only for POS users)
   const fetchTableAssignments = useCallback(async () => {
-    if (!currentUser?.id) return;
+    if (!isPOS || !currentUser?.id) return;
     
     try {
       const response = await fetch(`/api/order/table-assignments?waiterId=${currentUser.id}`);
@@ -1060,16 +1027,11 @@ export default function POSPage() {
         const newAssignments = (data.assignments || []) as Order[];
         const newAssignmentIds = newAssignments.map(a => a.id);
         
-        // Check for truly new assignments
         const trulyNewAssignments = newAssignments.filter(a => !lastAssignmentIdsRef.current.includes(a.id));
         
         if (trulyNewAssignments.length > 0) {
-          console.log(`🎵 Found ${trulyNewAssignments.length} new table assignments!`);
-          
           trulyNewAssignments.forEach(newAssignment => {
-            console.log(`🔊 Playing sound for table assignment - Order #${newAssignment.orderNumber}`);
             playNotificationSound();
-            
             if (isMountedRef.current) {
               setNotificationData({
                 title: `New Table Assignment - Order #${newAssignment.orderNumber}`,
@@ -1077,28 +1039,12 @@ export default function POSPage() {
               });
               setShowNotification(true);
               setTimeout(() => setShowNotification(false), 4000);
-              
-              toast.custom((t) => (
-                <div className={`bg-green-50 border-l-4 border-green-500 p-3 rounded shadow-lg ${t.visible ? 'animate-in slide-in-from-top-2' : 'animate-out slide-out-to-top-2'}`}>
-                  <div className="flex items-center gap-2">
-                    <Home className="h-4 w-4 text-green-600 animate-pulse" />
-                    <div>
-                      <p className="font-medium text-sm">New Table Assignment!</p>
-                      <p className="text-xs text-muted-foreground">
-                        Order #{newAssignment.orderNumber} - Table {newAssignment.tableNumber}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ), { duration: 4000 });
             }
           });
         }
         
-        // Update refs
         lastAssignmentIdsRef.current = newAssignmentIds;
         
-        // Update state
         if (isMountedRef.current) {
           setTableAssignments(newAssignments);
         }
@@ -1106,11 +1052,11 @@ export default function POSPage() {
     } catch (error) {
       console.error('Error fetching table assignments:', error);
     }
-  }, [currentUser?.id, playNotificationSound]);
+  }, [isPOS, currentUser?.id, playNotificationSound]);
 
-  // Fetch transfer requests (for the logged-in waiter only)
+  // Fetch transfer requests (only for POS users)
   const fetchTransfers = useCallback(async () => {
-    if (!currentUser?.id) return;
+    if (!isPOS || !currentUser?.id) return;
     
     try {
       const response = await fetch(`/api/order/pending-requests?waiterId=${currentUser.id}`);
@@ -1120,16 +1066,11 @@ export default function POSPage() {
         const newRequests = (data.requests || []) as Order[];
         const newRequestIds = newRequests.map(r => r.id);
         
-        // Check for truly new requests
         const trulyNewRequests = newRequests.filter(r => !lastRequestIdsRef.current.includes(r.id));
         
         if (trulyNewRequests.length > 0) {
-          console.log(`🎵 Found ${trulyNewRequests.length} new transfer requests!`);
-          
           trulyNewRequests.forEach(newRequest => {
-            console.log(`🔊 Playing sound for order #${newRequest.orderNumber}`);
             playNotificationSound();
-            
             if (isMountedRef.current) {
               setNotificationData({
                 title: `New Transfer Request - Order #${newRequest.orderNumber}`,
@@ -1137,28 +1078,12 @@ export default function POSPage() {
               });
               setShowNotification(true);
               setTimeout(() => setShowNotification(false), 4000);
-              
-              toast.custom((t) => (
-                <div className={`bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded shadow-lg ${t.visible ? 'animate-in slide-in-from-top-2' : 'animate-out slide-out-to-top-2'}`}>
-                  <div className="flex items-center gap-2">
-                    <BellRing className="h-4 w-4 text-yellow-600 animate-pulse" />
-                    <div>
-                      <p className="font-medium text-sm">New Transfer Request!</p>
-                      <p className="text-xs text-muted-foreground">
-                        Order #{newRequest.orderNumber} from {newRequest.editRequest?.requestedByName}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ), { duration: 4000 });
             }
           });
         }
         
-        // Update refs
         lastRequestIdsRef.current = newRequestIds;
         
-        // Update state
         if (isMountedRef.current) {
           setPendingTransfers(newRequests);
         }
@@ -1166,59 +1091,30 @@ export default function POSPage() {
     } catch (error) {
       console.error('Error fetching pending transfers:', error);
     }
-  }, [currentUser?.id, playNotificationSound]);
+  }, [isPOS, currentUser?.id, playNotificationSound]);
 
-  // Start polling for both transfers and assignments
-  const startPolling = useCallback(() => {
-    if (!currentUser?.id) return;
-    
-    // Clear existing intervals
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-    if (assignmentPollingRef.current) {
-      clearInterval(assignmentPollingRef.current);
-      assignmentPollingRef.current = null;
-    }
-    
-    console.log(`[Polling] Starting polling for waiter: ${currentUser.id}`);
-    
-    // Initial fetches
-    fetchTransfers();
-    fetchTableAssignments();
-    
-    // Set up intervals (15 seconds for both)
-    pollingIntervalRef.current = setInterval(() => {
-      if (isMountedRef.current) {
-        fetchTransfers();
-      }
-    }, 15000);
-    
-    assignmentPollingRef.current = setInterval(() => {
-      if (isMountedRef.current) {
-        fetchTableAssignments();
-      }
-    }, 15000);
-  }, [currentUser?.id, fetchTransfers, fetchTableAssignments]);
-
-  // Start polling when user is loaded
+  // Start polling for transfers and assignments (only for POS users)
   useEffect(() => {
-    if (currentUser?.id) {
-      startPolling();
+    if (isPOS && currentUser?.id) {
+      // Initial fetches
+      fetchTransfers();
+      fetchTableAssignments();
+      
+      // Set up polling intervals
+      pollingIntervalRef.current = setInterval(() => {
+        if (isMountedRef.current) fetchTransfers();
+      }, 15000);
+      
+      assignmentPollingRef.current = setInterval(() => {
+        if (isMountedRef.current) fetchTableAssignments();
+      }, 15000);
     }
     
     return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-      if (assignmentPollingRef.current) {
-        clearInterval(assignmentPollingRef.current);
-        assignmentPollingRef.current = null;
-      }
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+      if (assignmentPollingRef.current) clearInterval(assignmentPollingRef.current);
     };
-  }, [currentUser?.id, startPolling]);
+  }, [isPOS, currentUser?.id, fetchTransfers, fetchTableAssignments]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value)
@@ -1265,27 +1161,24 @@ export default function POSPage() {
     setCart((prev) => prev.map((item) => (item._id === itemId ? { ...item, quantity: newQuantity } : item)))
   }, [removeFromCart])
 
-  // Calculate subtotal (original prices without tax)
+  // Calculate totals
   const subtotal = cart.reduce((sum, item) => {
     const originalPrice = item.originalPrice || (item.price / 1.15)
     return sum + originalPrice * item.quantity
   }, 0)
   
-  // Calculate total tax (sum of tax from all items)
   const tax = cart.reduce((sum, item) => {
     const taxAmount = item.taxAmount || (item.price - (item.price / 1.15))
     return sum + taxAmount * item.quantity
   }, 0)
   
-  // Calculate total with tax
   const totalWithTax = subtotal + tax
-  
-  // Discount is applied to total with tax
   const discount = applyDiscount ? totalWithTax * 0.1 : 0
   const finalTotal = totalWithTax - discount
 
-  // Handle accept transfer
+  // Handle accept transfer (for POS users)
   const handleAcceptTransfer = useCallback(async (orderId: string) => {
+    if (!isPOS) return;
     setIsProcessingTransfer(true);
     try {
       const response = await fetch('/api/order/handle-transfer', {
@@ -1309,10 +1202,11 @@ export default function POSPage() {
     } finally {
       setIsProcessingTransfer(false);
     }
-  }, [currentUser?.id, soundEnabled, playNotificationSound, fetchTransfers]);
+  }, [isPOS, currentUser?.id, soundEnabled, playNotificationSound, fetchTransfers]);
 
-  // Handle cancel transfer
+  // Handle cancel transfer (for POS users)
   const handleCancelTransfer = useCallback(async (orderId: string) => {
+    if (!isPOS) return;
     setIsProcessingTransfer(true);
     try {
       const response = await fetch('/api/order/handle-transfer', {
@@ -1334,10 +1228,11 @@ export default function POSPage() {
     } finally {
       setIsProcessingTransfer(false);
     }
-  }, [currentUser?.id, fetchTransfers]);
+  }, [isPOS, currentUser?.id, fetchTransfers]);
 
-  // Handle accept table assignment
+  // Handle accept table assignment (for POS users)
   const handleAcceptAssignment = useCallback(async (orderId: string) => {
+    if (!isPOS) return;
     setIsProcessingAssignment(true);
     try {
       const response = await fetch('/api/order/accept-assignment', {
@@ -1361,10 +1256,11 @@ export default function POSPage() {
     } finally {
       setIsProcessingAssignment(false);
     }
-  }, [currentUser?.id, soundEnabled, playNotificationSound, fetchTableAssignments]);
+  }, [isPOS, currentUser?.id, soundEnabled, playNotificationSound, fetchTableAssignments]);
 
-  // Handle reject table assignment
+  // Handle reject table assignment (for POS users)
   const handleRejectAssignment = useCallback(async (orderId: string, reason?: string) => {
+    if (!isPOS) return;
     setIsProcessingAssignment(true);
     try {
       const response = await fetch('/api/order/accept-assignment', {
@@ -1375,14 +1271,7 @@ export default function POSPage() {
 
       const data = await response.json();
       if (data.success) {
-        toast('Assignment declined. The order will be reassigned.', {
-          icon: 'ℹ️',
-          style: {
-            borderRadius: '10px',
-            background: '#f59e0b',
-            color: '#fff',
-          },
-        });
+        toast('Assignment declined. The order will be reassigned.', { icon: 'ℹ️' });
         if (soundEnabled) playNotificationSound();
         await fetchTableAssignments();
       } else {
@@ -1394,7 +1283,7 @@ export default function POSPage() {
     } finally {
       setIsProcessingAssignment(false);
     }
-  }, [currentUser?.id, soundEnabled, playNotificationSound, fetchTableAssignments]);
+  }, [isPOS, currentUser?.id, soundEnabled, playNotificationSound, fetchTableAssignments]);
 
   const handleNewRequest = useCallback((request: Order) => {
     if (soundEnabled) {
@@ -1409,13 +1298,12 @@ export default function POSPage() {
   }, [soundEnabled, playNotificationSound]);
 
   const handlePlaceOrder = async () => {
+    // Use selected waiter (for POS it's auto-selected, for Admin it's from dropdown)
+    // Use selected restaurant (defaults to "manyazewal1" if not selected)
+    const finalRestaurant = selectedRestaurant || "manyazewal1";
+    
     if (!selectedWaiter || !tableNumber || cart.length === 0) {
       toast.error("Please fill in all required fields")
-      return
-    }
-
-    if (!selectedRestaurant) {
-      toast.error("Please select a restaurant")
       return
     }
 
@@ -1435,14 +1323,14 @@ export default function POSPage() {
       }
     })
 
-    const selectedRestaurantInfo = RESTAURANTS.find(r => r.id === selectedRestaurant);
+    const selectedRestaurantInfo = RESTAURANTS.find(r => r.id === finalRestaurant);
     const selectedWaiterInfo = waiters.find(w => w._id === selectedWaiter);
     
     const orderData = {
       orderNumber,
       tableNumber,
       waiterId: selectedWaiter,
-      waiterName: selectedWaiterInfo?.name || "",
+      waiterName: selectedWaiterInfo?.name || currentUser?.name || "",
       customerId: "walk-in",
       numberOfGuests,
       items: itemsWithTax,
@@ -1455,9 +1343,9 @@ export default function POSPage() {
       paymentMethod: "CARD",
       specialRequirements,
       isActive: true,
-      restaurantId: selectedRestaurant,
-      restaurantName: selectedRestaurantInfo?.name || selectedRestaurant,
-      inTable: false,
+      restaurantId: finalRestaurant,
+      restaurantName: selectedRestaurantInfo?.name || finalRestaurant,
+      inTable: true,
       delivery: false
     }
 
@@ -1578,7 +1466,7 @@ export default function POSPage() {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
-              {/* Restaurant Selector - Pre-filled with waiter's assigned restaurant */}
+              {/* Restaurant Selector - Always visible for ALL users */}
               <Select value={selectedRestaurant} onValueChange={setSelectedRestaurant}>
                 <SelectTrigger className="w-[110px] sm:w-[140px] lg:w-[160px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
                   <SelectValue placeholder="Select Restaurant" />
@@ -1606,23 +1494,31 @@ export default function POSPage() {
                 </SelectContent>
               </Select>
 
-              <Select value={selectedWaiter} onValueChange={setSelectedWaiter}>
-                <SelectTrigger className="w-[90px] sm:w-[130px] lg:w-[150px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
-                  <SelectValue placeholder="Server" />
-                </SelectTrigger>
-                <SelectContent>
-                  {waiters.map((waiter) => (
-                    <SelectItem key={waiter._id} value={waiter._id}>
-                      <div className="flex items-center gap-1 sm:gap-2">
-                        <Avatar className="h-4 w-4 sm:h-5 sm:w-5">
-                          <AvatarFallback className="text-[8px] sm:text-[10px]">{getInitials(waiter.name)}</AvatarFallback>
-                        </Avatar>
-                        <span className="truncate text-[10px] sm:text-xs">{waiter.name}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Waiter Selector - For Admin/Kitchen only (dropdown), for POS users (auto-assigned, no dropdown) */}
+              {!isPOS ? (
+                <Select value={selectedWaiter} onValueChange={setSelectedWaiter}>
+                  <SelectTrigger className="w-[90px] sm:w-[130px] lg:w-[150px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
+                    <SelectValue placeholder="Server" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {waiters.map((waiter) => (
+                      <SelectItem key={waiter._id} value={waiter._id}>
+                        <div className="flex items-center gap-1 sm:gap-2">
+                          <Avatar className="h-4 w-4 sm:h-5 sm:w-5">
+                            <AvatarFallback className="text-[8px] sm:text-[10px]">{getInitials(waiter.name)}</AvatarFallback>
+                          </Avatar>
+                          <span className="truncate text-[10px] sm:text-xs">{waiter.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="flex items-center gap-1 sm:gap-2 bg-primary/10 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 h-7 sm:h-8">
+                  <UserIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary" />
+                  <span className="text-[10px] sm:text-xs font-medium">{currentUser?.name || "POS Staff"}</span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
@@ -1673,8 +1569,8 @@ export default function POSPage() {
           </div>
         </header>
 
-        {/* Table Assignments Section */}
-        {tableAssignments.length > 0 && (
+        {/* Table Assignments Section - Only for POS users */}
+        {isPOS && tableAssignments.length > 0 && (
           <div className="border-b bg-green-50/30 p-2 sm:p-3 max-h-[40vh] overflow-y-auto">
             <div className="max-w-6xl mx-auto">
               <div className="flex items-center justify-between mb-2 sm:mb-3 sticky top-0 bg-green-50/30 py-1">
@@ -1704,8 +1600,8 @@ export default function POSPage() {
           </div>
         )}
 
-        {/* Pending Transfer Requests Section */}
-        {pendingTransfers.length > 0 && (
+        {/* Pending Transfer Requests Section - Only for POS users */}
+        {isPOS && pendingTransfers.length > 0 && (
           <div className="border-b bg-yellow-50/30 p-2 sm:p-3 max-h-[40vh] overflow-y-auto">
             <div className="max-w-6xl mx-auto">
               <div className="flex items-center justify-between mb-2 sm:mb-3 sticky top-0 bg-yellow-50/30 py-1">
