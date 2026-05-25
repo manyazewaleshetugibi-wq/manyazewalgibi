@@ -978,6 +978,7 @@ export default function POSPage() {
         setWaiters(data || []);
         
         // For non-POS users, select first waiter if none selected
+        // CRITICAL FIX: Skip this for POS users to prevent overwriting their selected waiter
         if (!isPOS && !selectedWaiter && (data || []).length > 0) {
           setSelectedWaiter(data[0]._id);
         }
@@ -987,7 +988,7 @@ export default function POSPage() {
     };
     
     fetchWaiters();
-  }, [isPOS, selectedWaiter]);
+  }, [isPOS, selectedWaiter]); // Added isPOS to dependencies
 
   // Fetch items and categories
   useEffect(() => {
@@ -1297,14 +1298,33 @@ export default function POSPage() {
     }
   }, [soundEnabled, playNotificationSound]);
 
+  // CRITICAL FIX: Updated handlePlaceOrder with proper waiter assignment
   const handlePlaceOrder = async () => {
-    // Use selected waiter (for POS it's auto-selected, for Admin it's from dropdown)
-    // Use selected restaurant (defaults to "manyazewal1" if not selected)
+    // Determine which waiter ID to use based on user type
+    let finalWaiterId = selectedWaiter;
+    
+    // For POS users, ALWAYS use their own ID, never trust the selectedWaiter state
+    if (isPOS && currentUser?.id) {
+      finalWaiterId = currentUser.id;
+      // Also update the selectedWaiter state to match if it's different
+      if (selectedWaiter !== currentUser.id) {
+        setSelectedWaiter(currentUser.id);
+      }
+    }
+    
     const finalRestaurant = selectedRestaurant || "manyazewal1";
     
-    if (!selectedWaiter || !tableNumber || cart.length === 0) {
-      toast.error("Please fill in all required fields")
-      return
+    // Validate based on user type
+    if (isPOS) {
+      if (!finalWaiterId || !tableNumber || cart.length === 0) {
+        toast.error("Please fill in all required fields (Table number required)")
+        return
+      }
+    } else {
+      if (!finalWaiterId || !tableNumber || cart.length === 0) {
+        toast.error("Please select a waiter, table number, and add items")
+        return
+      }
     }
 
     // Prepare items with proper tax breakdown
@@ -1324,13 +1344,15 @@ export default function POSPage() {
     })
 
     const selectedRestaurantInfo = RESTAURANTS.find(r => r.id === finalRestaurant);
-    const selectedWaiterInfo = waiters.find(w => w._id === selectedWaiter);
+    const selectedWaiterInfo = waiters.find(w => w._id === finalWaiterId);
     
     const orderData = {
       orderNumber,
       tableNumber,
-      waiterId: selectedWaiter,
-      waiterName: selectedWaiterInfo?.name || currentUser?.name || "",
+      waiterId: finalWaiterId,  // Use the corrected waiter ID
+      waiterName: isPOS 
+        ? (currentUser?.name || selectedWaiterInfo?.name || "")
+        : (selectedWaiterInfo?.name || ""),
       customerId: "walk-in",
       numberOfGuests,
       items: itemsWithTax,
@@ -1346,7 +1368,11 @@ export default function POSPage() {
       restaurantId: finalRestaurant,
       restaurantName: selectedRestaurantInfo?.name || finalRestaurant,
       inTable: false,
-      delivery: false
+      delivery: false,
+      // Add the creator info for audit trail
+      createdBy: currentUser?.id,
+      createdByName: currentUser?.name,
+      createdByRole: currentUser?.role
     }
 
     const orderToast = toast.loading("Placing your order...")
