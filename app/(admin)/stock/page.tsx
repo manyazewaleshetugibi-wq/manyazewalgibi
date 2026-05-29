@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useSession } from "next-auth/react"
 import * as z from "zod"
 import {
   type ColumnDef,
@@ -45,6 +46,10 @@ import {
   XCircle,
   AlertCircle,
   Info,
+  Calendar,
+  Repeat,
+  Target,
+  Lock,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -69,7 +74,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -85,6 +90,8 @@ type Stock = {
   unit: string
   minimumStock: number
   currentStock: number
+  requiredAmount: number
+  reorderFrequency: 'daily' | 'weekly' | '15days' | 'monthly' | '2months' | '3months' | '6months' | '9months' | 'yearly'
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -107,13 +114,15 @@ type Purchase = {
 
 type StockStatus = 'critical' | 'low' | 'good' | 'overstock'
 
-// Schemas
+// Schemas with validation for stock update
 const stockSchema = z.object({
   name: z.string().min(1, "Name is required"),
   categoryId: z.string().min(1, "Category is required"),
   unit: z.enum(["kg", "g", "liter", "ml", "piece", "box", "pack", "tray", "bottle", "can"]),
   minimumStock: z.number().min(0, "Minimum stock must be 0 or greater"),
   currentStock: z.number().min(0, "Current stock must be 0 or greater"),
+  requiredAmount: z.number().min(0, "Required amount must be 0 or greater"),
+  reorderFrequency: z.enum(["daily", "weekly", "15days", "monthly", "2months", "3months", "6months", "9months", "yearly"]),
 })
 
 const purchaseSchema = z.object({
@@ -124,7 +133,34 @@ const purchaseSchema = z.object({
   supplier: z.string().min(1, "Supplier is required"),
 })
 
+// Helper function to get readable frequency label
+const getFrequencyLabel = (frequency: string) => {
+  const labels: Record<string, string> = {
+    daily: "Daily",
+    weekly: "Weekly",
+    "15days": "15 Days",
+    monthly: "Monthly",
+    "2months": "2 Months",
+    "3months": "3 Months",
+    "6months": "6 Months",
+    "9months": "9 Months",
+    yearly: "Yearly"
+  }
+  return labels[frequency] || frequency
+}
+
+// Check if user has edit permissions (ADMIN or STOCK_MANAGER)
+const hasEditPermission = (role: string | undefined): boolean => {
+  if (!role) return false
+  const normalizedRole = role.toUpperCase().trim()
+  return normalizedRole === 'ADMIN' || normalizedRole === 'STOCK_MANAGER'
+}
+
 export default function StockManagementPage() {
+  const { data: session } = useSession()
+  const userRole = session?.user?.role
+  const canEdit = hasEditPermission(userRole)
+  
   // State
   const [stocks, setStocks] = useState<Stock[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -156,6 +192,8 @@ export default function StockManagementPage() {
       unit: "kg",
       minimumStock: 0,
       currentStock: 0,
+      requiredAmount: 0,
+      reorderFrequency: "monthly",
     },
   })
 
@@ -221,6 +259,7 @@ export default function StockManagementPage() {
 
   // Stock status calculation
   const getStockStatus = (stock: Stock): StockStatus => {
+    if (stock.minimumStock === 0) return 'good'
     const ratio = stock.currentStock / stock.minimumStock
     if (stock.currentStock === 0) return 'critical'
     if (ratio <= 0.5) return 'critical'
@@ -263,21 +302,18 @@ export default function StockManagementPage() {
     }
   }
 
-  // Filtered stocks based on category and status
+  // Filtered stocks
   const filteredStocks = useMemo(() => {
     let filtered = [...stocks]
 
-    // Apply category filter
     if (selectedCategory) {
       filtered = filtered.filter((stock) => stock.categoryId === selectedCategory)
     }
 
-    // Apply status filter
     if (statusFilter !== 'all') {
       filtered = filtered.filter((stock) => getStockStatus(stock) === statusFilter)
     }
 
-    // Apply search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter((stock) => 
@@ -316,7 +352,7 @@ export default function StockManagementPage() {
     return stats
   }, [stocks, purchases])
 
-  // Table columns
+  // Table columns with role-based action column
   const columns: ColumnDef<Stock>[] = [
     {
       id: "select",
@@ -363,6 +399,39 @@ export default function StockManagementPage() {
       cell: ({ row }) => <div className="lowercase">{row.getValue("unit")}</div>,
     },
     {
+      accessorKey: "requiredAmount",
+      header: ({ column }) => {
+        return (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Required Amount
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        )
+      },
+      cell: ({ row }) => {
+        const amount = row.getValue("requiredAmount") as number
+        return (
+          <Badge variant="outline" className="bg-blue-50 text-blue-700">
+            <Target className="mr-1 h-3 w-3" />
+            {amount}
+          </Badge>
+        )
+      },
+    },
+    {
+      accessorKey: "reorderFrequency",
+      header: "Reorder Frequency",
+      cell: ({ row }) => {
+        const frequency = row.getValue("reorderFrequency") as string
+        return (
+          <Badge variant="secondary" className="capitalize">
+            <Repeat className="mr-1 h-3 w-3" />
+            {getFrequencyLabel(frequency)}
+          </Badge>
+        )
+      },
+    },
+    {
       accessorKey: "minimumStock",
       header: ({ column }) => {
         return (
@@ -388,12 +457,20 @@ export default function StockManagementPage() {
         const stock = row.original
         const status = getStockStatus(stock)
         const config = getStatusConfig(status)
+        const needToOrder = Math.max(0, stock.requiredAmount - stock.currentStock)
         return (
-          <div className="flex items-center gap-2">
-            <span className={config.color.split(' ')[0]}>{row.getValue("currentStock")}</span>
-            <Badge variant="outline" className={config.color}>
-              {config.label}
-            </Badge>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className={config.color.split(' ')[0]}>{row.getValue("currentStock")}</span>
+              <Badge variant="outline" className={config.color}>
+                {config.label}
+              </Badge>
+            </div>
+            {needToOrder > 0 && (
+              <span className="text-xs text-orange-600">
+                Need to order: {needToOrder}
+              </span>
+            )}
           </div>
         )
       },
@@ -419,9 +496,8 @@ export default function StockManagementPage() {
       header: "Stock Level",
       cell: ({ row }) => {
         const stock = row.original
-        const percentage = Math.min(100, (stock.currentStock / stock.minimumStock) * 100)
+        const percentage = stock.minimumStock > 0 ? Math.min(100, (stock.currentStock / stock.minimumStock) * 100) : 100
         const status = getStockStatus(stock)
-        const config = getStatusConfig(status)
         
         return (
           <div className="min-w-[150px]">
@@ -442,6 +518,7 @@ export default function StockManagementPage() {
         )
       },
     },
+    // Role-based actions column - only show edit/delete for authorized users
     {
       id: "actions",
       enableHiding: false,
@@ -461,15 +538,19 @@ export default function StockManagementPage() {
                 <Eye className="mr-2 h-4 w-4" />
                 View Details
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleEditStock(stock)}>
-                <PenSquare className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleDeleteStock(stock._id)}>
-                <Trash className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              {canEdit && (
+                <>
+                  <DropdownMenuItem onClick={() => handleEditStock(stock)}>
+                    <PenSquare className="mr-2 h-4 w-4" />
+                    Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleDeleteStock(stock._id)}>
+                    <Trash className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem onClick={() => handleAddPurchase(stock._id)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add Purchase
@@ -507,6 +588,11 @@ export default function StockManagementPage() {
 
   // Handlers
   const handleAddStock = async (values: z.infer<typeof stockSchema>) => {
+    if (!canEdit) {
+      toast.error("You don't have permission to add stock")
+      return
+    }
+    
     if (stocks.some((stock) => stock.name.toLowerCase() === values.name.toLowerCase())) {
       toast.error("Stock name already registered")
       return
@@ -537,6 +623,10 @@ export default function StockManagementPage() {
   }
 
   const handleEditStock = (stock: Stock) => {
+    if (!canEdit) {
+      toast.error("You don't have permission to edit stock")
+      return
+    }
     setSelectedStock(stock)
     stockForm.reset({
       name: stock.name,
@@ -544,12 +634,25 @@ export default function StockManagementPage() {
       unit: stock.unit as any,
       minimumStock: stock.minimumStock,
       currentStock: stock.currentStock,
+      requiredAmount: stock.requiredAmount || 0,
+      reorderFrequency: stock.reorderFrequency || "monthly",
     })
     setIsAddStockOpen(true)
   }
 
   const handleUpdateStock = async (values: z.infer<typeof stockSchema>) => {
+    if (!canEdit) {
+      toast.error("You don't have permission to update stock")
+      return
+    }
+    
     if (!selectedStock) return
+
+    // VALIDATION: Check if current stock equals required amount for manual update
+    if (values.requiredAmount > 0 && values.currentStock !== values.requiredAmount) {
+      toast.error(`Cannot update: Current stock (${values.currentStock}) must equal required amount (${values.requiredAmount})`)
+      return
+    }
 
     if (stocks.some((stock) => stock.name.toLowerCase() === values.name.toLowerCase() && stock._id !== selectedStock._id)) {
       toast.error("Stock name already registered")
@@ -571,7 +674,7 @@ export default function StockManagementPage() {
         setSelectedStock(null)
         stockForm.reset()
       } else {
-        toast.error("Error updating stock")
+        toast.error(data.message || "Error updating stock")
       }
     } catch (error) {
       console.error("Error updating stock:", error)
@@ -582,6 +685,11 @@ export default function StockManagementPage() {
   }
 
   const handleDeleteStock = async (id: string) => {
+    if (!canEdit) {
+      toast.error("You don't have permission to delete stock")
+      return
+    }
+    
     setDeletingId(id)
     try {
       const response = await fetch(`/api/stock/${id}`, {
@@ -625,7 +733,7 @@ export default function StockManagementPage() {
       if (data.success) {
         toast.success("Purchase added successfully")
         fetchPurchases()
-        fetchStocks() // Refresh stocks to update current stock
+        fetchStocks()
         setIsAddPurchaseOpen(false)
         purchaseForm.reset()
       } else {
@@ -660,7 +768,7 @@ export default function StockManagementPage() {
       if (data.success) {
         toast.success("Purchase deleted successfully")
         fetchPurchases()
-        fetchStocks() // Refresh stocks to update current stock
+        fetchStocks()
         setIsDeleteWarningOpen(false)
         setPurchaseToDelete(null)
       } else {
@@ -674,7 +782,6 @@ export default function StockManagementPage() {
     }
   }
 
-  // Reset all filters
   const resetFilters = () => {
     setSelectedCategory(null)
     setStatusFilter('all')
@@ -682,10 +789,27 @@ export default function StockManagementPage() {
     table.resetColumnFilters()
   }
 
-  // Render
+  // Calculate need to order for a stock
+  const getNeedToOrder = (stock: Stock) => {
+    return Math.max(0, (stock.requiredAmount || 0) - stock.currentStock)
+  }
+
   return (
     <div className="container mx-auto py-10">
       <Toaster position="top-right" />
+      
+      {/* Role Indicator Banner for non-editable users */}
+      {!canEdit && (
+        <div className="mb-6 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 flex items-center gap-3">
+          <Lock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">View-Only Mode</p>
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              You have view-only access to stock management. To add, edit, or delete stock items, please contact an administrator or stock manager.
+            </p>
+          </div>
+        </div>
+      )}
       
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
@@ -758,7 +882,7 @@ export default function StockManagementPage() {
             <Package className="mr-2 h-6 w-6" />
             Stock Management
           </CardTitle>
-          <CardDescription>Manage your inventory, track stock levels, and record purchases</CardDescription>
+          <CardDescription>Manage your inventory, track stock levels, and set required amounts for automatic purchase requests</CardDescription>
         </CardHeader>
         <CardContent>
           {/* Filters Section */}
@@ -837,131 +961,204 @@ export default function StockManagementPage() {
                   <RefreshCw className="h-4 w-4" />
                 </Button>
                 
-                <Dialog open={isAddStockOpen} onOpenChange={setIsAddStockOpen}>
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" /> Add Stock
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
-                      <DialogTitle>{selectedStock ? "Edit Stock" : "Add New Stock"}</DialogTitle>
-                      <DialogDescription>
-                        {selectedStock ? "Edit the details of the selected stock." : "Add a new stock to your inventory."}
-                      </DialogDescription>
-                    </DialogHeader>
-                    <Form {...stockForm}>
-                      <form
-                        onSubmit={stockForm.handleSubmit(selectedStock ? handleUpdateStock : handleAddStock)}
-                        className="space-y-6"
-                      >
-                        <FormField
-                          control={stockForm.control}
-                          name="name"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Name</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={stockForm.control}
-                          name="categoryId"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Category</FormLabel>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                {/* Add Stock Button - Only shown if user has edit permission */}
+                {canEdit && (
+                  <Dialog open={isAddStockOpen} onOpenChange={setIsAddStockOpen}>
+                    <DialogTrigger asChild>
+                      <Button>
+                        <Plus className="mr-2 h-4 w-4" /> Add Stock
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>{selectedStock ? "Edit Stock" : "Add New Stock"}</DialogTitle>
+                        <DialogDescription>
+                          {selectedStock ? "Edit the details of the selected stock." : "Add a new stock to your inventory."}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <Form {...stockForm}>
+                        <form
+                          onSubmit={stockForm.handleSubmit(selectedStock ? handleUpdateStock : handleAddStock)}
+                          className="space-y-6"
+                        >
+                          <FormField
+                            control={stockForm.control}
+                            name="name"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Name</FormLabel>
                                 <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select a category" />
-                                  </SelectTrigger>
+                                  <Input {...field} />
                                 </FormControl>
-                                <SelectContent>
-                                  {categories.map((category) => (
-                                    <SelectItem key={category._id} value={category._id}>
-                                      {category.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={stockForm.control}
-                          name="unit"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Unit</FormLabel>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select a unit" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {["kg", "g", "liter", "ml", "piece", "box", "pack", "tray", "bottle", "can"].map(
-                                    (unit) => (
-                                      <SelectItem key={unit} value={unit}>
-                                        {unit}
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={stockForm.control}
+                            name="categoryId"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Category</FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select a category" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {categories.map((category) => (
+                                      <SelectItem key={category._id} value={category._id}>
+                                        {category.name}
                                       </SelectItem>
-                                    ),
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={stockForm.control}
+                            name="unit"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Unit</FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select a unit" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {["kg", "g", "liter", "ml", "piece", "box", "pack", "tray", "bottle", "can"].map(
+                                      (unit) => (
+                                        <SelectItem key={unit} value={unit}>
+                                          {unit}
+                                        </SelectItem>
+                                      ),
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={stockForm.control}
+                            name="requiredAmount"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Required Amount</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type="number"
+                                    step="1"
+                                    placeholder="e.g., 100"
+                                    {...field}
+                                    onChange={(e) => {
+                                      const newValue = Number.parseFloat(e.target.value);
+                                      field.onChange(newValue);
+                                      // Auto-sync current stock with required amount when editing
+                                      if (selectedStock && newValue > 0) {
+                                        stockForm.setValue("currentStock", newValue);
+                                      }
+                                    }}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  Set the target stock level. When manually updating, current stock must equal this value.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={stockForm.control}
+                            name="minimumStock"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Minimum Stock (Alert Level)</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    {...field}
+                                    onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={stockForm.control}
+                            name="currentStock"
+                            render={({ field }) => {
+                              const requiredAmount = stockForm.watch("requiredAmount");
+                              const isInvalid = selectedStock && requiredAmount > 0 && field.value !== requiredAmount;
+                              return (
+                                <FormItem>
+                                  <FormLabel>Current Stock</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      {...field}
+                                      onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
+                                      className={isInvalid ? "border-red-500" : ""}
+                                    />
+                                  </FormControl>
+                                  {isInvalid && (
+                                    <p className="text-sm text-red-500 font-medium">
+                                      ⚠️ Current stock must equal required amount ({requiredAmount}) when manually updating.
+                                    </p>
                                   )}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={stockForm.control}
-                          name="minimumStock"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Minimum Stock</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  {...field}
-                                  onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={stockForm.control}
-                          name="currentStock"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Current Stock</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  {...field}
-                                  onChange={(e) => field.onChange(Number.parseFloat(e.target.value))}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <Button type="submit" disabled={isSubmitting} className="w-full">
-                          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                          {selectedStock ? "Update Stock" : "Add Stock"}
-                        </Button>
-                      </form>
-                    </Form>
-                  </DialogContent>
-                </Dialog>
+                                  <FormDescription>
+                                    For manual updates, this must equal the required amount. Stock automatically updates to required amount when purchase requests are confirmed.
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              );
+                            }}
+                          />
+                          <FormField
+                            control={stockForm.control}
+                            name="reorderFrequency"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Reorder Frequency</FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select reorder frequency" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value="daily">Daily</SelectItem>
+                                    <SelectItem value="weekly">Weekly</SelectItem>
+                                    <SelectItem value="15days">15 Days</SelectItem>
+                                    <SelectItem value="monthly">Monthly</SelectItem>
+                                    <SelectItem value="2months">2 Months</SelectItem>
+                                    <SelectItem value="3months">3 Months</SelectItem>
+                                    <SelectItem value="6months">6 Months</SelectItem>
+                                    <SelectItem value="9months">9 Months</SelectItem>
+                                    <SelectItem value="yearly">Yearly</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <Button type="submit" disabled={isSubmitting} className="w-full">
+                            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {selectedStock ? "Update Stock" : "Add Stock"}
+                          </Button>
+                        </form>
+                      </Form>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
             </div>
             
@@ -1030,7 +1227,7 @@ export default function StockManagementPage() {
                   ? "Try adjusting your filters"
                   : "Get started by adding your first stock item"}
               </p>
-              {!searchQuery && !selectedCategory && statusFilter === 'all' && (
+              {!searchQuery && !selectedCategory && statusFilter === 'all' && canEdit && (
                 <Button onClick={() => setIsAddStockOpen(true)}>
                   <Plus className="mr-2 h-4 w-4" />
                   Add Stock
@@ -1043,7 +1240,8 @@ export default function StockManagementPage() {
                 const status = getStockStatus(stock)
                 const config = getStatusConfig(status)
                 const Icon = config.icon
-                const percentage = Math.min(100, (stock.currentStock / stock.minimumStock) * 100)
+                const percentage = stock.minimumStock > 0 ? Math.min(100, (stock.currentStock / stock.minimumStock) * 100) : 100
+                const needToOrder = getNeedToOrder(stock)
                 
                 return (
                   <Card key={stock._id} className="hover:shadow-lg transition-shadow duration-300">
@@ -1069,6 +1267,20 @@ export default function StockManagementPage() {
                           <span className="font-medium">{stock.unit}</span>
                         </div>
                         <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Required Amount:</span>
+                          <Badge variant="outline" className="bg-blue-50">
+                            <Target className="mr-1 h-3 w-3" />
+                            {stock.requiredAmount || 0}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Reorder Frequency:</span>
+                          <Badge variant="secondary" className="capitalize">
+                            <Repeat className="mr-1 h-3 w-3" />
+                            {getFrequencyLabel(stock.reorderFrequency || 'monthly')}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground">Min Stock:</span>
                           <span className="font-medium">{stock.minimumStock}</span>
                         </div>
@@ -1082,15 +1294,12 @@ export default function StockManagementPage() {
                             {stock.currentStock}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Total Cost:</span>
-                          <span className="font-medium">
-                            {calculateTotalCost(stock._id).toLocaleString("en-ET", {
-                              style: "currency",
-                              currency: "ETB",
-                            })}
-                          </span>
-                        </div>
+                        {needToOrder > 0 && (
+                          <div className="flex items-center justify-between text-sm bg-orange-50 dark:bg-orange-950/20 p-2 rounded">
+                            <span className="text-muted-foreground">Need to Order:</span>
+                            <span className="font-bold text-orange-600">{needToOrder}</span>
+                          </div>
+                        )}
                         <div className="pt-2">
                           <Progress 
                             value={percentage} 
@@ -1111,22 +1320,26 @@ export default function StockManagementPage() {
                         <Eye className="mr-2 h-4 w-4" />
                         View
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleEditStock(stock)} className="flex-1">
-                        <PenSquare className="mr-2 h-4 w-4" />
-                        Edit
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleAddPurchase(stock._id)} className="flex-1">
+                      {canEdit && (
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => handleEditStock(stock)} className="flex-1">
+                            <PenSquare className="mr-2 h-4 w-4" />
+                            Edit
+                          </Button>
+                          <Button 
+                            variant="destructive" 
+                            size="sm" 
+                            onClick={() => handleDeleteStock(stock._id)} 
+                            disabled={deletingId === stock._id}
+                            className="flex-1"
+                          >
+                            {deletingId === stock._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash className="h-4 w-4" />}
+                          </Button>
+                        </>
+                      )}
+                      <Button variant="outline" size="sm" onClick={() => handleAddPurchase(stock._id)} className={canEdit ? "flex-1" : "w-full"}>
                         <Plus className="mr-2 h-4 w-4" />
                         Buy
-                      </Button>
-                      <Button 
-                        variant="destructive" 
-                        size="sm" 
-                        onClick={() => handleDeleteStock(stock._id)} 
-                        disabled={deletingId === stock._id}
-                        className="flex-1"
-                      >
-                        {deletingId === stock._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash className="h-4 w-4" />}
                       </Button>
                     </CardFooter>
                   </Card>
@@ -1175,8 +1388,7 @@ export default function StockManagementPage() {
               </div>
               <div className="flex items-center justify-between space-x-2 py-4">
                 <div className="flex-1 text-sm text-muted-foreground">
-                  {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s)
-                  selected.
+                  {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s) selected.
                 </div>
                 <div className="flex items-center space-x-2">
                   <Button
@@ -1231,7 +1443,7 @@ export default function StockManagementPage() {
                       <SelectContent>
                         {stocks.map((stock) => (
                           <SelectItem key={stock._id} value={stock._id}>
-                            {stock.name}
+                            {stock.name} (Required: {stock.requiredAmount || 0} {stock.unit})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1312,7 +1524,7 @@ export default function StockManagementPage() {
 
       {/* Stock Detail Dialog */}
       <Dialog open={isStockDetailOpen} onOpenChange={setIsStockDetailOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-4xl max-h-[90vh]">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold flex items-center">
               <Package className="mr-2 h-6 w-6" />
@@ -1343,6 +1555,24 @@ export default function StockManagementPage() {
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <Target className="h-5 w-5" /> Required Amount
+                    </h3>
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 text-base">
+                      <Target className="mr-1 h-4 w-4" />
+                      {selectedStock.requiredAmount || 0} {selectedStock.unit}
+                    </Badge>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <Repeat className="h-5 w-5" /> Reorder Frequency
+                    </h3>
+                    <Badge variant="secondary" className="capitalize text-base">
+                      <Repeat className="mr-1 h-4 w-4" />
+                      {getFrequencyLabel(selectedStock.reorderFrequency || 'monthly')}
+                    </Badge>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
                       <BarChart2 className="h-5 w-5" /> Minimum Stock
                     </h3>
                     <p>{selectedStock.minimumStock}</p>
@@ -1351,7 +1581,9 @@ export default function StockManagementPage() {
                     <h3 className="text-lg font-semibold flex items-center gap-2">
                       <ShoppingCart className="h-5 w-5" /> Current Stock
                     </h3>
-                    <p>{selectedStock.currentStock}</p>
+                    <p className={selectedStock.currentStock !== selectedStock.requiredAmount && selectedStock.requiredAmount > 0 ? "text-orange-600 font-bold" : ""}>
+                      {selectedStock.currentStock}
+                    </p>
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -1360,6 +1592,14 @@ export default function StockManagementPage() {
                     <Badge variant="outline" className={getStatusConfig(getStockStatus(selectedStock)).color}>
                       {getStatusConfig(getStockStatus(selectedStock)).label}
                     </Badge>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5" /> Need to Order
+                    </h3>
+                    <p className="text-xl font-bold text-orange-600">
+                      {Math.max(0, selectedStock.requiredAmount - selectedStock.currentStock)} {selectedStock.unit}
+                    </p>
                   </div>
                 </div>
                 
@@ -1438,20 +1678,54 @@ export default function StockManagementPage() {
                     <div className="flex justify-between text-sm">
                       <span>Current: {selectedStock.currentStock}</span>
                       <span>Minimum: {selectedStock.minimumStock}</span>
+                      <span>Required: {selectedStock.requiredAmount}</span>
                     </div>
                     <p className="text-sm text-muted-foreground">
                       Current stock level is {((selectedStock.currentStock / selectedStock.minimumStock) * 100).toFixed(2)}% of minimum stock
                     </p>
+                    {selectedStock.currentStock < selectedStock.requiredAmount && (
+                      <div className="bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800 rounded-md p-3 mt-2">
+                        <div className="flex items-center gap-2">
+                          <Target className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                          <span className="text-sm text-orange-800 dark:text-orange-300">
+                            Need to order {Math.max(0, selectedStock.requiredAmount - selectedStock.currentStock)} {selectedStock.unit} to meet required amount.
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     {selectedStock.currentStock < selectedStock.minimumStock && (
                       <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 mt-2">
                         <div className="flex items-center gap-2">
                           <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                           <span className="text-sm text-amber-800 dark:text-amber-300">
-                            This item needs to be reordered. Current stock is below minimum requirement.
+                            Critical: Current stock is below minimum requirement!
                           </span>
                         </div>
                       </div>
                     )}
+                  </div>
+                </div>
+
+                {/* Reorder Recommendation */}
+                <div>
+                  <h3 className="text-xl font-semibold mb-2 flex items-center gap-2">
+                    <Calendar className="h-6 w-6" /> Reorder Recommendation
+                  </h3>
+                  <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-md p-4">
+                    <div className="flex items-start gap-3">
+                      <Repeat className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                      <div>
+                        <p className="text-sm text-blue-800 dark:text-blue-300">
+                          Based on required amount of <strong>{selectedStock.requiredAmount} {selectedStock.unit}</strong> and reorder frequency of <strong className="capitalize">{getFrequencyLabel(selectedStock.reorderFrequency || 'monthly')}</strong>,
+                          you need to order <strong>{Math.max(0, selectedStock.requiredAmount - selectedStock.currentStock)} {selectedStock.unit}</strong> to meet the requirement.
+                        </p>
+                        {selectedStock.currentStock < selectedStock.requiredAmount && (
+                          <p className="text-sm text-orange-800 dark:text-orange-300 mt-2">
+                            ⚠️ Current stock is below required amount. Immediate reorder recommended!
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

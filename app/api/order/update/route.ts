@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/auth";
+
+import { auth } from "@/auth";
 
 // Debug flag
 const DEBUG = true;
@@ -25,7 +25,7 @@ function normalizeStatus(status: string): string {
 // PUT: Update an order (specifically for waitress updates)
 export async function PUT(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session || !session.user) {
       return NextResponse.json(
@@ -239,7 +239,7 @@ export async function PUT(req: NextRequest) {
 // PATCH endpoint for waitress-specific updates (partial updates)
 export async function PATCH(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session || !session.user) {
       return NextResponse.json(
@@ -383,7 +383,7 @@ export async function PATCH(req: NextRequest) {
 // DELETE endpoint for waitress to delete their own orders
 export async function DELETE(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session || !session.user) {
       return NextResponse.json(

@@ -1,7 +1,7 @@
 // app/api/user/points/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/auth';
+import { authOptions } from '@/auth';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
 
@@ -291,7 +291,7 @@ async function ensureSingleUserPointsRecord(userId: string, db: any) {
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user) {
       return NextResponse.json(
@@ -671,7 +671,7 @@ export async function GET(req: NextRequest) {
 // Update the POST endpoint to use the same referral logic for manual awarding
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -819,7 +819,7 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user?.id) {
       return NextResponse.json(

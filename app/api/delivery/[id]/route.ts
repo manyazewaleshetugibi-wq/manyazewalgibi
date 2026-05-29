@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { DeliveryOrderSchema } from "@/models/DeliveryOrders";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]/auth";
+import { auth } from "@/auth"; // ✅ Changed from getServerSession import
 
 // Define valid statuses directly to avoid import issues
 const VALID_STATUSES = [
@@ -365,7 +364,9 @@ export async function PATCH(
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
     const ordersCollection = db.collection("orders");
-    const session = await getServerSession(authOptions);
+    
+    // ✅ Changed: Use auth() instead of getServerSession
+    const session = await auth();
 
     // Validate the order ID
     if (!ObjectId.isValid(id)) {

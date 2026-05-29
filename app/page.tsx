@@ -152,8 +152,13 @@ const autoAssignWaiter = (tableNumber: string, waiters: Waiter[]): string => {
 const shouldHideCategory = (category: Category): boolean => {
   const name = category.name?.toLowerCase() || ''
   const type = category.type?.toLowerCase() || ''
-  return name.includes('packaging') || type === 'packaging' || 
-         name.includes('packing') || name.includes('package')
+   return name.includes('packaging') || 
+         type === 'packaging' || 
+         name.includes('packing') || 
+         name.includes('package') ||
+         name.includes('staff food') ||     // ✅ Add this
+         name.includes('staff meal') ||     // ✅ Add this
+         name === 'staff'
 }
 
 // Get category additional charge (only for delivery orders)

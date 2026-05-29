@@ -1,211 +1,217 @@
-import NextAuth, { type NextAuthOptions } from "next-auth"
-import CredentialsProvider from "next-auth/providers/credentials"
-import { MongoDBAdapter } from "@next-auth/mongodb-adapter"
-import bcrypt from "bcrypt"
-import { MongoClient, ObjectId } from "mongodb"
-import { UserRole } from "@/models/User"
+import { NextResponse } from "next/server";
+import { auth } from "@/auth";
+import clientPromise from "@/lib/mongodb";
+import { ObjectId } from "mongodb";
 
-// HARDCODED CONFIGURATION
-const MONGODB_URI = process.env.MONGODB_URI || "";
-const DATABASE_NAME = process.env.MONGODB_DATABASE || "";
-const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET || "";
-const NEXTAUTH_URL = process.env.NEXTAUTH_URL 
+export async function GET() {
+  try {
+    // Get current authenticated session
+    const session = await auth();
 
-const client = new MongoClient(MONGODB_URI)
-const clientPromise = client.connect()
+    if (!session?.user) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Not authenticated",
+        },
+        { status: 401 }
+      );
+    }
 
-export const authOptions: NextAuthOptions = {
-  adapter: MongoDBAdapter(clientPromise, {
-    databaseName: DATABASE_NAME
-  }),
-  secret: NEXTAUTH_SECRET,
-  providers: [
-    CredentialsProvider({
-      name: "Credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
+    const client = await clientPromise;
+    const db = client.db("gold");
+
+    // Get user ID from session
+    const userId = session.user.id;
+
+    if (!userId || !ObjectId.isValid(userId)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid user ID format",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Find user in database
+    const user = await db.collection("users").findOne({
+      _id: new ObjectId(userId),
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "User not found",
+        },
+        { status: 404 }
+      );
+    }
+
+    // Remove sensitive data
+    const { password, ...userWithoutPassword } = user;
+
+    // Debug log
+    console.log("User data fetched from DB:", {
+      _id: userWithoutPassword._id,
+      firstName: userWithoutPassword.firstName,
+      lastName: userWithoutPassword.lastName,
+      email: userWithoutPassword.email,
+      phone: userWithoutPassword.phone,
+      address: userWithoutPassword.address,
+      location: userWithoutPassword.location,
+    });
+
+    // Extract city helper
+    const extractCityFromAddress = (
+      address: string
+    ): string => {
+      if (!address) return "Addis Ababa";
+
+      const addressParts = address.split(",");
+
+      const cityKeywords = [
+        "addis ababa",
+        "bole",
+        "kazanchis",
+        "megenagna",
+        "piassa",
+        "merkato",
+        "sarbet",
+        "cazanchis",
+        "old airport",
+        "new airport",
+        "ayertena",
+        "summit",
+        "gerji",
+        "atlas",
+        "gotera",
+        "lafto",
+        "mexico",
+        "saris",
+        "kera",
+        "akaki",
+        "kality",
+        "kaliti",
+      ];
+
+      for (const part of addressParts) {
+        const trimmedPart = part.trim().toLowerCase();
+
+        if (
+          cityKeywords.some((keyword) =>
+            trimmedPart.includes(keyword)
+          )
+        ) {
+          return part.trim();
+        }
+      }
+
+      if (addressParts.length > 1) {
+        return (
+          addressParts[addressParts.length - 2]?.trim() ||
+          "Addis Ababa"
+        );
+      }
+
+      return "Addis Ababa";
+    };
+
+    return NextResponse.json({
+      success: true,
+
+      data: {
+        // Mongo IDs
+        _id: userWithoutPassword._id.toString(),
+        id: userWithoutPassword._id.toString(),
+
+        // Personal
+        firstName: userWithoutPassword.firstName || "",
+        lastName: userWithoutPassword.lastName || "",
+        email: userWithoutPassword.email || "",
+        phone: userWithoutPassword.phone || "",
+
+        // Dates
+        birthDate:
+          userWithoutPassword.birthDate || null,
+
+        // Gender
+        gender: userWithoutPassword.gender || "",
+
+        // Address
+        address: userWithoutPassword.address || "",
+        city: extractCityFromAddress(
+          userWithoutPassword.address || ""
+        ),
+
+        // GeoJSON location
+        location: userWithoutPassword.location || {
+          type: "Point",
+          coordinates: [0, 0],
+        },
+
+        // Account
+        role: userWithoutPassword.role || "user",
+
+        registrationSource:
+          userWithoutPassword.registrationSource ||
+          "website",
+
+        locationConsent:
+          userWithoutPassword.locationConsent || false,
+
+        // Timestamps
+        createdAt: userWithoutPassword.createdAt,
+        updatedAt: userWithoutPassword.updatedAt,
+        lastLogin:
+          userWithoutPassword.lastLogin || null,
+
+        // Security
+        loginAttempts:
+          userWithoutPassword.loginAttempts || 0,
+
+        __v: userWithoutPassword.__v,
+
+        // Additional optional fields
+        image: userWithoutPassword.image || null,
+        employeeId:
+          userWithoutPassword.employeeId || null,
+
+        permissions:
+          userWithoutPassword.permissions || [],
+
+        status: userWithoutPassword.status || null,
+
+        requiresPasswordChange:
+          userWithoutPassword.requiresPasswordChange ||
+          false,
+
+        googleId:
+          userWithoutPassword.googleId || null,
+
+        emailVerified:
+          userWithoutPassword.emailVerified || null,
+
+        specialization:
+          userWithoutPassword.specialization || null,
+
+        shift: userWithoutPassword.shift || null,
       },
-      async authorize(credentials): Promise<any> {
-        console.log("🔐 Login attempt for:", credentials?.email);
-        
-        if (!credentials?.email || !credentials?.password) {
-          console.log("❌ Missing credentials");
-          throw new Error("Email and password required");
-        }
-        
-        try {
-          const client = await clientPromise;
-          const db = client.db(DATABASE_NAME);
-          
-          console.log(`📁 Looking for user: ${credentials.email}`);
-          
-          // Try to find user in users collection
-          const user = await db.collection("users").findOne({ 
-            email: credentials.email.toLowerCase().trim()
-          });
-          
-          if (!user) {
-            console.log(`❌ No user found with email: ${credentials.email}`);
-            throw new Error("Invalid credentials");
-          }
-          
-          // Check if account is active
-          if (user.status && user.status !== "active") {
-            console.log(`❌ Account is ${user.status}`);
-            throw new Error("Account is not active. Please contact administrator.");
-          }
-          
-          // Check if account is locked
-          if (user.loginAttempts >= 5 && user.lastLogin) {
-            const lockDuration = 15 * 60 * 1000; // 15 minutes
-            const timeSinceLastAttempt = Date.now() - user.lastLogin.getTime();
-            
-            if (timeSinceLastAttempt < lockDuration) {
-              const remainingTime = Math.ceil((lockDuration - timeSinceLastAttempt) / 60000);
-              throw new Error(`Account is temporarily locked. Try again in ${remainingTime} minutes.`);
-            }
-          }
-          
-          console.log(`✅ User found: ${user.email}`);
-          console.log(`📋 User requires password change: ${user.requiresPasswordChange}`);
-          
-          if (!user.password) {
-            console.log("❌ User has no password set");
-            throw new Error("Invalid credentials");
-          }
-          
-          // Compare password
-          const isPasswordValid = await bcrypt.compare(
-            credentials.password, 
-            user.password
-          );
-          
-          console.log(`🔐 Password valid: ${isPasswordValid}`);
-          
-          if (!isPasswordValid) {
-            // Update login attempts
-            const attempts = (user.loginAttempts || 0) + 1;
-            await db.collection("users").updateOne(
-              { _id: user._id },
-              { 
-                $set: { 
-                  loginAttempts: attempts,
-                  lastLogin: new Date()
-                } 
-              }
-            );
-            
-            console.log("❌ Password comparison failed");
-            throw new Error("Invalid credentials");
-          }
-          
-          // Reset login attempts on successful login
-          await db.collection("users").updateOne(
-            { _id: user._id },
-            { 
-              $set: { 
-                loginAttempts: 0,
-                lastLogin: new Date()
-              } 
-            }
-          );
-          
-          // Return user object with requiresPasswordChange flag
-          // If field doesn't exist, default to true (force password change)
-          const userData = {
-            id: user._id.toString(),
-            email: user.email,
-            name: user.name || user.email,
-            role: (user.role || "user") as UserRole,
-            image: user.image,
-            employeeId: user.employeeId || "",
-            permissions: user.permissions || [],
-            requiresPasswordChange: user.requiresPasswordChange !== undefined 
-              ? user.requiresPasswordChange 
-              : true // Default to true if field doesn't exist
-          };
-          
-          console.log(`🎉 Login successful for: ${userData.email}`);
-          console.log(`🔑 Requires password change: ${userData.requiresPasswordChange}`);
-          console.log(`👤 User data:`, userData);
-          
-          return userData;
-          
-        } catch (error: any) {
-          console.error("🔥 Auth error details:", error);
-          throw new Error(error.message || "Authentication failed");
-        }
+    });
+  } catch (error: any) {
+    console.error(
+      "Error fetching current user:",
+      error
+    );
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Failed to fetch user data",
+        error: error?.message || "Unknown error",
       },
-    }),
-  ],
-  session: {
-    strategy: "jwt",
-    maxAge: 8 * 60 * 60, // 8 hours
-  },
-  callbacks: {
-    async jwt({ token, user, trigger, session }) {
-      // Initial sign in
-      if (user) {
-        token.id = user.id;
-        token.role = user.role;
-        token.email = user.email;
-        token.name = user.name;
-        token.employeeId = user.employeeId;
-        token.permissions = user.permissions;
-        token.requiresPasswordChange = user.requiresPasswordChange;
-      }
-      
-      // Update session when password is changed (via updateSession trigger)
-      if (trigger === "update" && session?.requiresPasswordChange !== undefined) {
-        console.log("🔄 Updating JWT with new requiresPasswordChange:", session.requiresPasswordChange);
-        token.requiresPasswordChange = session.requiresPasswordChange;
-      }
-      
-      // 🔴 CRITICAL ADDITION: Always check database for latest requiresPasswordChange value
-      // This ensures the token reflects the current database state
-      if (token.id) {
-        try {
-          const client = await clientPromise;
-          const db = client.db(DATABASE_NAME);
-          
-          const userDoc = await db.collection("users").findOne(
-            { _id: new ObjectId(token.id as string) },
-            { projection: { requiresPasswordChange: 1 } }
-          );
-          
-          if (userDoc) {
-            // Update token with latest value from database
-            token.requiresPasswordChange = userDoc.requiresPasswordChange || false;
-            console.log("🔄 Token updated with latest requiresPasswordChange from DB:", token.requiresPasswordChange);
-          }
-        } catch (error) {
-          console.error("Error refreshing token from DB:", error);
-          // Don't throw - use existing token value
-        }
-      }
-      
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string;
-        session.user.email = token.email as string;
-        session.user.name = token.name as string;
-        session.user.role = token.role as UserRole;
-        session.user.employeeId = token.employeeId as string;
-        session.user.permissions = token.permissions as string[];
-        session.user.requiresPasswordChange = token.requiresPasswordChange as boolean;
-        session.user.image = token.image as string;
-      }
-      return session;
-    },
-  },
-  pages: {
-    signIn: "/login",
-    error: "/auth/error",
-  },
-  debug: true,
+      { status: 500 }
+    );
+  }
 }
-
-export default NextAuth(authOptions);

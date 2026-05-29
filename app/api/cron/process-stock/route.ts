@@ -5,8 +5,8 @@ import { debugLog, debugError } from "../../utils/orderHelpers";
 
 // Simple rate limiting - only prevent too frequent runs
 let lastRunTime = 0;
-const MIN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes between runs
-const MAX_ORDERS_PER_RUN = 5; // Process 5 orders per run
+const MIN_INTERVAL_MS = 2 * 60 * 1000; // 5 minutes between runs
+const MAX_ORDERS_PER_RUN = 500; // Process 5 orders per run
 
 export async function GET(req: NextRequest) {
   const now = Date.now();

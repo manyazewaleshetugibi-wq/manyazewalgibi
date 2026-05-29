@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/auth';
+import { authOptions } from '@/auth';
 import { MongoClient, ObjectId } from 'mongodb';
 
 const uri = process.env.MONGODB_URI;
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     const skip = (page - 1) * limit;
 
     // Get current user session
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user) {
       console.log('No session or user found');

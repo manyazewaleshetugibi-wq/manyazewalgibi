@@ -118,6 +118,7 @@ import {
   Unlock,
   Info,
   FileText,
+  Package,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { debounce } from "lodash"
@@ -177,6 +178,8 @@ type Order = {
   deletedBy?: string
   deletionReason?: string
   floor?: string
+  stockProcessed?: boolean
+  stockProcessedAt?: string
 }
 
 type Waitress = {
@@ -342,13 +345,20 @@ const DeleteOrderDialog = ({
   onDelete: () => Promise<void>
 }) => {
   const [isDeleting, setIsDeleting] = useState(false)
+  const [open, setOpen] = useState(false)
+  
   const handleDelete = async () => {
     setIsDeleting(true)
-    await onDelete()
-    setIsDeleting(false)
+    try {
+      await onDelete()
+      setOpen(false)
+    } finally {
+      setIsDeleting(false)
+    }
   }
+  
   return (
-    <AlertDialog>
+    <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
         <Button
           variant="ghost"
@@ -363,11 +373,11 @@ const DeleteOrderDialog = ({
           <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
           <AlertDialogDescription>
             This action cannot be undone. This will permanently delete the
-            order and remove all associated data.
+            order, move it to deleted_orders archive, and remove all associated data.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleDelete}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -632,7 +642,6 @@ const OrderDetailModal = React.memo(
           </DialogHeader>
           <ScrollArea className="flex-1 pr-4 overflow-y-auto">
             <div className="space-y-6 pb-4">
-              {/* Deletion Request Section - Show prominently if marked for deletion */}
               {markedForDeletion && order.deletionRequestReason && (
                 <Card className="border-yellow-500 bg-yellow-50/50">
                   <CardHeader className="pb-2">
@@ -1102,7 +1111,6 @@ const OrderCard = React.memo(
             </div>
           )}
 
-          {/* Deletion Request Reason - Show prominently when marked for deletion */}
           {markedForDeletion && order.deletionRequestReason && (
             <div className="bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-lg p-3">
               <div className="flex items-start gap-2">
@@ -1433,6 +1441,13 @@ export default function OrderManagement() {
     timeFilterHours: number | null
     message: string
   } | null>(null)
+  
+  // Stock processing states
+  const [pendingStockCount, setPendingStockCount] = useState<number>(0)
+  const [processingStock, setProcessingStock] = useState<boolean>(false)
+  const [stockError, setStockError] = useState<string | null>(null)
+  const [showConfirmDialog, setShowConfirmDialog] = useState<boolean>(false)
+  
   const itemsPerPage = 12
 
   const userRole = session?.user?.role
@@ -1456,6 +1471,68 @@ export default function OrderManagement() {
   const lastFetchTimeRef = useRef<string>(new Date().toISOString())
   const isMountedRef = useRef<boolean>(true)
 
+  // Function to check pending stock orders
+  const checkPendingStockOrders = useCallback(async () => {
+    try {
+      const response = await fetch('/api/order?all=true&status=COMPLETED')
+      if (!response.ok) throw new Error('Failed to fetch orders')
+      const data = await response.json()
+      
+      const pendingCount = (data.orders || []).filter(
+        (order: Order) => order.status === "COMPLETED" && !order.stockProcessed
+      ).length
+      
+      setPendingStockCount(pendingCount)
+      if (pendingCount > 0) {
+        setStockError(null)
+      }
+    } catch (error) {
+      console.error('Error checking pending stock:', error)
+      setStockError('Failed to check')
+    }
+  }, [])
+
+  // Function to trigger stock processing
+  const handleProcessStock = useCallback(async () => {
+    setProcessingStock(true)
+    setStockError(null)
+    
+    try {
+      const response = await fetch('/api/cron/process-stock', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        const processed = result.processedOrders || 0
+        const failed = result.failedOrders || 0
+        
+        if (processed > 0) {
+          toast.success(`✅ Successfully processed ${processed} orders!`)
+        }
+        if (failed > 0) {
+          toast.warning(`⚠️ ${failed} orders failed to process`)
+        }
+        if (processed === 0 && failed === 0) {
+          toast.info('No pending orders to process')
+        }
+        
+        setTimeout(() => checkPendingStockOrders(), 2000)
+      } else {
+        throw new Error(result.error || 'Processing failed')
+      }
+    } catch (error) {
+      console.error('Error processing stock:', error)
+      setStockError('Error')
+      toast.error('Failed to process stock. Please try again.')
+    } finally {
+      setProcessingStock(false)
+      setShowConfirmDialog(false)
+    }
+  }, [checkPendingStockOrders])
+
   useEffect(() => {
     isMountedRef.current = true
     return () => {
@@ -1465,6 +1542,15 @@ export default function OrderManagement() {
       }
     }
   }, [])
+
+  // Auto-refresh pending stock count every 30 seconds
+  useEffect(() => {
+    checkPendingStockOrders()
+    const interval = setInterval(() => {
+      checkPendingStockOrders()
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [checkPendingStockOrders])
 
   const fetchOrders = useCallback(
     async (showLoading = true) => {
@@ -1502,71 +1588,93 @@ export default function OrderManagement() {
     [itemsPerPage, isAdmin]
   )
 
-  const handleToggleItemUneditable = useCallback(
-    async (orderId: string, itemIndex: number, isUneditable: boolean) => {
-      try {
-        const response = await fetch(`/api/order`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderId,
-            action: "toggle-item-uneditable",
-            itemIndex,
-            isUneditable,
-            uneditableBy: session?.user?.name || session?.user?.email || "Unknown",
-          }),
-        })
-
-        if (!response.ok) throw new Error("Failed to update item status")
-
-        const data = await response.json()
-        toast.success(data.message || `Item marked as ${isUneditable ? "uneditable" : "editable"}`)
-
-        setOrders((prevOrders) =>
-          prevOrders.map((order) => {
-            if (order._id === orderId) {
-              const items = order.orderItems || order.items || []
-              const updatedItems = [...items]
-              if (updatedItems[itemIndex]) {
-                updatedItems[itemIndex] = {
-                  ...updatedItems[itemIndex],
-                  isUneditable,
-                  uneditableAt: isUneditable ? new Date().toISOString() : undefined,
-                  uneditableBy: isUneditable
-                    ? session?.user?.name || session?.user?.email
-                    : undefined,
-                }
-              }
-              return { ...order, items: updatedItems, orderItems: updatedItems }
-            }
-            return order
-          })
-        )
-
-        fetchOrders(false)
-      } catch (error) {
-        console.error("Error toggling item uneditable status:", error)
-        toast.error(error instanceof Error ? error.message : "Failed to update item status")
-      }
-    },
-    [fetchOrders, session]
-  )
-
-  const handleDeleteOrder = async (orderId: string) => {
-    if (!isAdmin) {
-      toast.error("Only administrators can delete orders")
-      return
-    }
+ const handleToggleItemUneditable = useCallback(
+  async (orderId: string, itemIndex: number, isUneditable: boolean) => {
+    console.log("🎯 FRONTEND: Toggling item:", { orderId, itemIndex, isUneditable });
+    
     try {
-      const response = await fetch(`/api/order/${orderId}`, { method: "DELETE" })
-      if (!response.ok) throw new Error("Failed to delete order")
-      toast.success("Order deleted successfully")
-      fetchOrders()
+      const response = await fetch(`/api/order`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          action: "toggle-item-uneditable",
+          itemIndex,
+          isUneditable,
+          uneditableBy: session?.user?.name || session?.user?.email || "Unknown",
+        }),
+      })
+
+      console.log("📡 API Response status:", response.status);
+      const data = await response.json();
+      console.log("📡 API Response data:", data);
+
+      if (!response.ok) throw new Error("Failed to update item status")
+
+      toast.success(data.message || `Item marked as ${isUneditable ? "uneditable" : "editable"}`)
+
+      // Update local state immediately for responsive UI
+      setOrders((prevOrders) =>
+        prevOrders.map((order) => {
+          if (order._id === orderId) {
+            const items = order.orderItems || order.items || []
+            const updatedItems = [...items]
+            if (updatedItems[itemIndex]) {
+              updatedItems[itemIndex] = {
+                ...updatedItems[itemIndex],
+                isUneditable,
+                uneditableAt: isUneditable ? new Date().toISOString() : undefined,
+                uneditableBy: isUneditable
+                  ? session?.user?.name || session?.user?.email
+                  : undefined,
+              }
+            }
+            console.log("🔄 Updating local order state for item", itemIndex, "to", isUneditable);
+            return { ...order, items: updatedItems, orderItems: updatedItems }
+          }
+          return order
+        })
+      )
+
+      // OPTION 1: Remove this line completely - local state update is enough
+      // fetchOrders(false)
+      
+      // OPTION 2: Add delay to ensure server has processed
+      // setTimeout(() => fetchOrders(false), 1000);
+      
+      // OPTION 3: Only fetch if you need to sync with server changes
+      // But add a delay to avoid race condition
+      setTimeout(() => fetchOrders(false), 500);
+      
     } catch (error) {
-      console.error("Error deleting order:", error)
-      toast.error("Failed to delete order")
+      console.error("❌ Error toggling item uneditable status:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update item status")
     }
+  },
+  [fetchOrders, session]
+)
+ const handleDeleteOrder = async (orderId: string) => {
+  if (!isAdmin) {
+    toast.error("Only administrators can delete orders")
+    return
   }
+  try {
+    // Call the main /api/order endpoint with query parameter instead of /api/order/${orderId}
+    const response = await fetch(`/api/order?id=${orderId}&reason=Admin deletion from UI`, { 
+      method: "DELETE" 
+    })
+    const data = await response.json()
+    
+    if (!response.ok) throw new Error(data.error || "Failed to delete order")
+    
+    toast.success(data.message || "Order deleted successfully")
+    // Refresh the orders list
+    fetchOrders()
+  } catch (error) {
+    console.error("Error deleting order:", error)
+    toast.error("Failed to delete order")
+  }
+}
 
   const handleMarkForDeletion = useCallback(
     async (orderId: string, reason: string) => {
@@ -1668,20 +1776,31 @@ export default function OrderManagement() {
   }, [fetchOrders, fetchWaitresses, pollNewOrders])
 
   const handleStatusUpdate = async (orderId: string, newStatus: OrderStatus) => {
-    try {
-      const response = await fetch(`/api/order/${orderId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      })
-      if (!response.ok) throw new Error("Failed to update order status")
-      toast.success("Order status updated successfully")
-      fetchOrders()
-    } catch (error) {
-      console.error("Error updating order status:", error)
-      toast.error("Failed to update order status")
+  try {
+    // Use the main /api/order endpoint instead of /api/order/${orderId}
+    const response = await fetch(`/api/order`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        orderId,  // Pass orderId in body
+        status: newStatus 
+      }),
+    })
+    if (!response.ok) throw new Error("Failed to update order status")
+    const data = await response.json()
+    toast.success(data.message || "Order status updated successfully")
+    
+    // Show additional info if order was completed
+    if (newStatus === "COMPLETED" && data.completedBy) {
+      toast.success(`Order completed by ${data.completedBy.name}`, { duration: 3000 })
     }
+    
+    fetchOrders()
+  } catch (error) {
+    console.error("Error updating order status:", error)
+    toast.error("Failed to update order status")
   }
+}
 
   const filteredAndSortedOrders = useMemo(() => {
     let filtered = orders.filter((order) => {
@@ -1827,6 +1946,32 @@ export default function OrderManagement() {
       </Badge>
     )
   }
+
+  // Confirmation Dialog Component
+  const StockConfirmDialog = () => (
+    <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Process Stock for {pendingStockCount} Orders?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will deduct stock quantities for {pendingStockCount} completed order(s).
+            This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setShowConfirmDialog(false)}>
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleProcessStock}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            Yes, Process Stock
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
 
   const filterBar = (
     <Card>
@@ -2161,7 +2306,7 @@ export default function OrderManagement() {
         </Alert>
       )}
 
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-4">
         <div className="flex items-center gap-3">
           <h1 className="text-3xl font-bold">Order Management</h1>
           <div className="flex items-center gap-1">
@@ -2190,9 +2335,46 @@ export default function OrderManagement() {
             )}
           </Badge>
         </div>
-        <Button onClick={() => fetchOrders(true)} variant="outline" size="icon" disabled={loading}>
-          <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </Button>
+        
+        <div className="flex items-center gap-2">
+          {/* Stock Processing Button - Only shows when pending orders exist */}
+          {pendingStockCount > 0 && !stockError && (
+            <Button
+              onClick={() => setShowConfirmDialog(true)}
+              disabled={processingStock}
+              variant="default"
+              className="relative bg-green-600 hover:bg-green-700 text-white gap-2"
+            >
+              {processingStock ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Package className="h-4 w-4" />
+                  Process Stock ({pendingStockCount})
+                </>
+              )}
+            </Button>
+          )}
+          
+          {/* Error State Button */}
+          {pendingStockCount > 0 && stockError === 'Error' && (
+            <Button
+              onClick={checkPendingStockOrders}
+              variant="destructive"
+              className="gap-2"
+            >
+              <AlertCircle className="h-4 w-4" />
+              Error - Retry
+            </Button>
+          )}
+          
+          <Button onClick={() => fetchOrders(true)} variant="outline" size="icon" disabled={loading}>
+            <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
 
       {filterBar}
@@ -2252,6 +2434,9 @@ export default function OrderManagement() {
           </PaginationItem>
         </PaginationContent>
       </Pagination>
+
+      {/* Stock Processing Confirmation Dialog */}
+      <StockConfirmDialog />
 
       <style jsx global>{`
         @keyframes progress {

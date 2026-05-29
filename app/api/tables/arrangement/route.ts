@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { auth } from '@/auth';
 import { TableArrangement, ITable } from '@/models/TableArrangement';
 import clientPromise from '@/lib/mongodb';
 import mongoose from 'mongoose';
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
   try {
     await ensureConnection();
     
-    const session = await getServerSession();
+    const session = await auth();
     const { searchParams } = new URL(req.url);
     const pathname = req.nextUrl.pathname;
     
@@ -208,7 +208,7 @@ export async function POST(req: NextRequest) {
   try {
     await ensureConnection();
     
-    const session = await getServerSession();
+    const session = await auth();
     
     if (!session?.user?.email) {
       return NextResponse.json(
@@ -342,7 +342,7 @@ export async function PATCH(req: NextRequest) {
   try {
     await ensureConnection();
     
-    const session = await getServerSession();
+    const session = await auth();
     
     const body = await req.json();
     const { 
@@ -682,7 +682,7 @@ export async function DELETE(req: NextRequest) {
   try {
     await ensureConnection();
     
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' }, 
@@ -793,7 +793,7 @@ export async function PUT(req: NextRequest) {
   try {
     await ensureConnection();
     
-    const session = await getServerSession();
+    const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' }, 

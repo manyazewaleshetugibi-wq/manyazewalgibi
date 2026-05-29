@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { DeliveryOrderSchema } from "@/models/DeliveryOrders";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/[...nextauth]/auth";
+
+import { auth } from "@/auth";
 
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
 const CLOUDINARY_PHOTO_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
     // Validate that items are present in the request body
     if (!body.items || !Array.isArray(body.items) || body.items.length === 0) {

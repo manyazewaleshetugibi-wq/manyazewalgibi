@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { 
@@ -14,7 +15,8 @@ import {
   LineChart as LineChartIcon,
   BarChart as BarChartIcon,
   RefreshCcw,
-  Wallet
+  Wallet,
+  Calendar
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -33,8 +35,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
-import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, isWithinInterval, eachDayOfInterval, isSameDay } from "date-fns"
+import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, isWithinInterval, eachDayOfInterval, isSameDay, setDay } from "date-fns"
 import {
   ResponsiveContainer,
   LineChart,
@@ -147,6 +150,17 @@ interface SalesData {
   orders: Order[]
 }
 
+// Day of week options
+const DAYS_OF_WEEK = [
+  { value: "monday", label: "Monday", dayIndex: 1 },
+  { value: "tuesday", label: "Tuesday", dayIndex: 2 },
+  { value: "wednesday", label: "Wednesday", dayIndex: 3 },
+  { value: "thursday", label: "Thursday", dayIndex: 4 },
+  { value: "friday", label: "Friday", dayIndex: 5 },
+  { value: "saturday", label: "Saturday", dayIndex: 6 },
+  { value: "sunday", label: "Sunday", dayIndex: 0 },
+]
+
 // API Functions
 async function fetchSalesData(): Promise<SalesData> {
   const response = await fetch("/api/order/report")
@@ -211,9 +225,9 @@ function exportToExcel(data: any[], filename: string) {
   XLSX.writeFile(workbook, `${filename}.xlsx`)
 }
 
-type DateFilterType = 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'custom' | 'all'
+type DateFilterType = 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'custom' | 'all' | 'dayOfWeek'
 
-function getDateRange(type: DateFilterType, customStart?: Date, customEnd?: Date) {
+function getDateRange(type: DateFilterType, customStart?: Date, customEnd?: Date, selectedDayOfWeek?: number) {
   const now = new Date()
   let start: Date
   let end: Date
@@ -240,6 +254,23 @@ function getDateRange(type: DateFilterType, customStart?: Date, customEnd?: Date
       start = startOfYear(now)
       end = endOfYear(now)
       break
+    case 'dayOfWeek':
+      if (selectedDayOfWeek !== undefined) {
+        // Get the most recent occurrence of the selected day of week
+        const targetDate = setDay(now, selectedDayOfWeek)
+        // If the target date is in the future, go back 7 days
+        if (targetDate > now) {
+          targetDate.setDate(targetDate.getDate() - 7)
+        }
+        start = new Date(targetDate)
+        start.setHours(0, 0, 0, 0)
+        end = new Date(targetDate)
+        end.setHours(23, 59, 59, 999)
+      } else {
+        start = new Date(now.setHours(0, 0, 0, 0))
+        end = new Date(now.setHours(23, 59, 59, 999))
+      }
+      break
     case 'custom':
       start = customStart || new Date(now.setHours(0, 0, 0, 0))
       end = customEnd || new Date(now.setHours(23, 59, 59, 999))
@@ -262,11 +293,14 @@ export default function ProfitPage() {
   const [commonExpenses, setCommonExpenses] = useState<CommonExpense[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [dateFilterType, setDateFilterType] = useState<DateFilterType>('month')
+  const [selectedDayOfWeek, setSelectedDayOfWeek] = useState<string>('')
   const [customStartDate, setCustomStartDate] = useState<Date | null>(null)
   const [customEndDate, setCustomEndDate] = useState<Date | null>(null)
   const [chartType, setChartType] = useState<'line' | 'bar'>('line')
   const [activeTab, setActiveTab] = useState("overview")
   const [showExpenseManager, setShowExpenseManager] = useState(false)
+  const [showMenuProfitability, setShowMenuProfitability] = useState(false)
+
 
   // Fetch data on component mount
   useEffect(() => {
@@ -339,6 +373,14 @@ export default function ProfitPage() {
     }
   }
 
+  const handleDayOfWeekChange = (dayOfWeek: string) => {
+    setSelectedDayOfWeek(dayOfWeek)
+    setDateFilterType('dayOfWeek')
+    // Reset custom dates when using day of week filter
+    setCustomStartDate(null)
+    setCustomEndDate(null)
+  }
+
   // Helper to calculate daily amount for a common expense - FIXED with safety check
   const getDailyAmount = (expense: CommonExpense | undefined, date: Date) => {
     // Add safety check for undefined expense
@@ -376,7 +418,24 @@ export default function ProfitPage() {
       }
     }
 
-    const { start, end } = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+    let start: Date, end: Date;
+    
+    if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
+      const dayConfig = DAYS_OF_WEEK.find(d => d.value === selectedDayOfWeek)
+      if (dayConfig) {
+        const range = getDateRange('dayOfWeek', undefined, undefined, dayConfig.dayIndex)
+        start = range.start
+        end = range.end
+      } else {
+        const range = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+        start = range.start
+        end = range.end
+      }
+    } else {
+      const range = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+      start = range.start
+      end = range.end
+    }
     
     // Filter orders by date
     const filteredOrders = salesData.orders.filter(order => {
@@ -421,6 +480,9 @@ export default function ProfitPage() {
         ...Object.keys(regularExpensesByDate)
       ])
       datesToProcess = Array.from(allDataDates).sort().map(d => new Date(d))
+    } else if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
+      // For day of week, only process that specific day
+      datesToProcess = [start]
     } else {
       // For specific ranges, generate all days in the interval
       datesToProcess = eachDayOfInterval({ start, end })
@@ -524,7 +586,7 @@ export default function ProfitPage() {
       .slice(0, 8)
 
     return { dailyProfit, metrics, categoryData }
-  }, [salesData, regularExpenses, commonExpenses, dateFilterType, customStartDate, customEndDate])
+  }, [salesData, regularExpenses, commonExpenses, dateFilterType, customStartDate, customEndDate, selectedDayOfWeek])
 
   const handleExport = () => {
     if (!filteredData.dailyProfit.length) return
@@ -551,6 +613,25 @@ export default function ProfitPage() {
       currency: 'ETB',
       minimumFractionDigits: 2
     }).format(value)
+  }
+
+  // Get display text for date range
+  const getDateRangeDisplayText = () => {
+    if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
+      const dayConfig = DAYS_OF_WEEK.find(d => d.value === selectedDayOfWeek)
+      const range = getDateRange('dayOfWeek', undefined, undefined, dayConfig?.dayIndex)
+      return `${dayConfig?.label} - ${format(range.start, 'PPP')}`
+    }
+    if (dateFilterType === 'custom' && customStartDate && customEndDate) {
+      return `${format(customStartDate, 'PPP')} - ${format(customEndDate, 'PPP')}`
+    }
+    if (dateFilterType === 'today') return format(new Date(), 'PPP')
+    if (dateFilterType === 'yesterday') return format(subDays(new Date(), 1), 'PPP')
+    if (dateFilterType === 'week') return `Week of ${format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'MMM dd')}`
+    if (dateFilterType === 'month') return format(new Date(), 'MMMM yyyy')
+    if (dateFilterType === 'year') return format(new Date(), 'yyyy')
+    if (dateFilterType === 'all') return 'All Time'
+    return `${filteredData.dailyProfit.length} days`
   }
 
   if (isLoading) {
@@ -591,6 +672,24 @@ export default function ProfitPage() {
               <span className="hidden sm:inline">Manage Common Expenses</span>
               <span className="inline sm:hidden">Expenses</span>
             </Button>
+  
+
+
+  <Button 
+  variant="outline" 
+  onClick={() => setShowMenuProfitability(true)}
+  className="flex-1 sm:flex-none"
+>
+  <DollarSign className="mr-2 h-4 w-4" />
+  <span className="hidden sm:inline">Menu Balance</span>
+  <span className="inline sm:hidden">Menu</span>
+</Button>
+
+    
+
+
+
+
             <Button onClick={handleRefresh} variant="outline" size="icon">
               <RefreshCcw className="h-4 w-4" />
             </Button>
@@ -611,7 +710,7 @@ export default function ProfitPage() {
                 Date Range
               </CardTitle>
               <div className="text-sm text-muted-foreground">
-                {filteredData.dailyProfit.length} days of data
+                {getDateRangeDisplayText()} • {filteredData.dailyProfit.length} days of data
               </div>
             </div>
           </CardHeader>
@@ -621,49 +720,98 @@ export default function ProfitPage() {
                 <Button
                   variant={dateFilterType === 'today' ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setDateFilterType('today')}
+                  onClick={() => {
+                    setDateFilterType('today')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
                 >
                   Today
                 </Button>
                 <Button
                   variant={dateFilterType === 'yesterday' ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setDateFilterType('yesterday')}
+                  onClick={() => {
+                    setDateFilterType('yesterday')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
                 >
                   Yesterday
                 </Button>
                 <Button
                   variant={dateFilterType === 'week' ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setDateFilterType('week')}
+                  onClick={() => {
+                    setDateFilterType('week')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
                 >
                   This Week
                 </Button>
                 <Button
                   variant={dateFilterType === 'month' ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setDateFilterType('month')}
+                  onClick={() => {
+                    setDateFilterType('month')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
                 >
                   This Month
                 </Button>
                 <Button
                   variant={dateFilterType === 'year' ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setDateFilterType('year')}
+                  onClick={() => {
+                    setDateFilterType('year')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
                 >
                   This Year
                 </Button>
                 <Button
                   variant={dateFilterType === 'all' ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setDateFilterType('all')}
+                  onClick={() => {
+                    setDateFilterType('all')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
                 >
                   All Time
                 </Button>
+                
+                {/* Day of Week Dropdown */}
+                <Select value={selectedDayOfWeek} onValueChange={handleDayOfWeekChange}>
+                  <SelectTrigger className="w-[140px]">
+                    <Calendar className="h-4 w-4 mr-2" />
+                    <SelectValue placeholder="Select Day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DAYS_OF_WEEK.map((day) => (
+                      <SelectItem key={day.value} value={day.value}>
+                        {day.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
                 <Button
                   variant={dateFilterType === 'custom' ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setDateFilterType('custom')}
+                  onClick={() => {
+                    setDateFilterType('custom')
+                    setSelectedDayOfWeek('')
+                  }}
                 >
                   Custom Range
                 </Button>
@@ -681,7 +829,7 @@ export default function ProfitPage() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0">
-                        <Calendar
+                        <CalendarComponent
                           mode="single"
                           selected={customStartDate || undefined}
                           onSelect={setCustomStartDate}
@@ -700,7 +848,7 @@ export default function ProfitPage() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0">
-                        <Calendar
+                        <CalendarComponent
                           mode="single"
                           selected={customEndDate || undefined}
                           onSelect={setCustomEndDate}
@@ -1109,6 +1257,7 @@ export default function ProfitPage() {
           />
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }

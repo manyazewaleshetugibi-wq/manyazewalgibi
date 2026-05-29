@@ -2,8 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/auth";
+
+import { auth } from "@/auth";
 
 // Debug flag
 const DEBUG = true;
@@ -21,7 +21,7 @@ function debugError(message: string, error: any) {
 // GET: Fetch orders for reports with filtering by date and waiter
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session || !session.user) {
       return NextResponse.json(
@@ -379,7 +379,7 @@ export async function GET(req: NextRequest) {
 // POST: Export reports in different formats
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session || !session.user) {
       return NextResponse.json(

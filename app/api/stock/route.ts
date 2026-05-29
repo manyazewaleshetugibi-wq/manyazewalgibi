@@ -4,7 +4,6 @@ import { StockSchema } from "@/models/Stock";
 import { ObjectId } from "mongodb";
 import { createResponse } from "@/lib/utils";
 
-// ✅ GET all stocks
 export async function GET(req: NextRequest) {
   try {
     const client = await clientPromise;
@@ -18,7 +17,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ✅ POST: Add new stock
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();

@@ -32,6 +32,9 @@ import {
   UserSquare2Icon,
   User,
   Settings,
+  ChefHat,
+  ListChecks,
+  ClipboardCheck,
   
   SearchCheckIcon,
 } from "lucide-react";
@@ -63,6 +66,36 @@ const roleBasedNavigation = {
           { title: "stockReport", url: "/stockReport" },
         ],
       },
+
+     {
+  title: "steps-standards",
+  url: "#",
+  icon: ChefHat,  // Or ClipboardList, or FileText
+  items: [
+    { 
+      title: "steps-register", 
+      url: "/preparation/register",
+      icon: ListChecks  // For registration/form
+    },
+ { 
+      title: "steps-card", 
+      url: "/preparation",
+      icon: ListChecks  // For registration/form
+    },
+
+    { 
+      title: "standards-register", 
+      url: "/standards/register",
+      icon: ClipboardCheck  // Or FileCheck, or Standard
+    },
+     { 
+      title: "standards-cards", 
+      url: "/standards",
+      icon: ClipboardCheck  // Or FileCheck, or Standard
+    },
+  ],
+},
+
       {
         title: "Menu Management",
         url: "#",
@@ -70,6 +103,8 @@ const roleBasedNavigation = {
         items: [
           { title: "Items", url: "/items" },
           { title: "Item Categories", url: "/catagory" },
+          { title: "healthy-menu", url: "/healthy-menu" },
+          {title: "menu-profitability", url: "/menu-profitability"}
         ],
       },
       {
@@ -120,7 +155,8 @@ const roleBasedNavigation = {
       { name: "Expenses", url: "/expenses", icon: DollarSign },
       { name: "Feedback", url: "/feedback", icon: Pen },
       { name: "Waitress", url: "/waitress", icon: UserSquare2Icon },
-      {name: "search", url: "/search", icon: SearchCheckIcon}
+      {name: "search", url: "/search", icon: SearchCheckIcon},
+      {name: "daily-tasks", url: "/daily-tasks", icon: ListOrderedIcon }
     ],
   },
   KITCHEN: {
@@ -163,6 +199,9 @@ const roleBasedNavigation = {
     ],
     projects: [
       { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "preparation", url: "/preparation", icon: ChefHat },
+      { name: "standards", url: "/standards", icon: ClipboardCheck },
+      { name : "daily-tasks", url: "/daily-tasks", icon: ListOrderedIcon }
     ],
   },
   FB: {
@@ -174,13 +213,36 @@ const roleBasedNavigation = {
         items: [
           { title: "Items", url: "/items" },
           { title: "Item Categories", url: "/catagory" },
+          {title: "menu-profitability", url: "/menu-profitability"}
         ],
       },
+ {
+  title: "steps-standards",
+  url: "#",
+  icon: ChefHat,  // Or ClipboardList, or FileText
+  items: [
+    { 
+      title: "steps-register", 
+      url: "/preparation/register",
+      icon: ListChecks  // For registration/form
+    },
+    { 
+      title: "standards-register", 
+      url: "/standards/register",
+      icon: ClipboardCheck  // Or FileCheck, or Standard
+    },
+  ],
+},
     ],
+
     projects: [
       { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "preparation", url: "/preparation", icon: ChefHat },
+      { name: "standards", url: "/standards", icon: ClipboardCheck },
+      { name : "daily-tasks", url: "/daily-tasks", icon: ListOrderedIcon }
     ],
   },
+   
   MARKETING: {
     navMain: [
       {
@@ -196,6 +258,9 @@ const roleBasedNavigation = {
     projects: [
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Feedback", url: "/feedback", icon: Pen },
+      { name: "standards", url: "/standards", icon: ClipboardCheck },
+     { name : "daily-tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+
     ],
   },
   FINANCE: {
@@ -208,6 +273,7 @@ const roleBasedNavigation = {
           { title: "Stock", url: "/stock" },
           { title: "Categories", url: "/scategory" },
           { title: "stockReport", url: "/stockReport" },
+          { title : "purchase-request", url: "/purchase-request" }
         ],
       },
       {
@@ -224,6 +290,9 @@ const roleBasedNavigation = {
     projects: [
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Expenses", url: "/expenses", icon: DollarSign },
+      { name: "standards", url: "/standards", icon: ClipboardCheck },
+            { name : "daily-tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+
     ],
   },
   STOCK_MANAGER: {
@@ -236,11 +305,14 @@ const roleBasedNavigation = {
           { title: "Stock", url: "/stock" },
           { title: "Categories", url: "/scategory" },
           { title: "stockReport", url: "/stockReport" },
+          { title : "purchase-request", url: "/purchase-request" }
         ],
       },
     ],
     projects: [
       { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "standards", url: "/standards", icon: ClipboardCheck },
+      { name : "daily-tasks", url: "/daily-tasks", icon: ListOrderedIcon }
     ],
   },
   POS: {
@@ -268,6 +340,8 @@ const roleBasedNavigation = {
     projects: [
       { name: "POS", url: "/pos", icon: SquareTerminal },
       { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "standards", url: "/standards", icon: ClipboardCheck },
+      { name : "daily-tasks", url: "/daily-tasks", icon: ListOrderedIcon }
     ],
   },
   // Add a default/fallback role configuration
@@ -283,7 +357,7 @@ const roleBasedNavigation = {
 const data = {
   user: {
     name: "Manyazewal Gibi",
-    email: "Manyazewl Eshetu Gibi",
+    email: "Manyazewal Eshetu Gibi",
     avatar: "/man_logo.jpg",
   },
   teams: [

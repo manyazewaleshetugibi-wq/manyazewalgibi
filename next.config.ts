@@ -3,9 +3,8 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  // ⚠️ 'eslint' config removed - no longer supported in next.config.ts
+  // Move ESLint configuration to .eslintrc.json or eslint.config.js
   images: {
     remotePatterns: [
       {
@@ -35,8 +34,6 @@ const nextConfig = {
   // Optional: Enable React Strict Mode (recommended)
   reactStrictMode: true,
   
- 
-  
   // Important for API routes in Netlify
   async headers() {
     return [
@@ -54,4 +51,3 @@ const nextConfig = {
 }
 
 module.exports = nextConfig;
-// module.exports

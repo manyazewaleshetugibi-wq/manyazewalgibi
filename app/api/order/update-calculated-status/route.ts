@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/auth";
+
+import { auth } from "@/auth";
 
 export async function PATCH(request: NextRequest) {
   try {
     console.log('=== API: update-calculated-status called ===');
     
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session || !session.user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },

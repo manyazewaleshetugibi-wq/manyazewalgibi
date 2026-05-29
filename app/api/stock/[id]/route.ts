@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
-import { StockSchema } from "@/models/Stock";
+import { StockSchema, ReorderFrequencyEnum } from "@/models/Stock";
 import { ObjectId } from "mongodb";
 import { createResponse } from "@/lib/utils";
 
-// ✅ GET Stock by ID
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -28,7 +27,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-// ✅ PUT (Update Stock by ID)
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -37,15 +35,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const body = await req.json();
-    const { name, categoryId, unit, minimumStock, currentStock, currentUnitPrice, isActive } = body;
+    const { name, categoryId, unit, minimumStock, currentStock, currentUnitPrice, reorderFrequency, requiredAmount, isActive } = body;
 
-    const updateData = {
+    // Validate: currentStock must equal requiredAmount for manual updates
+    if (requiredAmount > 0 && currentStock !== requiredAmount) {
+      return createResponse(400, false, `Current stock (${currentStock}) must equal required amount (${requiredAmount}) when manually updating`, null);
+    }
+
+    const updateData: any = {
       ...(name && { name }),
       ...(categoryId && { categoryId }),
       ...(unit && { unit }),
       ...(minimumStock !== undefined && { minimumStock }),
       ...(currentStock !== undefined && { currentStock }),
       ...(currentUnitPrice !== undefined && { currentUnitPrice }),
+      ...(reorderFrequency && ReorderFrequencyEnum.parse(reorderFrequency) && { reorderFrequency }),
+      ...(requiredAmount !== undefined && { requiredAmount }),
       ...(isActive !== undefined && { isActive }),
       updatedAt: new Date(),
     };
@@ -68,7 +73,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-// ✅ DELETE (Remove Stock by ID)
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;

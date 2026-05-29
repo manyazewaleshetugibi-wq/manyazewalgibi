@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../auth/[...nextauth]/auth';
+// ✅ NEW - Use this
+import { auth } from '@/auth';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
 
@@ -282,7 +282,7 @@ export async function GET(
   console.log(`[API] Fetching orders request for ID: ${params.id}`);
 
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session || !session.user) {
       console.log('[API] Unauthorized: No session found');
@@ -542,7 +542,7 @@ export async function POST(
 ) {
   const params = await props.params;
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session || !session.user) {
       return NextResponse.json(
@@ -781,7 +781,7 @@ export async function PUT(
 ) {
   const params = await props.params;
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session || !session.user) {
       return NextResponse.json(
@@ -1151,7 +1151,7 @@ export async function DELETE(
 ) {
   const params = await props.params;
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session || !session.user) {
       return NextResponse.json(
@@ -1244,7 +1244,7 @@ export async function PATCH(
 ) {
   const params = await props.params;
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session || !session.user) {
       return NextResponse.json(

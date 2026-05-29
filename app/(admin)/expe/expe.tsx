@@ -20,7 +20,8 @@ import {
   TrendingDown,
   Calculator,
   FileSpreadsheet,
-  Route
+  Route,
+  Calendar
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -52,12 +53,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO } from "date-fns"
+import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, setDay } from "date-fns"
 import { ArrowDown, ArrowUp, CalendarIcon } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
+import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import {
   Accordion,
   AccordionContent,
@@ -109,7 +110,18 @@ interface DailyBalance {
   pendingCount: number
 }
 
-type DateFilterType = 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'custom' | 'all'
+type DateFilterType = 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'custom' | 'all' | 'dayOfWeek'
+
+// Day of week options
+const DAYS_OF_WEEK = [
+  { value: "monday", label: "Monday", dayIndex: 1 },
+  { value: "tuesday", label: "Tuesday", dayIndex: 2 },
+  { value: "wednesday", label: "Wednesday", dayIndex: 3 },
+  { value: "thursday", label: "Thursday", dayIndex: 4 },
+  { value: "friday", label: "Friday", dayIndex: 5 },
+  { value: "saturday", label: "Saturday", dayIndex: 6 },
+  { value: "sunday", label: "Sunday", dayIndex: 0 },
+]
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D"]
 
@@ -177,7 +189,7 @@ function exportBalanceToExcel(data: DailyBalance[], filename: string) {
   XLSX.writeFile(workbook, `${filename}.xlsx`)
 }
 
-function getDateRange(type: DateFilterType, customStart?: Date, customEnd?: Date) {
+function getDateRange(type: DateFilterType, customStart?: Date, customEnd?: Date, selectedDayOfWeek?: number) {
   const now = new Date()
   let start: Date
   let end: Date
@@ -204,6 +216,23 @@ function getDateRange(type: DateFilterType, customStart?: Date, customEnd?: Date
       start = startOfYear(now)
       end = endOfYear(now)
       break
+    case 'dayOfWeek':
+      if (selectedDayOfWeek !== undefined) {
+        // Get the most recent occurrence of the selected day of week
+        const targetDate = setDay(now, selectedDayOfWeek)
+        // If the target date is in the future, go back 7 days
+        if (targetDate > now) {
+          targetDate.setDate(targetDate.getDate() - 7)
+        }
+        start = new Date(targetDate)
+        start.setHours(0, 0, 0, 0)
+        end = new Date(targetDate)
+        end.setHours(23, 59, 59, 999)
+      } else {
+        start = new Date(now.setHours(0, 0, 0, 0))
+        end = new Date(now.setHours(23, 59, 59, 999))
+      }
+      break
     case 'custom':
       start = customStart || new Date(now.setHours(0, 0, 0, 0))
       end = customEnd || new Date(now.setHours(23, 59, 59, 999))
@@ -228,6 +257,7 @@ export default function ExpensesPage() {
   const [filterPriority, setFilterPriority] = useState("all")
   const [filterStatus, setFilterStatus] = useState("all")
   const [dateFilterType, setDateFilterType] = useState<DateFilterType>('all')
+  const [selectedDayOfWeek, setSelectedDayOfWeek] = useState<string>('')
   const [customStartDate, setCustomStartDate] = useState<Date | null>(null)
   const [customEndDate, setCustomEndDate] = useState<Date | null>(null)
   const [sortBy, setSortBy] = useState<keyof Expense>("date")
@@ -260,39 +290,66 @@ export default function ExpensesPage() {
     loadData()
   }, [])
 
+  const handleDayOfWeekChange = (dayOfWeek: string) => {
+    setSelectedDayOfWeek(dayOfWeek)
+    setDateFilterType('dayOfWeek')
+    // Reset custom dates when using day of week filter
+    setCustomStartDate(null)
+    setCustomEndDate(null)
+  }
+
   // Calculate daily balances
   useEffect(() => {
-    const { start, end } = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+    let start: Date, end: Date;
+    
+    if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
+      const dayConfig = DAYS_OF_WEEK.find(d => d.value === selectedDayOfWeek)
+      if (dayConfig) {
+        const range = getDateRange('dayOfWeek', undefined, undefined, dayConfig.dayIndex)
+        start = range.start
+        end = range.end
+      } else {
+        const range = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+        start = range.start
+        end = range.end
+      }
+    } else {
+      const range = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+      start = range.start
+      end = range.end
+    }
     
     // Group expenses by date
     const expensesByDate: Record<string, { paid: number; pending: number; count: number; paidCount: number; pendingCount: number }> = {}
     
     expenses.forEach(expense => {
-      const date = format(new Date(expense.date), 'yyyy-MM-dd')
-      if (!expensesByDate[date]) {
-        expensesByDate[date] = { paid: 0, pending: 0, count: 0, paidCount: 0, pendingCount: 0 }
-      }
-      expensesByDate[date].count++
-      if (expense.status === "Paid") {
-        expensesByDate[date].paid += expense.amount
-        expensesByDate[date].paidCount++
-      } else if (expense.status === "Pending") {
-        expensesByDate[date].pending += expense.amount
-        expensesByDate[date].pendingCount++
+      const expenseDate = new Date(expense.date)
+      if (expenseDate >= start && expenseDate <= end) {
+        const date = format(expenseDate, 'yyyy-MM-dd')
+        if (!expensesByDate[date]) {
+          expensesByDate[date] = { paid: 0, pending: 0, count: 0, paidCount: 0, pendingCount: 0 }
+        }
+        expensesByDate[date].count++
+        if (expense.status === "Paid") {
+          expensesByDate[date].paid += expense.amount
+          expensesByDate[date].paidCount++
+        } else if (expense.status === "Pending") {
+          expensesByDate[date].pending += expense.amount
+          expensesByDate[date].pendingCount++
+        }
       }
     })
 
     // Create balances for dates that have either cash entries or expenses
     const allDates = new Set([
-      ...dailyCashEntries.map(entry => entry.date),
+      ...dailyCashEntries.filter(entry => {
+        const entryDate = new Date(entry.date)
+        return entryDate >= start && entryDate <= end
+      }).map(entry => entry.date),
       ...Object.keys(expensesByDate)
     ])
 
     const balances: DailyBalance[] = Array.from(allDates)
-      .filter(date => {
-        const dateObj = new Date(date)
-        return dateObj >= start && dateObj <= end
-      })
       .map(date => {
         const cashEntry = dailyCashEntries.find(entry => entry.date === date)
         const expenseData = expensesByDate[date] || { paid: 0, pending: 0, count: 0, paidCount: 0, pendingCount: 0 }
@@ -323,10 +380,27 @@ export default function ExpensesPage() {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
     setDailyBalances(balances)
-  }, [expenses, dailyCashEntries, dateFilterType, customStartDate, customEndDate])
+  }, [expenses, dailyCashEntries, dateFilterType, customStartDate, customEndDate, selectedDayOfWeek])
 
   const getFilteredExpenses = useMemo(() => {
-    const { start, end } = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+    let start: Date, end: Date;
+    
+    if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
+      const dayConfig = DAYS_OF_WEEK.find(d => d.value === selectedDayOfWeek)
+      if (dayConfig) {
+        const range = getDateRange('dayOfWeek', undefined, undefined, dayConfig.dayIndex)
+        start = range.start
+        end = range.end
+      } else {
+        const range = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+        start = range.start
+        end = range.end
+      }
+    } else {
+      const range = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+      start = range.start
+      end = range.end
+    }
     
     return expenses.filter((expense) => {
       const expenseDate = new Date(expense.date)
@@ -344,7 +418,7 @@ export default function ExpensesPage() {
       if (a[sortBy] > b[sortBy]) return sortOrder === "asc" ? 1 : -1
       return 0
     })
-  }, [expenses, filterCategory, filterPriority, filterStatus, dateFilterType, customStartDate, customEndDate, searchTerm, sortBy, sortOrder])
+  }, [expenses, filterCategory, filterPriority, filterStatus, dateFilterType, customStartDate, customEndDate, searchTerm, sortBy, sortOrder, selectedDayOfWeek])
 
   useEffect(() => {
     setFilteredExpenses(getFilteredExpenses)
@@ -371,6 +445,8 @@ export default function ExpensesPage() {
         setCustomStartDate(new Date(now.setHours(0, 0, 0, 0)))
         setCustomEndDate(new Date(now.setHours(23, 59, 59, 999)))
       }
+    } else if (type !== 'dayOfWeek') {
+      setSelectedDayOfWeek('')
     }
   }
 
@@ -417,6 +493,8 @@ export default function ExpensesPage() {
 
   const getChartData = () => {
     const dailyData: Record<string, { total: number; paid: number; pending: number }> = {}
+    
+    // Use filteredExpenses which already has date filter applied
     filteredExpenses.forEach(expense => {
       const date = format(new Date(expense.date), 'MMM dd')
       if (!dailyData[date]) {
@@ -432,7 +510,12 @@ export default function ExpensesPage() {
     
     return Object.entries(dailyData)
       .map(([date, amounts]) => ({ date, ...amounts }))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .sort((a, b) => {
+        // Sort by date
+        const dateA = new Date(a.date)
+        const dateB = new Date(b.date)
+        return dateA.getTime() - dateB.getTime()
+      })
   }
 
   const getCategoryData = (status?: 'Paid' | 'Pending') => {
@@ -481,6 +564,25 @@ export default function ExpensesPage() {
   const statusBreakdownData = getStatusBreakdownData()
   const balanceChartData = getBalanceChartData()
   const pieChartData = categoryData
+
+  // Get display text for date range
+  const getDateRangeDisplayText = () => {
+    if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
+      const dayConfig = DAYS_OF_WEEK.find(d => d.value === selectedDayOfWeek)
+      const range = getDateRange('dayOfWeek', undefined, undefined, dayConfig?.dayIndex)
+      return `${dayConfig?.label} - ${format(range.start, 'PPP')}`
+    }
+    if (dateFilterType === 'custom' && customStartDate && customEndDate) {
+      return `${format(customStartDate, 'PPP')} - ${format(customEndDate, 'PPP')}`
+    }
+    if (dateFilterType === 'today') return format(new Date(), 'PPP')
+    if (dateFilterType === 'yesterday') return format(subDays(new Date(), 1), 'PPP')
+    if (dateFilterType === 'week') return `Week of ${format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'MMM dd')}`
+    if (dateFilterType === 'month') return format(new Date(), 'MMMM yyyy')
+    if (dateFilterType === 'year') return format(new Date(), 'yyyy')
+    if (dateFilterType === 'all') return 'All Time'
+    return `${dailyBalances.length} days`
+  }
 
   const columns = [
     { accessorKey: "title", header: "Title" },
@@ -693,7 +795,7 @@ export default function ExpensesPage() {
                 Date Range Filter
               </CardTitle>
               <div className="text-sm text-muted-foreground">
-                Showing {filteredExpenses.length} expenses & {dailyBalances.length} days with cash
+                {getDateRangeDisplayText()} • {filteredExpenses.length} expenses & {dailyBalances.length} days with cash
               </div>
             </div>
           </CardHeader>
@@ -742,6 +844,22 @@ export default function ExpensesPage() {
                 >
                   This Year
                 </Button>
+                
+                {/* Day of Week Dropdown */}
+                <Select value={selectedDayOfWeek} onValueChange={handleDayOfWeekChange}>
+                  <SelectTrigger className="w-[140px]">
+                    <Calendar className="h-4 w-4 mr-2" />
+                    <SelectValue placeholder="Select Day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DAYS_OF_WEEK.map((day) => (
+                      <SelectItem key={day.value} value={day.value}>
+                        {day.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
                 <Button
                   variant={dateFilterType === 'custom' ? "default" : "outline"}
                   size="sm"
@@ -766,7 +884,7 @@ export default function ExpensesPage() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0">
-                        <Calendar
+                        <CalendarComponent
                           mode="single"
                           selected={customStartDate || undefined}
                           onSelect={setCustomStartDate}
@@ -788,7 +906,7 @@ export default function ExpensesPage() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0">
-                        <Calendar
+                        <CalendarComponent
                           mode="single"
                           selected={customEndDate || undefined}
                           onSelect={setCustomEndDate}
@@ -1449,11 +1567,25 @@ export default function ExpensesPage() {
                         </button>
                       </Badge>
                     )}
-                    {dateFilterType !== 'all' && (
+                    {dateFilterType !== 'all' && dateFilterType !== 'dayOfWeek' && (
                       <Badge variant="secondary" className="gap-1">
                         Date: {dateFilterType}
                         <button
                           onClick={() => setDateFilterType('all')}
+                          className="ml-1 rounded-full hover:bg-muted"
+                        >
+                          ×
+                        </button>
+                      </Badge>
+                    )}
+                    {dateFilterType === 'dayOfWeek' && selectedDayOfWeek && (
+                      <Badge variant="secondary" className="gap-1">
+                        Day: {DAYS_OF_WEEK.find(d => d.value === selectedDayOfWeek)?.label}
+                        <button
+                          onClick={() => {
+                            setDateFilterType('all')
+                            setSelectedDayOfWeek('')
+                          }}
                           className="ml-1 rounded-full hover:bg-muted"
                         >
                           ×
@@ -1479,6 +1611,7 @@ export default function ExpensesPage() {
                         setFilterPriority('all')
                         setFilterStatus('all')
                         setDateFilterType('all')
+                        setSelectedDayOfWeek('')
                         setSearchTerm('')
                         setCustomStartDate(null)
                         setCustomEndDate(null)
@@ -1605,8 +1738,7 @@ export default function ExpensesPage() {
                       tickFormatter={(value) => new Intl.NumberFormat('en-US', {
                         style: 'currency',
                         currency: 'ETB',
-                        minimumFractionDigits: 0
-                      }).format(value)}
+                        minimumFractionDigits: 0                      }).format(value)}
                     />
                     <YAxis type="category" dataKey="name" width={100} />
                     <Tooltip 

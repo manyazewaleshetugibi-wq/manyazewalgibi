@@ -63,15 +63,38 @@ export async function GET(req: NextRequest) {
     const restaurantId = url.searchParams.get("restaurantId");
     const after = url.searchParams.get("after");
     const action = url.searchParams.get("action");
-    const allParam = url.searchParams.get("all"); // New parameter for admin to see all orders
+    const allParam = url.searchParams.get("all");
+    const viewDeleted = url.searchParams.get("deleted") === "true";
+
+    // Get current user to determine role
+    const userData = await getCurrentUserData(req);
+    const isAdmin = isAdminRole(userData?.role);
 
     debugLog("GET request received (fast mode):", {
       orderId,
       status,
       action,
       allParam,
+      viewDeleted,
       pathname: url.pathname
     });
+
+    // View deleted orders (admin only)
+    if (viewDeleted && isAdmin) {
+      const deletedOrders = await db.collection("deleted_orders")
+        .find({})
+        .sort({ deletedAt: -1 })
+        .limit(100)
+        .toArray();
+      
+      return NextResponse.json({
+        success: true,
+        orders: deletedOrders,
+        count: deletedOrders.length,
+        message: "Retrieved deleted orders archive",
+        isArchive: true
+      }, { status: 200 });
+    }
 
     // Handle employee rankings request
     if (action === "employeeRank") {
@@ -114,23 +137,17 @@ export async function GET(req: NextRequest) {
       }, { status: 200 });
     }
 
-    // Get current user to determine role
-    const userData = await getCurrentUserData(req);
-    const isAdmin = isAdminRole(userData?.role);
-    
     // Determine time filter based on role and parameters
     let timeFilterHours: number | null = null;
     let cutoffTime: Date | null = null;
     let filterMessage: string = "";
     
     if (isAdmin && allParam === "true") {
-      // Admin with "all=true" - show all orders from last 24 hours
       timeFilterHours = 24;
       cutoffTime = new Date(Date.now() - timeFilterHours * 60 * 60 * 1000);
       filterMessage = `Admin view: Showing orders from last 24 hours (since ${cutoffTime.toISOString()})`;
       debugLog(`Admin mode: Showing orders from last ${timeFilterHours} hours`);
     } else {
-      // Regular user or admin without all=true - use existing filtering
       timeFilterHours = null;
       filterMessage = "Regular view: Showing non-completed orders + completed orders from last 2 hours";
       debugLog(`Regular mode: Using standard filtering`);
@@ -154,7 +171,6 @@ export async function GET(req: NextRequest) {
     }
 
     if (restaurantId) {
-      // If Manyazewal 1 is selected, include delivery orders as well
       if (restaurantId === "manyazewal1") {
         query.$or = [{ restaurantId: "manyazewal1" }, { delivery: true }];
       } else {
@@ -164,11 +180,8 @@ export async function GET(req: NextRequest) {
 
     // Apply different filtering based on user role
     if (isAdmin && allParam === "true") {
-      // ADMIN VIEW: Show all orders (pending, completed, etc.) from last 24 hours
-      // Apply time filter to all orders
       query.createdAt = { $gte: cutoffTime };
       
-      // Still enforce delivery order visibility rule
       const deliveryRestriction = {
         $or: [
           { delivery: { $ne: true } },
@@ -180,7 +193,6 @@ export async function GET(req: NextRequest) {
       };
       
       if (Object.keys(query).length > 0 && query.$or) {
-        // Handle existing $or from restaurant filter
         const existingOr = query.$or;
         delete query.$or;
         query.$and = [
@@ -192,8 +204,6 @@ export async function GET(req: NextRequest) {
         query = { $and: [query, deliveryRestriction] };
       }
     } else {
-      // REGULAR VIEW: Non-admin users or admin without all=true
-      // Filter out completed orders older than 2 hours
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       
       const completedFilter = {
@@ -212,7 +222,6 @@ export async function GET(req: NextRequest) {
         query = completedFilter;
       }
 
-      // Enforce delivery order visibility rule
       const deliveryRestriction = {
         $or: [
           { delivery: { $ne: true } },
@@ -448,12 +457,10 @@ export async function POST(req: NextRequest) {
         );
       }
       
-      // Calculate original price and tax if not provided
       const priceWithTax = Number(itemData.price);
       const priceWithoutTax = priceWithTax / 1.15;
       const itemTaxAmount = priceWithTax - priceWithoutTax;
       
-      // Use frontend values if available, otherwise calculate
       const quantity = Number(item.quantity) || 0;
       const itemSubtotal = item.subtotal || (priceWithoutTax * quantity);
       const itemTaxTotal = item.taxTotal || (itemTaxAmount * quantity);
@@ -471,7 +478,6 @@ export async function POST(req: NextRequest) {
         taxTotal: itemTaxTotal,
         total: itemTotal,
         notes: item.notes || "",
-        // Initialize uneditable fields for new items
         isUneditable: false,
         uneditableAt: null,
         uneditableBy: null
@@ -480,7 +486,6 @@ export async function POST(req: NextRequest) {
       processedItems.push(processedItem);
     }
 
-    // If frontend didn't send values, calculate them from processed items
     if (!subtotalAmount || subtotalAmount === 0) {
       subtotalAmount = processedItems.reduce((sum, item) => sum + item.subtotal, 0);
     }
@@ -491,13 +496,10 @@ export async function POST(req: NextRequest) {
       totalAmount = processedItems.reduce((sum, item) => sum + item.total, 0);
     }
 
-    // Calculate final amount
     const finalAmount = totalAmount + deliveryFee + packagingCharge - discount;
 
-    // Get current user data
     const userData = await getCurrentUserData(req);
 
-    // Log assignmentRequest if present
     if (body.assignmentRequest) {
       debugLog("✅ Assignment request detected:", {
         type: body.assignmentRequest.type,
@@ -507,7 +509,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Create the order object
     const orderData = {
       orderNumber,
       tableNumber: body.tableNumber || null,
@@ -542,7 +543,6 @@ export async function POST(req: NextRequest) {
       delivery: body.delivery || false,
       deliveryInfo: body.deliveryInfo || null,
       paymentScreenshotUrl: body.paymentScreenshotUrl || null,
-      // Mark for deletion fields (initial state)
       markedForDeletion: false,
       deletionRequestReason: null,
       deletionRequestedBy: null,
@@ -550,7 +550,6 @@ export async function POST(req: NextRequest) {
       deletedAt: null,
       deletedBy: null,
       deletionReason: null,
-      // Include assignmentRequest if it exists
       ...(body.assignmentRequest && {
         assignmentRequest: {
           status: body.assignmentRequest.status || 'pending',
@@ -596,22 +595,18 @@ export async function POST(req: NextRequest) {
       assignmentRequest: orderData.assignmentRequest
     });
 
-    // Insert order
     const result = await db.collection("orders").insertOne(orderData as any);
     const insertedOrder = await db.collection("orders").findOne({ _id: result.insertedId });
 
-    // Register who created the order (but NO points for creation - just tracking)
     if (userData && insertedOrder) {
       try {
         debugLog("📝 Tracking order creator:", userData.name);
         
-        // Register waitress as creator if order has waiter
         if (insertedOrder.waiterId) {
           debugLog("📝 Tracking waitress as creator...");
           await registerWaitressActivity(db, insertedOrder, 'created');
         }
         
-        // Mark order as having creator tracked
         await db.collection("orders").updateOne(
           { _id: result.insertedId },
           { $set: { creatorTracked: true, creatorTrackedAt: new Date() } }
@@ -662,83 +657,100 @@ export async function PATCH(req: NextRequest) {
 
     const { orderId, status, action, reason, requestedBy, requestedAt, itemIndex, isUneditable, uneditableBy } = body;
 
-    // Handle "toggle-item-uneditable" action (new)
-    if (action === "toggle-item-uneditable") {
-      if (!orderId || itemIndex === undefined) {
-        return NextResponse.json(
-          { success: false, error: "Order ID and item index are required" },
-          { status: 400 }
-        );
-      }
+   if (action === "toggle-item-uneditable") {
+  console.log("🔧 TOGGLE UNEDITABLE REQUEST:", { orderId, itemIndex, isUneditable, uneditableBy });
+  
+  if (!orderId || itemIndex === undefined) {
+    return NextResponse.json(
+      { success: false, error: "Order ID and item index are required" },
+      { status: 400 }
+    );
+  }
 
-      if (!ObjectId.isValid(orderId)) {
-        return NextResponse.json(
-          { success: false, error: "Valid order ID is required" },
-          { status: 400 }
-        );
-      }
+  if (!ObjectId.isValid(orderId)) {
+    return NextResponse.json(
+      { success: false, error: "Valid order ID is required" },
+      { status: 400 }
+    );
+  }
 
-      const userData = await getCurrentUserData(req);
-      const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
-      
-      if (!order) {
-        return NextResponse.json(
-          { success: false, error: "Order not found" },
-          { status: 404 }
-        );
-      }
+  const userData = await getCurrentUserData(req);
+  const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+  
+  console.log("📦 Current order items before update:", order?.items?.map((item: any, idx: number) => ({
+    index: idx,
+    isUneditable: item.isUneditable,
+    name: item.itemName
+  })));
+  
+  if (!order) {
+    return NextResponse.json(
+      { success: false, error: "Order not found" },
+      { status: 404 }
+    );
+  }
 
-      const items = order.items || [];
-      if (itemIndex < 0 || itemIndex >= items.length) {
-        return NextResponse.json(
-          { success: false, error: "Invalid item index" },
-          { status: 400 }
-        );
-      }
+  const items = order.items || [];
+  if (itemIndex < 0 || itemIndex >= items.length) {
+    console.log("❌ Invalid item index:", { itemIndex, itemsLength: items.length });
+    return NextResponse.json(
+      { success: false, error: "Invalid item index" },
+      { status: 400 }
+    );
+  }
 
-      const updateFields: any = {};
-      const itemPath = `items.${itemIndex}`;
-      
-      updateFields[`${itemPath}.isUneditable`] = isUneditable;
-      
-      if (isUneditable) {
-        updateFields[`${itemPath}.uneditableAt`] = new Date().toISOString();
-        updateFields[`${itemPath}.uneditableBy`] = uneditableBy || userData?.name || userData?.email || "Unknown";
-      } else {
-        updateFields[`${itemPath}.uneditableAt`] = null;
-        updateFields[`${itemPath}.uneditableBy`] = null;
-      }
-      
-      updateFields.updatedAt = new Date();
+  // FIXED: Use proper MongoDB dot notation and $set operator
+  const updateData: any = {};
+  const itemPath = `items.${itemIndex}`;
+  
+  updateData[`${itemPath}.isUneditable`] = isUneditable;
+  
+  if (isUneditable) {
+    updateData[`${itemPath}.uneditableAt`] = new Date().toISOString();
+    updateData[`${itemPath}.uneditableBy`] = uneditableBy || userData?.name || userData?.email || "Unknown";
+  } else {
+    updateData[`${itemPath}.uneditableAt`] = null;
+    updateData[`${itemPath}.uneditableBy`] = null;
+  }
+  
+  console.log("📝 Update data being sent to MongoDB:", updateData);
+  
+  const updateResult = await db.collection("orders").updateOne(
+    { _id: new ObjectId(orderId) },
+    { $set: updateData }
+  );
 
-      const updateResult = await db.collection("orders").updateOne(
-        { _id: new ObjectId(orderId) },
-        { $set: updateFields }
-      );
+  console.log("✅ Update result:", { 
+    matchedCount: updateResult.matchedCount, 
+    modifiedCount: updateResult.modifiedCount 
+  });
 
-      if (updateResult.matchedCount === 0) {
-        return NextResponse.json(
-          { success: false, error: "Order not found" },
-          { status: 404 }
-        );
-      }
+  if (updateResult.matchedCount === 0) {
+    return NextResponse.json(
+      { success: false, error: "Order not found" },
+      { status: 404 }
+    );
+  }
 
-      const updatedOrder = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
-      const updatedItems = updatedOrder?.items || [];
-      const allItemsUneditable = updatedItems.length > 0 && updatedItems.every((item: any) => item.isUneditable === true);
+  const updatedOrder = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+  const updatedItems = updatedOrder?.items || [];
+  
+  console.log("📦 Updated order items after update:", updatedItems.map((item: any, idx: number) => ({
+    index: idx,
+    isUneditable: item.isUneditable
+  })));
+  
+  const allItemsUneditable = updatedItems.length > 0 && updatedItems.every((item: any) => item.isUneditable === true);
 
-      debugLog(`📝 Item ${itemIndex} in order ${orderId} marked as ${isUneditable ? 'uneditable' : 'editable'} by ${updateFields[`${itemPath}.uneditableBy`] || userData?.name}`);
+  return NextResponse.json({
+    success: true,
+    message: isUneditable ? "Item marked as uneditable" : "Item marked as editable",
+    allItemsUneditable,
+    itemIndex,
+    isUneditable
+  }, { status: 200 });
+}
 
-      return NextResponse.json({
-        success: true,
-        message: isUneditable ? "Item marked as uneditable" : "Item marked as editable",
-        allItemsUneditable,
-        itemIndex,
-        isUneditable
-      }, { status: 200 });
-    }
-
-    // Handle "mark-for-deletion" action
     if (action === "mark-for-deletion") {
       if (!orderId || !reason) {
         return NextResponse.json(
@@ -756,7 +768,6 @@ export async function PATCH(req: NextRequest) {
 
       const userData = await getCurrentUserData(req);
       
-      // Update order with deletion request
       const updateResult = await db.collection("orders").updateOne(
         { _id: new ObjectId(orderId) },
         { 
@@ -777,13 +788,11 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      // Log the deletion request
       debugLog(`📝 Order ${orderId} marked for deletion by ${requestedBy || userData?.name}`, {
         reason,
         timestamp: new Date().toISOString()
       });
 
-      // Create a log entry in a separate collection for audit trail
       await db.collection("deletion_requests").insertOne({
         orderId: new ObjectId(orderId),
         reason: reason,
@@ -803,7 +812,6 @@ export async function PATCH(req: NextRequest) {
       }, { status: 200 });
     }
 
-    // Handle regular status update
     if (!orderId || !status) {
       return NextResponse.json(
         { success: false, error: "Invalid request. Provide orderId and status" },
@@ -830,7 +838,6 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Check if order already has completion registered (prevent duplicates)
     if (normalizedStatus === "completed" && order.completionRegistered) {
       debugLog(`⚠️ Order ${order.orderNumber} already has completion registered, skipping duplicate`);
       return NextResponse.json({
@@ -848,7 +855,6 @@ export async function PATCH(req: NextRequest) {
       updatedAt: new Date(),
     };
 
-    // Track if this is a completion
     const isCompleting = normalizedStatus === "completed" && !isOrderCompleted(order);
 
     if (normalizedStatus === "completed") {
@@ -865,7 +871,6 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // Update order status
     const updateResult = await db.collection("orders").updateOne(
       { _id: new ObjectId(orderId) },
       { $set: updateData }
@@ -887,7 +892,6 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Award points on completion
     if (normalizedStatus === "completed") {
       let completionResult = null;
       let waitressResult = null;
@@ -895,7 +899,6 @@ export async function PATCH(req: NextRequest) {
       try {
         debugLog(`🎯 AWARDING POINTS for completed order: ${updatedOrder.orderNumber}`);
         
-        // Award points to the user who completed the order
         if (userData) {
           debugLog(`📝 Awarding completion points to: ${userData.name} (ID: ${userData.id})`);
           completionResult = await registerOrderActivity(db, userData, updatedOrder, 'completed');
@@ -907,7 +910,6 @@ export async function PATCH(req: NextRequest) {
           }
         }
         
-        // Award points to waitress if order has waiter
         if (updatedOrder.waiterId) {
           debugLog(`📝 Awarding completion points to waitress for order ${updatedOrder.orderNumber}`);
           waitressResult = await registerWaitressActivity(db, updatedOrder, 'completed');
@@ -916,7 +918,6 @@ export async function PATCH(req: NextRequest) {
           }
         }
         
-        // Mark order as having completion registered
         await db.collection("orders").updateOne(
           { _id: new ObjectId(orderId) },
           { 
@@ -930,7 +931,6 @@ export async function PATCH(req: NextRequest) {
           }
         );
         
-        // Process stock in BACKGROUND
         setImmediate(async () => {
           try {
             const { processOrderStockUsage } = await import("../utils/stockHelpers");
@@ -998,13 +998,16 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// DELETE endpoint - Admin only, requires mark-for-deletion first or admin role
+
+
+// DELETE endpoint - Admin only - Moves order to deleted_orders collection and hard deletes from orders
 export async function DELETE(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
     const url = new URL(req.url);
     const orderId = url.searchParams.get("id");
+    const deletionReason = url.searchParams.get("reason") || "Admin deletion";
     
     if (!orderId) {
       return NextResponse.json(
@@ -1021,8 +1024,6 @@ export async function DELETE(req: NextRequest) {
     }
 
     const userData = await getCurrentUserData(req);
-    
-    // Check if user is admin using helper function
     const isAdmin = isAdminRole(userData?.role);
     
     if (!isAdmin) {
@@ -1032,7 +1033,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Check if order exists
+    // Check if order exists in orders collection
     const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
     
     if (!order) {
@@ -1042,71 +1043,143 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Log the deletion with reason if available
-    const deletionReason = url.searchParams.get("reason") || "Admin deletion";
-    
-    // Soft delete - mark as deleted instead of removing
-    const updateResult = await db.collection("orders").updateOne(
-      { _id: new ObjectId(orderId) },
-      { 
-        $set: { 
-          deletedAt: new Date(),
-          deletedBy: userData?.name || userData?.email || "Unknown Admin",
-          deletionReason: deletionReason,
-          isActive: false,
-          updatedAt: new Date()
-        } 
-      }
-    );
+    console.log(`📦 Starting deletion process for order: ${order.orderNumber}`);
 
-    if (updateResult.matchedCount === 0) {
-      return NextResponse.json(
-        { success: false, error: "Order not found" },
-        { status: 404 }
-      );
+    // STEP 1: Create a copy of the order for deleted_orders collection
+    const deletedOrderDocument = {
+      ...order,  // Copy all original order data
+      // Add deletion metadata
+      deletedAt: new Date(),
+      deletedBy: userData?.name || userData?.email || "Unknown Admin",
+      deletedByRole: userData?.role || "ADMIN",
+      deletionReason: deletionReason,
+      deletionMethod: "hard_delete",
+      originalOrderId: order._id,
+      originalOrderNumber: order.orderNumber,
+      deletedFromCollection: "orders",
+      movedToCollection: "deleted_orders",
+      // Ensure these fields reflect deletion state
+      isActive: false,
+      markedForDeletion: false,
+      deletionLogId: null  // Will be updated after log creation
+    };
+
+    // Remove the _id from the deleted document to let MongoDB create a new one
+    // But keep originalOrderId for reference
+    delete (deletedOrderDocument as any)._id;
+
+    console.log(`📋 Copying order to deleted_orders collection...`);
+
+    // STEP 2: Insert into deleted_orders collection
+    const insertResult = await db.collection("deleted_orders").insertOne(deletedOrderDocument);
+    
+    if (!insertResult.acknowledged) {
+      throw new Error("Failed to insert into deleted_orders collection");
     }
 
-    // Log deletion in audit collection
-    await db.collection("deletion_logs").insertOne({
+    console.log(`✅ Order copied to deleted_orders with ID: ${insertResult.insertedId}`);
+
+    // STEP 3: Create deletion log entry
+    const deletionLogEntry = {
       orderId: new ObjectId(orderId),
       orderNumber: order.orderNumber,
       deletedBy: userData?.name || userData?.email || "Unknown Admin",
       deletedByRole: userData?.role,
       deletionReason: deletionReason,
+      deletedOrderDocumentId: insertResult.insertedId,
       orderData: {
         orderNumber: order.orderNumber,
         finalAmount: order.finalAmount,
         status: order.status,
-        createdAt: order.createdAt
+        createdAt: order.createdAt,
+        itemsCount: order.items?.length || 0,
+        paymentMethod: order.paymentMethod,
+        customerName: order.customerName,
+        tableNumber: order.tableNumber
       },
-      deletedAt: new Date()
-    });
+      deletedAt: new Date(),
+      createdAt: new Date()
+    };
 
-    debugLog(`✅ Order ${order.orderNumber} deleted by admin ${userData?.name}`);
+    const logResult = await db.collection("deletion_logs").insertOne(deletionLogEntry);
+    console.log(`📝 Deletion log created with ID: ${logResult.insertedId}`);
+
+    // STEP 4: Update the deleted order with the log ID reference
+    await db.collection("deleted_orders").updateOne(
+      { _id: insertResult.insertedId },
+      { $set: { deletionLogId: logResult.insertedId } }
+    );
+
+    // STEP 5: Update related records (used_stock)
+    await db.collection("used_stock").updateMany(
+      { orderId: order._id },
+      { 
+        $set: { 
+          deletedWithOrder: true,
+          deletedAt: new Date(),
+          deletedBy: userData?.name,
+          deletedOrderId: insertResult.insertedId
+        } 
+      }
+    );
+    console.log(`📦 Updated ${await db.collection("used_stock").countDocuments({ orderId: order._id })} used_stock records`);
+
+    // STEP 6: Update deletion requests status if any
+    await db.collection("deletion_requests").updateMany(
+      { orderId: new ObjectId(orderId), status: "pending" },
+      { 
+        $set: { 
+          status: "approved",
+          approvedBy: userData?.name,
+          approvedAt: new Date(),
+          note: "Order permanently deleted by admin",
+          deletedOrderId: insertResult.insertedId
+        } 
+      }
+    );
+
+    // STEP 7: HARD DELETE from orders collection
+    const deleteResult = await db.collection("orders").deleteOne({ _id: new ObjectId(orderId) });
     
-    // If order was marked for deletion, also update that status
-    if (order.markedForDeletion) {
-      await db.collection("deletion_requests").updateOne(
-        { orderId: new ObjectId(orderId), status: "pending" },
-        { 
-          $set: { 
-            status: "approved",
-            approvedBy: userData?.name,
-            approvedAt: new Date()
-          } 
-        }
-      );
+    if (deleteResult.deletedCount === 0) {
+      throw new Error("Failed to delete order from orders collection");
     }
+
+    console.log(`🗑️ Order ${order.orderNumber} removed from orders collection`);
+
+    // Verify the deletion was successful
+    const orderStillExists = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+    const orderInDeleted = await db.collection("deleted_orders").findOne({ originalOrderId: order._id });
+
+    debugLog(`✅ SUCCESS: Order ${order.orderNumber} moved to deleted_orders and removed from orders`, {
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      deletedBy: userData?.name,
+      deletionReason,
+      deletedOrderDocumentId: insertResult.insertedId,
+      deletionLogId: logResult.insertedId,
+      removedFromOrders: !orderStillExists,
+      archivedInDeletedOrders: !!orderInDeleted
+    });
 
     return NextResponse.json({
       success: true,
-      message: `Order ${order.orderNumber} has been deleted`,
-      deletedAt: new Date().toISOString(),
-      deletedBy: userData?.name || "Unknown Admin"
+      message: `Order ${order.orderNumber} has been permanently deleted and moved to deleted_orders archive`,
+      data: {
+        orderNumber: order.orderNumber,
+        deletedAt: new Date().toISOString(),
+        deletedBy: userData?.name || "Unknown Admin",
+        deletionReason: deletionReason,
+        originalOrderId: order._id,
+        deletedOrderId: insertResult.insertedId,
+        deletionLogId: logResult.insertedId,
+        removedFromOrders: !orderStillExists,
+        archivedInDeletedOrders: !!orderInDeleted
+      }
     }, { status: 200 });
     
   } catch (error) {
-    debugError("Order deletion error:", error);
+    console.error("Order deletion error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
     return NextResponse.json(
       { 
@@ -1127,7 +1200,6 @@ export async function PUT(req: NextRequest) {
     const body = await req.json();
     const { action, orderId, userId, fixAll = false } = body;
 
-    // Action: Fix missing employee registration for specific order
     if (action === "fixMissingRegistration" && orderId) {
       if (!ObjectId.isValid(orderId)) {
         return NextResponse.json(
@@ -1147,7 +1219,6 @@ export async function PUT(req: NextRequest) {
 
       const results = [];
 
-      // Fix employee registration if missing
       if (order.completedBy && !order.completionRegistered) {
         const userData = {
           id: order.completedBy.userId,
@@ -1161,13 +1232,11 @@ export async function PUT(req: NextRequest) {
         results.push({ type: "employee", result: activityResult });
       }
 
-      // Fix waitress registration if missing
       if (order.waiterId && !order.waitressActivityRegistered) {
         const waitressResult = await registerWaitressActivity(db, order, 'completed');
         results.push({ type: "waitress", result: waitressResult });
       }
 
-      // Mark order as fixed
       await db.collection("orders").updateOne(
         { _id: new ObjectId(orderId) },
         { 
@@ -1187,7 +1256,6 @@ export async function PUT(req: NextRequest) {
       }, { status: 200 });
     }
 
-    // Action: Fix all missing registrations
     if (action === "fixAllMissingRegistrations" && fixAll) {
       const completedOrders = await db.collection("orders").find({
         status: { $regex: /^completed$/i },
@@ -1211,7 +1279,6 @@ export async function PUT(req: NextRequest) {
         try {
           let orderPoints = 0;
           
-          // Fix employee registration
           if (order.completedBy && order.completedBy.userId) {
             const userData = {
               id: order.completedBy.userId,
@@ -1234,7 +1301,6 @@ export async function PUT(req: NextRequest) {
             }
           }
 
-          // Fix waitress registration
           if (order.waiterId) {
             const waitressResult = await registerWaitressActivity(db, order, 'completed');
             if (waitressResult && isSuccessResult(waitressResult)) {
@@ -1251,7 +1317,6 @@ export async function PUT(req: NextRequest) {
           results.pointsAwarded += orderPoints;
           results.totalProcessed++;
 
-          // Mark order as fixed
           await db.collection("orders").updateOne(
             { _id: order._id },
             { 
@@ -1284,7 +1349,6 @@ export async function PUT(req: NextRequest) {
       }, { status: 200 });
     }
 
-    // Action: Recalculate employee points for specific employee
     if (action === "recalculatePoints" && userId) {
       const employee = await db.collection("employee_rank").findOne({ userId: userId });
       
@@ -1295,23 +1359,19 @@ export async function PUT(req: NextRequest) {
         );
       }
 
-      // Get all completed orders by this employee
       const completedOrders = await db.collection("orders").find({
         "completedBy.userId": userId,
         status: { $regex: /^completed$/i }
       }).toArray();
 
-      // Recalculate points
       let totalPoints = 0;
       let completedCount = 0;
 
       for (const order of completedOrders) {
         completedCount++;
         
-        // Base points for completion
         let points = 10;
         
-        // Bonus points for large orders
         const totalItems = order.items?.reduce((acc: number, item: any) => acc + (Number(item.quantity) || 0), 0) || 0;
         if (totalItems > 5) {
           points += Math.min(Math.floor(totalItems / 5), 15);
@@ -1320,7 +1380,6 @@ export async function PUT(req: NextRequest) {
         totalPoints += points;
       }
 
-      // Update employee record
       const updateResult = await db.collection("employee_rank").updateOne(
         { userId: userId },
         {

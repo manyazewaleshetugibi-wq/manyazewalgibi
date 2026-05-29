@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { useRouter } from "next/navigation"
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Package,
@@ -17,16 +18,21 @@ import {
   AlertCircle,
   ChevronLeft,
   DollarSign,
-  History,
   Utensils,
   List,
   Grid3x3,
   Clock,
   BarChart3,
-  Flame,
   AlertTriangle,
   CheckCircle2,
-  XCircle,
+  ChevronRight,
+  Loader2,
+  Beef,
+  Coffee,
+  Milk,
+  Apple,
+  Egg,
+  Wheat
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,25 +41,24 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   ResponsiveContainer,
   Tooltip,
-  Legend,
-  PieChart,
-  Pie,
-  Cell,
   BarChart,
   Bar,
   XAxis,
   YAxis,
   CartesianGrid,
+  Cell,
+  PieChart,
+  Pie,
+  Legend
 } from "recharts"
 import * as XLSX from "xlsx"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Separator } from "@/components/ui/separator"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { format } from "date-fns"
+import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import {
   Popover,
@@ -64,64 +69,37 @@ import { cn } from "@/lib/utils"
 import axios from "axios"
 
 // Types
-type OrderItem = {
-  itemId: string
-  itemName: string
-  quantity: number
-  unitPrice: number
-  itemPrice: number
-  subtotal: number
-  notes: string
-}
-
-type Order = {
-  _id: string
-  orderNumber: string
-  items: OrderItem[]
-  finalAmount: number
-  createdAt: string
-  status: string
-}
-
-type Stock = {
-  _id: string
-  name: string
-  category: string
-  unit: string
-  currentStock: number
-  minimumStock: number
-  costPerUnit: number
-}
-
-type UsedStockItem = {
-  itemId: string
-  itemName: string
+interface StockUsage {
+  stockId: string
+  stockName: string
+  stockCategory: string
+  stockUnit: string
   quantityUsed: number
+  totalCost: number
+  percentageOfItem: number
 }
 
-type UsedStock = {
-  _id: string
-  orderId: string
-  stockId: string
-  stockName: string
-  stockCategory: string
-  stockUnit: string
-  totalQuantityUsed: number
-  totalCost: number
-  items: UsedStockItem[]
-  usedAt: string
-}
-
-// Stock Usage View - aggregated by stock
-type StockUsageView = {
-  stockId: string
-  stockName: string
-  stockCategory: string
-  stockUnit: string
-  totalQuantityUsed: number
-  totalCost: number
+interface MenuItemData {
+  itemId: string
+  itemName: string
+  totalQuantity: number
+  frequency: number
   totalOrders: number
-  frequency: number // Number of times used
+  totalRevenue: number
+  averagePrice: number
+  lastOrderDate: string | null
+  stocksUsed: StockUsage[]
+}
+
+interface StockData {
+  stockId: string
+  stockName: string
+  stockCategory: string
+  stockUnit: string
+  totalQuantityUsed: number
+  totalCost: number
+  frequency: number
+  totalOrders: number
   currentStock: number
   minimumStock: number
   stockStatus: 'normal' | 'low' | 'critical'
@@ -134,74 +112,37 @@ type StockUsageView = {
   }>
 }
 
-// Menu Item Usage View - aggregated by menu item
-type MenuItemUsageView = {
-  itemId: string
-  itemName: string
-  totalOrders: number
-  totalQuantity: number // Total servings sold
-  totalRevenue: number
-  frequency: number // Number of times ordered
-  averagePrice: number
-  lastOrderDate: string | null
-  stocksUsed: Array<{
-    stockId: string
-    stockName: string
-    stockCategory: string
-    stockUnit: string
-    quantityUsed: number
-    totalCost: number
-    percentageOfItem: number
-  }>
-}
-
-// Order Processing Status
-type OrderProcessingStatus = {
-  totalOrders: number
-  processedOrders: number
-  unprocessedOrders: number
-  processedPercentage: number
-  unprocessedPercentage: number
-  unprocessedOrdersList: Order[]
-}
-
-type DateRange = {
+interface DateRange {
   from: Date | null
   to: Date | null
 }
 
-// API client
+interface PaginatedResponse<T> {
+  success: boolean
+  data: T[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+  }
+  summary: {
+    totalItems?: number
+    totalRevenue?: number
+    totalOrders?: number
+    totalStocks?: number
+    totalQuantityUsed?: number
+    totalCost?: number
+  }
+}
+
 const api = axios.create({
   baseURL: '/api',
-  timeout: 60000, // Increased timeout for large data
+  timeout: 60000,
 })
 
-// Helper functions
-const safeNumber = (value: any): number => {
-  if (value === null || value === undefined) return 0;
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') {
-    const parsed = parseFloat(value);
-    return isNaN(parsed) ? 0 : parsed;
-  }
-  return 0;
-};
-
-const safeArray = <T,>(data: any): T[] => {
-  if (Array.isArray(data)) return data;
-  if (data?.data && Array.isArray(data.data)) return data.data;
-  if (data?.items && Array.isArray(data.items)) return data.items;
-  if (data?.orders && Array.isArray(data.orders)) return data.orders;
-  return [];
-};
-
-const formatQuantity = (value: any, unit: string = 'kg', decimals: number = 2): string => {
-  const num = safeNumber(value);
-  return `${num.toFixed(decimals)} ${unit}`;
-};
-
 const formatCurrency = (amount: any): string => {
-  const num = safeNumber(amount);
+  const num = typeof amount === 'number' ? amount : 0
   return new Intl.NumberFormat("en-ET", {
     style: "currency",
     currency: "ETB",
@@ -210,61 +151,56 @@ const formatCurrency = (amount: any): string => {
   }).format(num)
 }
 
-const formatNumber = (num: any, decimals: number = 0): string => {
-  const value = safeNumber(num);
-  return new Intl.NumberFormat("en-ET", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(value)
+const formatQuantity = (value: any, unit: string = 'kg', decimals: number = 2): string => {
+  const num = typeof value === 'number' ? value : 0
+  return `${num.toFixed(decimals)} ${unit}`
 }
 
 const formatDate = (date: string | Date | null): string => {
-  if (!date) return '-';
+  if (!date) return '-'
   const d = new Date(date)
-  if (isNaN(d.getTime())) return '-';
+  if (isNaN(d.getTime())) return '-'
   return d.toLocaleDateString("en-ET")
 }
 
-const getDateRange = (type: 'today' | 'week' | 'month' | 'year'): DateRange => {
+// FIXED: Proper date range function with correct timezone handling
+const getDateRange = (type: 'today' | 'week' | 'month' | 'year' | 'all'): DateRange => {
   const now = new Date()
-  const start = new Date()
-  const end = new Date()
-
+  
   switch (type) {
     case 'today':
-      start.setHours(0, 0, 0, 0)
-      end.setHours(23, 59, 59, 999)
-      break
+      // Create dates at UTC midnight to ensure consistent filtering
+      const todayStart = startOfDay(now)
+      const todayEnd = endOfDay(now)
+      console.log(`[DateRange] Today: ${todayStart.toISOString()} to ${todayEnd.toISOString()}`)
+      return { from: todayStart, to: todayEnd }
+      
     case 'week':
-      start.setDate(now.getDate() - now.getDay())
-      start.setHours(0, 0, 0, 0)
-      end.setDate(start.getDate() + 6)
-      end.setHours(23, 59, 59, 999)
-      break
+      // Start from Sunday (0) to Saturday (6)
+      const weekStart = startOfWeek(now, { weekStartsOn: 0 })
+      const weekEnd = endOfWeek(now, { weekStartsOn: 0 })
+      console.log(`[DateRange] Week: ${weekStart.toISOString()} to ${weekEnd.toISOString()}`)
+      return { from: weekStart, to: weekEnd }
+      
     case 'month':
-      start.setDate(1)
-      start.setHours(0, 0, 0, 0)
-      end.setMonth(now.getMonth() + 1, 0)
-      end.setHours(23, 59, 59, 999)
-      break
+      const monthStart = startOfMonth(now)
+      const monthEnd = endOfMonth(now)
+      console.log(`[DateRange] Month: ${monthStart.toISOString()} to ${monthEnd.toISOString()}`)
+      return { from: monthStart, to: monthEnd }
+      
     case 'year':
-      start.setMonth(0, 1)
-      start.setHours(0, 0, 0, 0)
-      end.setMonth(11, 31)
-      end.setHours(23, 59, 59, 999)
-      break
+      const yearStart = startOfYear(now)
+      const yearEnd = endOfYear(now)
+      console.log(`[DateRange] Year: ${yearStart.toISOString()} to ${yearEnd.toISOString()}`)
+      return { from: yearStart, to: yearEnd }
+      
+    case 'all':
+      return { from: null, to: null }
+      
     default:
       return { from: null, to: null }
   }
-
-  return { from: start, to: end }
 }
-
-const getStockStatus = (currentStock: number, minimumStock: number): 'normal' | 'low' | 'critical' => {
-  if (currentStock <= 0) return 'critical';
-  if (currentStock <= minimumStock) return 'low';
-  return 'normal';
-};
 
 const STATUS_COLORS = {
   normal: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
@@ -274,48 +210,83 @@ const STATUS_COLORS = {
 
 const FREQUENCY_COLORS = ['#FF6B6B', '#FF8E53', '#FFB347', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7']
 
-// Loading Skeleton
-const ReportSkeleton = () => (
-  <div className="space-y-4">
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-      {[...Array(5)].map((_, i) => (
-        <Card key={i}>
-          <CardHeader className="pb-2">
-            <Skeleton className="h-4 w-24" />
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="h-8 w-32 mb-2" />
-            <Skeleton className="h-4 w-20" />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-    <Card>
-      <CardHeader>
-        <Skeleton className="h-6 w-48" />
-      </CardHeader>
-      <CardContent>
-        <Skeleton className="h-64 w-full" />
-      </CardContent>
-    </Card>
-  </div>
-)
+const getIngredientIcon = (category: string) => {
+  const lowerCategory = category?.toLowerCase() || ''
+  if (lowerCategory.includes('meat') || lowerCategory.includes('beef')) return Beef
+  if (lowerCategory.includes('coffee')) return Coffee
+  if (lowerCategory.includes('milk') || lowerCategory.includes('yogurt')) return Milk
+  if (lowerCategory.includes('fruit') || lowerCategory.includes('avocado')) return Apple
+  if (lowerCategory.includes('egg')) return Egg
+  if (lowerCategory.includes('grain') || lowerCategory.includes('wheat')) return Wheat
+  return Package
+}
+
+// Debounce hook
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delay])
+
+  return debouncedValue
+}
+
+// Custom hook for report data
+const useReportData = (params: {
+  groupBy: 'stock' | 'menuItem'
+  dateRange: DateRange
+  search: string
+  sortBy: string
+  sortOrder: 'asc' | 'desc'
+  page: number
+  limit: number
+}) => {
+  const debouncedSearch = useDebounce(params.search, 500)
+  
+  return useQuery({
+    queryKey: ['stock-usage-report', params.groupBy, params.dateRange, debouncedSearch, params.sortBy, params.sortOrder, params.page, params.limit],
+    queryFn: async () => {
+      const queryParams = new URLSearchParams({
+        groupBy: params.groupBy,
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+        search: debouncedSearch,
+        page: params.page.toString(),
+        limit: params.limit.toString()
+      })
+      
+      // ONLY add date params if they exist (not null)
+      if (params.dateRange.from) {
+        // Send as ISO string to ensure consistent UTC handling
+        queryParams.append('from', params.dateRange.from.toISOString())
+      }
+      if (params.dateRange.to) {
+        queryParams.append('to', params.dateRange.to.toISOString())
+      }
+      
+      console.log(`[API Request] ${params.groupBy} - from: ${params.dateRange.from?.toISOString()}, to: ${params.dateRange.to?.toISOString()}`)
+      
+      const response = await api.get(`/reports/stock-usage?${queryParams}`)
+      return response.data as PaginatedResponse<any>
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 2,
+  })
+}
 
 // Summary Card Component
-const SummaryCard = ({
-  title,
-  value,
-  subValue,
-  icon: Icon,
-  color,
-}: {
-  title: string
-  value: string | number
-  subValue?: string
-  icon: any
-  color: string
-}) => (
-  <Card className="hover:shadow-lg transition-shadow">
+const SummaryCard = ({ title, value, subValue, icon: Icon, color, loading }: any) => (
+  <Card className="hover:shadow-lg transition-shadow relative overflow-hidden">
     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
       <CardTitle className="text-sm font-medium text-muted-foreground">
         {title}
@@ -325,626 +296,341 @@ const SummaryCard = ({
       </div>
     </CardHeader>
     <CardContent>
-      <div className="text-2xl font-bold">{value}</div>
-      {subValue && <p className="text-xs text-muted-foreground mt-1">{subValue}</p>}
+      {loading ? (
+        <Skeleton className="h-8 w-32 mb-2" />
+      ) : (
+        <div className="text-2xl font-bold">{value}</div>
+      )}
+      {subValue && !loading && <p className="text-xs text-muted-foreground mt-1">{subValue}</p>}
     </CardContent>
   </Card>
 )
 
-export default function StockReportPage() {
+// Loading Skeleton
+const LoadingSkeleton = () => (
+  <div className="space-y-4">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+      {[...Array(5)].map((_, i) => (
+        <Skeleton key={i} className="h-32" />
+      ))}
+    </div>
+    <Skeleton className="h-96" />
+    <Skeleton className="h-64" />
+  </div>
+)
+
+// Menu Item Detail Dialog Component
+function MenuItemDetailDialog({ item, open, onOpenChange }: { item: MenuItemData | null; open: boolean; onOpenChange: (open: boolean) => void }) {
+  if (!item) return null
+
+  const totalStockCost = item.stocksUsed.reduce((sum, s) => sum + s.totalCost, 0)
+  const profitMargin = totalStockCost > 0 ? ((item.totalRevenue - totalStockCost) / item.totalRevenue) * 100 : 0
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[800px] max-h-[90vh]">
+        <DialogHeader>
+          <DialogTitle className="text-2xl flex items-center gap-2">
+            <Utensils className="h-6 w-6 text-primary" />
+            {item.itemName}
+          </DialogTitle>
+          <DialogDescription>
+            Ordered {item.frequency} times | Revenue: {formatCurrency(item.totalRevenue)} | {item.stocksUsed.length} ingredients
+          </DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[70vh] pr-4">
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <Card>
+              <CardContent className="pt-4 text-center">
+                <p className="text-sm text-muted-foreground">Frequency</p>
+                <p className="text-3xl font-bold">{item.frequency}×</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 text-center">
+                <p className="text-sm text-muted-foreground">Orders</p>
+                <p className="text-2xl font-bold">{item.totalOrders}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 text-center">
+                <p className="text-sm text-muted-foreground">Quantity Sold</p>
+                <p className="text-2xl font-bold">{item.totalQuantity}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-sm text-muted-foreground">Total Revenue</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(item.totalRevenue)}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-sm text-muted-foreground">Average Price</p>
+                <p className="text-2xl font-bold">{formatCurrency(item.averagePrice)}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {item.stocksUsed.length > 0 ? (
+            <>
+              <div className="mb-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Package className="h-4 w-4" />
+                  Ingredients Used ({item.stocksUsed.length})
+                </h4>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Ingredient</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Quantity Used</TableHead>
+                        <TableHead>Cost</TableHead>
+                        <TableHead>% of Item</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {item.stocksUsed.map((stock, idx) => {
+                        const Icon = getIngredientIcon(stock.stockCategory)
+                        return (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium flex items-center gap-2">
+                              <Icon className="h-4 w-4 text-muted-foreground" />
+                              {stock.stockName}
+                            </TableCell>
+                            <TableCell>{stock.stockCategory}</TableCell>
+                            <TableCell>{formatQuantity(stock.quantityUsed, stock.stockUnit)}</TableCell>
+                            <TableCell>{formatCurrency(stock.totalCost)}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Progress value={stock.percentageOfItem} className="w-16 h-2" />
+                                <span className="text-xs">{stock.percentageOfItem.toFixed(1)}%</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {totalStockCost > 0 && (
+                <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20">
+                  <CardContent className="pt-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Ingredient Cost</p>
+                        <p className="text-xl font-bold">{formatCurrency(totalStockCost)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-muted-foreground">Profit Margin</p>
+                        <p className={`text-xl font-bold ${profitMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {profitMargin.toFixed(1)}%
+                        </p>
+                      </div>
+                    </div>
+                    <Progress value={Math.min(100, Math.max(0, profitMargin))} className="mt-3 h-2" />
+                  </CardContent>
+                </Card>
+              )}
+
+              {item.stocksUsed.length > 0 && (
+                <div className="mt-6">
+                  <h4 className="font-semibold mb-3">Ingredient Distribution</h4>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <PieChart>
+                      <Pie
+                        data={item.stocksUsed}
+                        dataKey="quantityUsed"
+                        nameKey="stockName"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={80}
+                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {item.stocksUsed.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={FREQUENCY_COLORS[index % FREQUENCY_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => formatQuantity(value)} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </>
+          ) : (
+            <Card className="bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200">
+              <CardContent className="pt-6 text-center">
+                <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-3" />
+                <p className="text-yellow-800 dark:text-yellow-300 font-medium">
+                  No ingredient tracking data available
+                </p>
+                <p className="text-sm text-yellow-700 dark:text-yellow-400 mt-2">
+                  This menu item has been ordered {item.frequency} times, but no stock usage has been recorded.
+                  Please check your stock processing configuration.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// Main Component Content
+function StockReportContent() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   
   // State
-  const [stocks, setStocks] = useState<Stock[]>([])
-  const [allOrders, setAllOrders] = useState<Order[]>([])
-  const [usedStock, setUsedStock] = useState<UsedStock[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  
-  // Filter state
-  const [filterType, setFilterType] = useState<'stock' | 'menuItem'>('stock')
+  const [groupBy, setGroupBy] = useState<'stock' | 'menuItem'>('menuItem')
   const [dateRange, setDateRange] = useState<DateRange>(getDateRange('month'))
   const [searchTerm, setSearchTerm] = useState('')
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [viewLayout, setViewLayout] = useState<'table' | 'cards'>('table')
   const [sortBy, setSortBy] = useState<'frequency' | 'name' | 'usage' | 'revenue'>('frequency')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [page, setPage] = useState(1)
+  const [limit] = useState(20)
   
-  // View state
-  const [selectedStock, setSelectedStock] = useState<StockUsageView | null>(null)
-  const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItemUsageView | null>(null)
-  const [showStockDialog, setShowStockDialog] = useState(false)
+  // Dialog state
+  const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItemData | null>(null)
+  const [selectedStock, setSelectedStock] = useState<StockData | null>(null)
   const [showMenuItemDialog, setShowMenuItemDialog] = useState(false)
+  const [showStockDialog, setShowStockDialog] = useState(false)
   
-  // Pagination
-  const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(10)
-  
-  // Summary stats
-  const [totalStockValue, setTotalStockValue] = useState(0)
-  const [totalStockUsed, setTotalStockUsed] = useState(0)
-  const [totalRevenue, setTotalRevenue] = useState(0)
-  const [topStock, setTopStock] = useState<{ name: string; usage: number } | null>(null)
-  const [topMenuItem, setTopMenuItem] = useState<{ name: string; frequency: number } | null>(null)
-  const [orderProcessingStatus, setOrderProcessingStatus] = useState<OrderProcessingStatus>({
-    totalOrders: 0,
-    processedOrders: 0,
-    unprocessedOrders: 0,
-    processedPercentage: 0,
-    unprocessedPercentage: 0,
-    unprocessedOrdersList: [],
+  // Fetch data with React Query
+  const { data, isLoading, isFetching, error, refetch } = useReportData({
+    groupBy,
+    dateRange,
+    search: searchTerm,
+    sortBy,
+    sortOrder,
+    page,
+    limit
   })
-
-  // Fetch all orders with pagination
-  const fetchAllOrders = async (): Promise<Order[]> => {
-    let allFetchedOrders: Order[] = []
-    let page = 1
-    const limit = 100
-    let hasMore = true
-    
-    while (hasMore) {
-      try {
-        const response = await api.get(`/order?page=${page}&limit=${limit}&sort=-createdAt`)
-        const data = response.data
-        const orders = safeArray<Order>(data)
-        allFetchedOrders = [...allFetchedOrders, ...orders]
-        
-        // Check if we have more pages
-        const total = data.total || data.pagination?.total || 0
-        if (orders.length < limit || allFetchedOrders.length >= total) {
-          hasMore = false
-        } else {
-          page++
-        }
-      } catch (err) {
-        console.error('Error fetching orders page:', page, err)
-        hasMore = false
-      }
-    }
-    
-    return allFetchedOrders
-  }
-
-  // Fetch all used stock records
-  const fetchAllUsedStock = async (dateFilter?: { from?: Date; to?: Date }): Promise<UsedStock[]> => {
-    let allFetchedUsedStock: UsedStock[] = []
-    let page = 1
-    const limit = 200
-    let hasMore = true
-    
-    while (hasMore) {
-      try {
-        let url = `/used-stock?page=${page}&limit=${limit}`
-        if (dateFilter?.from) {
-          url += `&startDate=${dateFilter.from.toISOString()}`
-        }
-        if (dateFilter?.to) {
-          url += `&endDate=${dateFilter.to.toISOString()}`
-        }
-        
-        const response = await api.get(url)
-        const data = response.data
-        const records = safeArray<UsedStock>(data)
-        allFetchedUsedStock = [...allFetchedUsedStock, ...records]
-        
-        const total = data.total || data.pagination?.total || 0
-        if (records.length < limit || allFetchedUsedStock.length >= total) {
-          hasMore = false
-        } else {
-          page++
-        }
-      } catch (err) {
-        console.error('Error fetching used stock page:', page, err)
-        hasMore = false
-      }
-    }
-    
-    return allFetchedUsedStock
-  }
-
-  // Fetch all stocks
-  const fetchAllStocks = async (): Promise<Stock[]> => {
-    let allFetchedStocks: Stock[] = []
-    let page = 1
-    const limit = 200
-    let hasMore = true
-    
-    while (hasMore) {
-      try {
-        const response = await api.get(`/stock?page=${page}&limit=${limit}`)
-        const data = response.data
-        const stocksData = safeArray<Stock>(data)
-        allFetchedStocks = [...allFetchedStocks, ...stocksData]
-        
-        const total = data.total || data.pagination?.total || 0
-        if (stocksData.length < limit || allFetchedStocks.length >= total) {
-          hasMore = false
-        } else {
-          page++
-        }
-      } catch (err) {
-        console.error('Error fetching stocks page:', page, err)
-        hasMore = false
-      }
-    }
-    
-    return allFetchedStocks
-  }
-
-  // Fetch all data with complete order set
-  const fetchData = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      
-      // Fetch all stocks
-      const [stocksData, allOrdersData, usedStockData] = await Promise.all([
-        fetchAllStocks(),
-        fetchAllOrders(),
-        fetchAllUsedStock({ from: dateRange.from || undefined, to: dateRange.to || undefined })
-      ])
-      
-      setStocks(stocksData)
-      setAllOrders(allOrdersData)
-      setUsedStock(usedStockData)
-      
-    } catch (err: any) {
-      console.error('Error fetching data:', err)
-      setError(err.message || 'Failed to load data')
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  
+  const reportData = data?.data || []
+  const pagination = data?.pagination
+  const summary = data?.summary
+  
+  // Reset page when filters change
   useEffect(() => {
-    fetchData()
-  }, [dateRange])
-
-  // Calculate order processing status
-  const orderProcessingStatusData = useMemo(() => {
-    const processedOrderIds = new Set(usedStock.map(us => us.orderId).filter(Boolean))
-    const totalOrders = allOrders.length
-    const processedOrders = processedOrderIds.size
-    const unprocessedOrders = totalOrders - processedOrders
-    const processedPercentage = totalOrders > 0 ? (processedOrders / totalOrders) * 100 : 0
-    const unprocessedPercentage = totalOrders > 0 ? (unprocessedOrders / totalOrders) * 100 : 0
-    
-    const unprocessedOrdersList = allOrders.filter(order => !processedOrderIds.has(order._id))
-    
-    return {
-      totalOrders,
-      processedOrders,
-      unprocessedOrders,
-      processedPercentage,
-      unprocessedPercentage,
-      unprocessedOrdersList,
-    }
-  }, [allOrders, usedStock])
-
-  // Process Stock Data - Group by stockId and calculate frequency
-  const stockViewData = useMemo(() => {
-    const stockMap = new Map<string, StockUsageView>()
-    const stockDetails = new Map<string, Stock>()
-    stocks.forEach(s => stockDetails.set(s._id, s))
-    
-    // Group used stock by stockId
-    usedStock.forEach(record => {
-      const stockId = record.stockId
-      const quantity = safeNumber(record.totalQuantityUsed)
-      const cost = safeNumber(record.totalCost)
-      const order = allOrders.find(o => o._id === record.orderId)
-      
-      if (!stockMap.has(stockId)) {
-        stockMap.set(stockId, {
-          stockId: record.stockId,
-          stockName: record.stockName,
-          stockCategory: record.stockCategory,
-          stockUnit: record.stockUnit || 'kg',
-          totalQuantityUsed: quantity,
-          totalCost: cost,
-          totalOrders: 1,
-          frequency: 1,
-          currentStock: stockDetails.get(stockId)?.currentStock || 0,
-          minimumStock: stockDetails.get(stockId)?.minimumStock || 0,
-          stockStatus: getStockStatus(
-            stockDetails.get(stockId)?.currentStock || 0,
-            stockDetails.get(stockId)?.minimumStock || 0
-          ),
-          lastUsed: record.usedAt,
-          menuItems: record.items.map(item => {
-            const originalItem = order?.items.find(oi => oi.itemId === item.itemId)
-            return {
-              itemId: item.itemId,
-              itemName: item.itemName,
-              quantityUsed: safeNumber(item.quantityUsed),
-              servingsCount: originalItem?.quantity || 0,
-            }
-          }),
-        })
-      } else {
-        const existing = stockMap.get(stockId)!
-        existing.totalQuantityUsed += quantity
-        existing.totalCost += cost
-        existing.totalOrders++
-        existing.frequency++
-        if (record.usedAt && (!existing.lastUsed || new Date(record.usedAt) > new Date(existing.lastUsed))) {
-          existing.lastUsed = record.usedAt
-        }
-        
-        // Merge menu items
-        record.items.forEach(item => {
-          const originalItem = order?.items.find(oi => oi.itemId === item.itemId)
-          const servings = originalItem?.quantity || 0
-          const existingItem = existing.menuItems.find(mi => mi.itemId === item.itemId)
-          if (existingItem) {
-            existingItem.quantityUsed += safeNumber(item.quantityUsed)
-            existingItem.servingsCount += servings
-          } else {
-            existing.menuItems.push({
-              itemId: item.itemId,
-              itemName: item.itemName,
-              quantityUsed: safeNumber(item.quantityUsed),
-              servingsCount: servings,
-            })
-          }
-        })
-      }
-    })
-    
-    // Sort menu items by usage
-    const result = Array.from(stockMap.values())
-    result.forEach(stock => {
-      stock.menuItems.sort((a, b) => b.quantityUsed - a.quantityUsed)
-    })
-    
-    // Apply sorting
-    let sorted = [...result]
-    switch (sortBy) {
-      case 'name':
-        sorted.sort((a, b) => sortOrder === 'asc' 
-          ? a.stockName.localeCompare(b.stockName)
-          : b.stockName.localeCompare(a.stockName))
-        break
-      case 'usage':
-        sorted.sort((a, b) => sortOrder === 'asc'
-          ? a.totalQuantityUsed - b.totalQuantityUsed
-          : b.totalQuantityUsed - a.totalQuantityUsed)
-        break
-      case 'frequency':
-        sorted.sort((a, b) => sortOrder === 'asc'
-          ? a.frequency - b.frequency
-          : b.frequency - a.frequency)
-        break
-      default:
-        sorted.sort((a, b) => b.frequency - a.frequency)
-    }
-    
-    return sorted
-  }, [usedStock, stocks, allOrders, sortBy, sortOrder])
-
-  // Process Menu Item Data - Group by itemId and calculate frequency
-  const menuItemViewData = useMemo(() => {
-    const itemMap = new Map<string, MenuItemUsageView>()
-    const stockDetails = new Map<string, Stock>()
-    stocks.forEach(s => stockDetails.set(s._id, s))
-    
-    // Build order item revenue and frequency map from ALL orders
-    const orderItemData = new Map<string, { 
-      totalQuantity: number
-      totalRevenue: number
-      orderIds: Set<string>
-      averagePrice: number
-    }>()
-    
-    allOrders.forEach(order => {
-      order.items.forEach(orderItem => {
-        const itemId = orderItem.itemId
-        const quantity = safeNumber(orderItem.quantity)
-        const unitPrice = safeNumber(orderItem.unitPrice)
-        const revenue = quantity * unitPrice
-        
-        const existing = orderItemData.get(itemId)
-        if (existing) {
-          existing.totalQuantity += quantity
-          existing.totalRevenue += revenue
-          existing.orderIds.add(order._id)
-          existing.averagePrice = existing.totalRevenue / existing.totalQuantity
-        } else {
-          orderItemData.set(itemId, {
-            totalQuantity: quantity,
-            totalRevenue: revenue,
-            orderIds: new Set([order._id]),
-            averagePrice: unitPrice,
-          })
-        }
-      })
-    })
-    
-    // Process used stock to build menu item ingredients
-    usedStock.forEach(record => {
-      const order = allOrders.find(o => o._id === record.orderId)
-      
-      record.items.forEach(item => {
-        const itemId = item.itemId
-        const itemName = item.itemName
-        const quantityUsed = safeNumber(item.quantityUsed)
-        
-        const orderData = orderItemData.get(itemId)
-        const orderItem = order?.items.find(oi => oi.itemId === itemId)
-        const servingsInOrder = orderItem?.quantity || 0
-        
-        if (!itemMap.has(itemId)) {
-          itemMap.set(itemId, {
-            itemId,
-            itemName,
-            totalOrders: orderData?.orderIds.size || 1,
-            totalQuantity: orderData?.totalQuantity || servingsInOrder,
-            totalRevenue: orderData?.totalRevenue || (servingsInOrder * safeNumber(orderItem?.unitPrice || 0)),
-            frequency: orderData?.orderIds.size || 1,
-            averagePrice: orderData?.averagePrice || safeNumber(orderItem?.unitPrice || 0),
-            lastOrderDate: record.usedAt,
-            stocksUsed: [{
-              stockId: record.stockId,
-              stockName: record.stockName,
-              stockCategory: record.stockCategory,
-              stockUnit: record.stockUnit || 'kg',
-              quantityUsed,
-              totalCost: safeNumber(record.totalCost) / Math.max(1, record.items.length),
-              percentageOfItem: 0,
-            }],
-          })
-        } else {
-          const existing = itemMap.get(itemId)!
-          if (orderData) {
-            existing.totalOrders = orderData.orderIds.size
-            existing.totalQuantity = orderData.totalQuantity
-            existing.totalRevenue = orderData.totalRevenue
-            existing.frequency = orderData.orderIds.size
-            existing.averagePrice = orderData.averagePrice
-          }
-          
-          if (record.usedAt && (!existing.lastOrderDate || new Date(record.usedAt) > new Date(existing.lastOrderDate))) {
-            existing.lastOrderDate = record.usedAt
-          }
-          
-          const existingStock = existing.stocksUsed.find(s => s.stockId === record.stockId)
-          if (existingStock) {
-            existingStock.quantityUsed += quantityUsed
-            existingStock.totalCost += safeNumber(record.totalCost) / Math.max(1, record.items.length)
-          } else {
-            existing.stocksUsed.push({
-              stockId: record.stockId,
-              stockName: record.stockName,
-              stockCategory: record.stockCategory,
-              stockUnit: record.stockUnit || 'kg',
-              quantityUsed,
-              totalCost: safeNumber(record.totalCost) / Math.max(1, record.items.length),
-              percentageOfItem: 0,
-            })
-          }
-          
-          itemMap.set(itemId, existing)
-        }
-      })
-    })
-    
-    // Also add menu items that appear in orders but have no stock usage recorded
-    orderItemData.forEach((data, itemId) => {
-      if (!itemMap.has(itemId)) {
-        // Find the item name from any order
-        let itemName = itemId
-        for (const order of allOrders) {
-          const found = order.items.find(oi => oi.itemId === itemId)
-          if (found) {
-            itemName = found.itemName
-            break
-          }
-        }
-        
-        itemMap.set(itemId, {
-          itemId,
-          itemName,
-          totalOrders: data.orderIds.size,
-          totalQuantity: data.totalQuantity,
-          totalRevenue: data.totalRevenue,
-          frequency: data.orderIds.size,
-          averagePrice: data.averagePrice,
-          lastOrderDate: null,
-          stocksUsed: [], // No stock usage recorded
-        })
-      }
-    })
-    
-    // Calculate percentages for each stock in menu item
-    itemMap.forEach(item => {
-      const totalQuantity = item.stocksUsed.reduce((sum, s) => sum + s.quantityUsed, 0)
-      item.stocksUsed.forEach(stock => {
-        stock.percentageOfItem = totalQuantity > 0 ? (stock.quantityUsed / totalQuantity) * 100 : 0
-      })
-      item.stocksUsed.sort((a, b) => b.quantityUsed - a.quantityUsed)
-    })
-    
-    // Apply sorting
-    let sorted = Array.from(itemMap.values())
-    switch (sortBy) {
-      case 'name':
-        sorted.sort((a, b) => sortOrder === 'asc' 
-          ? a.itemName.localeCompare(b.itemName)
-          : b.itemName.localeCompare(a.itemName))
-        break
-      case 'revenue':
-        sorted.sort((a, b) => sortOrder === 'asc'
-          ? a.totalRevenue - b.totalRevenue
-          : b.totalRevenue - a.totalRevenue)
-        break
-      case 'usage':
-        sorted.sort((a, b) => sortOrder === 'asc'
-          ? a.totalQuantity - b.totalQuantity
-          : b.totalQuantity - a.totalQuantity)
-        break
-      case 'frequency':
-        sorted.sort((a, b) => sortOrder === 'asc'
-          ? a.frequency - b.frequency
-          : b.frequency - a.frequency)
-        break
-      default:
-        sorted.sort((a, b) => b.frequency - a.frequency)
-    }
-    
-    return sorted
-  }, [usedStock, allOrders, stocks, sortBy, sortOrder])
-
-  // Calculate summary stats
-  useEffect(() => {
-    const totalStockVal = stocks.reduce((sum, s) => sum + (s.currentStock * s.costPerUnit), 0)
-    setTotalStockValue(totalStockVal)
-    
-    const totalStockUsg = stockViewData.reduce((sum, s) => sum + s.totalQuantityUsed, 0)
-    setTotalStockUsed(totalStockUsg)
-    
-    const totalRev = menuItemViewData.reduce((sum, m) => sum + m.totalRevenue, 0)
-    setTotalRevenue(totalRev)
-    
-    // Find top stock by frequency
-    if (stockViewData.length > 0) {
-      const top = stockViewData.reduce((max, s) => s.frequency > max.frequency ? s : max, stockViewData[0])
-      setTopStock({ name: top.stockName, usage: top.frequency })
-    }
-    
-    // Find top menu item by frequency
-    if (menuItemViewData.length > 0) {
-      const top = menuItemViewData.reduce((max, m) => m.frequency > max.frequency ? m : max, menuItemViewData[0])
-      setTopMenuItem({ name: top.itemName, frequency: top.frequency })
-    }
-    
-    setOrderProcessingStatus(orderProcessingStatusData)
-  }, [stocks, stockViewData, menuItemViewData, usedStock, orderProcessingStatusData])
-
-  const handleFilterTypeChange = (type: 'stock' | 'menuItem') => {
-    setFilterType(type)
-    setCurrentPage(1)
-    setSearchTerm('')
-  }
-
-  const handleRefresh = async () => {
-    setRefreshing(true)
-    await fetchData()
-    setRefreshing(false)
-  }
-
+    setPage(1)
+  }, [groupBy, dateRange, searchTerm, sortBy, sortOrder])
+  
+  // Prepare chart data
+  const topFrequencyData = useMemo(() => {
+    const top10 = reportData.slice(0, 10)
+    return top10.map((item, index) => ({
+      name: groupBy === 'stock' 
+        ? (item as StockData).stockName?.length > 20 
+          ? (item as StockData).stockName.substring(0, 20) + '...' 
+          : (item as StockData).stockName
+        : (item as MenuItemData).itemName?.length > 20 
+          ? (item as MenuItemData).itemName.substring(0, 20) + '...' 
+          : (item as MenuItemData).itemName,
+      frequency: groupBy === 'stock' 
+        ? (item as StockData).frequency 
+        : (item as MenuItemData).frequency,
+      fill: FREQUENCY_COLORS[index % FREQUENCY_COLORS.length]
+    }))
+  }, [reportData, groupBy])
+  
   const handleExport = () => {
+    if (!reportData.length) return
+    
     try {
       let exportData: any[] = []
       
-      if (filterType === 'stock') {
-        exportData = stockViewData.map(stock => ({
-          'Rank': stockViewData.findIndex(s => s.stockId === stock.stockId) + 1,
+      if (groupBy === 'stock') {
+        exportData = reportData.map((stock: StockData, idx: number) => ({
+          'Rank': idx + 1,
           'Stock Item': stock.stockName,
           'Category': stock.stockCategory,
-          'Frequency (Times Used)': stock.frequency,
-          'Total Quantity Used': formatQuantity(stock.totalQuantityUsed, stock.stockUnit),
+          'Frequency': stock.frequency,
+          'Total Used': formatQuantity(stock.totalQuantityUsed, stock.stockUnit),
           'Current Stock': formatQuantity(stock.currentStock, stock.stockUnit),
           'Status': stock.stockStatus,
           'Total Cost': formatCurrency(stock.totalCost),
-          'Orders': stock.totalOrders,
           'Last Used': formatDate(stock.lastUsed),
         }))
       } else {
-        exportData = menuItemViewData.map(item => ({
-          'Rank': menuItemViewData.findIndex(m => m.itemId === item.itemId) + 1,
+        exportData = reportData.map((item: MenuItemData, idx: number) => ({
+          'Rank': idx + 1,
           'Menu Item': item.itemName,
-          'Frequency (Times Ordered)': item.frequency,
-          'Total Orders': item.totalOrders,
-          'Total Quantity Sold': item.totalQuantity,
+          'Frequency': item.frequency,
+          'Orders': item.totalOrders,
+          'Quantity Sold': item.totalQuantity,
           'Revenue': formatCurrency(item.totalRevenue),
           'Average Price': formatCurrency(item.averagePrice),
-          'Stocks Used': item.stocksUsed.length,
-          'Has Stock Tracking': item.stocksUsed.length > 0 ? 'Yes' : 'No',
+          'Ingredients': item.stocksUsed.length,
+          'Ingredient Cost': formatCurrency(item.stocksUsed.reduce((sum, s) => sum + s.totalCost, 0))
         }))
       }
       
       const wb = XLSX.utils.book_new()
       const ws = XLSX.utils.json_to_sheet(exportData)
-      XLSX.utils.book_append_sheet(wb, ws, `${filterType === 'stock' ? 'Stock' : 'MenuItem'} Report`)
-      XLSX.writeFile(wb, `${filterType === 'stock' ? 'stock-frequency' : 'menu-item-frequency'}-${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
+      XLSX.utils.book_append_sheet(wb, ws, `${groupBy === 'stock' ? 'Stock' : 'MenuItem'} Report`)
+      XLSX.writeFile(wb, `${groupBy === 'stock' ? 'stock-frequency' : 'menu-item-frequency'}-${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
     } catch (err) {
       console.error('Export error:', err)
     }
   }
-
-  const handleExportUnprocessedOrders = () => {
-    try {
-      const exportData = orderProcessingStatus.unprocessedOrdersList.map(order => ({
-        'Order Number': order.orderNumber,
-        'Order Date': formatDate(order.createdAt),
-        'Final Amount': formatCurrency(order.finalAmount),
-        'Status': order.status,
-        'Items Count': order.items.length,
-        'Items': order.items.map(i => `${i.itemName} (${i.quantity})`).join(', '),
-      }))
-      
-      const wb = XLSX.utils.book_new()
-      const ws = XLSX.utils.json_to_sheet(exportData)
-      XLSX.utils.book_append_sheet(wb, ws, 'Unprocessed Orders')
-      XLSX.writeFile(wb, `unprocessed-orders-${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
-    } catch (err) {
-      console.error('Export error:', err)
-    }
+  
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['stock-usage-report'] })
+    refetch()
   }
 
-  const getCurrentData = () => {
-    let data = filterType === 'stock' ? stockViewData : menuItemViewData
-    
-    let filtered = data.filter(item => {
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase()
-        if (filterType === 'stock') {
-          const stock = item as StockUsageView
-          return stock.stockName.toLowerCase().includes(term) ||
-                 stock.stockCategory.toLowerCase().includes(term)
-        } else {
-          const menuItem = item as MenuItemUsageView
-          return menuItem.itemName.toLowerCase().includes(term)
-        }
-      }
-      return true
-    })
-    
-    const start = (currentPage - 1) * itemsPerPage
-    const paginated = filtered.slice(start, start + itemsPerPage)
-    return { filtered, paginated, totalPages: Math.ceil(filtered.length / itemsPerPage) }
+  // Handle All Time click
+  const handleAllTime = () => {
+    setDateRange({ from: null, to: null })
   }
-
-  const { filtered: allData, paginated: currentData, totalPages } = getCurrentData()
-
-  // Prepare chart data for top 10 by frequency
-  const topFrequencyData = useMemo(() => {
-    if (filterType === 'stock') {
-      return stockViewData.slice(0, 10).map((stock, index) => ({
-        name: stock.stockName.length > 15 ? stock.stockName.substring(0, 15) + '...' : stock.stockName,
-        frequency: stock.frequency,
-        fill: FREQUENCY_COLORS[index % FREQUENCY_COLORS.length],
-      }))
-    } else {
-      return menuItemViewData.slice(0, 10).map((item, index) => ({
-        name: item.itemName.length > 15 ? item.itemName.substring(0, 15) + '...' : item.itemName,
-        frequency: item.frequency,
-        fill: FREQUENCY_COLORS[index % FREQUENCY_COLORS.length],
-      }))
-    }
-  }, [filterType, stockViewData, menuItemViewData])
-
-  if (loading) {
-    return (
-      <div className="flex-col md:flex">
-        <div className="flex-1 space-y-4 p-8 pt-6">
-          <ReportSkeleton />
-        </div>
-      </div>
-    )
+  
+  // Handle preset date clicks with logging
+  const handleTodayClick = () => {
+    const range = getDateRange('today')
+    console.log('Today button clicked - range:', range)
+    setDateRange(range)
   }
-
+  
+  const handleWeekClick = () => {
+    const range = getDateRange('week')
+    console.log('Week button clicked - range:', range)
+    setDateRange(range)
+  }
+  
+  const handleMonthClick = () => {
+    const range = getDateRange('month')
+    console.log('Month button clicked - range:', range)
+    setDateRange(range)
+  }
+  
+  const handleYearClick = () => {
+    const range = getDateRange('year')
+    console.log('Year button clicked - range:', range)
+    setDateRange(range)
+  }
+  
+  if (isLoading && !reportData.length) {
+    return <LoadingSkeleton />
+  }
+  
+  // Calculate summary stats for display
+  const totalItems = pagination?.total || reportData.length
+  const totalRevenue = summary?.totalRevenue || 0
+  const totalOrders = summary?.totalOrders || 0
+  const totalFrequency = reportData.reduce((sum, item) => sum + (groupBy === 'stock' ? (item as StockData).frequency : (item as MenuItemData).frequency), 0)
+  const itemsWithIngredients = reportData.filter(i => (i as MenuItemData).stocksUsed?.length > 0).length
+  
   return (
     <div className="flex-col md:flex">
       <div className="flex-1 space-y-4 p-8 pt-6 bg-gradient-to-br from-background to-secondary/5">
@@ -964,7 +650,7 @@ export default function StockReportPage() {
                 Usage Frequency Report
               </h2>
               <p className="text-sm text-muted-foreground">
-                Track stock and menu item usage frequency - Most used items first
+                Track stock and menu item usage frequency with ingredient tracking
               </p>
             </div>
           </div>
@@ -974,145 +660,104 @@ export default function StockReportPage() {
               variant="outline"
               size="sm"
               onClick={handleRefresh}
-              disabled={refreshing}
+              disabled={isFetching}
             >
-              <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
             
-            <Button size="sm" onClick={handleExport} variant="default">
+            <Button size="sm" onClick={handleExport} variant="default" disabled={!reportData.length}>
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
           </div>
         </div>
-
+        
         {/* Error Alert */}
         {error && (
           <Card className="border-red-500 bg-red-50 dark:bg-red-950/20">
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 text-red-500">
                 <AlertCircle className="h-5 w-5" />
-                <p>{error}</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-          <SummaryCard
-            title="Total Stock Value"
-            value={formatCurrency(totalStockValue)}
-            subValue={`${stocks.length} total stock items`}
-            icon={DollarSign}
-            color="green"
-          />
-          <SummaryCard
-            title="Stock Used"
-            value={formatNumber(totalStockUsed, 2)}
-            subValue={`${stockViewData.length} stocks with usage`}
-            icon={Package}
-            color="blue"
-          />
-          <SummaryCard
-            title="Total Orders"
-            value={orderProcessingStatus.totalOrders}
-            subValue={`from all time`}
-            icon={History}
-            color="orange"
-          />
-          <SummaryCard
-            title="Processed Orders"
-            value={`${orderProcessingStatus.processedOrders} (${orderProcessingStatus.processedPercentage.toFixed(1)}%)`}
-            subValue={`with stock tracking`}
-            icon={CheckCircle2}
-            color="green"
-          />
-          <SummaryCard
-            title="Unprocessed Orders"
-            value={`${orderProcessingStatus.unprocessedOrders} (${orderProcessingStatus.unprocessedPercentage.toFixed(1)}%)`}
-            subValue={`no stock records`}
-            icon={XCircle}
-            color="red"
-          />
-        </div>
-
-        {/* Top Frequency Cards */}
-        <div className="grid gap-4 md:grid-cols-2">
-          {topStock && (
-            <Card className="bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-950/20 dark:to-red-950/20">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">🔥 Most Used Stock</p>
-                    <p className="text-2xl font-bold">{topStock.name}</p>
-                    <p className="text-sm text-muted-foreground mt-1">Used {topStock.usage} times</p>
-                  </div>
-                  <Flame className="h-12 w-12 text-orange-500 opacity-50" />
-                </div>
-              </CardContent>
-            </Card>
-          )}
-          {topMenuItem && (
-            <Card className="bg-gradient-to-r from-green-50 to-teal-50 dark:from-green-950/20 dark:to-teal-950/20">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">⭐ Most Popular Menu Item</p>
-                    <p className="text-2xl font-bold">{topMenuItem.name}</p>
-                    <p className="text-sm text-muted-foreground mt-1">Ordered {topMenuItem.frequency} times</p>
-                  </div>
-                  <TrendingUp className="h-12 w-12 text-green-500 opacity-50" />
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        {/* Unprocessed Orders Alert Card */}
-        {orderProcessingStatus.unprocessedOrders > 0 && (
-          <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-3">
-                  <AlertTriangle className="h-8 w-8 text-yellow-600" />
-                  <div>
-                    <p className="font-semibold text-yellow-800 dark:text-yellow-300">
-                      {orderProcessingStatus.unprocessedOrders} Orders Without Stock Tracking
-                    </p>
-                    <p className="text-sm text-yellow-700 dark:text-yellow-400">
-                      These orders have been placed but no stock consumption has been recorded. 
-                      Stock analysis for menu items from these orders will not be complete.
-                    </p>
-                  </div>
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={handleExportUnprocessedOrders}
-                  className="border-yellow-500 text-yellow-700 hover:bg-yellow-100"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Export Unprocessed Orders
+                <p>Failed to load report data. Please try again.</p>
+                <Button variant="outline" size="sm" onClick={handleRefresh} className="ml-auto">
+                  Retry
                 </Button>
               </div>
             </CardContent>
           </Card>
         )}
-
-        {/* Frequency Chart */}
+        
+        {/* Summary Cards */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <SummaryCard
+            title="Total Items"
+            value={totalItems}
+            subValue={`${groupBy === 'stock' ? 'Stocks' : 'Menu Items'}`}
+            icon={groupBy === 'stock' ? Package : Utensils}
+            color="blue"
+            loading={isLoading}
+          />
+          <SummaryCard
+            title="Total Frequency"
+            value={totalFrequency}
+            subValue={`total ${groupBy === 'stock' ? 'uses' : 'orders'}`}
+            icon={TrendingUp}
+            color="green"
+            loading={isLoading}
+          />
+          {groupBy === 'menuItem' && (
+            <>
+              <SummaryCard
+                title="Total Revenue"
+                value={formatCurrency(totalRevenue)}
+                subValue="from sales"
+                icon={DollarSign}
+                color="orange"
+                loading={isLoading}
+              />
+              <SummaryCard
+                title="Total Orders"
+                value={totalOrders}
+                subValue="completed orders"
+                icon={CheckCircle2}
+                color="purple"
+                loading={isLoading}
+              />
+              <SummaryCard
+                title="With Ingredients"
+                value={`${itemsWithIngredients}/${totalItems}`}
+                subValue={`${totalItems > 0 ? ((itemsWithIngredients / totalItems) * 100).toFixed(0) : 0}% have tracking`}
+                icon={Package}
+                color="cyan"
+                loading={isLoading}
+              />
+            </>
+          )}
+          {groupBy === 'stock' && (
+            <SummaryCard
+              title="Data Freshness"
+              value={isFetching ? "Updating..." : "Live"}
+              subValue={isFetching ? "Fetching..." : "Ready"}
+              icon={Clock}
+              color="cyan"
+              loading={false}
+            />
+          )}
+        </div>
+        
+        {/* Top Frequency Chart */}
         {topFrequencyData.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <BarChart3 className="h-5 w-5 text-primary" />
-                Top 10 by Frequency - {filterType === 'stock' ? 'Most Used Stocks' : 'Most Ordered Items'}
+                Top 10 by Frequency
               </CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={topFrequencyData} layout="vertical" margin={{ left: 100, right: 20, top: 20, bottom: 20 }}>
+                <BarChart data={topFrequencyData} layout="vertical" margin={{ left: 120, right: 20, top: 20, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" label={{ value: 'Frequency (Times)', position: 'bottom' }} />
                   <YAxis type="category" dataKey="name" width={120} />
@@ -1127,13 +772,16 @@ export default function StockReportPage() {
             </CardContent>
           </Card>
         )}
-
+        
         {/* Filters Section */}
         <Card className="shadow-lg">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
               <Filter className="h-5 w-5" />
               Filters & Settings
+              {isFetching && !isLoading && (
+                <Loader2 className="h-4 w-4 animate-spin ml-2" />
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1143,27 +791,27 @@ export default function StockReportPage() {
                 <Label>View Type</Label>
                 <div className="flex gap-2">
                   <Button
-                    variant={filterType === 'stock' ? "default" : "outline"}
-                    onClick={() => handleFilterTypeChange('stock')}
+                    variant={groupBy === 'stock' ? "default" : "outline"}
+                    onClick={() => setGroupBy('stock')}
                     className="flex-1"
                   >
                     <Package className="h-4 w-4 mr-2" />
-                    Stock ({stockViewData.length})
+                    Stock ({pagination?.total || 0})
                   </Button>
                   <Button
-                    variant={filterType === 'menuItem' ? "default" : "outline"}
-                    onClick={() => handleFilterTypeChange('menuItem')}
+                    variant={groupBy === 'menuItem' ? "default" : "outline"}
+                    onClick={() => setGroupBy('menuItem')}
                     className="flex-1"
                   >
                     <Utensils className="h-4 w-4 mr-2" />
-                    Menu Item ({menuItemViewData.length})
+                    Menu Item
                   </Button>
                 </div>
               </div>
-
+              
               {/* Date Range */}
               <div className="space-y-2">
-                <Label>Date Range (Stock Usage)</Label>
+                <Label>Date Range</Label>
                 <Popover open={showDatePicker} onOpenChange={setShowDatePicker}>
                   <PopoverTrigger asChild>
                     <Button
@@ -1179,7 +827,7 @@ export default function StockReportPage() {
                           {format(dateRange.from, "MMM dd")} - {format(dateRange.to, "MMM dd, yyyy")}
                         </>
                       ) : (
-                        <span>Pick a date range</span>
+                        <span>All Time</span>
                       )}
                     </Button>
                   </PopoverTrigger>
@@ -1194,7 +842,15 @@ export default function StockReportPage() {
                       }}
                       onSelect={(range: any) => {
                         if (range?.from && range?.to) {
-                          setDateRange({ from: range.from, to: range.to })
+                          // Ensure dates are at start/end of day for consistent filtering
+                          const fromDate = startOfDay(range.from)
+                          const toDate = endOfDay(range.to)
+                          setDateRange({ from: fromDate, to: toDate })
+                        } else if (range?.from && !range?.to) {
+                          const fromDate = startOfDay(range.from)
+                          setDateRange({ from: fromDate, to: null })
+                        } else {
+                          setDateRange({ from: null, to: null })
                         }
                         setShowDatePicker(false)
                       }}
@@ -1203,19 +859,16 @@ export default function StockReportPage() {
                   </PopoverContent>
                 </Popover>
               </div>
-
+              
               {/* Search */}
               <div className="space-y-2">
                 <Label>Search</Label>
                 <div className="relative">
                   <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder={filterType === 'stock' ? "Search stock..." : "Search menu item..."}
+                    placeholder={groupBy === 'stock' ? "Search stock..." : "Search menu item..."}
                     value={searchTerm}
-                    onChange={(e) => {
-                      setSearchTerm(e.target.value)
-                      setCurrentPage(1)
-                    }}
+                    onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-8"
                   />
                   {searchTerm && (
@@ -1230,7 +883,7 @@ export default function StockReportPage() {
                   )}
                 </div>
               </div>
-
+              
               {/* Sort By */}
               <div className="space-y-2">
                 <Label>Sort By</Label>
@@ -1242,7 +895,7 @@ export default function StockReportPage() {
                     <SelectContent>
                       <SelectItem value="frequency">Frequency (Most Used)</SelectItem>
                       <SelectItem value="name">Name</SelectItem>
-                      {filterType === 'stock' ? (
+                      {groupBy === 'stock' ? (
                         <SelectItem value="usage">Quantity Used</SelectItem>
                       ) : (
                         <SelectItem value="revenue">Revenue</SelectItem>
@@ -1258,7 +911,7 @@ export default function StockReportPage() {
                   </Button>
                 </div>
               </div>
-
+              
               {/* Layout Toggle */}
               <div className="space-y-2">
                 <Label>Layout</Label>
@@ -1284,57 +937,54 @@ export default function StockReportPage() {
                 </div>
               </div>
             </div>
-
-            {/* Quick Date Presets */}
+            
+            {/* Quick Date Presets - FIXED: Using proper handler functions */}
             <div className="flex gap-2 mt-4 flex-wrap">
-              <Button variant="outline" size="sm" onClick={() => setDateRange(getDateRange('today'))}>Today</Button>
-              <Button variant="outline" size="sm" onClick={() => setDateRange(getDateRange('week'))}>This Week</Button>
-              <Button variant="outline" size="sm" onClick={() => setDateRange(getDateRange('month'))}>This Month</Button>
-              <Button variant="outline" size="sm" onClick={() => setDateRange(getDateRange('year'))}>This Year</Button>
-              <Button variant="outline" size="sm" onClick={() => setDateRange({ from: null, to: null })}>All Time</Button>
+              <Button variant="outline" size="sm" onClick={handleTodayClick}>Today</Button>
+              <Button variant="outline" size="sm" onClick={handleWeekClick}>This Week</Button>
+              <Button variant="outline" size="sm" onClick={handleMonthClick}>This Month</Button>
+              <Button variant="outline" size="sm" onClick={handleYearClick}>This Year</Button>
+              <Button variant="outline" size="sm" onClick={handleAllTime}>All Time</Button>
             </div>
           </CardContent>
         </Card>
-
+        
         {/* Data Display */}
         <Card className="shadow-lg">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2">
-              {filterType === 'stock' ? (
+              {groupBy === 'stock' ? (
                 <>
                   <Package className="h-5 w-5 text-primary" />
-                  Stock Usage by Frequency ({stockViewData.length} stocks)
+                  Stock Usage by Frequency
                 </>
               ) : (
                 <>
                   <Utensils className="h-5 w-5 text-primary" />
-                  Menu Item Orders by Frequency ({menuItemViewData.length} items)
-                  {(() => {
-                    const itemsWithoutStock = menuItemViewData.filter(item => item.stocksUsed.length === 0).length
-                    if (itemsWithoutStock > 0) {
-                      return (
-                        <Badge variant="outline" className="ml-2 text-yellow-600">
-                          {itemsWithoutStock} without stock tracking
-                        </Badge>
-                      )
-                    }
-                    return null
-                  })()}
+                  Menu Item Orders by Frequency
                 </>
               )}
+              <Badge variant="outline" className="text-sm">
+                Page {pagination?.page || 1} of {pagination?.totalPages || 1}
+              </Badge>
             </CardTitle>
-            <Badge variant="outline" className="text-sm">
-              Sorted by {sortBy === 'frequency' ? 'Frequency' : sortBy} {sortOrder === 'desc' ? '↓' : '↑'}
-            </Badge>
           </CardHeader>
           <CardContent>
-            {viewLayout === 'table' ? (
+            {reportData.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <AlertCircle className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No data found for the selected filters</p>
+                <Button variant="outline" size="sm" onClick={handleRefresh} className="mt-4">
+                  Refresh
+                </Button>
+              </div>
+            ) : viewLayout === 'table' ? (
               <div className="rounded-md border overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-12">#</TableHead>
-                      {filterType === 'stock' ? (
+                      {groupBy === 'stock' ? (
                         <>
                           <TableHead>Stock Item</TableHead>
                           <TableHead>Category</TableHead>
@@ -1342,7 +992,6 @@ export default function StockReportPage() {
                           <TableHead className="text-right">Total Used</TableHead>
                           <TableHead className="text-right">Current Stock</TableHead>
                           <TableHead>Status</TableHead>
-                          <TableHead className="text-center">Orders</TableHead>
                           <TableHead>Last Used</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </>
@@ -1353,7 +1002,6 @@ export default function StockReportPage() {
                           <TableHead className="text-center">Orders</TableHead>
                           <TableHead className="text-right">Quantity Sold</TableHead>
                           <TableHead className="text-right">Revenue</TableHead>
-                          <TableHead className="text-center">Stock Tracking</TableHead>
                           <TableHead className="text-center">Ingredients</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </>
@@ -1361,265 +1009,188 @@ export default function StockReportPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {currentData.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={filterType === 'stock' ? 9 : 8} className="text-center py-8 text-muted-foreground">
-                          No data found for the selected filters
+                    {(reportData as any[]).map((item, idx) => (
+                      <TableRow key={groupBy === 'stock' ? (item as StockData).stockId : (item as MenuItemData).itemId}>
+                        <TableCell className="font-bold text-primary">
+                          {((pagination?.page || 1) - 1) * limit + idx + 1}
                         </TableCell>
+                        {groupBy === 'stock' ? (
+                          <>
+                            <TableCell className="font-medium">{(item as StockData).stockName}</TableCell>
+                            <TableCell>{(item as StockData).stockCategory}</TableCell>
+                            <TableCell className="text-center">
+                              <Badge variant="secondary" className="font-mono">
+                                {(item as StockData).frequency}×
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">{formatQuantity((item as StockData).totalQuantityUsed, (item as StockData).stockUnit)}</TableCell>
+                            <TableCell className="text-right">{formatQuantity((item as StockData).currentStock, (item as StockData).stockUnit)}</TableCell>
+                            <TableCell>
+                              <Badge className={STATUS_COLORS[(item as StockData).stockStatus]}>
+                                {(item as StockData).stockStatus}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{formatDate((item as StockData).lastUsed)}</TableCell>
+                            <TableCell className="text-right">
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => {
+                                  setSelectedStock(item as StockData)
+                                  setShowStockDialog(true)
+                                }}
+                              >
+                                <Eye className="h-4 w-4 mr-2" />
+                                Details
+                              </Button>
+                            </TableCell>
+                          </>
+                        ) : (
+                          <>
+                            <TableCell className="font-medium">{(item as MenuItemData).itemName}</TableCell>
+                            <TableCell className="text-center">
+                              <Badge variant="secondary" className="font-mono">
+                                {(item as MenuItemData).frequency}×
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-center">{(item as MenuItemData).totalOrders}</TableCell>
+                            <TableCell className="text-right">{(item as MenuItemData).totalQuantity}</TableCell>
+                            <TableCell className="text-right text-green-600 font-medium">{formatCurrency((item as MenuItemData).totalRevenue)}</TableCell>
+                            <TableCell className="text-center">
+                              {(item as MenuItemData).stocksUsed?.length > 0 ? (
+                                <Badge variant="default" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+                                  {(item as MenuItemData).stocksUsed.length} ingredients
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-yellow-600">
+                                  No tracking
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => {
+                                  setSelectedMenuItem(item as MenuItemData)
+                                  setShowMenuItemDialog(true)
+                                }}
+                              >
+                                <Eye className="h-4 w-4 mr-2" />
+                                Details
+                              </Button>
+                            </TableCell>
+                          </>
+                        )}
                       </TableRow>
-                    ) : filterType === 'stock' ? (
-                      (currentData as StockUsageView[]).map((stock, idx) => (
-                        <TableRow key={stock.stockId} className="hover:bg-secondary/10">
-                          <TableCell className="font-bold text-primary">
-                            {(currentPage - 1) * itemsPerPage + idx + 1}
-                          </TableCell>
-                          <TableCell className="font-medium">{stock.stockName}</TableCell>
-                          <TableCell>{stock.stockCategory}</TableCell>
-                          <TableCell className="text-center">
-                            <Badge variant="secondary" className="font-mono">
-                              {stock.frequency}×
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">{formatQuantity(stock.totalQuantityUsed, stock.stockUnit)}</TableCell>
-                          <TableCell className="text-right">{formatQuantity(stock.currentStock, stock.stockUnit)}</TableCell>
-                          <TableCell>
-                            <Badge className={STATUS_COLORS[stock.stockStatus]}>
-                              {stock.stockStatus}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-center">{stock.totalOrders}</TableCell>
-                          <TableCell>{formatDate(stock.lastUsed)}</TableCell>
-                          <TableCell className="text-right">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => {
-                                setSelectedStock(stock)
-                                setShowStockDialog(true)
-                              }}
-                            >
-                              <Eye className="h-4 w-4 mr-2" />
-                              Details
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      (currentData as MenuItemUsageView[]).map((item, idx) => (
-                        <TableRow key={item.itemId} className="hover:bg-secondary/10">
-                          <TableCell className="font-bold text-primary">
-                            {(currentPage - 1) * itemsPerPage + idx + 1}
-                          </TableCell>
-                          <TableCell className="font-medium">{item.itemName}</TableCell>
-                          <TableCell className="text-center">
-                            <Badge variant="secondary" className="font-mono">
-                              {item.frequency}×
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-center">{item.totalOrders}</TableCell>
-                          <TableCell className="text-right">{item.totalQuantity}</TableCell>
-                          <TableCell className="text-right text-green-600 font-medium">{formatCurrency(item.totalRevenue)}</TableCell>
-                          <TableCell className="text-center">
-                            {item.stocksUsed.length > 0 ? (
-                              <Badge variant="default" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
-                                Tracked ({item.stocksUsed.length})
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-yellow-600 border-yellow-500">
-                                No Stock Data
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Badge variant="outline">{item.stocksUsed.length} ingredients</Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => {
-                                setSelectedMenuItem(item)
-                                setShowMenuItemDialog(true)
-                              }}
-                            >
-                              <Eye className="h-4 w-4 mr-2" />
-                              Details
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
+                    ))}
                   </TableBody>
                 </Table>
               </div>
             ) : (
-              // Card View
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {currentData.length === 0 ? (
-                  <div className="col-span-full text-center py-8 text-muted-foreground">
-                    No data found for the selected filters
-                  </div>
-                ) : filterType === 'stock' ? (
-                  (currentData as StockUsageView[]).map((stock, idx) => (
-                    <Card key={stock.stockId} className="hover:shadow-lg transition-shadow cursor-pointer relative overflow-hidden" onClick={() => {
-                      setSelectedStock(stock)
-                      setShowStockDialog(true)
-                    }}>
-                      <div 
-                        className="absolute top-0 left-0 w-1 h-full"
-                        style={{ 
-                          backgroundColor: FREQUENCY_COLORS[Math.min(idx, FREQUENCY_COLORS.length - 1)],
-                          width: '4px'
-                        }}
-                      />
+                {(reportData as any[]).map((item, idx) => (
+                  groupBy === 'stock' ? (
+                    <Card key={(item as StockData).stockId} className="hover:shadow-lg transition-all cursor-pointer">
                       <CardHeader className="pb-2">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="font-mono">
-                              #{idx + 1}
-                            </Badge>
-                            <CardTitle className="text-lg">{stock.stockName}</CardTitle>
-                          </div>
-                          <Badge className={STATUS_COLORS[stock.stockStatus]}>{stock.stockStatus}</Badge>
+                          <CardTitle className="text-lg">{(item as StockData).stockName}</CardTitle>
+                          <Badge className={STATUS_COLORS[(item as StockData).stockStatus]}>{(item as StockData).stockStatus}</Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground">{stock.stockCategory}</p>
+                        <p className="text-xs text-muted-foreground">{(item as StockData).stockCategory}</p>
                       </CardHeader>
                       <CardContent>
                         <div className="grid grid-cols-2 gap-2 text-sm mb-3">
                           <div className="text-center p-2 bg-primary/5 rounded-lg">
                             <p className="text-muted-foreground text-xs">Frequency</p>
-                            <p className="font-bold text-lg">{stock.frequency}×</p>
+                            <p className="font-bold text-lg">{(item as StockData).frequency}×</p>
                           </div>
                           <div className="text-center p-2 bg-primary/5 rounded-lg">
                             <p className="text-muted-foreground text-xs">Total Used</p>
-                            <p className="font-semibold">{formatQuantity(stock.totalQuantityUsed, stock.stockUnit)}</p>
-                          </div>
-                          <div className="text-center p-2 bg-primary/5 rounded-lg">
-                            <p className="text-muted-foreground text-xs">Current Stock</p>
-                            <p className="font-semibold">{formatQuantity(stock.currentStock, stock.stockUnit)}</p>
-                          </div>
-                          <div className="text-center p-2 bg-primary/5 rounded-lg">
-                            <p className="text-muted-foreground text-xs">Orders</p>
-                            <p className="font-semibold">{stock.totalOrders}</p>
+                            <p className="font-semibold">{formatQuantity((item as StockData).totalQuantityUsed, (item as StockData).stockUnit)}</p>
                           </div>
                         </div>
-                        <Separator className="my-2" />
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Used in menu items:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {stock.menuItems.slice(0, 3).map((item, idx) => (
-                              <span key={idx} className="text-xs bg-secondary px-2 py-0.5 rounded">
-                                {item.itemName}
-                              </span>
-                            ))}
-                            {stock.menuItems.length === 0 && (
-                              <span className="text-xs text-muted-foreground">No menu items</span>
-                            )}
-                            {stock.menuItems.length > 3 && (
-                              <span className="text-xs text-muted-foreground">+{stock.menuItems.length - 3}</span>
-                            )}
-                          </div>
-                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="w-full"
+                          onClick={() => {
+                            setSelectedStock(item as StockData)
+                            setShowStockDialog(true)
+                          }}
+                        >
+                          View Details
+                        </Button>
                       </CardContent>
                     </Card>
-                  ))
-                ) : (
-                  (currentData as MenuItemUsageView[]).map((item, idx) => (
-                    <Card key={item.itemId} className="hover:shadow-lg transition-shadow cursor-pointer relative overflow-hidden" onClick={() => {
-                      setSelectedMenuItem(item)
-                      setShowMenuItemDialog(true)
-                    }}>
-                      <div 
-                        className="absolute top-0 left-0 h-full"
-                        style={{ 
-                          backgroundColor: FREQUENCY_COLORS[Math.min(idx, FREQUENCY_COLORS.length - 1)],
-                          width: '4px'
-                        }}
-                      />
+                  ) : (
+                    <Card key={(item as MenuItemData).itemId} className="hover:shadow-lg transition-all cursor-pointer">
                       <CardHeader className="pb-2">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="font-mono">
-                              #{idx + 1}
-                            </Badge>
-                            <CardTitle className="text-lg">{item.itemName}</CardTitle>
-                          </div>
-                          {item.stocksUsed.length === 0 && (
-                            <Badge variant="outline" className="text-yellow-600 border-yellow-500 text-xs">
-                              No Stock
-                            </Badge>
+                          <CardTitle className="text-lg">{(item as MenuItemData).itemName}</CardTitle>
+                          {(item as MenuItemData).stocksUsed?.length > 0 ? (
+                            <Badge variant="secondary">{(item as MenuItemData).stocksUsed.length} ingredients</Badge>
+                          ) : (
+                            <Badge variant="outline">No tracking</Badge>
                           )}
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid grid-cols-2 gap-2 text-sm mb-2">
+                        <div className="grid grid-cols-2 gap-2 text-sm mb-3">
                           <div className="text-center p-2 bg-primary/5 rounded-lg">
                             <p className="text-muted-foreground text-xs">Frequency</p>
-                            <p className="font-bold text-lg">{item.frequency}×</p>
+                            <p className="font-bold text-lg">{(item as MenuItemData).frequency}×</p>
                           </div>
                           <div className="text-center p-2 bg-primary/5 rounded-lg">
                             <p className="text-muted-foreground text-xs">Revenue</p>
-                            <p className="font-semibold text-green-600">{formatCurrency(item.totalRevenue)}</p>
-                          </div>
-                          <div className="text-center p-2 bg-primary/5 rounded-lg">
-                            <p className="text-muted-foreground text-xs">Quantity Sold</p>
-                            <p className="font-semibold">{item.totalQuantity}</p>
-                          </div>
-                          <div className="text-center p-2 bg-primary/5 rounded-lg">
-                            <p className="text-muted-foreground text-xs">Ingredients</p>
-                            <p className="font-semibold">{item.stocksUsed.length}</p>
+                            <p className="font-semibold text-green-600">{formatCurrency((item as MenuItemData).totalRevenue)}</p>
                           </div>
                         </div>
-                        <Separator className="my-2" />
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Top ingredients:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {item.stocksUsed.slice(0, 3).map((stock, idx) => (
-                              <span key={idx} className="text-xs bg-secondary px-2 py-0.5 rounded">
-                                {stock.stockName}
-                              </span>
-                            ))}
-                            {item.stocksUsed.length === 0 && (
-                              <span className="text-xs text-muted-foreground">No stock data recorded</span>
-                            )}
-                            {item.stocksUsed.length > 3 && (
-                              <span className="text-xs text-muted-foreground">+{item.stocksUsed.length - 3}</span>
-                            )}
-                          </div>
-                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="w-full"
+                          onClick={() => {
+                            setSelectedMenuItem(item as MenuItemData)
+                            setShowMenuItemDialog(true)
+                          }}
+                        >
+                          View Details
+                        </Button>
                       </CardContent>
                     </Card>
-                  ))
-                )}
+                  )
+                ))}
               </div>
             )}
-
+            
             {/* Pagination */}
-            {allData.length > 0 && (
-              <div className="flex items-center justify-between mt-4">
+            {pagination && pagination.totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4 pt-4 border-t">
                 <p className="text-sm text-muted-foreground">
-                  Showing {Math.min((currentPage - 1) * itemsPerPage + 1, allData.length)} to{' '}
-                  {Math.min(currentPage * itemsPerPage, allData.length)} of {allData.length}
+                  Showing {((pagination.page - 1) * limit) + 1} to {Math.min(pagination.page * limit, pagination.total)} of {pagination.total}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={pagination.page === 1 || isFetching}
                   >
+                    <ChevronLeft className="h-4 w-4" />
                     Previous
                   </Button>
                   <span className="text-sm">
-                    Page {currentPage} of {totalPages}
+                    Page {pagination.page} of {pagination.totalPages}
                   </span>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage(p => Math.min(pagination.totalPages, p + 1))}
+                    disabled={pagination.page === pagination.totalPages || isFetching}
                   >
                     Next
+                    <ChevronRight className="h-4 w-4 ml-1" />
                   </Button>
                 </div>
               </div>
@@ -1627,10 +1198,17 @@ export default function StockReportPage() {
           </CardContent>
         </Card>
       </div>
-
+      
+      {/* Menu Item Detail Dialog */}
+      <MenuItemDetailDialog 
+        item={selectedMenuItem} 
+        open={showMenuItemDialog} 
+        onOpenChange={setShowMenuItemDialog} 
+      />
+      
       {/* Stock Detail Dialog */}
       <Dialog open={showStockDialog} onOpenChange={setShowStockDialog}>
-        <DialogContent className="sm:max-w-[800px] max-h-[90vh]">
+        <DialogContent className="sm:max-w-[600px]">
           {selectedStock && (
             <>
               <DialogHeader>
@@ -1639,183 +1217,51 @@ export default function StockReportPage() {
                   {selectedStock.stockName}
                 </DialogTitle>
                 <DialogDescription>
-                  Usage frequency: {selectedStock.frequency} times | Last used: {formatDate(selectedStock.lastUsed)}
+                  Used {selectedStock.frequency} times | Last used: {formatDate(selectedStock.lastUsed)}
                 </DialogDescription>
               </DialogHeader>
-              <ScrollArea className="max-h-[70vh] pr-4">
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-sm text-muted-foreground">Frequency</p>
-                      <p className="text-3xl font-bold">{selectedStock.frequency}×</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-sm text-muted-foreground">Total Used</p>
-                      <p className="text-2xl font-bold">{formatQuantity(selectedStock.totalQuantityUsed, selectedStock.stockUnit)}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-sm text-muted-foreground">Current Stock</p>
-                      <p className="text-2xl font-bold">{formatQuantity(selectedStock.currentStock, selectedStock.stockUnit)}</p>
-                      <Badge className={STATUS_COLORS[selectedStock.stockStatus]}>{selectedStock.stockStatus}</Badge>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-sm text-muted-foreground">Total Cost</p>
-                      <p className="text-2xl font-bold">{formatCurrency(selectedStock.totalCost)}</p>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <div>
-                  <h4 className="font-semibold mb-3 flex items-center gap-2">
-                    <Utensils className="h-4 w-4" />
-                    Menu Items Using This Stock ({selectedStock.menuItems.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {selectedStock.menuItems.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-secondary/10 rounded-lg">
-                        <div>
-                          <span className="font-medium">{item.itemName}</span>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Used in {item.servingsCount} servings
-                          </p>
-                        </div>
-                        <Badge variant="secondary">
-                          {formatQuantity(item.quantityUsed, selectedStock.stockUnit)}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </ScrollArea>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Menu Item Detail Dialog */}
-      <Dialog open={showMenuItemDialog} onOpenChange={setShowMenuItemDialog}>
-        <DialogContent className="sm:max-w-[800px] max-h-[90vh]">
-          {selectedMenuItem && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="text-2xl flex items-center gap-2">
-                  <Utensils className="h-6 w-6 text-primary" />
-                  {selectedMenuItem.itemName}
-                </DialogTitle>
-                <DialogDescription>
-                  Ordered {selectedMenuItem.frequency} times | Revenue: {formatCurrency(selectedMenuItem.totalRevenue)}
-                  {selectedMenuItem.stocksUsed.length === 0 && (
-                    <Badge variant="outline" className="ml-2 text-yellow-600">No stock tracking data</Badge>
-                  )}
-                </DialogDescription>
-              </DialogHeader>
-              <ScrollArea className="max-h-[70vh] pr-4">
-                <div className="grid grid-cols-3 gap-4 mb-6">
-                  <Card>
-                    <CardContent className="pt-4 text-center">
-                      <p className="text-sm text-muted-foreground">Frequency</p>
-                      <p className="text-3xl font-bold">{selectedMenuItem.frequency}×</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4 text-center">
-                      <p className="text-sm text-muted-foreground">Total Orders</p>
-                      <p className="text-2xl font-bold">{selectedMenuItem.totalOrders}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4 text-center">
-                      <p className="text-sm text-muted-foreground">Quantity Sold</p>
-                      <p className="text-2xl font-bold">{selectedMenuItem.totalQuantity}</p>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {selectedMenuItem.stocksUsed.length > 0 ? (
-                  <>
-                    <div>
-                      <h4 className="font-semibold mb-3">Ingredients Used ({selectedMenuItem.stocksUsed.length})</h4>
-                      <div className="rounded-md border">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Ingredient</TableHead>
-                              <TableHead>Category</TableHead>
-                              <TableHead>Quantity Used</TableHead>
-                              <TableHead>Total Cost</TableHead>
-                              <TableHead>% of Item</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {selectedMenuItem.stocksUsed.map((stock, idx) => (
-                              <TableRow key={idx}>
-                                <TableCell className="font-medium">{stock.stockName}</TableCell>
-                                <TableCell>{stock.stockCategory}</TableCell>
-                                <TableCell>{formatQuantity(stock.quantityUsed, stock.stockUnit)}</TableCell>
-                                <TableCell>{formatCurrency(stock.totalCost)}</TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-2">
-                                    <Progress value={stock.percentageOfItem} className="w-16 h-2" />
-                                    <span className="text-xs">{stock.percentageOfItem.toFixed(1)}%</span>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
-
-                    {selectedMenuItem.stocksUsed.length > 0 && (
-                      <div className="mt-6">
-                        <h4 className="font-semibold mb-3">Ingredient Usage Distribution</h4>
-                        <ResponsiveContainer width="100%" height={250}>
-                          <PieChart>
-                            <Pie
-                              data={selectedMenuItem.stocksUsed}
-                              dataKey="quantityUsed"
-                              nameKey="stockName"
-                              cx="50%"
-                              cy="50%"
-                              outerRadius={80}
-                              label
-                            >
-                              {selectedMenuItem.stocksUsed.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={FREQUENCY_COLORS[index % FREQUENCY_COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip formatter={(value) => formatQuantity(value)} />
-                            <Legend />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <Card className="bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200">
-                    <CardContent className="pt-6 text-center">
-                      <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-3" />
-                      <p className="text-yellow-800 dark:text-yellow-300 font-medium">
-                        No stock consumption data available for this menu item
-                      </p>
-                      <p className="text-sm text-yellow-700 dark:text-yellow-400 mt-2">
-                        This menu item has been ordered {selectedMenuItem.frequency} times, generating{' '}
-                        {formatCurrency(selectedMenuItem.totalRevenue)} in revenue, but no inventory usage has been recorded.
-                      </p>
-                    </CardContent>
-                  </Card>
-                )}
-              </ScrollArea>
+              <div className="grid grid-cols-2 gap-4">
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-sm text-muted-foreground">Total Used</p>
+                    <p className="text-2xl font-bold">{formatQuantity(selectedStock.totalQuantityUsed, selectedStock.stockUnit)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-sm text-muted-foreground">Current Stock</p>
+                    <p className="text-2xl font-bold">{formatQuantity(selectedStock.currentStock, selectedStock.stockUnit)}</p>
+                    <Badge className={STATUS_COLORS[selectedStock.stockStatus]}>{selectedStock.stockStatus}</Badge>
+                  </CardContent>
+                </Card>
+              </div>
             </>
           )}
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+// Main export with QueryClientProvider
+export default function OptimizedStockReportPage() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 60 * 1000,
+            gcTime: 5 * 60 * 1000,
+            refetchOnWindowFocus: false,
+            retry: 2,
+          },
+        },
+      })
+  )
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <StockReportContent />
+    </QueryClientProvider>
   )
 }

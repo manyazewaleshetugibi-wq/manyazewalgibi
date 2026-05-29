@@ -1,1802 +1,1241 @@
 "use client"
 
-import type React from "react"
-import { useState, useEffect } from "react"
-import { useForm, useFieldArray, Controller } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import * as z from "zod"
-import { Toaster, toast } from "react-hot-toast"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination"
-import { Slider } from "@/components/ui/slider"
-import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
+import { useState, useEffect, useMemo } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, Plus, Edit, Trash2, Clock, Star, Save, X, Tag, Loader2, Eye, ChefHat, Menu, Filter, Coffee, XCircle, AlertCircle, Package, Check } from 'lucide-react'
-import { useDebouncedCallback } from "use-debounce"
-import { api } from "@/types/utils/api"
+import { 
+  DollarSign, 
+  TrendingUp, 
+  TrendingDown, 
+  CalendarDays,
+  Download,
+  Filter,
+  PieChart,
+  LineChart as LineChartIcon,
+  BarChart as BarChartIcon,
+  RefreshCcw,
+  Wallet,
+  Calendar
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { cn } from "@/lib/utils"
+import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, isWithinInterval, eachDayOfInterval, isSameDay, setDay } from "date-fns"
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell,
+} from "recharts"
+import * as XLSX from "xlsx"
+import { ExpenseList } from "@/components/CommonExpenses/ExpenseList"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
-// Define MenuItem as a frontend type that includes the necessary properties for the component
-interface MenuItem {
-  _id?: string;
-  id?: string;
-  name: string;
-  description: string;
-  price: number;
-  cost?: number;
-  categoryId: string;
-  category?: string;
-  imageUrl?: string;
-  cloudinaryData?: {
-    publicId: string;
-    url: string;
-    format: string;
-    bytes: number;
-    width?: number;
-    height?: number;
-  };
-  requiredStock?: {
-    stockId: string;
-    quantity: number; // Now accepts any decimal number
-  }[];
-  nutritionalInfo?: {
-    calories: number;
-    protein: number; // Now accepts any decimal number
-    carbohydrates: number; // Now accepts any decimal number
-    fat: number; // Now accepts any decimal number
-  };
-  preparationTime?: number;
-  isActive?: boolean;
-  isFeatured?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-// Custom error types
-class ValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ValidationError';
-  }
-}
-
-class NetworkError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'NetworkError';
-  }
-}
-
-// Validation schema for form - updated to accept any decimal number
-const ItemSchema = z.object({
-  _id: z.string().optional(),
-  name: z.string().min(1, "Name is required").max(100, "Name must be less than 100 characters"),
-  description: z.string().min(1, "Description is required").max(500, "Description must be less than 500 characters"),
-  categoryId: z.string().min(1, "Category is required"),
-  price: z.number()
-    .min(0, "Price must be positive")
-    .max(999999, "Price is too high"),
-  imageUrl: z.string().nullable().optional(),
-  requiredStock: z.array(
-    z.object({
-      stockId: z.string(),
-      quantity: z.number()
-        .min(0, "Quantity must be positive"),
-    }),
-  ).optional(),
-  nutritionalInfo: z.object({
-    calories: z.number()
-      .min(0, "Calories must be positive")
-      .max(10000, "Calories too high"),
-    protein: z.number()
-      .min(0, "Protein must be positive")
-      .max(1000, "Protein too high"),
-    carbohydrates: z.number()
-      .min(0, "Carbohydrates must be positive")
-      .max(1000, "Carbohydrates too high"),
-    fat: z.number()
-      .min(0, "Fat must be positive")
-      .max(1000, "Fat too high"),
-  }).optional(),
-  preparationTime: z.number()
-    .min(0, "Preparation time must be positive")
-    .max(1440, "Preparation time cannot exceed 24 hours")
-    .optional(),
-  isActive: z.boolean().optional(),
-  isFeatured: z.boolean().optional(),
-});
-
-type FormData = z.infer<typeof ItemSchema> & {
-  image?: File;
-};
-
-type ItemCategory = {
+// Types
+interface Order {
   _id: string
-  name: string
+  orderNumber: string
+  tableNumber: string
+  waiterId: string
+  numberOfGuests: number
+  items: Array<{
+    itemId: string
+    quantity: number
+    unitPrice: number
+    subtotal: number
+    status: string
+  }>
+  totalAmount: number
+  discount: number
+  tax: number
+  finalAmount: number
+  status: string
+  paymentMethod: string
+  specialRequirements: string
+  createdAt: string
+  updatedAt: string
 }
 
-type Stock = {
+interface Expense {
   _id: string
-  name: string
-  unit?: string
-  currentStock?: number
+  title: string
+  description?: string
+  amount: number
+  category: string
+  date: string
+  status?: string
+  paymentMethod?: string
 }
 
-// Helper function to safely get values with defaults
-const getSafeValue = <T,>(value: T | undefined | null, defaultValue: T): T => {
-  return value !== undefined && value !== null ? value : defaultValue;
-};
-
-// Default values for nutritional info
-const DEFAULT_NUTRITIONAL_INFO = {
-  calories: 0,
-  protein: 0,
-  carbohydrates: 0,
-  fat: 0
-};
-
-// Default values for required stock
-const DEFAULT_REQUIRED_STOCK: { stockId: string; quantity: number }[] = [];
-
-// Image validation constants
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-
-// Searchable Stock Select Component
-interface SearchableStockSelectProps {
-  value: string;
-  onChange: (value: string) => void;
-  stocks: Stock[];
-  disabled?: boolean;
-  placeholder?: string;
+interface CommonExpense {
+  _id: string
+  title: string
+  description?: string
+  amount: number
+  category: string
+  frequency: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'one-time'
+  startDate: string
+  endDate?: string | null
+  isActive: boolean
+  tags?: string[]
+  createdBy: string
+  createdAt: string
 }
 
-const SearchableStockSelect: React.FC<SearchableStockSelectProps> = ({
-  value,
-  onChange,
-  stocks,
-  disabled = false,
-  placeholder = "Select ingredient..."
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  
-  const selectedStock = stocks.find(stock => stock._id === value);
-  
-  const filteredStocks = stocks.filter(stock =>
-    stock.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (stock.unit && stock.unit.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+interface DailyProfit {
+  date: string
+  formattedDate: string
+  sales: number
+  regularExpenses: number
+  commonExpenses: number
+  totalExpenses: number
+  profit: number
+  margin: number
+  orderCount: number
+  regularExpenseCount: number
+  commonExpenseCount: number
+  commonExpensesList: CommonExpense[] // Added to track which common expenses belong to this day
+}
 
-  return (
-    <div className="relative">
-      <Popover open={isOpen} onOpenChange={setIsOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            aria-expanded={isOpen}
-            className="w-full justify-between"
-            disabled={disabled}
-          >
-            {selectedStock ? (
-              <span className="flex items-center gap-2">
-                <Package className="h-4 w-4 text-gray-500" />
-                {selectedStock.name}
-                {selectedStock.unit && (
-                  <span className="text-xs text-gray-500">({selectedStock.unit})</span>
-                )}
-              </span>
-            ) : (
-              <span className="text-gray-500">{placeholder}</span>
-            )}
-            <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[300px] p-0" align="start">
-          <div className="flex flex-col">
-            {/* Search input */}
-            <div className="flex items-center border-b px-3">
-              <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-              <Input
-                placeholder="Search ingredients..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 h-10"
-                autoFocus
-              />
-            </div>
-            
-            {/* Stock list - always visible */}
-            <ScrollArea className="max-h-[300px] overflow-y-auto p-1">
-              {stocks.length === 0 ? (
-                <div className="text-center py-8 px-4">
-                  <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                  <p className="text-sm text-gray-500">No ingredients available</p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {/* Show filtered results if there's a search query, otherwise show all stocks */}
-                  {(searchQuery ? filteredStocks : stocks).map((stock) => (
-                    <Button
-                      key={stock._id}
-                      variant="ghost"
-                      className={cn(
-                        "w-full justify-start text-left font-normal h-auto py-2 px-3",
-                        value === stock._id && "bg-accent text-accent-foreground"
-                      )}
-                      onClick={() => {
-                        onChange(stock._id);
-                        setIsOpen(false);
-                        setSearchQuery(""); // Clear search after selection
-                      }}
-                    >
-                      <Check
-                        className={cn(
-                          "mr-2 h-4 w-4 shrink-0",
-                          value === stock._id ? "opacity-100" : "opacity-0"
-                        )}
-                      />
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="font-medium truncate">{stock.name}</span>
-                        <span className="text-xs text-gray-500">
-                          Unit: {stock.unit || 'N/A'} | In Stock: {stock.currentStock?.toString() || '0'}
-                        </span>
-                      </div>
-                    </Button>
-                  ))}
-                  
-                  {/* Show message when search has no results */}
-                  {searchQuery && filteredStocks.length === 0 && (
-                    <div className="text-center py-8 px-4">
-                      <Package className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm text-gray-500">No ingredients found</p>
-                      <p className="text-xs text-gray-400 mt-1">Try a different search term</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </ScrollArea>
-            
-            {/* Quick actions footer */}
-            <div className="border-t p-2 flex justify-between items-center">
-              <span className="text-xs text-gray-500">
-                {stocks.length} total ingredients
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => {
-                  setIsOpen(false);
-                  setSearchQuery("");
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-};
+interface ProfitMetrics {
+  totalSales: number
+  totalRegularExpenses: number
+  totalCommonExpenses: number
+  totalExpenses: number
+  totalProfit: number
+  averageMargin: number
+  bestDay: DailyProfit | null
+  worstDay: DailyProfit | null
+  profitableDays: number
+  lossDays: number
+}
 
-// Main component
-export default function RestaurantMenuManagement() {
-  const [categories, setCategories] = useState<ItemCategory[]>([])
-  const [stocks, setStocks] = useState<Stock[]>([])
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [filteredItems, setFilteredItems] = useState<MenuItem[]>([])
-  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [isViewDetailsOpen, setIsViewDetailsOpen] = useState(false)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [itemToDelete, setItemToDelete] = useState<string | null>(null)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(8)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [categoryFilter, setCategoryFilter] = useState("all")
-  const [priceRange, setPriceRange] = useState<[number, number]>([0, 10000])
-  const [isLoading, setIsLoading] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [selectedImage, setSelectedImage] = useState<File | null>(null)
-  const [isImageRemoved, setIsImageRemoved] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
-  const [retryCount, setRetryCount] = useState(0)
-  const [networkStatus, setNetworkStatus] = useState<'online' | 'offline'>(navigator.onLine ? 'online' : 'offline')
+interface SalesData {
+  totalSales: number
+  orderCount: number
+  totalTax: number
+  totalDiscounts: number
+  dailySales: Record<string, number>
+  orders: Order[]
+}
 
-  // Monitor network status
+// Day of week options
+const DAYS_OF_WEEK = [
+  { value: "monday", label: "Monday", dayIndex: 1 },
+  { value: "tuesday", label: "Tuesday", dayIndex: 2 },
+  { value: "wednesday", label: "Wednesday", dayIndex: 3 },
+  { value: "thursday", label: "Thursday", dayIndex: 4 },
+  { value: "friday", label: "Friday", dayIndex: 5 },
+  { value: "saturday", label: "Saturday", dayIndex: 6 },
+  { value: "sunday", label: "Sunday", dayIndex: 0 },
+]
+
+// API Functions
+async function fetchSalesData(): Promise<SalesData> {
+  const response = await fetch("/api/order/report")
+  if (!response.ok) {
+    throw new Error("Failed to fetch sales data")
+  }
+  const data = await response.json()
+  return data
+}
+
+async function fetchRegularExpenses(): Promise<Expense[]> {
+  const response = await fetch("/api/expense")
+  if (!response.ok) {
+    throw new Error("Failed to fetch regular expenses")
+  }
+  const data = await response.json()
+  return data.data || []
+}
+
+// Fetch ALL common expenses - no date filtering (this is your "static data")
+async function fetchCommonExpenses(): Promise<CommonExpense[]> {
+  const response = await fetch("/api/common-expense")
+  if (!response.ok) {
+    throw new Error("Failed to fetch common expenses")
+  }
+  const data = await response.json()
+  return data.data || []
+}
+
+async function createCommonExpense(expense: any): Promise<CommonExpense> {
+  const response = await fetch('/api/common-expense', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(expense),
+  })
+  const data = await response.json()
+  return data.data
+}
+
+async function updateCommonExpense(id: string, expense: any): Promise<CommonExpense> {
+  const response = await fetch(`/api/common-expense/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(expense),
+  })
+  const data = await response.json()
+  return data.data
+}
+
+async function deleteCommonExpense(id: string): Promise<boolean> {
+  const response = await fetch(`/api/common-expense?id=${id}`, {
+    method: 'DELETE',
+  })
+  return response.ok
+}
+
+// Utility Functions
+function exportToExcel(data: any[], filename: string) {
+  const worksheet = XLSX.utils.json_to_sheet(data)
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Profit Data")
+  XLSX.writeFile(workbook, `${filename}.xlsx`)
+}
+
+type DateFilterType = 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'custom' | 'all' | 'dayOfWeek'
+
+function getDateRange(type: DateFilterType, customStart?: Date, customEnd?: Date, selectedDayOfWeek?: number) {
+  const now = new Date()
+  let start: Date
+  let end: Date
+
+  switch (type) {
+    case 'today':
+      start = new Date(now.setHours(0, 0, 0, 0))
+      end = new Date(now.setHours(23, 59, 59, 999))
+      break
+    case 'yesterday':
+      const yesterday = subDays(now, 1)
+      start = new Date(yesterday.setHours(0, 0, 0, 0))
+      end = new Date(yesterday.setHours(23, 59, 59, 999))
+      break
+    case 'week':
+      start = startOfWeek(now, { weekStartsOn: 1 })
+      end = endOfWeek(now, { weekStartsOn: 1 })
+      break
+    case 'month':
+      start = startOfMonth(now)
+      end = endOfMonth(now)
+      break
+    case 'year':
+      start = startOfYear(now)
+      end = endOfYear(now)
+      break
+    case 'dayOfWeek':
+      if (selectedDayOfWeek !== undefined) {
+        // Get the most recent occurrence of the selected day of week
+        const targetDate = setDay(now, selectedDayOfWeek)
+        // If the target date is in the future, go back 7 days
+        if (targetDate > now) {
+          targetDate.setDate(targetDate.getDate() - 7)
+        }
+        start = new Date(targetDate)
+        start.setHours(0, 0, 0, 0)
+        end = new Date(targetDate)
+        end.setHours(23, 59, 59, 999)
+      } else {
+        start = new Date(now.setHours(0, 0, 0, 0))
+        end = new Date(now.setHours(23, 59, 59, 999))
+      }
+      break
+    case 'custom':
+      start = customStart || new Date(now.setHours(0, 0, 0, 0))
+      end = customEnd || new Date(now.setHours(23, 59, 59, 999))
+      break
+    case 'all':
+    default:
+      start = new Date('1970-01-01')
+      end = new Date('2100-12-31')
+      break
+  }
+
+  return { start, end }
+}
+
+const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D"]
+
+export default function ProfitPage() {
+  const [salesData, setSalesData] = useState<SalesData | null>(null)
+  const [regularExpenses, setRegularExpenses] = useState<Expense[]>([])
+  const [commonExpenses, setCommonExpenses] = useState<CommonExpense[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [dateFilterType, setDateFilterType] = useState<DateFilterType>('month')
+  const [selectedDayOfWeek, setSelectedDayOfWeek] = useState<string>('')
+  const [customStartDate, setCustomStartDate] = useState<Date | null>(null)
+  const [customEndDate, setCustomEndDate] = useState<Date | null>(null)
+  const [chartType, setChartType] = useState<'line' | 'bar'>('line')
+  const [activeTab, setActiveTab] = useState("overview")
+  const [showExpenseManager, setShowExpenseManager] = useState(false)
+
+  // Fetch data on component mount
   useEffect(() => {
-    const handleOnline = () => setNetworkStatus('online')
-    const handleOffline = () => setNetworkStatus('offline')
-
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
+    const loadData = async () => {
+      setIsLoading(true)
+      try {
+        const [sales, regular, common] = await Promise.all([
+          fetchSalesData(),
+          fetchRegularExpenses(),
+          fetchCommonExpenses() // This fetches ALL common expenses (static data)
+        ])
+        setSalesData(sales)
+        setRegularExpenses(regular)
+        setCommonExpenses(common)
+      } catch (error) {
+        console.error("Error loading data:", error)
+      } finally {
+        setIsLoading(false)
+      }
     }
+    loadData()
   }, [])
 
-  const {
-    register,
-    handleSubmit,
-    control,
-    reset,
-    setValue,
-    getValues,
-    formState: { errors },
-  } = useForm<FormData>({
-    resolver: zodResolver(ItemSchema),
-    defaultValues: {
-      requiredStock: DEFAULT_REQUIRED_STOCK,
-      nutritionalInfo: DEFAULT_NUTRITIONAL_INFO,
-      isActive: true,
-      isFeatured: false,
-      preparationTime: 10,
-      price: 0,
-    },
-  })
-
-  const { fields, append, remove } = useFieldArray({
-    control,
-    name: "requiredStock",
-  })
-
-  const debouncedSearch = useDebouncedCallback((value) => {
-    setSearchTerm(value)
-  }, 300)
-
-  const debouncedPriceRange = useDebouncedCallback((value) => {
-    setPriceRange(value)
-  }, 300)
-
-  // Fetch data with retry logic
-  const fetchData = async (retryAttempt = 0) => {
-    setIsLoading(true)
-    setError(null)
-    setFieldErrors({})
-    
+  const handleAddExpense = async (formData: any) => {
     try {
-      // Check network status
-      if (!navigator.onLine) {
-        throw new NetworkError('You are offline. Please check your internet connection.')
-      }
+      const newExpense = await createCommonExpense(formData)
+      setCommonExpenses(prev => [newExpense, ...prev])
+    } catch (error) {
+      console.error('Error adding expense:', error)
+    }
+  }
 
-      const [categoriesData, stocksData, menuItemsData] = await Promise.all([
-        api.fetchItemCategories().catch(err => {
-          console.error('Failed to fetch categories:', err)
-          throw new Error('Failed to load categories')
-        }),
-        api.fetchStocks().catch(err => {
-          console.error('Failed to fetch stocks:', err)
-          throw new Error('Failed to load stock items')
-        }),
-        api.fetchMenuItems().catch(err => {
-          console.error('Failed to fetch menu items:', err)
-          throw new Error('Failed to load menu items check your connection')
-        }),
+  const handleEditExpense = async (id: string, formData: any) => {
+    try {
+      const updatedExpense = await updateCommonExpense(id, formData)
+      setCommonExpenses(prev => prev.map(exp => 
+        exp._id === id ? updatedExpense : exp
+      ))
+    } catch (error) {
+      console.error('Error editing expense:', error)
+    }
+  }
+
+  const handleDeleteExpense = async (id: string) => {
+    if (confirm('Are you sure you want to delete this expense?')) {
+      try {
+        await deleteCommonExpense(id)
+        setCommonExpenses(prev => prev.filter(expense => expense._id !== id))
+      } catch (error) {
+        console.error('Error deleting expense:', error)
+      }
+    }
+  }
+
+  const handleRefresh = async () => {
+    setIsLoading(true)
+    try {
+      const [sales, regular, common] = await Promise.all([
+        fetchSalesData(),
+        fetchRegularExpenses(),
+        fetchCommonExpenses() // Fetch ALL common expenses again (static data)
       ])
-      
-      setCategories(categoriesData.data || categoriesData.categories || [])
-      setStocks(stocksData.data || stocksData.stocks || [])
-      
-      const items = menuItemsData.items || menuItemsData.data || []
-      // Ensure all items have proper defaults
-      const normalizedItems = items.map((item: MenuItem) => ({
-        ...item,
-        requiredStock: item.requiredStock || DEFAULT_REQUIRED_STOCK,
-        nutritionalInfo: item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO,
-        preparationTime: getSafeValue(item.preparationTime, 10),
-        isActive: getSafeValue(item.isActive, true),
-        isFeatured: getSafeValue(item.isFeatured, false),
-        price: getSafeValue(item.price, 0),
-      }))
-      setMenuItems(normalizedItems)
-      setFilteredItems(normalizedItems)
-      setRetryCount(0) // Reset retry count on success
-      
-    } catch (error: any) {
-      console.error("Failed to fetch data:", error)
-      
-      // Handle specific error types
-      let errorMessage = "Failed to load data. "
-      
-      if (error instanceof NetworkError) {
-        errorMessage = error.message
-      } else if (error.message?.includes('NetworkError') || error.message?.includes('Failed to fetch')) {
-        errorMessage = "Network error. Please check your internet connection."
-      } else if (error.message?.includes('500')) {
-        errorMessage = "Server error. Please try again later."
-      } else if (error.message?.includes('404')) {
-        errorMessage = "API endpoint not found. Please check your API configuration."
-      } else if (error.message) {
-        errorMessage += error.message
-      } else {
-        errorMessage += "Please try again later."
-      }
-      
-      setError(errorMessage)
-      
-      // Implement retry logic
-      if (retryAttempt < 3) {
-        setTimeout(() => {
-          setRetryCount(prev => prev + 1)
-          fetchData(retryAttempt + 1)
-        }, 2000 * (retryAttempt + 1)) // Exponential backoff
-      } else {
-        toast.error('Failed to load data after multiple attempts. Please refresh the page.')
-      }
+      setSalesData(sales)
+      setRegularExpenses(regular)
+      setCommonExpenses(common)
+    } catch (error) {
+      console.error("Error refreshing data:", error)
     } finally {
       setIsLoading(false)
     }
   }
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  const handleDayOfWeekChange = (dayOfWeek: string) => {
+    setSelectedDayOfWeek(dayOfWeek)
+    setDateFilterType('dayOfWeek')
+    // Reset custom dates when using day of week filter
+    setCustomStartDate(null)
+    setCustomEndDate(null)
+  }
 
-  useEffect(() => {
-    const filtered = menuItems.filter((item) => {
-      const matchesSearch = searchTerm === "" || (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-      const matchesCategory = categoryFilter === "all" || item.categoryId === categoryFilter
-      const matchesPrice = (item.price || 0) >= priceRange[0] && (item.price || 0) <= priceRange[1]
-      return matchesSearch && matchesCategory && matchesPrice
-    })
-    setFilteredItems(filtered)
-    setCurrentPage(1)
-  }, [searchTerm, categoryFilter, priceRange, menuItems])
+  // Helper to calculate daily amount for a common expense - FIXED with safety check
+  const getDailyAmount = (expense: CommonExpense | undefined, date: Date) => {
+    // Add safety check for undefined expense
+    if (!expense) return 0
+    if (!expense.isActive) return 0
+    
+    // Use common expenses as constant data for all dates as requested
+    // We ignore start/end dates for recurring expenses to apply them retroactively/proactively
+    // const start = new Date(expense.startDate)
+    // const end = expense.endDate ? new Date(expense.endDate) : null
+    // if (date < start) return 0
+    // if (end && date > end) return 0
 
-  const indexOfLastItem = currentPage * itemsPerPage
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage
-  const currentItems = filteredItems.slice(indexOfFirstItem, indexOfLastItem)
+    switch (expense.frequency) {
+      case 'daily': return expense.amount
+      case 'weekly': return expense.amount / 7
+      case 'monthly': return expense.amount / 30
+      case 'quarterly': return expense.amount / 91.25 // Approx 365/4
+      case 'yearly': return expense.amount / 365
+      case 'one-time': 
+        // For one-time, we still need to respect the specific date
+        const start = new Date(expense.startDate)
+        return isSameDay(date, start) ? expense.amount : 0
+      default: return 0
+    }
+  }
 
-  const paginate = (pageNumber: number) => setCurrentPage(pageNumber)
-
-  const validateImage = (file: File): { valid: boolean; error?: string } => {
-    // Check file type
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+  // Calculate daily profit based on filtered date range
+  const filteredData = useMemo(() => {
+    if (!salesData) {
       return { 
-        valid: false, 
-        error: `Invalid file type. Allowed types: ${ALLOWED_IMAGE_EXTENSIONS.join(', ')}` 
+        dailyProfit: [] as DailyProfit[], 
+        metrics: null,
+        categoryData: []
       }
     }
 
-    // Check file size
-    if (file.size > MAX_IMAGE_SIZE) {
-      return { 
-        valid: false, 
-        error: `Image size should be less than ${MAX_IMAGE_SIZE / (1024 * 1024)}MB` 
+    let start: Date, end: Date;
+    
+    if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
+      const dayConfig = DAYS_OF_WEEK.find(d => d.value === selectedDayOfWeek)
+      if (dayConfig) {
+        const range = getDateRange('dayOfWeek', undefined, undefined, dayConfig.dayIndex)
+        start = range.start
+        end = range.end
+      } else {
+        const range = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+        start = range.start
+        end = range.end
       }
+    } else {
+      const range = getDateRange(dateFilterType, customStartDate || undefined, customEndDate || undefined)
+      start = range.start
+      end = range.end
     }
-
-    // Check if file is actually an image (additional validation)
-    if (!file.type.startsWith('image/')) {
-      return { valid: false, error: 'File must be an image' }
-    }
-
-    return { valid: true }
-  }
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    // Clear previous image errors
-    setFieldErrors(prev => {
-      const newErrors = { ...prev }
-      delete newErrors.image
-      return newErrors
+    
+    // Filter orders by date
+    const filteredOrders = salesData.orders.filter(order => {
+      const orderDate = new Date(order.createdAt)
+      return orderDate >= start && orderDate <= end
     })
 
-    // Validate image
-    const validation = validateImage(file)
-    if (!validation.valid) {
-      setFieldErrors(prev => ({ ...prev, image: validation.error! }))
-      toast.error(validation.error!)
-      e.target.value = '' // Clear the input
-      return
-    }
-
-    setSelectedImage(file)
-    setIsImageRemoved(false) // User is adding a new image, so not removed
-    
-    // Create preview
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setImagePreview(reader.result as string)
-    }
-    reader.onerror = () => {
-      setFieldErrors(prev => ({ ...prev, image: 'Failed to read image file' }))
-      toast.error('Failed to read image file')
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const removeImage = () => {
-    setSelectedImage(null)
-    setImagePreview(null)
-    setValue("imageUrl", null)
-    setIsImageRemoved(true) // Mark that image was removed
-    // Clear any image errors
-    setFieldErrors(prev => {
-      const newErrors = { ...prev }
-      delete newErrors.image
-      return newErrors
+    // Filter regular expenses by date
+    const filteredRegularExpenses = regularExpenses.filter(expense => {
+      const expenseDate = new Date(expense.date)
+      return expenseDate >= start && expenseDate <= end
     })
-  }
 
-  const validateForm = (data: FormData): boolean => {
-    const errors: Record<string, string> = {}
-    
-    // Validate required fields
-    if (!data.name?.trim()) errors.name = 'Name is required'
-    if (!data.description?.trim()) errors.description = 'Description is required'
-    if (!data.categoryId) errors.categoryId = 'Category is required'
-    
-    // Validate price
-    if (data.price === undefined || data.price === null || data.price < 0) {
-      errors.price = 'Price must be a positive number'
+    // Group sales by date
+    const salesByDate: Record<string, { total: number; count: number }> = {}
+    filteredOrders.forEach(order => {
+      const date = format(new Date(order.createdAt), 'yyyy-MM-dd')
+      if (!salesByDate[date]) {
+        salesByDate[date] = { total: 0, count: 0 }
+      }
+      salesByDate[date].total += order.finalAmount
+      salesByDate[date].count++
+    })
+
+    // Group regular expenses by date
+    const regularExpensesByDate: Record<string, { total: number; count: number }> = {}
+    filteredRegularExpenses.forEach(expense => {
+      const date = format(new Date(expense.date), 'yyyy-MM-dd')
+      if (!regularExpensesByDate[date]) {
+        regularExpensesByDate[date] = { total: 0, count: 0 }
+      }
+      regularExpensesByDate[date].total += expense.amount
+      regularExpensesByDate[date].count++
+    })
+
+    // Determine dates to process
+    let datesToProcess: Date[] = []
+    if (dateFilterType === 'all') {
+      // For 'all', use only dates with actual data to avoid infinite range
+      const allDataDates = new Set([
+        ...Object.keys(salesByDate), 
+        ...Object.keys(regularExpensesByDate)
+      ])
+      datesToProcess = Array.from(allDataDates).sort().map(d => new Date(d))
+    } else if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
+      // For day of week, only process that specific day
+      datesToProcess = [start]
+    } else {
+      // For specific ranges, generate all days in the interval
+      datesToProcess = eachDayOfInterval({ start, end })
     }
     
-    // Validate image for new items
-    if (!selectedItem?._id && !selectedImage && !data.imageUrl) {
-      errors.image = 'Image is required for new menu items'
-    }
-    
-    // Validate required stock items - no decimal place restrictions
-    if (data.requiredStock) {
-      data.requiredStock.forEach((stock, index) => {
-        if (stock.stockId && stock.quantity <= 0) {
-          errors[`requiredStock.${index}.quantity`] = 'Quantity must be greater than 0'
+    // Create daily profit array
+    const dailyProfit: DailyProfit[] = datesToProcess.map(dateObj => {
+        const date = format(dateObj, 'yyyy-MM-dd')
+        const sales = salesByDate[date]?.total || 0
+        const regularExpenses = regularExpensesByDate[date]?.total || 0
+        
+        // Calculate common expenses for this day
+        let dailyCommonTotal = 0
+        const activeCommonExpenses: CommonExpense[] = []
+        
+        commonExpenses.forEach(expense => {
+          const amount = getDailyAmount(expense, dateObj)
+          if (amount > 0) {
+            dailyCommonTotal += amount
+            activeCommonExpenses.push(expense)
+          }
+        })
+
+        const totalExpenses = regularExpenses + dailyCommonTotal
+        const profit = sales - totalExpenses
+        const margin = sales > 0 ? (profit / sales) * 100 : 0
+
+        return {
+          date,
+          formattedDate: format(parseISO(date), 'PPP'),
+          sales,
+          regularExpenses,
+          commonExpenses: dailyCommonTotal,
+          totalExpenses,
+          profit,
+          margin,
+          orderCount: salesByDate[date]?.count || 0,
+          regularExpenseCount: regularExpensesByDate[date]?.count || 0,
+          commonExpenseCount: activeCommonExpenses.length,
+          commonExpensesList: activeCommonExpenses // Store the actual expenses for this day
         }
       })
+
+    // Calculate metrics
+    const totalSales = dailyProfit.reduce((sum, day) => sum + day.sales, 0)
+    const totalRegularExpenses = dailyProfit.reduce((sum, day) => sum + day.regularExpenses, 0)
+    const totalCommonExpenses = dailyProfit.reduce((sum, day) => sum + day.commonExpenses, 0)
+    const totalExpenses = dailyProfit.reduce((sum, day) => sum + day.totalExpenses, 0)
+    const totalProfit = dailyProfit.reduce((sum, day) => sum + day.profit, 0)
+    const averageMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0
+
+    const profitableDays = dailyProfit.filter(day => day.profit > 0).length
+    const lossDays = dailyProfit.filter(day => day.profit < 0).length
+
+    let bestDay: DailyProfit | null = null
+    let worstDay: DailyProfit | null = null
+
+    if (dailyProfit.length > 0) {
+      bestDay = dailyProfit.reduce((max, day) => day.profit > max.profit ? day : max, dailyProfit[0])
+      worstDay = dailyProfit.reduce((min, day) => day.profit < min.profit ? day : min, dailyProfit[0])
     }
+
+    const metrics: ProfitMetrics = {
+      totalSales,
+      totalRegularExpenses,
+      totalCommonExpenses,
+      totalExpenses,
+      totalProfit,
+      averageMargin,
+      bestDay: bestDay && bestDay.profit > 0 ? bestDay : null,
+      worstDay: worstDay && worstDay.profit < 0 ? worstDay : null,
+      profitableDays,
+      lossDays
+    }
+
+    // Calculate category data for pie chart - FIXED with safety checks
+    // For regular expenses, use the filtered list
+    const regularExpensesForChart = filteredRegularExpenses.map(e => ({ category: e.category, amount: e.amount }))
     
-    setFieldErrors(errors)
-    return Object.keys(errors).length === 0
+    // For common expenses, sum up the daily amortized amounts across the period
+    const commonExpensesForChart = dailyProfit.flatMap(day => 
+      // Filter out any undefined expenses and ensure we have valid objects
+      (day.commonExpensesList || [])
+        .filter(expense => expense && expense._id) // Ensure expense exists and has an ID
+        .map(expense => ({
+          category: expense.category,
+          amount: getDailyAmount(expense, new Date(day.date))
+        }))
+    )
+
+    const allExpenses = [...regularExpensesForChart, ...commonExpensesForChart]
+
+    const categoryTotals = allExpenses.reduce((acc, expense) => {
+      acc[expense.category] = (acc[expense.category] || 0) + expense.amount
+      return acc
+    }, {} as Record<string, number>)
+
+    const categoryData = Object.entries(categoryTotals)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8)
+
+    return { dailyProfit, metrics, categoryData }
+  }, [salesData, regularExpenses, commonExpenses, dateFilterType, customStartDate, customEndDate, selectedDayOfWeek])
+
+  const handleExport = () => {
+    if (!filteredData.dailyProfit.length) return
+
+    const exportData = filteredData.dailyProfit.map(day => ({
+      'Date': day.formattedDate,
+      'Sales (ETB)': day.sales.toFixed(2),
+      'Regular Expenses (ETB)': day.regularExpenses.toFixed(2),
+      'Common Expenses (ETB)': day.commonExpenses.toFixed(2),
+      'Total Expenses (ETB)': day.totalExpenses.toFixed(2),
+      'Profit (ETB)': day.profit.toFixed(2),
+      'Profit Margin (%)': day.margin.toFixed(2),
+      'Number of Orders': day.orderCount,
+      'Regular Expenses Count': day.regularExpenseCount,
+      'Common Expenses Count': day.commonExpenseCount
+    }))
+
+    exportToExcel(exportData, `profit_report_${format(new Date(), 'yyyy-MM-dd')}`)
   }
 
-  const onSubmit = async (data: FormData) => {
-    // Validate form first
-    if (!validateForm(data)) {
-      toast.error('Please fix the validation errors')
-      return
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'ETB',
+      minimumFractionDigits: 2
+    }).format(value)
+  }
+
+  // Get display text for date range
+  const getDateRangeDisplayText = () => {
+    if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
+      const dayConfig = DAYS_OF_WEEK.find(d => d.value === selectedDayOfWeek)
+      const range = getDateRange('dayOfWeek', undefined, undefined, dayConfig?.dayIndex)
+      return `${dayConfig?.label} - ${format(range.start, 'PPP')}`
     }
+    if (dateFilterType === 'custom' && customStartDate && customEndDate) {
+      return `${format(customStartDate, 'PPP')} - ${format(customEndDate, 'PPP')}`
+    }
+    if (dateFilterType === 'today') return format(new Date(), 'PPP')
+    if (dateFilterType === 'yesterday') return format(subDays(new Date(), 1), 'PPP')
+    if (dateFilterType === 'week') return `Week of ${format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'MMM dd')}`
+    if (dateFilterType === 'month') return format(new Date(), 'MMMM yyyy')
+    if (dateFilterType === 'year') return format(new Date(), 'yyyy')
+    if (dateFilterType === 'all') return 'All Time'
+    return `${filteredData.dailyProfit.length} days`
+  }
 
-    setIsSubmitting(true)
-    setIsUploading(true)
-    setUploadProgress(0)
-    setError(null)
-    setFieldErrors({})
-    
-    try {
-      // Check network status
-      if (!navigator.onLine) {
-        throw new NetworkError('You are offline. Please check your internet connection.')
-      }
-
-      // Create FormData for file upload
-      const formData = new FormData()
-      
-      // Add basic fields with null checks - preserve full precision
-      formData.append("name", data.name || "")
-      formData.append("description", data.description || "")
-      formData.append("categoryId", data.categoryId || "")
-      formData.append("price", data.price?.toString() || "0")
-      formData.append("preparationTime", data.preparationTime?.toString() || "10")
-      formData.append("isActive", (data.isActive ?? true).toString())
-      formData.append("isFeatured", (data.isFeatured ?? false).toString())
-      
-      // Add nutritional info with defaults - preserve full precision
-      const nutritionalInfo = data.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
-      const formattedNutritionalInfo = {
-        calories: nutritionalInfo.calories,
-        protein: nutritionalInfo.protein,
-        carbohydrates: nutritionalInfo.carbohydrates,
-        fat: nutritionalInfo.fat
-      }
-      formData.append("nutritionalInfo", JSON.stringify(formattedNutritionalInfo))
-      
-      // Add required stock with defaults - preserve full precision
-      const validRequiredStock = (data.requiredStock || DEFAULT_REQUIRED_STOCK)
-        .filter(stock => stock.stockId && stock.quantity > 0)
-        .map(stock => ({
-          stockId: stock.stockId,
-          quantity: stock.quantity // Keep original value without rounding
-        }))
-      formData.append("requiredStock", JSON.stringify(validRequiredStock))
-      
-      // 🔥 FIXED IMAGE HANDLING FOR EDIT MODE 🔥
-      if (selectedItem && selectedItem._id) {
-        // EDIT MODE
-        formData.append("_id", selectedItem._id)
-        
-        if (selectedImage) {
-          // Case 1: User selected a new image - upload it to Cloudinary
-          console.log("📸 Uploading new image for edit...")
-          formData.append('image', selectedImage);
-          // Don't send old imageUrl - let backend handle it
-        } else if (isImageRemoved) {
-          // Case 2: User removed the image
-          console.log("🗑️ Image removed during edit")
-          formData.append("removeImage", "true")
-        } else if (data.imageUrl && data.imageUrl.startsWith('http')) {
-          // Case 3: Keep existing Cloudinary image (URL, not base64)
-          console.log("🖼️ Keeping existing Cloudinary image")
-          formData.append("imageUrl", data.imageUrl)
-        } else if (selectedItem.cloudinaryData?.url) {
-          // Case 4: Use cloudinaryData.url from existing item
-          console.log("🖼️ Using cloudinaryData.url from existing item")
-          formData.append("imageUrl", selectedItem.cloudinaryData.url)
-        }
-        // If none of the above, no image field is sent - backend should keep existing
-      } else {
-        // CREATE MODE
-        if (selectedImage) {
-          formData.append('image', selectedImage);
-        } else if (data.imageUrl && typeof data.imageUrl === 'string') {
-          formData.append('imageUrl', data.imageUrl);
-        }
-      }
-      
-      console.log("Sending data to API...")
-      
-      let response
-      const isUpdate = selectedItem && selectedItem._id
-      
-      // Simulate upload progress for better UX
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval)
-            return 90
-          }
-          return prev + 10
-        })
-      }, 300)
-      
-      try {
-        if (isUpdate) {
-          // Update existing item
-          response = await api.updateMenuItem(selectedItem!._id!, formData)
-        } else {
-          // Create new item
-          response = await api.createMenuItem(formData)
-        }
-        
-        clearInterval(progressInterval)
-        setUploadProgress(100)
-        
-        // Check response
-        if (!response) {
-          throw new Error('No response from server')
-        }
-        
-        if (response.success === false) {
-          throw new Error(response.message || 'Operation failed')
-        }
-        
-        // Success message
-        toast.success(isUpdate ? "Item updated successfully" : "Item created successfully")
-        
-        // Wait a bit to show completion
-        await new Promise(resolve => setTimeout(resolve, 500))
-        
-        // Refresh menu items
-        await fetchData()
-        
-        // Reset form state and close dialog
-        reset()
-        setSelectedImage(null)
-        setImagePreview(null)
-        setIsImageRemoved(false)
-        setSelectedItem(null)
-        setIsDialogOpen(false)
-        setFieldErrors({})
-        
-      } catch (apiError: any) {
-        clearInterval(progressInterval)
-        
-        // Handle specific API errors
-        if (apiError.message?.includes('413')) {
-          throw new Error('Image file is too large. Maximum size is 10MB.')
-        } else if (apiError.message?.includes('400')) {
-          // Try to parse validation errors from response
-          try {
-            const errorData = JSON.parse(apiError.message)
-            if (errorData.errors) {
-              setFieldErrors(errorData.errors)
-              throw new ValidationError('Please check the form for errors')
-            }
-          } catch {
-            // If parsing fails, use generic message
-          }
-          throw new Error('Invalid data. Please check your inputs.')
-        } else if (apiError.message?.includes('401')) {
-          throw new Error('You are not authorized. Please log in again.')
-        } else if (apiError.message?.includes('403')) {
-          throw new Error('You do not have permission to perform this action.')
-        } else if (apiError.message?.includes('404')) {
-          throw new Error('API endpoint not found. Please check your configuration.')
-        } else if (apiError.message?.includes('500')) {
-          throw new Error('Server error. Please try again later.')
-        } else {
-          throw apiError
-        }
-      }
-      
-    } catch (error: any) {
-      console.error("Error saving item:", error)
-      
-      // Extract meaningful error message
-      let errorMessage = "Failed to save item. "
-      
-      if (error instanceof NetworkError) {
-        errorMessage = error.message
-      } else if (error instanceof ValidationError) {
-        errorMessage = error.message
-      } else if (error.message) {
-        errorMessage += error.message
-      } else {
-        errorMessage += "Please try again."
-      }
-      
-      setError(errorMessage)
-      toast.error(errorMessage)
-      
-      // If it's a network error, offer retry
-      if (error instanceof NetworkError || error.message?.includes('network')) {
-        toast((t) => (
-          <div className="flex flex-col gap-2">
-            <span>Network error. Would you like to retry?</span>
+  if (isLoading) {
+    return (
+      <div className="flex-col md:flex">
+        <div className="flex-1 space-y-4 p-8 pt-6">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-9 w-48" />
             <div className="flex gap-2">
-              <Button 
-                size="sm" 
-                onClick={() => {
-                  toast.dismiss(t.id)
-                  const currentData = getValues()
-                  onSubmit(currentData)
-                }}
-              >
-                Retry
-              </Button>
-              <Button 
-                size="sm" 
-                variant="outline" 
-                onClick={() => toast.dismiss(t.id)}
-              >
-                Cancel
-              </Button>
+              <Skeleton className="h-10 w-40" />
+              <Skeleton className="h-10 w-32" />
             </div>
           </div>
-        ), { duration: 10000 })
-      }
-    } finally {
-      setIsSubmitting(false)
-      setIsUploading(false)
-      setUploadProgress(0)
-    }
-  }
-
-  const handleDelete = async (id: string) => {
-    setItemToDelete(id)
-    setIsDeleteDialogOpen(true)
-  }
-
-  const confirmDelete = async () => {
-    if (!itemToDelete) return
-    
-    setIsSubmitting(true)
-    setError(null)
-    
-    try {
-      if (!navigator.onLine) {
-        throw new NetworkError('You are offline. Please check your internet connection.')
-      }
-
-      await api.deleteMenuItem(itemToDelete)
-      await fetchData() // Refresh the list
-      toast.success("Item deleted successfully")
-      setIsDeleteDialogOpen(false)
-      setItemToDelete(null)
-      
-    } catch (error: any) {
-      console.error("Error deleting item:", error)
-      
-      let errorMessage = "Failed to delete item. "
-      if (error instanceof NetworkError) {
-        errorMessage = error.message
-      } else if (error.message?.includes('401')) {
-        errorMessage += "You are not authorized."
-      } else if (error.message?.includes('403')) {
-        errorMessage += "You do not have permission."
-      } else if (error.message?.includes('404')) {
-        errorMessage += "Item not found."
-      } else if (error.message) {
-        errorMessage += error.message
-      } else {
-        errorMessage += "Please try again."
-      }
-      
-      setError(errorMessage)
-      toast.error(errorMessage)
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  const handleEdit = (item: MenuItem) => {
-    setSelectedItem(item)
-    // Use cloudinaryData.url if available, otherwise fallback to imageUrl
-    setImagePreview(item.cloudinaryData?.url || item.imageUrl || null)
-    setSelectedImage(null)
-    setIsImageRemoved(false)
-    setFieldErrors({})
-    setError(null)
-    
-    // Ensure all fields have defaults
-    const itemToEdit = {
-      ...item,
-      requiredStock: item.requiredStock || DEFAULT_REQUIRED_STOCK,
-      nutritionalInfo: item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO,
-      preparationTime: getSafeValue(item.preparationTime, 10),
-      isActive: getSafeValue(item.isActive, true),
-      isFeatured: getSafeValue(item.isFeatured, false),
-      price: getSafeValue(item.price, 0),
-      // Use cloudinaryData.url for imageUrl in the form
-      imageUrl: item.cloudinaryData?.url || item.imageUrl,
-    }
-    reset(itemToEdit)
-    setIsDialogOpen(true)
-  }
-
-  const handleViewDetails = (item: MenuItem) => {
-    setSelectedItem(item)
-    setIsViewDetailsOpen(true)
-  }
-
-  const handleNewItem = () => {
-    setSelectedItem(null)
-    setImagePreview(null)
-    setSelectedImage(null)
-    setIsImageRemoved(false)
-    setFieldErrors({})
-    setError(null)
-    reset({
-      requiredStock: DEFAULT_REQUIRED_STOCK,
-      nutritionalInfo: DEFAULT_NUTRITIONAL_INFO,
-      isActive: true,
-      isFeatured: false,
-      price: 0,
-      preparationTime: 10,
-      name: "",
-      description: "",
-      categoryId: "",
-    })
-    setIsDialogOpen(true)
-  }
-
-  const getItemImage = (item: MenuItem) => {
-    // Prefer cloudinaryData.url over imageUrl
-    return item.cloudinaryData?.url || item.imageUrl || "/placeholder.svg"
-  }
-
-  // Helper function to get nutritional info safely
-  const getNutritionalInfo = (item: MenuItem | null) => {
-    if (!item || !item.nutritionalInfo) return DEFAULT_NUTRITIONAL_INFO
-    return {
-      calories: getSafeValue(item.nutritionalInfo.calories, 0),
-      protein: getSafeValue(item.nutritionalInfo.protein, 0),
-      carbohydrates: getSafeValue(item.nutritionalInfo.carbohydrates, 0),
-      fat: getSafeValue(item.nutritionalInfo.fat, 0)
-    }
-  }
-
-  // Helper function to get required stock safely
-  const getRequiredStock = (item: MenuItem | null) => {
-    if (!item || !item.requiredStock) return DEFAULT_REQUIRED_STOCK
-    return item.requiredStock
-  }
-
-  if (isLoading && menuItems.length === 0) {
-    return (
-      <div className="flex flex-col justify-center items-center h-screen bg-gray-50">
-        <div className="relative w-20 h-20">
-          <div className="absolute inset-0 flex items-center justify-center">
-            <ChefHat className="h-8 w-8 text-indigo-600" />
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            {[...Array(6)].map((_, i) => (
+              <Skeleton key={i} className="h-[125px] w-full" />
+            ))}
           </div>
-          <div className="absolute inset-0 border-4 border-t-indigo-600 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin"></div>
-        </div>
-        <p className="mt-4 text-indigo-800 font-medium">Loading menu items...</p>
-        {retryCount > 0 && (
-          <p className="mt-2 text-sm text-gray-500">Retry attempt {retryCount}/3...</p>
-        )}
-      </div>
-    )
-  }
-
-  if (error && menuItems.length === 0) {
-    return (
-      <div className="flex flex-col justify-center items-center h-screen bg-red-50 p-4">
-        <div className="max-w-md w-full p-8 bg-white rounded-lg shadow-lg">
-          <div className="flex items-center justify-center bg-red-100 h-16 w-16 rounded-full mb-4 mx-auto">
-            <AlertCircle className="h-8 w-8 text-red-600" />
-          </div>
-          <h2 className="text-center text-2xl font-bold text-red-700 mb-2">Error Loading Data</h2>
-          <p className="text-center text-gray-700 mb-6">{error}</p>
-          {networkStatus === 'offline' && (
-            <p className="text-center text-orange-600 mb-4">
-              You are currently offline. Please check your internet connection.
-            </p>
-          )}
-          <div className="space-y-3">
-            <Button 
-              onClick={() => fetchData()} 
-              className="w-full bg-red-600 hover:bg-red-700"
-              disabled={networkStatus === 'offline'}
-            >
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Try Again
-            </Button>
-            <Button 
-              onClick={() => window.location.reload()} 
-              variant="outline"
-              className="w-full"
-            >
-              Refresh Page
-            </Button>
-          </div>
+          <Skeleton className="h-[350px] w-full" />
         </div>
       </div>
     )
   }
 
   return (
-    <div className="container mx-auto p-4 space-y-8">
-      <Toaster position="top-right" />
-      
-      {/* Network Status Alert */}
-      {networkStatus === 'offline' && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Offline</AlertTitle>
-          <AlertDescription>
-            You are currently offline. Some features may be unavailable.
-          </AlertDescription>
-        </Alert>
-      )}
-      
-      {/* Enhanced header with background and shadow */}
-      <div className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 p-6 rounded-lg shadow-sm mb-8">
-        <h1 className="text-4xl font-bold flex items-center text-gray-800">
-          <ChefHat className="mr-3 text-indigo-600" size={32} />
-          Restaurant Menu Management
-        </h1>
-        <p className="text-gray-600 mt-2 max-w-2xl">
-          Manage your menu items, add new dishes, update prices, and organize your restaurant's offerings.
-        </p>
-      </div>
-
-      {/* Error Alert */}
-      {error && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* Enhanced filter section with card */}
-      <Card className="mb-8">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-xl flex items-center">
-            <Filter className="mr-2" size={18} />
-            Filter & Search Options
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap justify-between items-center gap-4">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                <Input
-                  type="text"
-                  placeholder="Search items..."
-                  className="pl-10 w-64"
-                  onChange={(e) => debouncedSearch(e.target.value)}
-                  disabled={isLoading || networkStatus === 'offline'}
-                />
-              </div>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter} disabled={isLoading || networkStatus === 'offline'}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Filter by category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {categories.map((category) => (
-                    <SelectItem key={category._id} value={category._id}>
-                      {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              
-              <div className="flex flex-col space-y-1">
-                <Label className="text-sm font-medium">Price Range (ETB)</Label>
-                <div className="flex items-center space-x-2">
-                  <Slider
-                    min={0}
-                    max={1000}
-                    step={1}
-                    value={priceRange}
-                    onValueChange={debouncedPriceRange}
-                    className="w-[200px]"
-                    disabled={isLoading || networkStatus === 'offline'}
-                  />
-                  <span className="text-sm font-medium bg-gray-100 px-2 py-1 rounded-md min-w-[90px] text-center">
-                    {priceRange[0].toFixed(2)} - {priceRange[1].toFixed(2)} ETB
-                  </span>
-                </div>
-              </div>
-            </div>
-            
-            <Button
-              onClick={handleNewItem}
-              className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
-              disabled={isLoading || isSubmitting || networkStatus === 'offline'}
+    <div className="flex-col md:flex">
+      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Profit Dashboard</h2>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowExpenseManager(true)}
+              className="flex-1 sm:flex-none"
             >
-              <Plus className="mr-2 h-4 w-4" /> Add New Item
+              <Wallet className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Manage Common Expenses</span>
+              <span className="inline sm:hidden">Expenses</span>
+            </Button>
+            <Button onClick={handleRefresh} variant="outline" size="icon">
+              <RefreshCcw className="h-4 w-4" />
+            </Button>
+            <Button onClick={handleExport} variant="outline" className="flex-1 sm:flex-none">
+              <Download className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Export Report</span>
+              <span className="inline sm:hidden">Export</span>
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {currentItems.length > 0 ? (
-          currentItems.map((item) => (
-            <Card key={item._id || item.id} className="overflow-hidden hover:shadow-lg transition-shadow duration-300 group border border-gray-200">
-              <div className="relative">
-                <CardHeader className="p-0">
-                  <img 
-                    src={getItemImage(item)} 
-                    alt={item.name || "Menu Item"} 
-                    className="w-full h-48 object-cover transition-transform duration-300 group-hover:scale-105" 
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement
-                      target.src = "/placeholder.svg"
-                    }}
-                  />
-                </CardHeader>
-                {item.isFeatured && (
-                  <div className="absolute top-2 right-2 bg-yellow-400 text-white p-1.5 rounded-full">
-                    <Star className="h-4 w-4" />
-                  </div>
-                )}
-                <Badge 
-                  variant={item.isActive ? "default" : "secondary"} 
-                  className="absolute top-2 left-2"
-                >
-                  {item.isActive ? "Active" : "Inactive"}
-                </Badge>
+        {/* Date Filter */}
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="h-5 w-5" />
+                Date Range
+              </CardTitle>
+              <div className="text-sm text-muted-foreground">
+                {getDateRangeDisplayText()} • {filteredData.dailyProfit.length} days of data
               </div>
-              <CardContent className="p-4">
-                <CardTitle className="text-lg font-semibold mb-2 line-clamp-1">
-                  {item.name || "Unnamed Item"}
-                </CardTitle>
-                <p className="text-sm text-gray-600 mb-3 line-clamp-2 h-10">
-                  {item.description || "No description available"}
-                </p>
-                <div className="flex flex-col gap-2">
-                  <div className="flex justify-between items-center">
-                    <span className="flex items-center text-sm font-medium text-gray-900">
-                      <Tag className="mr-1.5 text-green-600" size={14} />
-                      {item.price?.toString() || "0"} ETB
-                    </span>
-                    <span className="flex items-center text-sm text-gray-500">
-                      <Clock className="mr-1.5 text-orange-500" size={14} />
-                      {item.preparationTime?.toString() || "0"} min
-                    </span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={dateFilterType === 'today' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setDateFilterType('today')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
+                >
+                  Today
+                </Button>
+                <Button
+                  variant={dateFilterType === 'yesterday' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setDateFilterType('yesterday')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
+                >
+                  Yesterday
+                </Button>
+                <Button
+                  variant={dateFilterType === 'week' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setDateFilterType('week')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
+                >
+                  This Week
+                </Button>
+                <Button
+                  variant={dateFilterType === 'month' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setDateFilterType('month')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
+                >
+                  This Month
+                </Button>
+                <Button
+                  variant={dateFilterType === 'year' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setDateFilterType('year')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
+                >
+                  This Year
+                </Button>
+                <Button
+                  variant={dateFilterType === 'all' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setDateFilterType('all')
+                    setSelectedDayOfWeek('')
+                    setCustomStartDate(null)
+                    setCustomEndDate(null)
+                  }}
+                >
+                  All Time
+                </Button>
+                
+                {/* Day of Week Dropdown */}
+                <Select value={selectedDayOfWeek} onValueChange={handleDayOfWeekChange}>
+                  <SelectTrigger className="w-[140px]">
+                    <Calendar className="h-4 w-4 mr-2" />
+                    <SelectValue placeholder="Select Day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DAYS_OF_WEEK.map((day) => (
+                      <SelectItem key={day.value} value={day.value}>
+                        {day.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                <Button
+                  variant={dateFilterType === 'custom' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setDateFilterType('custom')
+                    setSelectedDayOfWeek('')
+                  }}
+                >
+                  Custom Range
+                </Button>
+              </div>
+
+              {dateFilterType === 'custom' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Start Date</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full mt-1 justify-start text-left font-normal">
+                          <CalendarDays className="mr-2 h-4 w-4" />
+                          {customStartDate ? format(customStartDate, "PPP") : "Select start date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0">
+                        <CalendarComponent
+                          mode="single"
+                          selected={customStartDate || undefined}
+                          onSelect={setCustomStartDate}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
-                  <div className="flex items-center text-xs text-gray-500 pt-1">
-                    <Coffee className="mr-1.5 text-indigo-500" size={14} />
-                    {categories.find((c) => c._id === item.categoryId)?.name || "Uncategorized"}
+                  <div>
+                    <Label>End Date</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full mt-1 justify-start text-left font-normal">
+                          <CalendarDays className="mr-2 h-4 w-4" />
+                          {customEndDate ? format(customEndDate, "PPP") : "Select end date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0">
+                        <CalendarComponent
+                          mode="single"
+                          selected={customEndDate || undefined}
+                          onSelect={setCustomEndDate}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
-              </CardContent>
-              <Separator />
-              <CardFooter className="flex justify-between p-3 bg-gray-50">
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => handleViewDetails(item)} 
-                  className="flex-1 mr-1"
-                  disabled={isSubmitting}
-                >
-                  <Eye className="mr-1.5 h-4 w-4" />
-                  View
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => handleEdit(item)} 
-                  className="flex-1 mr-1"
-                  disabled={isSubmitting}
-                >
-                  <Edit className="mr-1.5 h-4 w-4" />
-                  Edit
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => item._id && handleDelete(item._id)} 
-                  className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                  disabled={isSubmitting}
-                >
-                  <Trash2 className="mr-1.5 h-4 w-4" />
-                  Delete
-                </Button>
-              </CardFooter>
-            </Card>
-          ))
-        ) : (
-          <div className="col-span-full flex flex-col items-center justify-center p-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-            <Menu className="h-12 w-12 text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900">No items found</h3>
-            <p className="text-sm text-gray-500 mt-1">Try adjusting your search or filter criteria</p>
-          </div>
-        )}
-      </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
-      <div className="mt-6 flex justify-center">
-        <Pagination>
-          <PaginationContent>
-            <PaginationItem>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => currentPage > 1 && paginate(currentPage - 1)}
-                disabled={currentPage === 1 || isLoading || isSubmitting}
-                className="h-9 w-9"
-              >
-                <PaginationPrevious className="h-4 w-4" />
-              </Button>
-            </PaginationItem>
-            {Array.from({ length: Math.ceil(filteredItems.length / itemsPerPage) }).map((_, index) => (
-              <PaginationItem key={index}>
-                <PaginationLink 
-                  onClick={() => !isLoading && !isSubmitting && paginate(index + 1)} 
-                  isActive={currentPage === index + 1}
-                  className={isLoading || isSubmitting ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                >
-                  {index + 1}
-                </PaginationLink>
-              </PaginationItem>
-            ))}
-            <PaginationItem>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => currentPage < Math.ceil(filteredItems.length / itemsPerPage) && paginate(currentPage + 1)}
-                disabled={currentPage === Math.ceil(filteredItems.length / itemsPerPage) || isLoading || isSubmitting}
-                className="h-9 w-9"
-              >
-                <PaginationNext className="h-4 w-4" />
-              </Button>
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
-      </div>
+        <Tabs defaultValue="overview" onValueChange={setActiveTab}>
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="details">Daily Details</TabsTrigger>
+          </TabsList>
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={(open) => {
-        if (!open && isUploading) {
-          toast.error("Please wait for the upload to complete")
-          return
-        }
-        setIsDialogOpen(open)
-        if (!open) {
-          setSelectedImage(null)
-          setImagePreview(null)
-          setIsImageRemoved(false)
-          setUploadProgress(0)
-          setFieldErrors({})
-          setError(null)
-          setSelectedItem(null)
-          reset()
-        }
-      }}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh]">
-          <DialogHeader>
-            <DialogTitle>{selectedItem ? "Edit Menu Item" : "Add New Menu Item"}</DialogTitle>
-            <DialogDescription>
-              {selectedItem ? "Edit the details of the menu item." : "Add a new item to your menu. Image is required for new items."}
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)}>
-            <ScrollArea className="h-[60vh] pr-4">
-              <div className="space-y-4 py-4">
-                {/* Display form errors */}
-                {Object.keys(fieldErrors).length > 0 && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Validation Errors</AlertTitle>
-                    <AlertDescription>
-                      <ul className="list-disc pl-4 mt-2">
-                        {Object.entries(fieldErrors).map(([field, message]) => (
-                          <li key={field} className="text-sm">{message}</li>
-                        ))}
-                      </ul>
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                <Tabs defaultValue="basic" className="w-full">
-                  <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="basic" className="flex items-center gap-1">
-                      <Menu className="h-4 w-4" />
-                      Basic Info
-                    </TabsTrigger>
-                    <TabsTrigger value="stock" className="flex items-center gap-1">
-                      <Tag className="h-4 w-4" />
-                      Stock
-                    </TabsTrigger>
-                    <TabsTrigger value="nutrition" className="flex items-center gap-1">
-                      <Coffee className="h-4 w-4" />
-                      Nutrition
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="basic">
-                    <div className="space-y-4 pt-3">
-                      <div className="grid gap-2">
-                        <Label htmlFor="name" className="flex items-center">
-                          Item Name <span className="text-red-500 ml-1">*</span>
-                        </Label>
-                        <Input 
-                          id="name" 
-                          {...register("name")} 
-                          placeholder="e.g., Spicy Chicken Burger" 
-                          disabled={isSubmitting || isUploading}
-                          className={fieldErrors.name ? "border-red-500" : ""}
-                        />
-                        {errors.name && <p className="text-red-500 text-sm">{errors.name.message}</p>}
-                        {fieldErrors.name && <p className="text-red-500 text-sm">{fieldErrors.name}</p>}
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="category" className="flex items-center">
-                          Category <span className="text-red-500 ml-1">*</span>
-                        </Label>
-                        <Controller
-                          name="categoryId"
-                          control={control}
-                          render={({ field }) => (
-                            <Select 
-                              onValueChange={field.onChange} 
-                              value={field.value || undefined}
-                              disabled={isSubmitting || isUploading}
-                            >
-                              <SelectTrigger id="category" className={fieldErrors.categoryId ? "border-red-500" : ""}>
-                                <SelectValue placeholder="Select Category" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {categories.map((category) => (
-                                  <SelectItem key={category._id} value={category._id}>
-                                    {category.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                        />
-                        {errors.categoryId && <p className="text-red-500 text-sm">{errors.categoryId.message}</p>}
-                        {fieldErrors.categoryId && <p className="text-red-500 text-sm">{fieldErrors.categoryId}</p>}
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="description" className="flex items-center">
-                          Description <span className="text-red-500 ml-1">*</span>
-                        </Label>
-                        <Textarea 
-                          id="description" 
-                          {...register("description")} 
-                          placeholder="Describe the item, its ingredients, flavors, etc." 
-                          className={`min-h-[100px] ${fieldErrors.description ? "border-red-500" : ""}`}
-                          disabled={isSubmitting || isUploading}
-                        />
-                        {errors.description && <p className="text-red-500 text-sm">{errors.description.message}</p>}
-                        {fieldErrors.description && <p className="text-red-500 text-sm">{fieldErrors.description}</p>}
-                      </div>
-                      <div className="grid grid-cols-1 gap-4">
-                        <div className="grid gap-2">
-                          <Label htmlFor="price" className="flex items-center">
-                            Price (ETB) <span className="text-red-500 ml-1">*</span>
-                          </Label>
-                          <Input
-                            id="price"
-                            type="number"
-                            step="any"
-                            min="0"
-                            placeholder="0.00"
-                            disabled={isSubmitting || isUploading}
-                            className={fieldErrors.price ? "border-red-500" : ""}
-                            {...register("price", { 
-                              valueAsNumber: true,
-                              setValueAs: (v) => v === '' ? 0 : parseFloat(v)
-                            })}
-                          />
-                          {errors.price && <p className="text-red-500 text-sm">{errors.price.message}</p>}
-                          {fieldErrors.price && <p className="text-red-500 text-sm">{fieldErrors.price}</p>}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2">
-                          <Label htmlFor="prepTime">Preparation Time (min)</Label>
-                          <Input
-                            id="prepTime"
-                            type="number"
-                            step="any"
-                            min="0"
-                            max="1440"
-                            placeholder="10.5"
-                            disabled={isSubmitting || isUploading}
-                            {...register("preparationTime", { 
-                              valueAsNumber: true,
-                              setValueAs: (v) => v === '' ? 10 : parseFloat(v)
-                            })}
-                          />
-                          {errors.preparationTime && (
-                            <p className="text-red-500 text-sm">{errors.preparationTime.message}</p>
-                          )}
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="image" className="flex items-center">
-                            Item Image {!selectedItem && <span className="text-red-500 ml-1">*</span>}
-                          </Label>
-                          <Input
-                            id="image"
-                            type="file"
-                            accept={ALLOWED_IMAGE_TYPES.join(',')}
-                            onChange={handleImageChange}
-                            disabled={isSubmitting || isUploading}
-                            className={fieldErrors.image ? "border-red-500" : ""}
-                          />
-                          <p className="text-xs text-gray-500">
-                            Max size: 10MB. Allowed: {ALLOWED_IMAGE_EXTENSIONS.join(', ')}
-                          </p>
-                          {fieldErrors.image && <p className="text-red-500 text-sm">{fieldErrors.image}</p>}
-                        </div>
-                      </div>
-                      
-                      {/* Image Preview */}
-                      {(imagePreview || selectedItem?.imageUrl) && (
-                        <div className="mt-2">
-                          <Label className="text-sm font-medium mb-2 block">Image Preview</Label>
-                          <div className="relative w-full max-w-xs">
-                            <img
-                              src={imagePreview || selectedItem?.cloudinaryData?.url || selectedItem?.imageUrl}
-                              alt="Preview"
-                              className="w-full h-48 object-cover rounded-md border"
-                            />
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="icon"
-                              className="absolute top-2 right-2 h-8 w-8"
-                              onClick={removeImage}
-                              disabled={isSubmitting || isUploading}
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {selectedImage ? `${selectedImage.name} (${(selectedImage.size / 1024).toFixed(1)} KB)` : 'Current image'}
-                          </p>
-                        </div>
-                      )}
-
-                      {isUploading && (
-                        <div className="space-y-2">
-                          <div className="flex justify-between text-sm">
-                            <span>Uploading image...</span>
-                            <span>{uploadProgress}%</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2.5">
-                            <div 
-                              className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
-                              style={{ width: `${uploadProgress}%` }}
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-2 gap-4 pt-2">
-                        <div className="flex items-center space-x-2">
-                          <Controller
-                            name="isActive"
-                            control={control}
-                            render={({ field }) => (
-                              <div className="flex items-center space-x-2">
-                                <Switch
-                                  id="isActive"
-                                  checked={field.value ?? true}
-                                  onCheckedChange={field.onChange}
-                                  disabled={isSubmitting || isUploading}
-                                />
-                                <Label htmlFor="isActive" className="cursor-pointer">Active Item</Label>
-                              </div>
-                            )}
-                          />
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Controller
-                            name="isFeatured"
-                            control={control}
-                            render={({ field }) => (
-                              <div className="flex items-center space-x-2">
-                                <Switch
-                                  id="isFeatured"
-                                  checked={field.value ?? false}
-                                  onCheckedChange={field.onChange}
-                                  disabled={isSubmitting || isUploading}
-                                />
-                                <Label htmlFor="isFeatured" className="cursor-pointer">Featured Item</Label>
-                              </div>
-                            )}
-                          />
-                        </div>
-                      </div>
+          <TabsContent value="overview" className="space-y-4">
+            {/* Key Metrics - Now with 6 cards */}
+            {filteredData.metrics && (
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
+                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-green-600">
+                      {formatCurrency(filteredData.metrics.totalSales)}
                     </div>
-                  </TabsContent>
-                  <TabsContent value="stock">
-                    <div className="space-y-4 pt-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-medium">Required Stock Items</h3>
-                      </div>
-                      {fields.length === 0 && (
-                        <div className="text-center py-4 bg-gray-50 rounded-md">
-                          <p className="text-gray-500 text-sm">No ingredients added yet</p>
-                          <p className="text-gray-400 text-xs mt-1">Click the button above to add ingredients</p>
-                        </div>
-                      )}
-                      {fields.map((field, index) => (
-                        <div key={field.id} className="flex items-center space-x-2 bg-gray-50 p-3 rounded-md">
-                          <div className="flex-1">
-                            <Label htmlFor={`stock-${index}`} className="text-xs mb-1 block">Ingredient</Label>
-                            <Controller
-                              name={`requiredStock.${index}.stockId`}
-                              control={control}
-                              render={({ field }) => (
-                                <SearchableStockSelect
-                                  value={field.value || ""}
-                                  onChange={field.onChange}
-                                  stocks={stocks}
-                                  disabled={isSubmitting || isUploading}
-                                  placeholder="Select ingredient..."
-                                />
-                              )}
-                            />
-                          </div>
-                          <div className="w-1/4">
-                            <Label htmlFor={`quantity-${index}`} className="text-xs mb-1 block">Qty</Label>
-                            <Input
-                              id={`quantity-${index}`}
-                              type="number"
-                              step="any"
-                              min="0"
-                              placeholder="0.0000373463489"
-                              className={`w-full ${fieldErrors[`requiredStock.${index}.quantity`] ? "border-red-500" : ""}`}
-                              disabled={isSubmitting || isUploading}
-                              {...register(`requiredStock.${index}.quantity` as const, { 
-                                valueAsNumber: true,
-                                setValueAs: (v) => v === '' ? 0 : parseFloat(v)
-                              })}
-                            />
-                            <p className="text-xs text-gray-400 mt-1">Accepts any decimal value</p>
-                          </div>
-                          <div className="flex items-end pb-1">
-                            <Button 
-                              type="button" 
-                              variant="ghost" 
-                              size="icon" 
-                              onClick={() => remove(index)} 
-                              className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
-                              disabled={isSubmitting || isUploading}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+                    <p className="text-xs text-muted-foreground">
+                      {filteredData.dailyProfit.reduce((sum, day) => sum + day.orderCount, 0)} orders
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Regular Expenses</CardTitle>
+                    <TrendingDown className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-orange-600">
+                      {formatCurrency(filteredData.metrics.totalRegularExpenses)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {filteredData.dailyProfit.reduce((sum, day) => sum + day.regularExpenseCount, 0)} expenses
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Common Expenses</CardTitle>
+                    <TrendingDown className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-purple-600">
+                      {formatCurrency(filteredData.metrics.totalCommonExpenses)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {filteredData.dailyProfit.reduce((sum, day) => sum + day.commonExpenseCount, 0)} expenses
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
+                    <TrendingDown className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-red-600">
+                      {formatCurrency(filteredData.metrics.totalExpenses)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Combined total
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
+                    <DollarSign className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className={`text-2xl font-bold ${filteredData.metrics.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(filteredData.metrics.totalProfit)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Margin: {filteredData.metrics.averageMargin.toFixed(1)}%
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Performance</CardTitle>
+                    <PieChart className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      {filteredData.metrics.profitableDays}/{filteredData.dailyProfit.length}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {filteredData.metrics.lossDays} loss days
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Charts */}
+            <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
+              <Card className="col-span-1 lg:col-span-4">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Daily Profit Trend</CardTitle>
+                    <div className="flex items-center gap-2">
                       <Button
-                        type="button"
-                        variant="outline"
+                        variant={chartType === "line" ? "default" : "outline"}
                         size="sm"
-                        onClick={() => append({ stockId: "", quantity: 0 })}
-                        className="text-xs h-9 w-full border-dashed mt-2"
-                        disabled={isSubmitting || isUploading}
+                        onClick={() => setChartType("line")}
                       >
-                        <Plus className="mr-2 h-4 w-4" /> Add Ingredient
+                        <LineChartIcon className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant={chartType === "bar" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setChartType("bar")}
+                      >
+                        <BarChartIcon className="h-4 w-4" />
                       </Button>
                     </div>
-                  </TabsContent>
-                  <TabsContent value="nutrition">
-                    <div className="space-y-4 pt-3">
-                      <h3 className="text-sm font-medium">Nutritional Information</h3>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2">
-                          <Label htmlFor="calories">Calories</Label>
-                          <Input
-                            id="calories"
-                            type="number"
-                            step="any"
-                            min="0"
-                            placeholder="0.5"
-                            disabled={isSubmitting || isUploading}
-                            {...register("nutritionalInfo.calories", { 
-                              valueAsNumber: true,
-                              setValueAs: (v) => v === '' ? 0 : parseFloat(v)
-                            })}
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="protein">Protein (g)</Label>
-                          <Input
-                            id="protein"
-                            type="number"
-                            step="any"
-                            min="0"
-                            placeholder="0.5"
-                            disabled={isSubmitting || isUploading}
-                            {...register("nutritionalInfo.protein", { 
-                              valueAsNumber: true,
-                              setValueAs: (v) => v === '' ? 0 : parseFloat(v)
-                            })}
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="carbs">Carbohydrates (g)</Label>
-                          <Input
-                            id="carbs"
-                            type="number"
-                            step="any"
-                            min="0"
-                            placeholder="0.5"
-                            disabled={isSubmitting || isUploading}
-                            {...register("nutritionalInfo.carbohydrates", { 
-                              valueAsNumber: true,
-                              setValueAs: (v) => v === '' ? 0 : parseFloat(v)
-                            })}
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="fat">Fat (g)</Label>
-                          <Input
-                            id="fat"
-                            type="number"
-                            step="any"
-                            min="0"
-                            placeholder="0.5"
-                            disabled={isSubmitting || isUploading}
-                            {...register("nutritionalInfo.fat", { 
-                              valueAsNumber: true,
-                              setValueAs: (v) => v === '' ? 0 : parseFloat(v)
-                            })}
-                          />
-                        </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pl-2">
+                  <ResponsiveContainer width="100%" height={350}>
+                    {chartType === "line" ? (
+                      <LineChart data={filteredData.dailyProfit}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis 
+                          dataKey="date" 
+                          tickFormatter={(date) => format(parseISO(date), 'MMM dd')}
+                        />
+                        <YAxis 
+                          tickFormatter={(value) => formatCurrency(value)}
+                        />
+                        <Tooltip 
+                          formatter={(value: number) => [formatCurrency(value), 'Amount']}
+                          labelFormatter={(label) => format(parseISO(label), 'PPP')}
+                        />
+                        <Legend />
+                        <Line type="monotone" dataKey="sales" stroke="#4CAF50" name="Sales" strokeWidth={2} />
+                        <Line type="monotone" dataKey="regularExpenses" stroke="#FF9800" name="Regular Expenses" strokeWidth={2} />
+                        <Line type="monotone" dataKey="commonExpenses" stroke="#9C27B0" name="Common Expenses" strokeWidth={2} />
+                        <Line type="monotone" dataKey="profit" stroke="#2196F3" name="Profit" strokeWidth={3} />
+                      </LineChart>
+                    ) : (
+                      <BarChart data={filteredData.dailyProfit}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis 
+                          dataKey="date" 
+                          tickFormatter={(date) => format(parseISO(date), 'MMM dd')}
+                        />
+                        <YAxis 
+                          tickFormatter={(value) => formatCurrency(value)}
+                        />
+                        <Tooltip 
+                          formatter={(value: number) => [formatCurrency(value), 'Amount']}
+                          labelFormatter={(label) => format(parseISO(label), 'PPP')}
+                        />
+                        <Legend />
+                        <Bar dataKey="sales" fill="#4CAF50" name="Sales" />
+                        <Bar dataKey="regularExpenses" fill="#FF9800" name="Regular Expenses" />
+                        <Bar dataKey="commonExpenses" fill="#9C27B0" name="Common Expenses" />
+                        <Bar dataKey="profit" fill="#2196F3" name="Profit" />
+                      </BarChart>
+                    )}
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card className="col-span-1 lg:col-span-3">
+                <CardHeader>
+                  <CardTitle>Expense Categories</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={350}>
+                    <RechartsPieChart>
+                      <Pie
+                        data={filteredData.categoryData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {filteredData.categoryData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        formatter={(value: number) => [formatCurrency(value), 'Amount']}
+                      />
+                    </RechartsPieChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Best and Worst Days */}
+            {filteredData.metrics && (
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+                {filteredData.metrics.bestDay && (
+                  <Card className="border-green-200">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-green-600 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4" />
+                        Best Performing Day
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-green-600">
+                        {formatCurrency(filteredData.metrics.bestDay.profit)}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {filteredData.metrics.bestDay.formattedDate}
+                      </p>
+                      <div className="mt-2 text-sm">
+                        <span className="text-muted-foreground">Sales: </span>
+                        <span className="text-green-600">{formatCurrency(filteredData.metrics.bestDay.sales)}</span>
+                        <span className="text-muted-foreground ml-2">Expenses: </span>
+                        <span className="text-red-600">{formatCurrency(filteredData.metrics.bestDay.totalExpenses)}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {filteredData.metrics.worstDay && (
+                  <Card className="border-red-200">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-red-600 flex items-center gap-2">
+                        <TrendingDown className="h-4 w-4" />
+                        Worst Performing Day
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-red-600">
+                        {formatCurrency(filteredData.metrics.worstDay.profit)}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {filteredData.metrics.worstDay.formattedDate}
+                      </p>
+                      <div className="mt-2 text-sm">
+                        <span className="text-muted-foreground">Sales: </span>
+                        <span className="text-green-600">{formatCurrency(filteredData.metrics.worstDay.sales)}</span>
+                        <span className="text-muted-foreground ml-2">Expenses: </span>
+                        <span className="text-red-600">{formatCurrency(filteredData.metrics.worstDay.totalExpenses)}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="details" className="space-y-4">
+            {/* Daily Profit Table */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Daily Profit Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Sales</TableHead>
+                        <TableHead className="text-right">Regular Exp</TableHead>
+                        <TableHead className="text-right">Common Exp</TableHead>
+                        <TableHead className="text-right">Total Exp</TableHead>
+                        <TableHead className="text-right">Profit</TableHead>
+                        <TableHead className="text-right">Margin</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredData.dailyProfit.map((day) => (
+                        <TableRow key={day.date}>
+                          <TableCell className="font-medium">
+                            {day.formattedDate}
+                          </TableCell>
+                          <TableCell className="text-right text-green-600">
+                            {formatCurrency(day.sales)}
+                          </TableCell>
+                          <TableCell className="text-right text-orange-600">
+                            {formatCurrency(day.regularExpenses)}
+                          </TableCell>
+                          <TableCell className="text-right text-purple-600">
+                            {formatCurrency(day.commonExpenses)}
+                          </TableCell>
+                          <TableCell className="text-right text-red-600">
+                            {formatCurrency(day.totalExpenses)}
+                          </TableCell>
+                          <TableCell className={`text-right font-bold ${
+                            day.profit >= 0 ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {formatCurrency(day.profit)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {day.margin.toFixed(1)}%
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={day.profit >= 0 ? "default" : "destructive"}>
+                              {day.profit >= 0 ? 'Profitable' : 'Loss'}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+
+                      {filteredData.dailyProfit.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                            No data available for the selected date range
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Summary Row */}
+                {filteredData.dailyProfit.length > 0 && filteredData.metrics && (
+                  <div className="mt-4 p-4 bg-muted rounded-lg">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Days</p>
+                        <p className="text-2xl font-bold">{filteredData.dailyProfit.length}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Sales</p>
+                        <p className="text-2xl font-bold text-green-600">
+                          {formatCurrency(filteredData.metrics.totalSales)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Regular Expenses</p>
+                        <p className="text-2xl font-bold text-orange-600">
+                          {formatCurrency(filteredData.metrics.totalRegularExpenses)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Common Expenses</p>
+                        <p className="text-2xl font-bold text-purple-600">
+                          {formatCurrency(filteredData.metrics.totalCommonExpenses)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Expenses</p>
+                        <p className="text-2xl font-bold text-red-600">
+                          {formatCurrency(filteredData.metrics.totalExpenses)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Net Profit</p>
+                        <p className={`text-2xl font-bold ${filteredData.metrics.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(filteredData.metrics.totalProfit)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Avg Margin</p>
+                        <p className="text-2xl font-bold">
+                          {filteredData.metrics.averageMargin.toFixed(1)}%
+                        </p>
                       </div>
                     </div>
-                  </TabsContent>
-                </Tabs>
-              </div>
-            </ScrollArea>
-            <DialogFooter className="pt-2">
-              <Button 
-                type="submit" 
-                className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700" 
-                disabled={isSubmitting || isUploading || networkStatus === 'offline'}
-              >
-                {isSubmitting || isUploading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {isUploading ? 'Uploading...' : 'Saving...'}
-                  </>
-                ) : (
-                  <>
-                    <Save className="mr-2 h-4 w-4" />
-                    {selectedItem ? "Update Item" : "Create Item"}
-                  </>
+                  </div>
                 )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
 
-      {/* View Details Dialog */}
-      <Dialog open={isViewDetailsOpen} onOpenChange={setIsViewDetailsOpen}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh]">
+      {/* Expense Manager Dialog */}
+      <Dialog open={showExpenseManager} onOpenChange={setShowExpenseManager}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Item Details</DialogTitle>
-            <DialogDescription>
-              Detailed information about the selected menu item
-            </DialogDescription>
+            <DialogTitle>Manage Common Expenses</DialogTitle>
           </DialogHeader>
-          {selectedItem && (
-            <ScrollArea className="max-h-[70vh] pr-4">
-              <div className="space-y-6">
-                <div className="relative">
-                  <img
-                    src={getItemImage(selectedItem)}
-                    alt={selectedItem.name || "Menu Item"}
-                    className="w-full h-52 object-cover rounded-lg"
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement
-                      target.src = "/placeholder.svg"
-                    }}
-                  />
-                  {selectedItem.isFeatured && (
-                    <Badge className="absolute top-2 right-2 bg-yellow-400 text-white border-none">
-                      <Star className="mr-1 h-3 w-3" /> Featured
-                    </Badge>
-                  )}
-                </div>
-                
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-bold">{selectedItem.name || "Unnamed Item"}</h2>
-                    <Badge variant={selectedItem.isActive ? "default" : "secondary"} className="ml-2">
-                      {selectedItem.isActive ? "Active" : "Inactive"}
-                    </Badge>
-                  </div>
-                  <p className="text-gray-500 text-sm">
-                    {categories.find((c) => c._id === selectedItem.categoryId)?.name || "Uncategorized"}
-                  </p>
-                </div>
-                
-                <Separator />
-                
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">Description</h3>
-                  <p className="text-gray-600">{selectedItem.description || "No description available"}</p>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-6">
-                  <Card className="bg-gradient-to-b from-green-50 to-white">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center text-green-700">
-                        <Tag className="mr-2 h-4 w-4" />
-                        Price
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-2xl font-bold">{selectedItem.price?.toString() || "0"} <span className="text-sm font-normal">ETB</span></p>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card className="bg-gradient-to-b from-orange-50 to-white">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center text-orange-700">
-                        <Clock className="mr-2 h-4 w-4" />
-                        Preparation Time
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-2xl font-bold">{selectedItem.preparationTime?.toString() || "0"} <span className="text-sm font-normal">minutes</span></p>
-                    </CardContent>
-                  </Card>
-                </div>
-                
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">Nutritional Information</h3>
-                  <div className="grid grid-cols-4 gap-3">
-                    <Card className="text-center p-3">
-                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).calories.toString()}</p>
-                      <p className="text-xs text-gray-500">Calories</p>
-                    </Card>
-                    <Card className="text-center p-3">
-                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).protein.toString()}g</p>
-                      <p className="text-xs text-gray-500">Protein</p>
-                    </Card>
-                    <Card className="text-center p-3">
-                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).carbohydrates.toString()}g</p>
-                      <p className="text-xs text-gray-500">Carbs</p>
-                    </Card>
-                    <Card className="text-center p-3">
-                      <p className="text-lg font-bold">{getNutritionalInfo(selectedItem).fat.toString()}g</p>
-                      <p className="text-xs text-gray-500">Fat</p>
-                    </Card>
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">Required Stock</h3>
-                  {getRequiredStock(selectedItem).length > 0 ? (
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-gray-200">
-                            <th className="text-left pb-2">Ingredient</th>
-                            <th className="text-right pb-2">Quantity</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {getRequiredStock(selectedItem).map((stock, index) => (
-                            <tr key={index} className="border-b border-gray-100 last:border-0">
-                              <td className="py-2">{stocks.find((s) => s._id === stock.stockId)?.name || "Unknown"}</td>
-                              <td className="text-right py-2">{stock.quantity.toString()}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="text-gray-500 italic">No stock requirements defined</p>
-                  )}
-                </div>
-              </div>
-            </ScrollArea>
-          )}
+          <ExpenseList
+            expenses={commonExpenses}
+            isLoading={isLoading}
+            onAdd={handleAddExpense}
+            onEdit={handleEditExpense}
+            onDelete={handleDeleteExpense}
+            onRefresh={handleRefresh}
+          />
         </DialogContent>
       </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the menu item
-              and remove it from all orders and inventory records.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDelete}
-              disabled={isSubmitting}
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
-              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

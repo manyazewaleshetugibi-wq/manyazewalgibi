@@ -1,7 +1,23 @@
+// app/api/item-category/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
-import { validateItemCategoryData } from "@/models/Item";
 import { ObjectId } from "mongodb";
+import { z } from "zod";
+
+// Make imageUrl optional in the schema
+const ItemCategorySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  type: z.enum(["FOOD", "DRINK", "OTHER"]),
+  imageUrl: z.string().optional(), // Made optional
+  isActive: z.boolean(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export function validateItemCategoryData(rawData: any) {
+  return ItemCategorySchema.parse(rawData);
+}
 
 // ✅ Utility function for consistent responses
 const createResponse = (status: number, success: boolean, message: string, data: any = null) => {
@@ -11,7 +27,7 @@ const createResponse = (status: number, success: boolean, message: string, data:
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    console.log("📝 POST request body:", body); // Debug log
+    console.log("📝 POST request body:", body);
 
     // Prepare data for validation
     const dataToValidate = {
@@ -20,36 +36,19 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date(),
     };
 
-    // The frontend now sends a Cloudinary URL directly.
-    // If body.imageUrl is present and not an empty string, use it. Otherwise, use a placeholder.
-    if (body.imageUrl) {
-      dataToValidate.imageUrl = body.imageUrl;
-      console.log("📸 Using provided image URL:", body.imageUrl);
-    } else {
-      // Default placeholder
-      dataToValidate.imageUrl = "/placeholder-category.svg";
+    // Only add imageUrl if it exists, otherwise omit it
+    if (!body.imageUrl) {
+      delete dataToValidate.imageUrl;
     }
 
     // Validate the data
     const parsed = validateItemCategoryData(dataToValidate);
 
-    console.log("✅ Parsed Data:", {
-      ...parsed,
-      imageUrl: parsed.imageUrl
-    });
-
     const client = await clientPromise;
     const db = client.db("gold");
 
-    console.log("✅ Connected to DB: gold");
-
     // Insert the category
     const result = await db.collection("itemCategories").insertOne(parsed);
-
-    console.log("✅ Insert Result:", {
-      acknowledged: result.acknowledged,
-      insertedId: result.insertedId
-    });
 
     if (!result.acknowledged) {
       throw new Error("Database insertion failed");
@@ -63,13 +62,8 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("❌ POST /item-category Error:", error);
     
-    // Provide specific error messages
-    if (error.name === 'ValidationError') {
-      return createResponse(400, false, `Validation error: ${error.message}`);
-    }
-    
-    if (error.message?.includes('Database')) {
-      return createResponse(500, false, "Database error occurred");
+    if (error.name === 'ZodError') {
+      return createResponse(400, false, `Validation error: ${error.errors?.[0]?.message || error.message}`);
     }
     
     return createResponse(500, false, "Failed to create category");
@@ -84,26 +78,79 @@ export async function GET() {
     const categories = await db.collection("itemCategories").find({}).toArray();
 
     console.log(`✅ Retrieved ${categories.length} categories`);
-
-    // Optional: Optimize response for base64 images
-    const optimizedCategories = categories.map(category => {
-      // For categories with base64 images, you might want to add metadata
-      const optimized = { ...category };
-      
-      if (optimized.imageUrl && optimized.imageUrl.startsWith('data:image/')) {
-        // Add flag indicating it's a base64 image
-        optimized.isBase64Image = true;
-        // Optionally, you could create a thumbnail or smaller version
-        // optimized.thumbnail = createThumbnail(optimized.imageUrl);
-      }
-      
-      return optimized;
-    });
-
-    return createResponse(200, true, "Item categories retrieved successfully", optimizedCategories);
+    return createResponse(200, true, "Item categories retrieved successfully", categories);
     
   } catch (error) {
     console.error("❌ GET /item-category Error:", error);
     return createResponse(500, false, "Internal Server Error");
+  }
+}
+
+// ✅ PUT update category
+export async function PUT(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const id = url.searchParams.get('id');
+    
+    if (!id) {
+      return createResponse(400, false, "Category ID is required");
+    }
+
+    const body = await req.json();
+    
+    const updateData = {
+      ...body,
+      updatedAt: new Date(),
+    };
+    
+    // Remove imageUrl if not provided
+    if (!body.imageUrl) {
+      delete updateData.imageUrl;
+    }
+
+    const client = await clientPromise;
+    const db = client.db("gold");
+    
+    const result = await db.collection("itemCategories").updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+    
+    if (result.matchedCount === 0) {
+      return createResponse(404, false, "Category not found");
+    }
+    
+    return createResponse(200, true, "Category updated successfully");
+    
+  } catch (error: any) {
+    console.error("❌ PUT /item-category Error:", error);
+    return createResponse(500, false, "Failed to update category");
+  }
+}
+
+// ✅ DELETE category
+export async function DELETE(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const id = url.searchParams.get('id');
+    
+    if (!id) {
+      return createResponse(400, false, "Category ID is required");
+    }
+    
+    const client = await clientPromise;
+    const db = client.db("gold");
+    
+    const result = await db.collection("itemCategories").deleteOne({ _id: new ObjectId(id) });
+    
+    if (result.deletedCount === 0) {
+      return createResponse(404, false, "Category not found");
+    }
+    
+    return createResponse(200, true, "Category deleted successfully");
+    
+  } catch (error: any) {
+    console.error("❌ DELETE /item-category Error:", error);
+    return createResponse(500, false, "Failed to delete category");
   }
 }
