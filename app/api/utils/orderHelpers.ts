@@ -17,12 +17,12 @@ export function debugError(message: string, error: any) {
 
 export function isOrderCompleted(order: any): boolean {
   if (!order || !order.status) return false;
-  const status = String(order.status).toLowerCase();
-  return status === "completed";
+  const status = String(order.status).toUpperCase();
+  return status === "COMPLETED";
 }
 
 export function normalizeStatus(status: string): string {
-  return status?.toLowerCase() || "pending";
+  return status?.toUpperCase() || "PENDING";
 }
 
 export async function getCurrentUserData(req: NextRequest) {
