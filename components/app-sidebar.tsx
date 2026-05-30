@@ -74,7 +74,7 @@ const roleBasedNavigation = {
   items: [
     { 
       title: "steps-register", 
-      url: "/preparation/register",
+      url: "/Pregister",
       icon: ListChecks  // For registration/form
     },
  { 
@@ -85,7 +85,7 @@ const roleBasedNavigation = {
 
     { 
       title: "standards-register", 
-      url: "/standards/register",
+      url: "/Sregister",
       icon: ClipboardCheck  // Or FileCheck, or Standard
     },
      { 
@@ -223,12 +223,12 @@ const roleBasedNavigation = {
   items: [
     { 
       title: "steps-register", 
-      url: "/preparation/register",
+      url: "/Pregister",
       icon: ListChecks  // For registration/form
     },
     { 
       title: "standards-register", 
-      url: "/standards/register",
+      url: "/Sregister",
       icon: ClipboardCheck  // Or FileCheck, or Standard
     },
   ],

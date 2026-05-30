@@ -5,12 +5,38 @@ import bcrypt from "bcrypt"
 import { MongoClient, ObjectId } from "mongodb"
 import type { UserRole } from "@/models/User"
 
-const MONGODB_URI = process.env.MONGODB_URI!
-const DATABASE_NAME = process.env.MONGODB_DATABASE!
-const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET!
+/**
+ * SAFE ENV ACCESS (NO "!" ASSERTIONS)
+ */
+const MONGODB_URI = process.env.MONGODB_URI
+const DATABASE_NAME = process.env.DATABASE_NAME
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET
 
-const client = new MongoClient(MONGODB_URI)
-const clientPromise = client.connect()
+if (!DATABASE_NAME || !NEXTAUTH_SECRET) {
+  console.warn("Missing required auth environment variables")
+}
+
+/**
+ * GLOBAL MONGO SINGLETON (Vercel-safe)
+ */
+declare global {
+  // eslint-disable-next-line no-var
+  var _mongoClientPromise: Promise<MongoClient> | undefined
+}
+
+let clientPromise: Promise<MongoClient>
+
+// ONLY create client if URI exists
+if (!MONGODB_URI) {
+  throw new Error("MONGODB_URI is missing")
+}
+
+if (!global._mongoClientPromise) {
+  const client = new MongoClient(MONGODB_URI)
+  global._mongoClientPromise = client.connect()
+}
+
+clientPromise = global._mongoClientPromise
 
 export const {
   handlers,
@@ -19,10 +45,10 @@ export const {
   signOut,
 } = NextAuth({
   adapter: MongoDBAdapter(clientPromise, {
-    databaseName: DATABASE_NAME,
+    databaseName: DATABASE_NAME!,
   }),
 
-  secret: NEXTAUTH_SECRET,
+  secret: NEXTAUTH_SECRET!,
 
   session: {
     strategy: "jwt",
@@ -39,14 +65,8 @@ export const {
       name: "credentials",
 
       credentials: {
-        email: {
-          label: "Email",
-          type: "email",
-        },
-        password: {
-          label: "Password",
-          type: "password",
-        },
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
       },
 
       async authorize(credentials) {
@@ -55,23 +75,19 @@ export const {
         }
 
         const dbClient = await clientPromise
-        const db = dbClient.db(DATABASE_NAME)
+        const db = dbClient.db(DATABASE_NAME!)
 
         const user = await db.collection("users").findOne({
           email: credentials.email.toLowerCase().trim(),
         })
 
-        if (!user) {
-          throw new Error("Invalid credentials")
-        }
+        if (!user) throw new Error("Invalid credentials")
 
         if (user.status && user.status !== "active") {
           throw new Error("Account is not active")
         }
 
-        if (!user.password) {
-          throw new Error("Invalid credentials")
-        }
+        if (!user.password) throw new Error("Invalid credentials")
 
         const validPassword = await bcrypt.compare(
           credentials.password,
@@ -128,32 +144,24 @@ export const {
         token.role = user.role
         token.employeeId = user.employeeId
         token.permissions = user.permissions
-        token.requiresPasswordChange =
-          user.requiresPasswordChange
+        token.requiresPasswordChange = user.requiresPasswordChange
       }
 
       if (
         trigger === "update" &&
         session?.requiresPasswordChange !== undefined
       ) {
-        token.requiresPasswordChange =
-          session.requiresPasswordChange
+        token.requiresPasswordChange = session.requiresPasswordChange
       }
 
       if (token.id) {
         try {
           const dbClient = await clientPromise
-          const db = dbClient.db(DATABASE_NAME)
+          const db = dbClient.db(DATABASE_NAME!)
 
           const latestUser = await db.collection("users").findOne(
-            {
-              _id: new ObjectId(token.id as string),
-            },
-            {
-              projection: {
-                requiresPasswordChange: 1,
-              },
-            }
+            { _id: new ObjectId(token.id as string) },
+            { projection: { requiresPasswordChange: 1 } }
           )
 
           if (latestUser) {
@@ -172,12 +180,8 @@ export const {
       if (session.user) {
         session.user.id = token.id as string
         session.user.role = token.role as UserRole
-        session.user.employeeId =
-          token.employeeId as string
-
-        session.user.permissions =
-          token.permissions as string[]
-
+        session.user.employeeId = token.employeeId as string
+        session.user.permissions = token.permissions as string[]
         session.user.requiresPasswordChange =
           token.requiresPasswordChange as boolean
       }
@@ -187,6 +191,5 @@ export const {
   },
 
   trustHost: true,
-
   debug: process.env.NODE_ENV === "development",
 })

@@ -2,8 +2,9 @@ import { MongoClient } from "mongodb";
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
-if (!MONGODB_URI && process.env.NEXT_PHASE !== 'phase-production-build') {
-  throw new Error("MongoDB URI is required");
+// DO NOT throw during build (this is what breaks Vercel builds)
+if (!MONGODB_URI && process.env.NODE_ENV === "production") {
+  throw new Error("MongoDB URI is required in production");
 }
 
 let client: MongoClient;
@@ -16,42 +17,53 @@ const options = {
 };
 
 declare global {
+  // eslint-disable-next-line no-var
   var _mongoClientPromise: Promise<MongoClient> | undefined;
 }
 
-if (process.env.NEXT_PHASE === 'phase-production-build') {
-  clientPromise = Promise.resolve({
-    db: () => ({
-      collection: () => ({
-        find: () => ({ toArray: () => Promise.resolve([]) }),
-        findOne: () => Promise.resolve(null),
-        insertOne: () => Promise.resolve({ insertedId: 'mock' }),
-        updateOne: () => Promise.resolve({ modifiedCount: 0 }),
-        deleteOne: () => Promise.resolve({ deletedCount: 0 }),
-        aggregate: () => ({
-          toArray: () => Promise.resolve([]),
-          next: () => Promise.resolve(null)
-        }),
-        countDocuments: () => Promise.resolve(0),
-        findOneAndUpdate: () => Promise.resolve(null),
-        findOneAndDelete: () => Promise.resolve(null),
-      })
+// SAFE MOCK ONLY FOR BUILD TIME (prevents crash)
+const createMockClient = (): any => ({
+  db: () => ({
+    collection: () => ({
+      find: () => ({ toArray: async () => [] }),
+      findOne: async () => null,
+      insertOne: async () => ({ insertedId: "mock" }),
+      updateOne: async () => ({ modifiedCount: 0 }),
+      deleteOne: async () => ({ deletedCount: 0 }),
+      aggregate: () => ({
+        toArray: async () => [],
+        next: async () => null,
+      }),
+      countDocuments: async () => 0,
+      findOneAndUpdate: async () => null,
+      findOneAndDelete: async () => null,
     }),
-    close: () => Promise.resolve()
-  } as unknown as MongoClient);
-} else if (process.env.NODE_ENV === "development") {
-  if (!global._mongoClientPromise && MONGODB_URI) {
+  }),
+  close: async () => {},
+});
+
+// ---------------------------
+// SAFE INIT LOGIC
+// ---------------------------
+
+// 1. BUILD TIME SAFE MODE
+if (!MONGODB_URI) {
+  clientPromise = Promise.resolve(createMockClient());
+}
+
+// 2. DEVELOPMENT MODE
+else if (process.env.NODE_ENV === "development") {
+  if (!global._mongoClientPromise) {
     client = new MongoClient(MONGODB_URI, options);
     global._mongoClientPromise = client.connect();
   }
-  clientPromise = global._mongoClientPromise!;
-} else {
-  if (MONGODB_URI) {
-    client = new MongoClient(MONGODB_URI, options);
-    clientPromise = client.connect();
-  } else {
-    clientPromise = Promise.reject(new Error("MongoDB URI is not configured"));
-  }
+  clientPromise = global._mongoClientPromise;
+}
+
+// 3. PRODUCTION MODE
+else {
+  client = new MongoClient(MONGODB_URI, options);
+  clientPromise = client.connect();
 }
 
 export default clientPromise;

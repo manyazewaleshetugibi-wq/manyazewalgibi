@@ -80,7 +80,9 @@ function logSecurityIncident(
   console.error('🔒 SECURITY INCIDENT:', logEntry);
 }
 
-export async function middleware(req: NextRequest) {
+// Main function - use 'proxy' as function name for Next.js 16
+// If you want to keep 'middleware' name, just rename the file back to middleware.ts
+export async function proxy(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   const url = req.nextUrl.clone();
   

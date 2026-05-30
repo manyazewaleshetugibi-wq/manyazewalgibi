@@ -2,5 +2,14 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install --legacy-peer-deps",
   "framework": "nextjs",
-  "outputDirectory": ".next"
+  "regions": ["iad1"],
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "env": {
+    "NEXT_TELEMETRY_DISABLED": "1"
+  }
 }
