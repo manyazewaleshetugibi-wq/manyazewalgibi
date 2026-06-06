@@ -5,10 +5,12 @@ import { ObjectId } from "mongodb";
 // PUT - Update training details
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const trainingId = params.id;
+    // ✅ Await the params Promise
+    const { id: trainingId } = await params;
+    
     const body = await request.json();
     const { title, description, linkUrl, type } = body;
 
@@ -69,10 +71,12 @@ export async function PUT(
 // DELETE - Delete training
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const trainingId = params.id;
+    // ✅ Await the params Promise
+    const { id: trainingId } = await params;
+    
     console.log('Deleting training:', trainingId);
 
     if (!ObjectId.isValid(trainingId)) {
@@ -101,6 +105,13 @@ export async function DELETE(
     const result = await db.collection("trainings").deleteOne({ 
       _id: new ObjectId(trainingId) 
     });
+
+    if (result.deletedCount === 0) {
+      return NextResponse.json({ 
+        success: false,
+        error: "Failed to delete training" 
+      }, { status: 500 });
+    }
 
     return NextResponse.json({ 
       success: true,

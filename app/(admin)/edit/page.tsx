@@ -1891,7 +1891,7 @@ export default function OrderEditPage() {
                         id="table"
                         value={tableNumber}
                         onChange={(e) => setTableNumber(e.target.value)}
-                        placeholder="e.g., T-5, Takeaway"
+                        placeholder="e.g., T-5, POS"
                         disabled={selectedOrder.status === 'COMPLETED' || hasPendingRequest || isOrderFullyUneditable}
                       />
                     </div>

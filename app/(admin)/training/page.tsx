@@ -66,7 +66,7 @@ interface Training {
   _id: string
   title: string
   description: string
-  type: "video" | "pdf" | "audio" | "text" | "image"
+  type: "video" | "document" | "audio" | "text" | "image"
   fileUrl?: string
   publicId?: string
   thumbnailUrl?: string
@@ -117,7 +117,7 @@ export default function TrainingPage() {
   const [newTraining, setNewTraining] = useState({
     title: "", 
     description: "",
-    type: "video" as const,
+    type: "video" as "video" | "document" | "audio" | "text" | "image",
     linkUrl: "", // New field for manual link input
   })
   const [isCreating, setIsCreating] = useState(false)
@@ -166,6 +166,12 @@ export default function TrainingPage() {
       "video/*": [".mp4", ".webm", ".mov", ".avi"],
       "audio/*": [".mp3", ".wav", ".ogg", ".m4a"],
       "application/pdf": [".pdf"],
+      "application/msword": [".doc"],
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+      "application/vnd.ms-powerpoint": [".ppt"],
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
+      "application/vnd.ms-excel": [".xls"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
       "text/*": [".txt", ".md", ".json", ".html"],
       "image/*": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"],
     },
@@ -402,7 +408,7 @@ export default function TrainingPage() {
     switch (type) {
       case "video":
         return <FileVideo className="w-5 h-5" />
-      case "pdf":
+      case "document":
         return <FilePdf className="w-5 h-5" />
       case "audio":
         return <FileAudio className="w-5 h-5" />
@@ -544,7 +550,7 @@ export default function TrainingPage() {
             <Label>Type *</Label>
             <Select
               value={newTraining.type}
-              onValueChange={(value: "video" | "pdf" | "audio" | "text" | "image") =>
+              onValueChange={(value: "video" | "document" | "audio" | "text" | "image") =>
                 setNewTraining((prev) => ({ ...prev, type: value }))
               }
               disabled={isUploading}
@@ -555,7 +561,7 @@ export default function TrainingPage() {
               <SelectContent>
                 <SelectItem value="video">Video</SelectItem>
                 <SelectItem value="image">Image</SelectItem>
-                <SelectItem value="pdf">PDF</SelectItem>
+                <SelectItem value="document">Document (PDF, DOC, PPT, XLS)</SelectItem>
                 <SelectItem value="audio">Audio</SelectItem>
                 <SelectItem value="text">Text</SelectItem>
               </SelectContent>
@@ -621,11 +627,9 @@ export default function TrainingPage() {
                   {isDragActive ? "Drop the file here" : "Drag and drop your file here or click to browse"}
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Supported formats: Video, Image, Audio, PDF, Text
+                  Supported formats: Video, Image, Documents (PDF, DOC, PPT, XLS), Audio, Text
                 </p>
-                <p className="text-xs text-muted-foreground"> (Max file size: {formatFileSize(getMaxFileSize())})
-                  Max file size: {formatFileSize(getMaxFileSize())}
-                </p>
+                <p className="text-xs text-muted-foreground">Max file size: {formatFileSize(getMaxFileSize())}</p>
               </>
             )}
           </div>
@@ -727,7 +731,7 @@ export default function TrainingPage() {
                   <SelectItem value="all">All Types</SelectItem>
                   <SelectItem value="video">Video</SelectItem>
                   <SelectItem value="image">Image</SelectItem>
-                  <SelectItem value="pdf">PDF</SelectItem>
+                  <SelectItem value="document">Document (PDF, DOC, PPT, XLS)</SelectItem>
                   <SelectItem value="audio">Audio</SelectItem>
                   <SelectItem value="text">Text</SelectItem>
                 </SelectContent>
@@ -1060,7 +1064,7 @@ export default function TrainingPage() {
                   </div>
                 )}
                 
-                {selectedTraining.type === "pdf" && selectedTraining.fileUrl && (
+                {selectedTraining.type === "document" && selectedTraining.fileUrl && (
                   <iframe
                     src={`${selectedTraining.fileUrl}#view=fitH`}
                     className="w-full h-[60vh] border rounded-lg"

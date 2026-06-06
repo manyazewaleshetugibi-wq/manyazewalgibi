@@ -1,4 +1,4 @@
-// app/api/restaurants/[id]/route.ts
+// app/api/restaurants/[id]/route.ts (UPDATED - with location support)
 import { NextRequest, NextResponse } from 'next/server'
 import clientPromise from '@/lib/mongodb'
 import { ObjectId } from 'mongodb'
@@ -6,10 +6,10 @@ import { ObjectId } from 'mongodb'
 // GET - Fetch single restaurant
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
 
     if (!ObjectId.isValid(id)) {
       return NextResponse.json(
@@ -19,7 +19,7 @@ export async function GET(
     }
 
     const client = await clientPromise
-    const db = client.db('restaurant_db')
+    const db = client.db('gold')
     const collection = db.collection('restaurants')
 
     const restaurant = await collection.findOne({ _id: new ObjectId(id) })
@@ -48,10 +48,10 @@ export async function GET(
 // PUT - Update restaurant
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
 
     if (!ObjectId.isValid(id)) {
       return NextResponse.json(
@@ -61,11 +61,21 @@ export async function PUT(
     }
 
     const client = await clientPromise
-    const db = client.db('restaurant_db')
+    const db = client.db('gold')
     const collection = db.collection('restaurants')
 
     const body = await request.json()
-    const { name, description, address, phone, email, website, cuisine, isActive } = body
+    const { 
+      name, 
+      description, 
+      address, 
+      phone, 
+      email, 
+      website, 
+      cuisine, 
+      location,
+      isActive 
+    } = body
 
     // Validation
     if (!name || name.trim().length < 2) {
@@ -88,16 +98,29 @@ export async function PUT(
       )
     }
 
-    const updateData = {
+    const updateData: any = {
       name: name.trim(),
       description: description?.trim() || '',
       address: address?.trim() || '',
       phone: phone?.trim() || '',
       email: email?.trim() || '',
       website: website?.trim() || '',
-      cuisine: Array.isArray(cuisine) ? cuisine : [],
+      cuisine: Array.isArray(cuisine) ? cuisine : (cuisine ? [cuisine] : []),
       isActive: isActive !== undefined ? isActive : true,
       updatedAt: new Date()
+    }
+
+    // Add location if provided
+    if (location) {
+      updateData.location = {
+        lat: location.lat ? parseFloat(location.lat) : null,
+        lng: location.lng ? parseFloat(location.lng) : null,
+        address: address?.trim() || '',
+        updatedAt: new Date()
+      }
+    } else if (location === null) {
+      // If location is explicitly set to null, remove it
+      updateData.location = null
     }
 
     const result = await collection.updateOne(
@@ -130,10 +153,10 @@ export async function PUT(
 // PATCH - Partial update (toggle status)
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
 
     if (!ObjectId.isValid(id)) {
       return NextResponse.json(
@@ -143,7 +166,7 @@ export async function PATCH(
     }
 
     const client = await clientPromise
-    const db = client.db('restaurant_db')
+    const db = client.db('gold')
     const collection = db.collection('restaurants')
 
     const body = await request.json()
@@ -183,10 +206,10 @@ export async function PATCH(
 // DELETE - Delete restaurant
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
 
     if (!ObjectId.isValid(id)) {
       return NextResponse.json(
@@ -196,7 +219,7 @@ export async function DELETE(
     }
 
     const client = await clientPromise
-    const db = client.db('restaurant_db')
+    const db = client.db('gold')
     const collection = db.collection('restaurants')
 
     const result = await collection.deleteOne({ _id: new ObjectId(id) })

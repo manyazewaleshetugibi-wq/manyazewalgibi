@@ -3,7 +3,7 @@ import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
 import bcrypt from 'bcrypt';
 
-// Define role-based permissions
+// Define role-based permissions (complete mapping with purchasing and delivery)
 const rolePermissions: Record<string, string[]> = {
   admin: [
     'manage_users',
@@ -38,6 +38,23 @@ const rolePermissions: Record<string, string[]> = {
     'manage_purchases',
     'view_reports',
     'manage_suppliers'
+  ],
+  purchasing: [
+    'manage_purchases',
+    'view_purchases',
+    'create_purchase_orders',
+    'view_suppliers',
+    'manage_suppliers',
+    'view_stock',
+    'manage_purchase_requests',
+    'view_reports'
+  ],
+  delivery: [
+    'view_delivery_orders',
+    'update_delivery_status',
+    'track_deliveries',
+    'view_assigned_orders',
+    'update_order_delivery'
   ],
   fb: [
     'manage_menu',
@@ -86,37 +103,23 @@ const hashPassword = async (password: string): Promise<string> => {
 
 // Check if password is already hashed with bcrypt format
 const isAlreadyHashed = (password: string): boolean => {
-  // BCrypt hash format: $2a$[cost]$[salt][hash]
-  // Example: $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
   const bcryptRegex = /^\$2[ayb]\$\d{2}\$[A-Za-z0-9./]{53}$/;
   return bcryptRegex.test(password);
-};
-
-// Password verification utility with bcrypt
-const verifyPassword = async (password: string, storedHash: string): Promise<boolean> => {
-  try {
-    const isMatch = await bcrypt.compare(password, storedHash);
-    return isMatch;
-  } catch (error) {
-    console.error('Error verifying password:', error);
-    return false;
-  }
 };
 
 // GET single user by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> } // Changed to Promise
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params; // Await params here
+    const { id } = await params;
     
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');
     
-    // Validate ObjectId
-    if (!ObjectId.isValid(id)) { // Use id instead of params.id
+    if (!ObjectId.isValid(id)) {
       return NextResponse.json(
         { success: false, message: 'Invalid user ID format' },
         { status: 400 }
@@ -124,8 +127,8 @@ export async function GET(
     }
     
     const user = await usersCollection.findOne(
-      { _id: new ObjectId(id) }, // Use id instead of params.id
-      { projection: { password: 0 } } // Exclude password
+      { _id: new ObjectId(id) },
+      { projection: { password: 0 } }
     );
     
     if (!user) {
@@ -152,17 +155,16 @@ export async function GET(
 // PUT update user
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> } // Changed to Promise
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params; // Await params here
+    const { id } = await params;
     
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');
     
-    // Validate ObjectId
-    if (!ObjectId.isValid(id)) { // Use id instead of params.id
+    if (!ObjectId.isValid(id)) {
       return NextResponse.json(
         { success: false, message: 'Invalid user ID format' },
         { status: 400 }
@@ -182,7 +184,7 @@ export async function PUT(
     } = body;
     
     // Check if user exists
-    const existingUser = await usersCollection.findOne({ _id: new ObjectId(id) }); // Use id
+    const existingUser = await usersCollection.findOne({ _id: new ObjectId(id) });
     if (!existingUser) {
       return NextResponse.json(
         { success: false, message: 'User not found' },
@@ -194,7 +196,7 @@ export async function PUT(
     if (email && email !== existingUser.email) {
       const emailExists = await usersCollection.findOne({
         email: email.toLowerCase(),
-        _id: { $ne: new ObjectId(id) } // Use id
+        _id: { $ne: new ObjectId(id) }
       });
       if (emailExists) {
         return NextResponse.json(
@@ -208,7 +210,7 @@ export async function PUT(
     if (employeeId && employeeId !== existingUser.employeeId) {
       const employeeIdExists = await usersCollection.findOne({ 
         employeeId,
-        _id: { $ne: new ObjectId(id) } // Use id
+        _id: { $ne: new ObjectId(id) }
       });
       if (employeeIdExists) {
         return NextResponse.json(
@@ -220,7 +222,7 @@ export async function PUT(
     
     // Validate role if provided
     if (role) {
-      const validRoles = ['admin', 'kitchen', 'stock_manager', 'fb', 'marketing', 'finance', 'pos', 'waitress'];
+      const validRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'fb', 'marketing', 'finance', 'pos', 'waitress'];
       if (!validRoles.includes(role)) {
         return NextResponse.json(
           { success: false, message: 'Invalid role' },
@@ -253,24 +255,27 @@ export async function PUT(
     if (status !== undefined) updateData.status = status;
     if (permissions !== undefined) updateData.permissions = permissions;
     
+    // If role is being updated, update permissions automatically
+    if (role !== undefined && rolePermissions[role]) {
+      updateData.permissions = rolePermissions[role];
+    }
+    
     // Hash password if provided and not already hashed
-    if (password !== undefined) {
+    if (password !== undefined && password !== '') {
       if (isAlreadyHashed(password)) {
-        // If it's already hashed (for backward compatibility or migration)
         updateData.password = password;
       } else {
-        // Hash the new password with bcrypt
         updateData.password = await hashPassword(password);
       }
     }
     
     // Update user
     const result = await usersCollection.findOneAndUpdate(
-      { _id: new ObjectId(id) }, // Use id
+      { _id: new ObjectId(id) },
       { $set: updateData },
       { 
         returnDocument: 'after',
-        projection: { password: 0 } // Exclude password from response
+        projection: { password: 0 }
       }
     );
     
@@ -299,24 +304,23 @@ export async function PUT(
 // DELETE user
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> } // Changed to Promise
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params; // Await params here
+    const { id } = await params;
     
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');
     
-    // Validate ObjectId
-    if (!ObjectId.isValid(id)) { // Use id instead of params.id
+    if (!ObjectId.isValid(id)) {
       return NextResponse.json(
         { success: false, message: 'Invalid user ID format' },
         { status: 400 }
       );
     }
     
-    const user = await usersCollection.findOne({ _id: new ObjectId(id) }); // Use id
+    const user = await usersCollection.findOne({ _id: new ObjectId(id) });
     
     if (!user) {
       return NextResponse.json(
@@ -325,9 +329,8 @@ export async function DELETE(
       );
     }
     
-    // Prevent deleting admin users (optional)
+    // Prevent deleting the last admin user
     if (user.role === 'admin') {
-      // Check if this is the last admin
       const adminCount = await usersCollection.countDocuments({ role: 'admin' });
       if (adminCount <= 1) {
         return NextResponse.json(
@@ -337,7 +340,7 @@ export async function DELETE(
       }
     }
     
-    await usersCollection.deleteOne({ _id: new ObjectId(id) }); // Use id
+    await usersCollection.deleteOne({ _id: new ObjectId(id) });
     
     return NextResponse.json({
       success: true,
@@ -353,20 +356,19 @@ export async function DELETE(
   }
 }
 
-// PATCH endpoint for password change with verification
+// PATCH endpoint for password change
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> } // Changed to Promise
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params; // Await params here
+    const { id } = await params;
     
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');
     
-    // Validate ObjectId
-    if (!ObjectId.isValid(id)) { // Use id instead of params.id
+    if (!ObjectId.isValid(id)) {
       return NextResponse.json(
         { success: false, message: 'Invalid user ID format' },
         { status: 400 }
@@ -383,7 +385,7 @@ export async function PATCH(
       );
     }
     
-    // Validate new password strength (optional but recommended)
+    // Validate new password strength
     if (newPassword.length < 8) {
       return NextResponse.json(
         { success: false, message: 'New password must be at least 8 characters long' },
@@ -392,7 +394,7 @@ export async function PATCH(
     }
     
     // Get user with password
-    const user = await usersCollection.findOne({ _id: new ObjectId(id) }); // Use id
+    const user = await usersCollection.findOne({ _id: new ObjectId(id) });
     
     if (!user) {
       return NextResponse.json(
@@ -402,7 +404,7 @@ export async function PATCH(
     }
     
     // Verify current password using bcrypt
-    const isPasswordValid = await verifyPassword(currentPassword, user.password);
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
     
     if (!isPasswordValid) {
       return NextResponse.json(
@@ -411,15 +413,16 @@ export async function PATCH(
       );
     }
     
-    // Hash new password with bcrypt
+    // Hash new password
     const hashedNewPassword = await hashPassword(newPassword);
     
     // Update password
     await usersCollection.updateOne(
-      { _id: new ObjectId(id) }, // Use id
+      { _id: new ObjectId(id) },
       { 
         $set: { 
           password: hashedNewPassword,
+          requiresPasswordChange: false,
           updatedAt: new Date()
         } 
       }

@@ -28,6 +28,9 @@ import {
   DollarSign,
   Package,
   AlertCircle,
+  Truck,
+  ShoppingBag,
+  Store,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -44,7 +47,20 @@ const api = axios.create({
   baseURL: "/api",
 })
 
-type Role = "admin" | "pos" | "kitchen" | "fb" | "f&b" | "marketing" | "finance" | "stock_manager" | "customer" | "user"
+type Role = 
+  | "admin" 
+  | "pos" 
+  | "kitchen" 
+  | "fb" 
+  | "f&b" 
+  | "marketing" 
+  | "finance" 
+  | "stock_manager" 
+  | "purchasing"
+  | "delivery"
+  | "waitress"
+  | "customer" 
+  | "user"
 
 // Extend the session user type
 interface ExtendedUser {
@@ -213,13 +229,15 @@ export function NavBar() {
     }
   }, [user?.id, user?.email])
 
-  // Periodic session validation (every 60 seconds for non-user roles, every 5 minutes for users)
+  // Periodic session validation (every 60 seconds for staff roles, every 5 minutes for users)
   useEffect(() => {
     // Don't run periodic checks if no user
     if (!user) return
 
     // Set different intervals based on role
-    const intervalTime = user.role === 'user' ? 300000 : 60000 // 5 minutes for users, 1 minute for staff
+    const staffRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'waitress', 'fb', 'marketing', 'finance', 'pos']
+    const isStaff = staffRoles.includes(user.role)
+    const intervalTime = !isStaff ? 300000 : 60000 // 5 minutes for customers, 1 minute for staff
 
     const intervalId = setInterval(async () => {
       await validateUserSession()
@@ -337,18 +355,33 @@ export function NavBar() {
       },
       marketing: { 
         path: "/blog", 
-        label: "Marketing Blog", 
+        label: "Marketing Dashboard", 
         icon: Megaphone 
       },
       finance: { 
         path: "/sales", 
-        label: "Sales & Finance", 
+        label: "Finance Dashboard", 
         icon: DollarSign 
       },
       stock_manager: { 
         path: "/stock", 
         label: "Stock Management", 
         icon: Package 
+      },
+      purchasing: { 
+        path: "/purchase-request", 
+        label: "Purchasing Dashboard", 
+        icon: ShoppingBag 
+      },
+      delivery: { 
+        path: "/delivery", 
+        label: "Delivery Dashboard", 
+        icon: Truck 
+      },
+      waitress: { 
+        path: "/pos", 
+        label: "Take Orders", 
+        icon: Store 
       },
       customer: { 
         path: "/blogs", 
@@ -357,7 +390,7 @@ export function NavBar() {
       },
       user: {
         path: "/",
-        label: "Accounts",
+        label: "Dashboard",
         icon: LayoutDashboard
       }
     }
@@ -470,6 +503,24 @@ export function NavBar() {
                     <Link href="/orders" className="flex items-center w-full">
                       <ClipboardList className="w-4 h-4 mr-2" />
                       Order History
+                    </Link>
+                  </DropdownMenuItem>
+                </>
+              )}
+              
+              {userRole === 'waitress' && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/pos" className="flex items-center w-full">
+                      <Store className="w-4 h-4 mr-2" />
+                      Take Order
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/myorders" className="flex items-center w-full">
+                      <ClipboardList className="w-4 h-4 mr-2" />
+                      My Orders
                     </Link>
                   </DropdownMenuItem>
                 </>
@@ -712,7 +763,7 @@ export function NavBar() {
                               {user.name || user.email}
                             </p>
                             <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                              {user.role.toLowerCase().replace(/_/g, ' ') || 'user'}
+                              {user.role.toLowerCase().replace(/_/g, ' ')}
                             </p>
                           </div>
                         </div>
@@ -736,6 +787,94 @@ export function NavBar() {
                         <LayoutDashboard className="w-4 h-4 mr-2" />
                         {getDashboardLink(user.role).label}
                       </Button>
+
+                      {/* Role-specific quick links in mobile menu */}
+                      {user.role === 'purchasing' && (
+                        <>
+                          <Button 
+                            variant="outline" 
+                            size="lg"
+                            className="w-full border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                            onClick={() => {
+                              router.push("/purchase-request")
+                              setIsMenuOpen(false)
+                            }}
+                          >
+                            <ShoppingBag className="w-4 h-4 mr-2" />
+                            Purchase Requests
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="lg"
+                            className="w-full border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                            onClick={() => {
+                              router.push("/suppliers")
+                              setIsMenuOpen(false)
+                            }}
+                          >
+                            <Package className="w-4 h-4 mr-2" />
+                            Suppliers
+                          </Button>
+                        </>
+                      )}
+
+                      {user.role === 'delivery' && (
+                        <>
+                          <Button 
+                            variant="outline" 
+                            size="lg"
+                            className="w-full border-teal-200 text-teal-600 hover:bg-teal-50"
+                            onClick={() => {
+                              router.push("/delivery/pending")
+                              setIsMenuOpen(false)
+                            }}
+                          >
+                            <Truck className="w-4 h-4 mr-2" />
+                            Pending Deliveries
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="lg"
+                            className="w-full border-teal-200 text-teal-600 hover:bg-teal-50"
+                            onClick={() => {
+                              router.push("/delivery/active")
+                              setIsMenuOpen(false)
+                            }}
+                          >
+                            <ClipboardList className="w-4 h-4 mr-2" />
+                            Active Deliveries
+                          </Button>
+                        </>
+                      )}
+
+                      {user.role === 'waitress' && (
+                        <>
+                          <Button 
+                            variant="outline" 
+                            size="lg"
+                            className="w-full border-pink-200 text-pink-600 hover:bg-pink-50"
+                            onClick={() => {
+                              router.push("/pos")
+                              setIsMenuOpen(false)
+                            }}
+                          >
+                            <Store className="w-4 h-4 mr-2" />
+                            Take Order
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="lg"
+                            className="w-full border-pink-200 text-pink-600 hover:bg-pink-50"
+                            onClick={() => {
+                              router.push("/myorders")
+                              setIsMenuOpen(false)
+                            }}
+                          >
+                            <ClipboardList className="w-4 h-4 mr-2" />
+                            My Orders
+                          </Button>
+                        </>
+                      )}
 
                       {/* Change password if required */}
                       {user.requiresPasswordChange && (

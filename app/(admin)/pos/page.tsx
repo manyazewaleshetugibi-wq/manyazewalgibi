@@ -1,4 +1,4 @@
-// app/pos/page.tsx (FIXED - Restaurant dropdown always visible, Waiter auto for POS)
+// app/pos/page.tsx (UPDATED - Fetches restaurants from database)
 
 "use client";
 
@@ -169,11 +169,12 @@ interface Order {
   _id?: string
 }
 
-// Restaurant options
-const RESTAURANTS = [
-  { id: "manyazewal1", name: "Manyazewal Eshetu Gibi 1", shortName: "Manyazewal 1", color: "indigo" },
-  { id: "manyazewal2", name: "Manyazewal Eshetu Gibi 2", shortName: "Manyazewal 2", color: "rose" }
-]
+interface Restaurant {
+  _id: string
+  name: string
+  shortName: string
+  isActive: boolean
+}
 
 // Helper function to calculate price breakdown
 const calculatePriceBreakdown = (priceWithTax: number, taxRate: number = 0.15) => {
@@ -760,7 +761,7 @@ const MenuItemComponent = lazy(() => {
           const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
           
           return (
-            <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/30 group min-w-0">
+            <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/300 group min-w-0">
               <div className="relative aspect-square sm:aspect-[4/3] overflow-hidden rounded-t-lg">
                 <Image
                   src={item.imageUrl || "/placeholder.svg"}
@@ -850,6 +851,7 @@ export default function POSPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
   const [waiters, setWaiters] = useState<Waiter[]>([])
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedWaiter, setSelectedWaiter] = useState("")
@@ -911,6 +913,60 @@ export default function POSPage() {
     `;
     document.head.appendChild(style);
     return () => { document.head.removeChild(style); };
+  }, []);
+
+  // Fetch restaurants from database
+  useEffect(() => {
+    const fetchRestaurants = async () => {
+      try {
+        const response = await fetch('/api/restaurants');
+        const data = await response.json();
+        
+        if (data.success && data.data) {
+          const activeRestaurants = data.data
+            .filter((r: any) => r.isActive !== false)
+            .map((r: any) => ({
+              _id: r._id,
+              name: r.name,
+              shortName: r.name.includes('1') ? 'Restaurant 1' : (r.name.includes('2') ? 'Restaurant 2' : r.name.substring(0, 15)),
+              isActive: r.isActive
+            }));
+          
+          setRestaurants(activeRestaurants);
+          
+          // Set default restaurant to "manyazewal1" if available, otherwise first active restaurant
+          const defaultRestaurant = activeRestaurants.find((r: Restaurant) => 
+            r._id === "manyazewal1" || r.name.toLowerCase().includes('1')
+          );
+          
+          if (defaultRestaurant) {
+            setSelectedRestaurant(defaultRestaurant._id);
+          } else if (activeRestaurants.length > 0) {
+            setSelectedRestaurant(activeRestaurants[0]._id);
+          } else {
+            // Fallback to default if no restaurants found
+            setSelectedRestaurant("manyazewal1");
+          }
+        } else {
+          // Fallback to default restaurant
+          setRestaurants([
+            { _id: "manyazewal1", name: "Manyazewal Eshetu Gibi 1", shortName: "Restaurant 1", isActive: true },
+            { _id: "manyazewal2", name: "Manyazewal Eshetu Gibi 2", shortName: "Restaurant 2", isActive: true }
+          ]);
+          setSelectedRestaurant("manyazewal1");
+        }
+      } catch (error) {
+        console.error('Error fetching restaurants:', error);
+        // Fallback to default restaurants
+        setRestaurants([
+          { _id: "manyazewal1", name: "Manyazewal Eshetu Gibi 1", shortName: "Restaurant 1", isActive: true },
+          { _id: "manyazewal2", name: "Manyazewal Eshetu Gibi 2", shortName: "Restaurant 2", isActive: true }
+        ]);
+        setSelectedRestaurant("manyazewal1");
+      }
+    };
+    
+    fetchRestaurants();
   }, []);
 
   // Fetch current user info
@@ -1343,7 +1399,7 @@ export default function POSPage() {
       }
     })
 
-    const selectedRestaurantInfo = RESTAURANTS.find(r => r.id === finalRestaurant);
+    const selectedRestaurantInfo = restaurants.find(r => r._id === finalRestaurant);
     const selectedWaiterInfo = waiters.find(w => w._id === finalWaiterId);
     
     const orderData = {
@@ -1492,16 +1548,16 @@ export default function POSPage() {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
-              {/* Restaurant Selector - Always visible for ALL users */}
+              {/* Restaurant Selector - Fetched from database, always visible for ALL users */}
               <Select value={selectedRestaurant} onValueChange={setSelectedRestaurant}>
                 <SelectTrigger className="w-[110px] sm:w-[140px] lg:w-[160px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
                   <SelectValue placeholder="Select Restaurant" />
                 </SelectTrigger>
                 <SelectContent>
-                  {RESTAURANTS.map((restaurant) => (
-                    <SelectItem key={restaurant.id} value={restaurant.id}>
+                  {restaurants.map((restaurant) => (
+                    <SelectItem key={restaurant._id} value={restaurant._id}>
                       <div className="flex items-center gap-1 sm:gap-2">
-                        <Building2 className={`h-3 w-3 sm:h-3.5 sm:w-3.5 text-${restaurant.color}-600`} />
+                        <Building2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-indigo-600" />
                         <span className="truncate text-[10px] sm:text-xs">{restaurant.shortName}</span>
                       </div>
                     </SelectItem>

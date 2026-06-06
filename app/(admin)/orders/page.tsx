@@ -1,3 +1,5 @@
+
+
 "use client"
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
@@ -200,6 +202,22 @@ type MenuItem = {
   floor?: string
 }
 
+type Restaurant = {
+  _id: string
+  name: string
+  description?: string
+  address?: string
+  phone?: string
+  email?: string
+  isActive: boolean
+  cuisine?: string[]
+  location?: {
+    lat: number
+    lng: number
+    address: string
+  }
+}
+
 const statusOptions: OrderStatus[] = [
   "PENDING",
   "CONFIRMED",
@@ -248,45 +266,86 @@ const orderTypeBadges = {
   },
 }
 
-const restaurantBadges = {
-  manyazewal1: {
-    icon: <Building2 className="h-3 w-3" />,
-    label: "Manyazewal 1",
-    color: "bg-indigo-100 text-indigo-800 border-indigo-200",
-  },
-  manyazewal2: {
-    icon: <Building2 className="h-3 w-3" />,
-    label: "Manyazewal 2",
-    color: "bg-rose-100 text-rose-800 border-rose-200",
-  },
-}
-
 const BATCH_SIZE_LIMIT = 100
 const menuItemsCache = new Map<string, { data: Map<string, MenuItem>; timestamp: number }>()
 const CACHE_DURATION = 5 * 60 * 1000
 
+// Dynamic restaurant cache
+let restaurantsCache: Restaurant[] | null = null
+let restaurantsCacheTimestamp = 0
+const RESTAURANTS_CACHE_DURATION = 5 * 60 * 1000
+
+// Helper function to fetch restaurants dynamically
+const fetchRestaurants = async (): Promise<Restaurant[]> => {
+  const now = Date.now()
+  if (restaurantsCache && now - restaurantsCacheTimestamp < RESTAURANTS_CACHE_DURATION) {
+    return restaurantsCache
+  }
+
+  try {
+    const response = await fetch('/api/restaurants')
+    const data = await response.json()
+    if (data.success && Array.isArray(data.data)) {
+      restaurantsCache = data.data.filter((r: Restaurant) => r.isActive !== false)
+      restaurantsCacheTimestamp = now
+      return restaurantsCache
+    }
+    return []
+  } catch (error) {
+    console.error("Error fetching restaurants:", error)
+    return []
+  }
+}
+
+// Helper to get restaurant by ID
+const getRestaurantById = (restaurants: Restaurant[], restaurantId?: string): Restaurant | null => {
+  if (!restaurantId) return null
+  return restaurants.find(r => r._id === restaurantId) || null
+}
+
+// Get restaurant badge with dynamic colors
+const getRestaurantBadge = (restaurant: Restaurant | null) => {
+  if (!restaurant) return null
+  
+  // Generate consistent color based on restaurant name
+  const colorIndex = restaurant.name.length % 5
+  const colors = [
+    "bg-indigo-100 text-indigo-800 border-indigo-200",
+    "bg-rose-100 text-rose-800 border-rose-200",
+    "bg-emerald-100 text-emerald-800 border-emerald-200",
+    "bg-amber-100 text-amber-800 border-amber-200",
+    "bg-cyan-100 text-cyan-800 border-cyan-200",
+  ]
+  
+  return {
+    icon: <Building2 className="h-3 w-3" />,
+    label: restaurant.name,
+    color: colors[colorIndex],
+  }
+}
+
+// Get order's restaurant ID with priority logic
 const getOrderRestaurantId = (order: Order): string | null => {
-  if (order.delivery === true) return "manyazewal1"
+  // Priority 1: Direct restaurantId from order
   if (order.restaurantId) return order.restaurantId
-  if (order.restaurantName?.includes("1") || order.restaurantName === "Manyazewal Eshetu Gibi 1")
+  
+  // Priority 2: For delivery orders, try to find by name
+  if (order.delivery === true && order.restaurantName) {
+    return order.restaurantName
+  }
+  
+  // Priority 3: For backward compatibility with old orders
+  if (order.restaurantName?.includes("Manyazewal 1") || order.restaurantName === "Manyazewal Eshetu Gibi 1")
     return "manyazewal1"
-  if (order.restaurantName?.includes("2") || order.restaurantName === "Manyazewal Eshetu Gibi 2")
+  if (order.restaurantName?.includes("Manyazewal 2") || order.restaurantName === "Manyazewal Eshetu Gibi 2")
     return "manyazewal2"
+  
   return null
 }
 
-const getRestaurantDisplayName = (order: Order): string => {
-  const restaurantId = getOrderRestaurantId(order)
-  if (restaurantId === "manyazewal1") return "Manyazewal 1"
-  if (restaurantId === "manyazewal2") return "Manyazewal 2"
-  return order.restaurantName || "Unknown"
-}
-
-const getRestaurantBadge = (order: Order) => {
-  const restaurantId = getOrderRestaurantId(order)
-  if (restaurantId === "manyazewal1") return restaurantBadges.manyazewal1
-  if (restaurantId === "manyazewal2") return restaurantBadges.manyazewal2
-  return null
+// Get restaurant display name
+const getRestaurantDisplayName = (restaurant: Restaurant | null): string => {
+  return restaurant?.name || "Unknown Restaurant"
 }
 
 const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>> => {
@@ -537,11 +596,13 @@ const OrderDetailModal = React.memo(
   ({
     order,
     waitresses,
+    restaurants,
     isAdmin,
     onToggleItemUneditable,
   }: {
     order: Order
     waitresses: Waitress[]
+    restaurants: Restaurant[]
     isAdmin: boolean
     onToggleItemUneditable?: (orderId: string, itemIndex: number, isUneditable: boolean) => Promise<void>
   }) => {
@@ -551,7 +612,12 @@ const OrderDetailModal = React.memo(
 
     const displayItems = order.orderItems || order.items
     const orderTypeBadge = getOrderTypeBadge(order)
-    const restaurantBadge = getRestaurantBadge(order)
+    
+    // Find restaurant dynamically
+    const orderRestaurantId = getOrderRestaurantId(order)
+    const restaurant = getRestaurantById(restaurants, orderRestaurantId || undefined) || 
+                      (order.restaurantName ? { _id: order.restaurantName, name: order.restaurantName, isActive: true } as Restaurant : null)
+    const restaurantBadge = getRestaurantBadge(restaurant)
 
     useEffect(() => {
       const fetchWaitress = async () => {
@@ -692,8 +758,14 @@ const OrderDetailModal = React.memo(
                   <CardContent className="space-y-2">
                     <div className="flex items-center gap-2">
                       <Building2 className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">{getRestaurantDisplayName(order)}</span>
+                      <span className="font-medium">{getRestaurantDisplayName(restaurant)}</span>
                     </div>
+                    {restaurant?.address && (
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                        <span>{restaurant.address}</span>
+                      </div>
+                    )}
                     {order.floor && (
                       <div className="flex items-center gap-2">
                         <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -980,6 +1052,7 @@ const OrderCard = React.memo(
   ({
     order,
     waitresses,
+    restaurants,
     isAdmin,
     currentUser,
     onDelete,
@@ -989,6 +1062,7 @@ const OrderCard = React.memo(
   }: {
     order: Order
     waitresses: Waitress[]
+    restaurants: Restaurant[]
     isAdmin: boolean
     currentUser: { name?: string | null; email?: string | null } | null
     onDelete: (id: string) => Promise<void>
@@ -1001,7 +1075,13 @@ const OrderCard = React.memo(
     const edited = order.isEdited || false
     const markedForDeletion = order.markedForDeletion || false
     const orderTypeBadge = getOrderTypeBadge(order)
-    const restaurantBadge = getRestaurantBadge(order)
+    
+    // Find restaurant dynamically
+    const orderRestaurantId = getOrderRestaurantId(order)
+    const restaurant = getRestaurantById(restaurants, orderRestaurantId || undefined) ||
+                      (order.restaurantName ? { _id: order.restaurantName, name: order.restaurantName, isActive: true } as Restaurant : null)
+    const restaurantBadge = getRestaurantBadge(restaurant)
+    
     const displayItems = order.orderItems || order.items
     const uneditableCount = displayItems.filter((item) => item.isUneditable).length
 
@@ -1178,6 +1258,7 @@ const OrderCard = React.memo(
           <OrderDetailModal
             order={order}
             waitresses={waitresses}
+            restaurants={restaurants}
             isAdmin={isAdmin}
             onToggleItemUneditable={onToggleItemUneditable}
           />
@@ -1423,7 +1504,9 @@ export default function OrderManagement() {
   const { data: session } = useSession()
   const [orders, setOrders] = useState<Order[]>([])
   const [waitresses, setWaitresses] = useState<Waitress[]>([])
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingRestaurants, setLoadingRestaurants] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<OrderStatus | null>(null)
   const [waitressFilter, setWaitressFilter] = useState<string | null>(null)
@@ -1552,6 +1635,20 @@ export default function OrderManagement() {
     return () => clearInterval(interval)
   }, [checkPendingStockOrders])
 
+  // Fetch restaurants dynamically
+  const loadRestaurants = useCallback(async () => {
+    try {
+      const data = await fetchRestaurants()
+      if (isMountedRef.current) {
+        setRestaurants(data)
+      }
+    } catch (error) {
+      console.error("Error loading restaurants:", error)
+    } finally {
+      if (isMountedRef.current) setLoadingRestaurants(false)
+    }
+  }, [])
+
   const fetchOrders = useCallback(
     async (showLoading = true) => {
       if (showLoading) setLoading(true)
@@ -1636,14 +1733,6 @@ export default function OrderManagement() {
         })
       )
 
-      // OPTION 1: Remove this line completely - local state update is enough
-      // fetchOrders(false)
-      
-      // OPTION 2: Add delay to ensure server has processed
-      // setTimeout(() => fetchOrders(false), 1000);
-      
-      // OPTION 3: Only fetch if you need to sync with server changes
-      // But add a delay to avoid race condition
       setTimeout(() => fetchOrders(false), 500);
       
     } catch (error) {
@@ -1659,7 +1748,6 @@ export default function OrderManagement() {
     return
   }
   try {
-    // Call the main /api/order endpoint with query parameter instead of /api/order/${orderId}
     const response = await fetch(`/api/order?id=${orderId}&reason=Admin deletion from UI`, { 
       method: "DELETE" 
     })
@@ -1668,7 +1756,6 @@ export default function OrderManagement() {
     if (!response.ok) throw new Error(data.error || "Failed to delete order")
     
     toast.success(data.message || "Order deleted successfully")
-    // Refresh the orders list
     fetchOrders()
   } catch (error) {
     console.error("Error deleting order:", error)
@@ -1724,7 +1811,10 @@ export default function OrderManagement() {
           trulyNewOrders.forEach((order: Order) => {
             playNotificationSound()
             const orderType = order.inTable ? "In-Table" : order.delivery ? "Delivery" : "POS"
-            const restaurantName = getRestaurantDisplayName(order)
+            // Find restaurant name for notification
+            const orderRestaurantId = getOrderRestaurantId(order)
+            const restaurant = getRestaurantById(restaurants, orderRestaurantId || undefined)
+            const restaurantName = restaurant?.name || order.restaurantName || "Unknown"
             setNotificationData({
               title: `New ${orderType} Order #${order.orderNumber}`,
               message: `${restaurantName} | Table ${order.tableNumber} | ${
@@ -1744,7 +1834,7 @@ export default function OrderManagement() {
     } catch (error) {
       console.error("Error polling new orders:", error)
     }
-  }, [playNotificationSound, fetchOrders, isAdmin])
+  }, [playNotificationSound, fetchOrders, isAdmin, restaurants])
 
   const fetchWaitresses = useCallback(async () => {
     try {
@@ -1762,7 +1852,7 @@ export default function OrderManagement() {
 
   useEffect(() => {
     const initialize = async () => {
-      await Promise.all([fetchOrders(true), fetchWaitresses()])
+      await Promise.all([fetchOrders(true), fetchWaitresses(), loadRestaurants()])
       pollingIntervalRef.current = setInterval(() => {
         pollNewOrders()
       }, 30000)
@@ -1773,16 +1863,15 @@ export default function OrderManagement() {
         clearInterval(pollingIntervalRef.current)
       }
     }
-  }, [fetchOrders, fetchWaitresses, pollNewOrders])
+  }, [fetchOrders, fetchWaitresses, loadRestaurants, pollNewOrders])
 
   const handleStatusUpdate = async (orderId: string, newStatus: OrderStatus) => {
   try {
-    // Use the main /api/order endpoint instead of /api/order/${orderId}
     const response = await fetch(`/api/order`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
-        orderId,  // Pass orderId in body
+        orderId,
         status: newStatus 
       }),
     })
@@ -1790,7 +1879,6 @@ export default function OrderManagement() {
     const data = await response.json()
     toast.success(data.message || "Order status updated successfully")
     
-    // Show additional info if order was completed
     if (newStatus === "COMPLETED" && data.completedBy) {
       toast.success(`Order completed by ${data.completedBy.name}`, { duration: 3000 })
     }
@@ -1822,8 +1910,16 @@ export default function OrderManagement() {
         (orderTypeFilter === "pos" && !order.inTable && !order.delivery)
       const matchesMarked = !showMarkedOnly || order.markedForDeletion === true
 
-      let orderRestaurantId = getOrderRestaurantId(order)
-      const matchesRestaurant = !restaurantFilter || orderRestaurantId === restaurantFilter
+      // Dynamic restaurant matching
+      let matchesRestaurant = true
+      if (restaurantFilter) {
+        const orderRestaurantId = getOrderRestaurantId(order)
+        // Try to match by restaurant ID or name
+        const restaurant = getRestaurantById(restaurants, orderRestaurantId || undefined)
+        matchesRestaurant = restaurant?._id === restaurantFilter || 
+                           order.restaurantName === restaurantFilter ||
+                           orderRestaurantId === restaurantFilter
+      }
 
       return (
         matchesSearch &&
@@ -1859,6 +1955,7 @@ export default function OrderManagement() {
     sortField,
     sortDirection,
     showMarkedOnly,
+    restaurants,
   ])
 
   useEffect(() => {
@@ -1923,22 +2020,28 @@ export default function OrderManagement() {
   }
 
   const getRestaurantDisplay = (order: Order) => {
-    const restaurantId = getOrderRestaurantId(order)
-    if (restaurantId === "manyazewal1") {
+    const orderRestaurantId = getOrderRestaurantId(order)
+    const restaurant = getRestaurantById(restaurants, orderRestaurantId || undefined)
+    
+    if (restaurant) {
       return (
         <Badge variant="outline" className="bg-indigo-100 text-indigo-800">
           <Building2 className="h-3 w-3 mr-1" />
-          Manyazewal 1
-        </Badge>
-      )
-    } else if (restaurantId === "manyazewal2") {
-      return (
-        <Badge variant="outline" className="bg-rose-100 text-rose-800">
-          <Building2 className="h-3 w-3 mr-1" />
-          Manyazewal 2
+          {restaurant.name}
         </Badge>
       )
     }
+    
+    // Fallback for orders without restaurant reference
+    if (order.restaurantName) {
+      return (
+        <Badge variant="outline" className="bg-gray-100 text-gray-800">
+          <Building2 className="h-3 w-3 mr-1" />
+          {order.restaurantName}
+        </Badge>
+      )
+    }
+    
     return (
       <Badge variant="outline" className="bg-gray-100 text-gray-800">
         <Building2 className="h-3 w-3 mr-1" />
@@ -2009,19 +2112,32 @@ export default function OrderManagement() {
               ))}
             </SelectContent>
           </Select>
+          
+          {/* Dynamic Restaurant Filter */}
           <Select
             value={restaurantFilter || "All"}
             onValueChange={(value) => setRestaurantFilter(value === "All" ? null : value)}
           >
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="Filter by Restaurant" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="All">All Restaurants</SelectItem>
-              <SelectItem value="manyazewal1">Manyazewal 1 (Delivery)</SelectItem>
-              <SelectItem value="manyazewal2">Manyazewal 2</SelectItem>
+              {loadingRestaurants ? (
+                <SelectItem value="loading" disabled>Loading...</SelectItem>
+              ) : (
+                restaurants.map((restaurant) => (
+                  <SelectItem key={restaurant._id} value={restaurant._id}>
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-3 w-3" />
+                      {restaurant.name}
+                    </div>
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
+          
           <Select
             value={orderTypeFilter || "All"}
             onValueChange={(value) => setOrderTypeFilter(value === "All" ? null : value)}
@@ -2180,6 +2296,7 @@ export default function OrderManagement() {
                           <OrderDetailModal
                             order={order}
                             waitresses={waitresses}
+                            restaurants={restaurants}
                             isAdmin={isAdmin}
                             onToggleItemUneditable={handleToggleItemUneditable}
                           />
@@ -2235,6 +2352,7 @@ export default function OrderManagement() {
               key={order._id}
               order={order}
               waitresses={waitresses}
+              restaurants={restaurants}
               isAdmin={isAdmin}
               currentUser={currentUser}
               onDelete={handleDeleteOrder}
@@ -2250,6 +2368,7 @@ export default function OrderManagement() {
     viewMode,
     paginatedOrders,
     waitresses,
+    restaurants,
     isAdmin,
     currentUser,
     handleToggleItemUneditable,
@@ -2337,7 +2456,6 @@ export default function OrderManagement() {
         </div>
         
         <div className="flex items-center gap-2">
-          {/* Stock Processing Button - Only shows when pending orders exist */}
           {pendingStockCount > 0 && !stockError && (
             <Button
               onClick={() => setShowConfirmDialog(true)}
@@ -2359,7 +2477,6 @@ export default function OrderManagement() {
             </Button>
           )}
           
-          {/* Error State Button */}
           {pendingStockCount > 0 && stockError === 'Error' && (
             <Button
               onClick={checkPendingStockOrders}
@@ -2435,7 +2552,6 @@ export default function OrderManagement() {
         </PaginationContent>
       </Pagination>
 
-      {/* Stock Processing Confirmation Dialog */}
       <StockConfirmDialog />
 
       <style jsx global>{`

@@ -352,6 +352,19 @@ export default function StockManagementPage() {
     return stats
   }, [stocks, purchases])
 
+  // Filter handler functions for cards
+  const handleCardClick = (filterType: 'status', value: StockStatus | 'all') => {
+    setStatusFilter(value)
+    setSelectedCategory(null) // Clear category filter when clicking status cards
+    setSearchQuery("") // Clear search query
+  }
+
+  const handleTotalItemsClick = () => {
+    setStatusFilter('all')
+    setSelectedCategory(null)
+    setSearchQuery("")
+  }
+
   // Table columns with role-based action column
   const columns: ColumnDef<Stock>[] = [
     {
@@ -794,6 +807,14 @@ export default function StockManagementPage() {
     return Math.max(0, (stock.requiredAmount || 0) - stock.currentStock)
   }
 
+  // Check if a specific filter is active
+  const isFilterActive = (filterType: 'status', value: StockStatus | 'all') => {
+    if (filterType === 'status') {
+      return statusFilter === value
+    }
+    return false
+  }
+
   return (
     <div className="container mx-auto py-10">
       <Toaster position="top-right" />
@@ -811,9 +832,17 @@ export default function StockManagementPage() {
         </div>
       )}
       
-      {/* Statistics Cards */}
+      {/* Statistics Cards - Clickable Filters */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/20 dark:to-blue-900/20">
+        {/* Total Items Card */}
+        <Card 
+          className={`bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/20 dark:to-blue-900/20 transition-all duration-200 cursor-pointer hover:scale-105 hover:shadow-lg ${
+            statusFilter === 'all' && !selectedCategory && !searchQuery 
+              ? 'ring-2 ring-blue-500 shadow-lg' 
+              : ''
+          }`}
+          onClick={handleTotalItemsClick}
+        >
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -825,7 +854,15 @@ export default function StockManagementPage() {
           </CardContent>
         </Card>
         
-        <Card className="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950/20 dark:to-red-900/20">
+        {/* Critical Stock Card */}
+        <Card 
+          className={`bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950/20 dark:to-red-900/20 transition-all duration-200 cursor-pointer hover:scale-105 hover:shadow-lg ${
+            isFilterActive('status', 'critical') 
+              ? 'ring-2 ring-red-500 shadow-lg' 
+              : ''
+          }`}
+          onClick={() => handleCardClick('status', 'critical')}
+        >
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -837,7 +874,15 @@ export default function StockManagementPage() {
           </CardContent>
         </Card>
         
-        <Card className="bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950/20 dark:to-amber-900/20">
+        {/* Low Stock Card */}
+        <Card 
+          className={`bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950/20 dark:to-amber-900/20 transition-all duration-200 cursor-pointer hover:scale-105 hover:shadow-lg ${
+            isFilterActive('status', 'low') 
+              ? 'ring-2 ring-amber-500 shadow-lg' 
+              : ''
+          }`}
+          onClick={() => handleCardClick('status', 'low')}
+        >
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -849,7 +894,15 @@ export default function StockManagementPage() {
           </CardContent>
         </Card>
         
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/20 dark:to-green-900/20">
+        {/* Good Stock Card */}
+        <Card 
+          className={`bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/20 dark:to-green-900/20 transition-all duration-200 cursor-pointer hover:scale-105 hover:shadow-lg ${
+            isFilterActive('status', 'good') 
+              ? 'ring-2 ring-green-500 shadow-lg' 
+              : ''
+          }`}
+          onClick={() => handleCardClick('status', 'good')}
+        >
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
@@ -861,7 +914,17 @@ export default function StockManagementPage() {
           </CardContent>
         </Card>
         
-        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/20 dark:to-purple-900/20">
+        {/* Total Value Card */}
+        <Card 
+          className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/20 dark:to-purple-900/20 transition-all duration-200 hover:scale-105 hover:shadow-lg cursor-pointer"
+          onClick={() => {
+            setStatusFilter('all')
+            setSelectedCategory(null)
+            setSearchQuery("")
+            // Optional: You can also scroll to the top or show a message
+            toast.success("Showing all items")
+          }}
+        >
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>

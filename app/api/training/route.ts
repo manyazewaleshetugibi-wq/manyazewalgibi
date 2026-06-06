@@ -4,29 +4,51 @@ import { ObjectId } from "mongodb";
 
 // Cloudinary Configuration
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
-const CLOUDINARY_VIDEO_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_VIDEO_UPLOAD_PRESET || 'goldgold';
-const CLOUDINARY_PHOTO_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
+const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'goldgold';
 const CLOUDINARY_VIDEO_FOLDER = process.env.NEXT_PUBLIC_CLOUDINARY_FOLDER || 'videos';
-const CLOUDINARY_PHOTO_FOLDER =process.env.NEXT_PUBLIC_CLOUDINARY_PHOTO_FOLDER || 'photoss';
-const CLOUDINARY_RAW_FOLDER = process.env.NEXT_PUBLIC_CLOUDINARY_RAW_FOLDER ||'raw_files'; // For PDFs, text files, etc.
-
+const CLOUDINARY_PHOTO_FOLDER = process.env.NEXT_PUBLIC_CLOUDINARY_PHOTO_FOLDER || 'photoss';
+const CLOUDINARY_DOCUMENT_FOLDER = process.env.NEXT_PUBLIC_CLOUDINARY_RAW_FOLDER || 'pdffiles';
 
 const MAX_FILE_SIZES = {
-  video: 100 * 1024 * 1024, 
-  audio: 50 * 1024 * 1024,  
-  pdf: 20 * 1024 * 1024,    
-  text: 5 * 1024 * 1024,    
-  image: 10 * 1024 * 1024,  
+  video: 100 * 1024 * 1024,  // 100MB
+  audio: 50 * 1024 * 1024,   // 50MB
+  document: 20 * 1024 * 1024, // 20MB for PDFs, DOCs, etc.
+  image: 10 * 1024 * 1024,   // 10MB
 };
-
 
 const ALLOWED_TYPES = {
   video: ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/webm'],
   audio: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4'],
-  pdf: ['application/pdf'],
-  text: ['text/plain', 'text/markdown', 'text/html', 'application/json'],
+  document: [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/plain',
+    'text/markdown',
+    'text/html',
+    'application/json'
+  ],
   image: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'],
 };
+
+// Sanitize filename to remove whitespace and special characters
+function sanitizeFileName(fileName: string): string {
+  const baseName = fileName.replace(/\.[^/.]+$/, "");
+  return baseName
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/[^\w\-]/g, '')
+    .substring(0, 100);
+}
+
+// Get file extension
+function getFileExtension(fileName: string): string {
+  return fileName.split('.').pop()?.toLowerCase() || '';
+}
 
 // Upload file to Cloudinary
 async function uploadToCloudinary(
@@ -37,140 +59,128 @@ async function uploadToCloudinary(
   try {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('upload_preset', getUploadPreset(type));
-    formData.append('folder', getFolder(type));
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
     
-    // Add resource type based on file type
-    let resourceType = 'auto';
-    if (type === 'video' || type === 'audio') {
-      resourceType = 'video'; // Cloudinary treats audio as video resource type
+    // Determine folder and upload endpoint
+    let folder = CLOUDINARY_DOCUMENT_FOLDER;
+    let uploadUrl = '';
+    
+    if (type === 'video') {
+      folder = CLOUDINARY_VIDEO_FOLDER;
+      uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`;
+    } else if (type === 'audio') {
+      folder = CLOUDINARY_VIDEO_FOLDER;
+      uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`;
     } else if (type === 'image') {
-      resourceType = 'image';
-    } else {
-      resourceType = 'raw'; // For PDFs, text files
+      folder = CLOUDINARY_PHOTO_FOLDER;
+      uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
+    } else if (type === 'document') {
+      folder = CLOUDINARY_DOCUMENT_FOLDER;
+      uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`;
     }
     
-    // For unsigned uploads with presets, we can only use allowed parameters
-    // Remove the eager parameter as it's not allowed with unsigned uploads
+    // Use folder parameter
+    formData.append('folder', folder);
     
-    // Add public_id for better organization
+    // Create public_id WITHOUT the folder prefix
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(7);
-    const publicId = `${getFolder(type)}/${timestamp}_${randomString}_${file.name.replace(/\.[^/.]+$/, "")}`;
-    formData.append('public_id', publicId);
+    const sanitizedFileName = sanitizeFileName(file.name);
+    const fileExtension = getFileExtension(file.name);
+    const publicId = `${timestamp}_${randomString}_${sanitizedFileName}`;
     
-    // Add tags for organization
+    console.log('📤 Upload details:', { 
+      type, 
+      uploadUrl,
+      folder,
+      publicId,
+      originalName: file.name,
+      fileSize: file.size,
+      mimeType: file.type
+    });
+    
+    formData.append('public_id', publicId);
     formData.append('tags', `${type},training`);
     
-    // Add context/metadata if needed
-    formData.append('context', `type=${type}|filename=${file.name}`);
-    
-    // Simulate progress for now (Cloudinary doesn't have native progress events)
+    // Simulate progress
     if (onProgress) {
-      // Simulate upload progress
-      const simulateProgress = () => {
-        let progress = 0;
-        const interval = setInterval(() => {
-          progress += 10;
-          onProgress(Math.min(progress, 90)); // Max 90% until complete
-          if (progress >= 90) clearInterval(interval);
-        }, 100);
-      };
-      simulateProgress();
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += 10;
+        onProgress(Math.min(progress, 90));
+        if (progress >= 90) clearInterval(interval);
+      }, 100);
     }
     
-    // Upload to Cloudinary
-    const response = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`,
-      {
-        method: 'POST',
-        body: formData,
-      }
-    );
+    console.log('🌐 Uploading to:', uploadUrl);
+    
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      body: formData,
+    });
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Cloudinary response error:', errorText);
+      console.error('❌ Cloudinary error:', errorText);
       throw new Error(`Cloudinary upload failed: ${errorText}`);
     }
     
     const data = await response.json();
     
     if (onProgress) {
-      onProgress(100); // Complete
+      onProgress(100);
     }
     
-    return {
-      url: data.secure_url,
+    // Construct proper viewable URL
+    let viewableUrl = data.secure_url;
+    
+    // For documents (PDFs), construct raw URL for browser viewing
+    if (type === 'document') {
+      viewableUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/raw/upload/${data.public_id}.${fileExtension}`;
+      console.log('📄 Document URL for browser view:', viewableUrl);
+    }
+    
+    console.log('✅ Upload success:', { 
+      url: viewableUrl, 
       publicId: data.public_id,
-      format: data.format || 'raw',
+      format: fileExtension
+    });
+    
+    return {
+      url: viewableUrl,
+      publicId: data.public_id,
+      format: fileExtension,
       bytes: data.bytes,
     };
     
   } catch (error: any) {
-    console.error('Cloudinary upload error:', error);
+    console.error('❌ Cloudinary upload error:', error);
     throw new Error(`Failed to upload to Cloudinary: ${error.message}`);
   }
 }
 
-// Helper functions
-function getUploadPreset(type: string): string {
-  switch (type) {
-    case 'video':
-    case 'audio':
-      return CLOUDINARY_VIDEO_UPLOAD_PRESET;
-    case 'image':
-      return CLOUDINARY_PHOTO_UPLOAD_PRESET;
-    default:
-      return CLOUDINARY_VIDEO_UPLOAD_PRESET; // Default to video preset for raw files
-  }
-}
-
-function getFolder(type: string): string {
-  switch (type) {
-    case 'video':
-      return CLOUDINARY_VIDEO_FOLDER;
-    case 'image':
-      return CLOUDINARY_PHOTO_FOLDER;
-    case 'audio':
-      return 'audio_files';
-    case 'pdf':
-      return 'pdf_files';
-    case 'text':
-      return 'text_files';
-    default:
-      return CLOUDINARY_RAW_FOLDER;
-  }
-}
-
-// Generate video thumbnail URL from Cloudinary public_id
-function generateVideoThumbnailUrl(publicId: string): string {
-  return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/video/upload/w_300,h_200,c_fill/${publicId}.jpg`;
-}
-
 export async function POST(request: Request) {
-  console.log('Training POST request received');
+  console.log('📥 Training POST request received');
   
   try {
     const formData = await request.formData();
     const title = formData.get("title") as string;
     const description = formData.get("description") as string;
-    const type = formData.get("type") as "audio" | "pdf" | "video" | "text" | "image";
-    const file = formData.get("file") as File | null; // Can be null if linkUrl is provided
-    const linkUrl = formData.get("linkUrl") as string | null; // New field
+    const type = formData.get("type") as string;
+    const file = formData.get("file") as File | null;
+    const linkUrl = formData.get("linkUrl") as string | null;
 
-    console.log('Form data:', { title, description, type, fileName: file?.name, fileSize: file?.size, linkUrl });
+    console.log('📝 Form data:', { title, description, type, fileName: file?.name, fileSize: file?.size, linkUrl });
 
     // Validate required fields
     if (!title || !description || !type || (!file && !linkUrl)) {
-      console.log('Missing required fields:', { title: !!title, description: !!description, type: !!type, file: !!file, linkUrl: !!linkUrl });
       return NextResponse.json({ 
         success: false,
         error: "Missing required fields: title, description, type. Either a file or a link is required." 
       }, { status: 400 });
     }
     
-    // If a linkUrl is provided, ensure it's a valid URL
+    // Validate link URL if provided
     if (linkUrl && !linkUrl.startsWith('http')) {
       return NextResponse.json({
         success: false,
@@ -180,26 +190,39 @@ export async function POST(request: Request) {
 
     // Validate file type if a file is provided
     if (file) {
-      const allowedTypes = ALLOWED_TYPES[type as keyof typeof ALLOWED_TYPES];
-      if (!allowedTypes || !allowedTypes.includes(file.type)) {
-      console.log('Invalid file type:', { type, fileType: file.type, allowedTypes });
-      return NextResponse.json({ 
-        success: false,
-        error: `Invalid file type for ${type}. Allowed types: ${allowedTypes?.join(', ') || 'None specified'}` 
-      }, { status: 400 });
-    }
-    }
-
-    // Validate file size
-    if (file) { // Only validate size if a file is actually uploaded
-      const maxSize = MAX_FILE_SIZES[type as keyof typeof MAX_FILE_SIZES] || 10 * 1024 * 1024;
+      let isValidType = false;
+      
+      // Check if file type is allowed
+      if (type === 'document') {
+        isValidType = ALLOWED_TYPES.document.includes(file.type);
+      } else if (type === 'video') {
+        isValidType = ALLOWED_TYPES.video.includes(file.type);
+      } else if (type === 'audio') {
+        isValidType = ALLOWED_TYPES.audio.includes(file.type);
+      } else if (type === 'image') {
+        isValidType = ALLOWED_TYPES.image.includes(file.type);
+      }
+      
+      if (!isValidType) {
+        console.log('❌ Invalid file type:', { type, fileType: file.type });
+        return NextResponse.json({ 
+          success: false,
+          error: `Invalid file type for ${type}. File type: ${file.type}` 
+        }, { status: 400 });
+      }
+      
+      // Validate file size
+      let maxSize = MAX_FILE_SIZES.document;
+      if (type === 'video') maxSize = MAX_FILE_SIZES.video;
+      if (type === 'audio') maxSize = MAX_FILE_SIZES.audio;
+      if (type === 'image') maxSize = MAX_FILE_SIZES.image;
+      
       if (file.size > maxSize) {
         const maxSizeMB = maxSize / (1024 * 1024);
         const fileSizeMB = file.size / (1024 * 1024);
-        console.log('File too large:', { type, maxSizeMB, fileSizeMB });
         return NextResponse.json({ 
           success: false,
-          error: `File too large for ${type}. Max: ${maxSizeMB}MB, Your file: ${fileSizeMB.toFixed(2)}MB` 
+          error: `File too large. Max: ${maxSizeMB}MB, Your file: ${fileSizeMB.toFixed(2)}MB` 
         }, { status: 400 });
       }
     }
@@ -207,37 +230,39 @@ export async function POST(request: Request) {
     const client = await clientPromise;
     const db = client.db("gold");
 
-    // Step 1: Create a pending training record
-    let trainingDoc: any = { 
+    // Create training record
+    const trainingDoc: any = { 
       title, 
       description, 
       type,
       uploadProgress: 0,
+      uploadStatus: "uploading",
       createdAt: new Date(),
       updatedAt: new Date(),
     };
     
-    if (linkUrl) { 
-      // If a link is provided, create the complete document right away
-      trainingDoc = {
-        ...trainingDoc,
-        fileUrl: linkUrl,
-        uploadStatus: "completed",
-        completedAt: new Date(),
-      };
-    } else {
-      // If a file is to be uploaded, set the status to uploading
-      trainingDoc.uploadStatus = "uploading";
+    if (linkUrl) {
+      trainingDoc.fileUrl = linkUrl;
+      trainingDoc.uploadStatus = "completed";
+      trainingDoc.completedAt = new Date();
     }
-
-    console.log('Creating training document:', trainingDoc);
+    
+    console.log('📦 Creating training document');
     
     const result = await db.collection("trainings").insertOne(trainingDoc);
     const trainingId = result.insertedId;
 
-    console.log('Training created with ID:', trainingId);
+    // If link URL, return immediately
+    if (linkUrl) {
+      const training = await db.collection("trainings").findOne({ _id: trainingId });
+      return NextResponse.json({ 
+        success: true,
+        message: "Training created successfully",
+        training,
+      }, { status: 201 });
+    }
 
-    // Update progress in database callback
+    // Update progress function
     const updateProgress = async (progress: number) => {
       try {
         await db.collection("trainings").updateOne(
@@ -245,96 +270,82 @@ export async function POST(request: Request) {
           { 
             $set: { 
               uploadProgress: progress, 
-              uploadStatus: progress === 100 ? 'processing' : 'uploading',
               updatedAt: new Date()
             } 
           }
         );
-        console.log(`Progress updated: ${progress}%`);
+        console.log(`📊 Progress: ${progress}%`);
       } catch (progressError) {
-        console.error('Error updating progress:', progressError);
+        console.error('❌ Progress update error:', progressError);
       }
     };
 
-    // If a file is provided, handle the upload process
-    if (file) {
-      try {
-        // Step 2: Upload to Cloudinary with progress tracking
-        console.log('Starting Cloudinary upload...');
-        const cloudinaryResult = await uploadToCloudinary(file, type, updateProgress);
-        
-        console.log('Cloudinary upload successful:', cloudinaryResult);
-        
-        // Step 3: Update training record with Cloudinary URL
-        const updatedTraining: any = {
-          fileUrl: cloudinaryResult.url,
-          publicId: cloudinaryResult.publicId,
-          format: cloudinaryResult.format,
-          fileSize: cloudinaryResult.bytes,
-          originalFileName: file.name,
-          mimeType: file.type,
-          uploadStatus: "completed",
-          uploadProgress: 100,
-          completedAt: new Date(),
-          updatedAt: new Date(),
-        };
-        
-        // Generate thumbnail URL for videos
-        if (type === 'video') {
-          updatedTraining.thumbnailUrl = generateVideoThumbnailUrl(cloudinaryResult.publicId);
+    // Upload file to Cloudinary
+    try {
+      console.log('☁️ Starting upload to Cloudinary...');
+      const cloudinaryResult = await uploadToCloudinary(file!, type, updateProgress);
+      
+      console.log('✅ Cloudinary upload successful');
+      
+      // Update training with Cloudinary data
+      const updatedTraining = {
+        fileUrl: cloudinaryResult.url,
+        publicId: cloudinaryResult.publicId,
+        format: cloudinaryResult.format,
+        fileSize: cloudinaryResult.bytes,
+        originalFileName: file!.name,
+        mimeType: file!.type,
+        uploadStatus: "completed",
+        uploadProgress: 100,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      };
+      
+      await db.collection("trainings").updateOne(
+        { _id: trainingId },
+        { $set: updatedTraining }
+      );
+      
+      const training = await db.collection("trainings").findOne({ _id: trainingId });
+      
+      return NextResponse.json({ 
+        success: true,
+        message: "Training uploaded successfully",
+        training,
+      }, { status: 201 });
+      
+    } catch (uploadError: any) {
+      console.error('❌ Upload error:', uploadError);
+      
+      // Update with error status
+      await db.collection("trainings").updateOne(
+        { _id: trainingId },
+        { 
+          $set: { 
+            uploadStatus: "failed", 
+            uploadProgress: 0,
+            error: uploadError.message,
+            failedAt: new Date(),
+            updatedAt: new Date(),
+          } 
         }
-        
-        await db.collection("trainings").updateOne(
-          { _id: trainingId },
-          { $set: updatedTraining }
-        );
-  
-        console.log('Training updated with Cloudinary data');
-  
-      } catch (uploadError: any) {
-        console.error('Upload error:', uploadError);
-        
-        // Update with error status
-        await db.collection("trainings").updateOne(
-          { _id: trainingId },
-          { 
-            $set: { 
-              uploadStatus: "failed", 
-              uploadProgress: 0,
-              error: uploadError.message,
-              failedAt: new Date(),
-              updatedAt: new Date(),
-            } 
-          }
-        );
-        
-        // Re-throw to be caught by the outer catch block
-        throw uploadError;
-      }
+      );
+      
+      throw uploadError;
     }
-
-    // Get the complete training record to return
-    const training = await db.collection("trainings").findOne({ _id: trainingId });
-
-    return NextResponse.json({ 
-      success: true,
-      message: "Training created successfully",
-      training,
-    }, { status: 201 });
     
   } catch (error: any) {
-    console.error("Error creating training:", error);
+    console.error("❌ Error creating training:", error);
     return NextResponse.json({ 
       success: false,
       error: error.message || "Failed to create training",
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     }, { status: 500 });
   }
 }
 
 export async function GET() {
   try {
-    console.log('Fetching trainings...');
+    console.log('📥 Fetching trainings...');
     const client = await clientPromise;
     const db = client.db("gold");
     const trainings = await db.collection("trainings")
@@ -342,7 +353,7 @@ export async function GET() {
       .sort({ createdAt: -1 })
       .toArray();
     
-    console.log(`Found ${trainings.length} trainings`);
+    console.log(`✅ Found ${trainings.length} trainings`);
     
     return NextResponse.json({ 
       success: true,
@@ -350,7 +361,7 @@ export async function GET() {
       count: trainings.length 
     }, { status: 200 });
   } catch (error) {
-    console.error("Error fetching trainings:", error);
+    console.error("❌ Error fetching trainings:", error);
     return NextResponse.json({ 
       success: false,
       error: "Failed to fetch trainings" 

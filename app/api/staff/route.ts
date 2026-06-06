@@ -3,7 +3,7 @@ import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
 import bcrypt from 'bcrypt';
 
-// Define role-based permissions (complete mapping)
+// Define role-based permissions (complete mapping with purchasing and delivery)
 const rolePermissions: Record<string, string[]> = {
   admin: [
     'manage_users',
@@ -38,6 +38,23 @@ const rolePermissions: Record<string, string[]> = {
     'manage_purchases',
     'view_reports',
     'manage_suppliers'
+  ],
+  purchasing: [
+    'manage_purchases',
+    'view_purchases',
+    'create_purchase_orders',
+    'view_suppliers',
+    'manage_suppliers',
+    'view_stock',
+    'manage_purchase_requests',
+    'view_reports'
+  ],
+  delivery: [
+    'view_delivery_orders',
+    'update_delivery_status',
+    'track_deliveries',
+    'view_assigned_orders',
+    'update_order_delivery'
   ],
   fb: [
     'manage_menu',
@@ -88,17 +105,6 @@ const hashPassword = async (password: string): Promise<string> => {
 const isAlreadyHashed = (password: string): boolean => {
   const bcryptRegex = /^\$2[ayb]\$\d{2}\$[A-Za-z0-9./]{53}$/;
   return bcryptRegex.test(password);
-};
-
-// Password verification utility with bcrypt
-const verifyPassword = async (password: string, storedHash: string): Promise<boolean> => {
-  try {
-    const isMatch = await bcrypt.compare(password, storedHash);
-    return isMatch;
-  } catch (error) {
-    console.error('Error verifying password:', error);
-    return false;
-  }
 };
 
 // GET all staff
@@ -234,8 +240,8 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Validate role (support all roles including waitress)
-    const validRoles = ['admin', 'kitchen', 'stock_manager', 'fb', 'marketing', 'finance', 'pos', 'waitress'];
+    // Validate role (support all roles including purchasing and delivery)
+    const validRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'fb', 'marketing', 'finance', 'pos', 'waitress'];
     if (!validRoles.includes(role)) {
       console.log('Invalid role:', role);
       return NextResponse.json(
@@ -254,14 +260,31 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    // Validate phone number format (Ethiopian format)
+    const phoneRegex = /^(\+251|0)[789]\d{8}$/;
+    if (!phoneRegex.test(phone)) {
+      console.log('Invalid phone format:', phone);
+      // Don't reject, just warn - allow any phone format
+      console.warn('Phone number may be invalid:', phone);
+    }
+    
     // Get permissions based on role, or use provided ones
     const rolePerms = rolePermissions[role] || [];
     const finalPermissions = permissions.length > 0 ? permissions : rolePerms;
     console.log('Assigned permissions:', finalPermissions);
     
     // Hash password using bcrypt
-    const hashedPassword = await hashPassword(password);
-    console.log('Password hashed successfully');
+    let hashedPassword;
+    try {
+      hashedPassword = await hashPassword(password);
+      console.log('Password hashed successfully');
+    } catch (hashError) {
+      console.error('Password hashing failed:', hashError);
+      return NextResponse.json(
+        { success: false, message: 'Failed to secure password' },
+        { status: 500 }
+      );
+    }
     
     // Create new user document with all fields
     const newUser = {
@@ -273,7 +296,7 @@ export async function POST(request: NextRequest) {
       password: hashedPassword,
       status,
       permissions: finalPermissions,
-      requiresPasswordChange: requiresPasswordChange, // Force password change on first login
+      requiresPasswordChange: requiresPasswordChange,
       loginAttempts: 0,
       lastLogin: null,
       createdAt: new Date(),
@@ -327,9 +350,17 @@ export async function PUT(request: NextRequest) {
       );
     }
     
+    if (!ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, message: 'Invalid user ID format' },
+        { status: 400 }
+      );
+    }
+    
     // Remove sensitive fields that shouldn't be updated directly
     delete updateData.password;
     delete updateData.createdAt;
+    delete updateData._id;
     
     // If role is being updated, update permissions too
     if (updateData.role && rolePermissions[updateData.role]) {
@@ -350,9 +381,16 @@ export async function PUT(request: NextRequest) {
       );
     }
     
+    // Get updated user without password
+    const updatedUser = await usersCollection.findOne(
+      { _id: new ObjectId(id) },
+      { projection: { password: 0 } }
+    );
+    
     return NextResponse.json({
       success: true,
-      message: 'User updated successfully'
+      message: 'User updated successfully',
+      data: updatedUser
     });
     
   } catch (error: any) {
@@ -379,6 +417,33 @@ export async function DELETE(request: NextRequest) {
         { success: false, message: 'User ID is required' },
         { status: 400 }
       );
+    }
+    
+    if (!ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, message: 'Invalid user ID format' },
+        { status: 400 }
+      );
+    }
+    
+    const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+    
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: 'User not found' },
+        { status: 404 }
+      );
+    }
+    
+    // Prevent deleting the last admin user
+    if (user.role === 'admin') {
+      const adminCount = await usersCollection.countDocuments({ role: 'admin' });
+      if (adminCount <= 1) {
+        return NextResponse.json(
+          { success: false, message: 'Cannot delete the last admin user' },
+          { status: 400 }
+        );
+      }
     }
     
     const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });

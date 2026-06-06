@@ -1,5 +1,3 @@
-
-
 import { clsx, type ClassValue } from "clsx"
 import { NextResponse } from "next/server";
 import { twMerge } from "tailwind-merge"
@@ -11,6 +9,7 @@ export function cn(...inputs: ClassValue[]) {
 export const createResponse = (status: number, success: boolean, message: string, data: any = null) => {
   return NextResponse.json({ success, message, data }, { status });
 };
+
 // @/lib/utils.ts - Updated redirectByRole function
 export const redirectByRole = (role: string, router: any, requiresPasswordChange: boolean) => {
   // If password change is required, redirect to change-password page
@@ -19,10 +18,13 @@ export const redirectByRole = (role: string, router: any, requiresPasswordChange
     return;
   }
   
+  // Normalize role to lowercase for consistent matching
+  const normalizedRole = role.toLowerCase().trim();
+  
   // Otherwise, redirect based on role
-  switch (role.toLowerCase()) {
+  switch (normalizedRole) {
     case "admin":
-      router.replace("/dashboard"); // Changed from "/dashboard" to "/admin/dashboard"
+      router.replace("/dashboard");
       break;
     case "pos":
       router.replace("/pos");
@@ -35,7 +37,7 @@ export const redirectByRole = (role: string, router: any, requiresPasswordChange
       router.replace("/items");
       break;
     case "marketing":
-      router.replace("/blog"); // Changed from "/blog" to "/marketing/dashboard"
+      router.replace("/blog");
       break;
     case "finance":
       router.replace("/sales");
@@ -43,7 +45,24 @@ export const redirectByRole = (role: string, router: any, requiresPasswordChange
     case "stock_manager":
       router.replace("/stock");
       break;
+    case "purchasing":  // FIXED: Changed from "purchaser" to "purchasing"
+      router.replace("/purchase-request");
+      break;
+    case "delivery":
+      router.replace("/delivery");
+      break;
+    case "waitress":
+      router.replace("/pos");
+      break;
+    case "customer":
+      router.replace("/blogs");
+      break;
+    case "user":
+      router.replace("/");
+      break;
     default:
-      router.replace("/"); // Changed from "/" to "/dashboard"
+      // For unknown roles, redirect to home page with a warning
+      console.warn(`Unknown role: ${role}, redirecting to home page`);
+      router.replace("/");
   }
 };

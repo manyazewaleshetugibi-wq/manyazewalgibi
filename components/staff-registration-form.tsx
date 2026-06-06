@@ -18,20 +18,13 @@ import {
   BadgeCheck,
   Eye,
   EyeOff,
-  AlertCircle
+  AlertCircle,
+  ShoppingCart,
+  Truck
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import {
   Form,
   FormControl,
@@ -98,6 +91,23 @@ const rolePermissions = {
     "view_reports",
     "manage_suppliers"
   ],
+  purchasing: [
+    "manage_purchases",
+    "view_purchases",
+    "create_purchase_orders",
+    "view_suppliers",
+    "manage_suppliers",
+    "view_stock",
+    "manage_purchase_requests",
+    "view_reports"
+  ],
+  delivery: [
+    "view_delivery_orders",
+    "update_delivery_status",
+    "track_deliveries",
+    "view_assigned_orders",
+    "update_order_delivery"
+  ],
   fb: [
     "manage_menu",
     "view_menu",
@@ -152,7 +162,7 @@ const formSchema = z.object({
   email: z.string().email("Invalid email address"),
   phone: z.string().min(10, "Phone number must be at least 10 digits"),
   employeeId: z.string().min(3, "Employee ID must be at least 3 characters"),
-  role: z.enum(["admin", "kitchen", "stock_manager", "fb", "marketing", "finance", "pos"]),
+  role: z.enum(["admin", "kitchen", "stock_manager", "purchasing", "delivery", "fb", "marketing", "finance", "pos"]),
   password: z.string()
     .min(8, "Password must be at least 8 characters")
     .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
@@ -169,8 +179,11 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-export function StaffRegistrationForm() {
-  const [open, setOpen] = useState(false);
+interface StaffRegistrationFormProps {
+  onSuccess?: () => void;
+}
+
+export function StaffRegistrationForm({ onSuccess }: StaffRegistrationFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [permissions, setPermissions] = useState<string[]>([]);
   const [showPassword, setShowPassword] = useState(false);
@@ -209,6 +222,8 @@ export function StaffRegistrationForm() {
       admin: "ADMIN",
       kitchen: "KITCHEN",
       stock_manager: "STOCK",
+      purchasing: "PURCH",
+      delivery: "DELIV",
       fb: "FB",
       marketing: "MKT",
       finance: "FIN",
@@ -299,12 +314,11 @@ export function StaffRegistrationForm() {
 
         form.reset();
         setGeneratedPassword("");
-        setOpen(false);
+        if (onSuccess) onSuccess();
       }
     } catch (error: any) {
       console.error("Registration error:", error.response?.data);
       
-      // Show detailed error message
       const errorMessage = error.response?.data?.message || "An error occurred while registering staff.";
       const errorDetails = error.response?.data?.error;
       
@@ -322,317 +336,200 @@ export function StaffRegistrationForm() {
     admin: "Full system access and management",
     kitchen: "Kitchen operations and order management",
     stock_manager: "Inventory and stock management",
+    purchasing: "Purchase orders, suppliers, and procurement management",
+    delivery: "Delivery tracking and status updates",
     fb: "Menu and food management",
     marketing: "Marketing and content creation",
     finance: "Financial management and reporting",
     pos: "Point of Sale operations",
   };
 
+  const roleIcons = {
+    admin: <Shield className="h-4 w-4" />,
+    kitchen: <User className="h-4 w-4" />,
+    stock_manager: <UserCheck className="h-4 w-4" />,
+    purchasing: <ShoppingCart className="h-4 w-4" />,
+    delivery: <Truck className="h-4 w-4" />,
+    fb: <User className="h-4 w-4" />,
+    marketing: <User className="h-4 w-4" />,
+    finance: <User className="h-4 w-4" />,
+    pos: <User className="h-4 w-4" />,
+  };
+
   const passwordStrength = getPasswordStrength(password);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="gap-2">
-          <UserPlus className="h-4 w-4" />
-          Add New Staff
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <UserPlus className="h-5 w-5" />
-            Register New Staff Member
-          </DialogTitle>
-          <DialogDescription>
-            Fill in the details below to add a new staff member to the system.
-          </DialogDescription>
-        </DialogHeader>
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  Full Name
+                </FormLabel>
+                <FormControl>
+                  <Input placeholder="John Doe" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-        <ScrollArea className="h-[calc(90vh-200px)] pr-4">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center gap-2">
-                        <User className="h-4 w-4" />
-                        Full Name
-                      </FormLabel>
-                      <FormControl>
-                        <Input placeholder="John Doe" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-2">
+                  <Mail className="h-4 w-4" />
+                  Email Address
+                </FormLabel>
+                <FormControl>
+                  <Input type="email" placeholder="john@example.com" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center gap-2">
-                        <Mail className="h-4 w-4" />
-                        Email Address
-                      </FormLabel>
-                      <FormControl>
-                        <Input type="email" placeholder="john@example.com" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+          <FormField
+            control={form.control}
+            name="phone"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-2">
+                  <Phone className="h-4 w-4" />
+                  Phone Number
+                </FormLabel>
+                <FormControl>
+                  <Input placeholder="+251123456789" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-                <FormField
-                  control={form.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center gap-2">
-                        <Phone className="h-4 w-4" />
-                        Phone Number
-                      </FormLabel>
-                      <FormControl>
-                        <Input placeholder="+251123456789" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+          <div className="space-y-2">
+            <FormField
+              control={form.control}
+              name="employeeId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-2">
+                    <BadgeCheck className="h-4 w-4" />
+                    Employee ID
+                  </FormLabel>
+                  <div className="flex gap-2">
+                    <FormControl>
+                      <Input placeholder="EMP001" {...field} />
+                    </FormControl>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAutoGenerate}
+                    >
+                      Auto Generate
+                    </Button>
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
 
-                <div className="space-y-2">
+          <FormField
+            control={form.control}
+            name="role"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  Role
+                </FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a role" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <ScrollArea className="h-[300px]">
+                      {Object.entries(roleDescriptions).map(([role, description]) => (
+                        <SelectItem key={role} value={role}>
+                          <div className="flex items-center gap-2">
+                            {roleIcons[role as keyof typeof roleIcons]}
+                            <div className="flex flex-col">
+                              <span className="font-medium capitalize">{role.replace('_', ' ')}</span>
+                              <span className="text-xs text-muted-foreground">{description}</span>
+                            </div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </ScrollArea>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="status"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-2">
+                  <UserCheck className="h-4 w-4" />
+                  Status
+                </FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="active">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-green-500" />
+                        <span>Active</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="inactive">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-gray-500" />
+                        <span>Inactive</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <div className="space-y-3">
+            <FormLabel className="flex items-center gap-2">
+              <Key className="h-4 w-4" />
+              Password
+            </FormLabel>
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <div className="relative flex-1">
                   <FormField
                     control={form.control}
-                    name="employeeId"
+                    name="password"
                     render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="flex items-center gap-2">
-                          <BadgeCheck className="h-4 w-4" />
-                          Employee ID
-                        </FormLabel>
-                        <div className="flex gap-2">
-                          <FormControl>
-                            <Input placeholder="EMP001" {...field} />
-                          </FormControl>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleAutoGenerate}
-                          >
-                            Auto Generate
-                          </Button>
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="role"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center gap-2">
-                        <Shield className="h-4 w-4" />
-                        Role
-                      </FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a role" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {Object.entries(roleDescriptions).map(([role, description]) => (
-                            <SelectItem key={role} value={role}>
-                              <div className="flex flex-col">
-                                <span className="font-medium capitalize">{role.replace('_', ' ')}</span>
-                                <span className="text-xs text-muted-foreground">{description}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center gap-2">
-                        <UserCheck className="h-4 w-4" />
-                        Status
-                      </FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select status" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="active">
-                            <div className="flex items-center gap-2">
-                              <div className="h-2 w-2 rounded-full bg-green-500" />
-                              <span>Active</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="inactive">
-                            <div className="flex items-center gap-2">
-                              <div className="h-2 w-2 rounded-full bg-gray-500" />
-                              <span>Inactive</span>
-                            </div>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className="space-y-3">
-                  <FormLabel className="flex items-center gap-2">
-                    <Key className="h-4 w-4" />
-                    Password
-                  </FormLabel>
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <FormField
-                          control={form.control}
-                          name="password"
-                          render={({ field }) => (
-                            <FormItem className="flex-1">
-                              <FormControl>
-                                <Input 
-                                  type={showPassword ? "text" : "password"} 
-                                  placeholder="Enter password" 
-                                  {...field} 
-                                  className="pr-10"
-                                />
-                              </FormControl>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                                onClick={() => setShowPassword(!showPassword)}
-                              >
-                                {showPassword ? (
-                                  <EyeOff className="h-4 w-4 text-muted-foreground" />
-                                ) : (
-                                  <Eye className="h-4 w-4 text-muted-foreground" />
-                                )}
-                              </Button>
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={generateSecurePassword}
-                      >
-                        Generate
-                      </Button>
-                    </div>
-                    
-                    {/* Password Strength Indicator */}
-                    {password && (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-muted-foreground">Password strength:</span>
-                          <span className="text-xs font-medium">{passwordStrength.text}</span>
-                        </div>
-                        <div className="h-1 w-full bg-gray-200 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full ${passwordStrength.color} transition-all duration-300`}
-                            style={{ width: `${((passwordStrength.score + 1) / 5) * 100}%` }}
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-1 text-xs">
-                          <div className={`flex items-center gap-1 ${password.length >= 8 ? "text-green-600" : "text-gray-400"}`}>
-                            {password.length >= 8 ? "✓" : "○"} At least 8 characters
-                          </div>
-                          <div className={`flex items-center gap-1 ${/[A-Z]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
-                            {/[A-Z]/.test(password) ? "✓" : "○"} Uppercase letter
-                          </div>
-                          <div className={`flex items-center gap-1 ${/[a-z]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
-                            {/[a-z]/.test(password) ? "✓" : "○"} Lowercase letter
-                          </div>
-                          <div className={`flex items-center gap-1 ${/[0-9]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
-                            {/[0-9]/.test(password) ? "✓" : "○"} Number
-                          </div>
-                          <div className={`flex items-center gap-1 ${/[^A-Za-z0-9]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
-                            {/[^A-Za-z0-9]/.test(password) ? "✓" : "○"} Special character
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {/* Generated Password Display */}
-                    {generatedPassword && (
-                      <div className="p-2 bg-muted rounded-md">
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm">
-                            <span className="text-muted-foreground">Generated password: </span>
-                            <span className="font-mono">{showPassword ? generatedPassword : "••••••••••••"}</span>
-                          </div>
-                          <div className="flex gap-1">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              onClick={() => setShowPassword(!showPassword)}
-                              title={showPassword ? "Hide password" : "Show password"}
-                            >
-                              {showPassword ? (
-                                <EyeOff className="h-3 w-3" />
-                              ) : (
-                                <Eye className="h-3 w-3" />
-                              )}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              onClick={copyToClipboard}
-                              title="Copy password"
-                            >
-                              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                              </svg>
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="confirmPassword"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Confirm Password</FormLabel>
-                      <div className="relative">
+                      <FormItem className="flex-1">
                         <FormControl>
                           <Input 
-                            type={showConfirmPassword ? "text" : "password"} 
-                            placeholder="Confirm password" 
+                            type={showPassword ? "text" : "password"} 
+                            placeholder="Enter password" 
                             {...field} 
                             className="pr-10"
                           />
@@ -642,95 +539,199 @@ export function StaffRegistrationForm() {
                           variant="ghost"
                           size="sm"
                           className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          onClick={() => setShowPassword(!showPassword)}
                         >
-                          {showConfirmPassword ? (
+                          {showPassword ? (
                             <EyeOff className="h-4 w-4 text-muted-foreground" />
                           ) : (
                             <Eye className="h-4 w-4 text-muted-foreground" />
                           )}
                         </Button>
-                      </div>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <Separator />
-
-              {/* Security Notice */}
-              <Alert className="bg-amber-50 border-amber-200">
-                <AlertCircle className="h-4 w-4 text-amber-600" />
-                <AlertDescription className="text-amber-800 text-sm">
-                  <strong>Security Notice:</strong> New users will be required to change their password on their first login for enhanced security.
-                </AlertDescription>
-              </Alert>
-
-              {/* Permissions Section */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Role Permissions</h3>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Shield className="h-4 w-4" />
-                    <span className="capitalize">{selectedRole.replace('_', ' ')} Role</span>
-                  </div>
+                      </FormItem>
+                    )}
+                  />
                 </div>
-                
-                <div className="rounded-lg border p-4 bg-muted/50">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <AnimatePresence>
-                      {permissions.map((permission, index) => (
-                        <motion.div
-                          key={permission}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: index * 0.05 }}
-                          className="flex items-center gap-3 p-2 rounded-md bg-background border"
-                        >
-                          <CheckCircle className="h-4 w-4 text-green-500" />
-                          <span className="text-sm">{permission.replace('_', ' ')}</span>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-3">
-                    These permissions are automatically assigned based on the selected role.
-                  </p>
-                </div>
-              </div>
-
-              <DialogFooter className="gap-2 sm:gap-0">
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    form.reset();
-                    setGeneratedPassword("");
-                    setOpen(false);
-                  }}
-                  disabled={isSubmitting}
+                  size="sm"
+                  onClick={generateSecurePassword}
                 >
-                  Cancel
+                  Generate
                 </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <>
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
-                      Registering...
-                    </>
-                  ) : (
-                    <>
-                      <UserPlus className="h-4 w-4 mr-2" />
-                      Register Staff
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </ScrollArea>
-      </DialogContent>
-    </Dialog>
+              </div>
+              
+              {/* Password Strength Indicator */}
+              {password && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Password strength:</span>
+                    <span className="text-xs font-medium">{passwordStrength.text}</span>
+                  </div>
+                  <div className="h-1 w-full bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full ${passwordStrength.color} transition-all duration-300`}
+                      style={{ width: `${((passwordStrength.score + 1) / 5) * 100}%` }}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 text-xs">
+                    <div className={`flex items-center gap-1 ${password.length >= 8 ? "text-green-600" : "text-gray-400"}`}>
+                      {password.length >= 8 ? "✓" : "○"} At least 8 characters
+                    </div>
+                    <div className={`flex items-center gap-1 ${/[A-Z]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
+                      {/[A-Z]/.test(password) ? "✓" : "○"} Uppercase letter
+                    </div>
+                    <div className={`flex items-center gap-1 ${/[a-z]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
+                      {/[a-z]/.test(password) ? "✓" : "○"} Lowercase letter
+                    </div>
+                    <div className={`flex items-center gap-1 ${/[0-9]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
+                      {/[0-9]/.test(password) ? "✓" : "○"} Number
+                    </div>
+                    <div className={`flex items-center gap-1 ${/[^A-Za-z0-9]/.test(password) ? "text-green-600" : "text-gray-400"}`}>
+                      {/[^A-Za-z0-9]/.test(password) ? "✓" : "○"} Special character
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Generated Password Display */}
+              {generatedPassword && (
+                <div className="p-2 bg-muted rounded-md">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Generated password: </span>
+                      <span className="font-mono">{showPassword ? generatedPassword : "••••••••••••"}</span>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={() => setShowPassword(!showPassword)}
+                        title={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-3 w-3" />
+                        ) : (
+                          <Eye className="h-3 w-3" />
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={copyToClipboard}
+                        title="Copy password"
+                      >
+                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                        </svg>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <FormField
+            control={form.control}
+            name="confirmPassword"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Confirm Password</FormLabel>
+                <div className="relative">
+                  <FormControl>
+                    <Input 
+                      type={showConfirmPassword ? "text" : "password"} 
+                      placeholder="Confirm password" 
+                      {...field} 
+                      className="pr-10"
+                    />
+                  </FormControl>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <Separator />
+
+        {/* Security Notice */}
+        <Alert className="bg-amber-50 border-amber-200">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-amber-800 text-sm">
+            <strong>Security Notice:</strong> New users will be required to change their password on their first login for enhanced security.
+          </AlertDescription>
+        </Alert>
+
+        {/* Permissions Section */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Role Permissions</h3>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Shield className="h-4 w-4" />
+              <span className="capitalize">{selectedRole.replace('_', ' ')} Role</span>
+            </div>
+          </div>
+          
+          <div className="rounded-lg border p-4 bg-muted/50">
+            <ScrollArea className="h-[200px]">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <AnimatePresence>
+                  {permissions.map((permission, index) => (
+                    <motion.div
+                      key={permission}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className="flex items-center gap-3 p-2 rounded-md bg-background border"
+                    >
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                      <span className="text-sm">{permission.replace(/_/g, ' ')}</span>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </ScrollArea>
+            <p className="text-sm text-muted-foreground mt-3">
+              These permissions are automatically assigned based on the selected role.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <Button type="submit" disabled={isSubmitting} className="w-full">
+            {isSubmitting ? (
+              <>
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
+                Registering...
+              </>
+            ) : (
+              <>
+                <UserPlus className="h-4 w-4 mr-2" />
+                Register Staff
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
+    </Form>
   );
 }

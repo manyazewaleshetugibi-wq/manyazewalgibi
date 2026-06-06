@@ -173,29 +173,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           const purchaseResult = await db.collection("stock_purchases").insertOne(purchaseRecord);
           console.log(`✅ Purchase registered: ${request.requestedQuantity} ${stock.unit} of ${request.stockName} at ${actualUnitPriceValue} ETB/unit`);
           
-          // =============================================
-          // REGISTER EXPENSE
-          // =============================================
-          const expenseRecord = {
-            title: `Purchase: ${request.stockName}`,
-            description: `Purchase request confirmed for ${request.stockName}. Quantity: ${request.requestedQuantity} ${stock.unit}, Unit Price: ${actualUnitPriceValue} ETB, Total: ${actualTotalCostValue} ETB. Required amount: ${requiredAmount} ${stock.unit}.`,
-            amount: actualTotalCostValue,
-            category: "Food and Beverage Supplies",
-            date: new Date().toISOString(),
-            tags: ["purchase", "inventory", "stock", request.reorderFrequency],
-            recurring: request.reorderFrequency !== 'monthly',
-            frequency: request.reorderFrequency || "Monthly",
-            notes: `Auto-generated from purchase request ${id}. Stock: ${request.stockName}, Unit Price: ${actualUnitPriceValue} ETB, Quantity: ${request.requestedQuantity}`,
-            priority: oldStock <= stock.minimumStock ? "High" : "Medium",
-            status: "Paid",
-            purchaseRequestId: id,
-            stockId: request.stockId,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
-          
-          const expenseResult = await db.collection("expenses").insertOne(expenseRecord);
-          console.log(`✅ Expense registered: ${actualTotalCostValue} ETB, Expense ID: ${expenseResult.insertedId}`);
+          // EXPENSE REGISTRATION REMOVED - No longer creating expense records
         }
       } else {
         updateData.confirmedAt = null;
@@ -231,9 +209,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const client = await clientPromise;
     const db = client.db("gold");
     
-    // Also delete associated purchase and expense
+    // Delete associated purchase records
     await db.collection("stock_purchases").deleteMany({ purchaseRequestId: id });
-    await db.collection("expenses").deleteMany({ purchaseRequestId: id });
+    
+    // EXPENSE DELETION REMOVED - No longer deleting expense records
     
     const result = await db.collection("purchase_requests").deleteOne({ _id: new ObjectId(id) });
     
@@ -241,7 +220,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return createResponse(404, false, "Purchase request not found");
     }
     
-    return createResponse(200, true, "Purchase request and associated records deleted successfully");
+    return createResponse(200, true, "Purchase request and associated purchase records deleted successfully");
   } catch (error) {
     console.error("DELETE /purchase-request/[id] Error:", error);
     return createResponse(500, false, "Internal Server Error");

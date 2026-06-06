@@ -1,4 +1,4 @@
-// app/api/restaurants/route.ts
+// app/api/restaurants/route.ts (UPDATED - with location support)
 import { NextRequest, NextResponse } from 'next/server'
 import clientPromise from '@/lib/mongodb'
 import { ObjectId } from 'mongodb'
@@ -7,7 +7,7 @@ import { ObjectId } from 'mongodb'
 export async function GET() {
   try {
     const client = await clientPromise
-    const db = client.db('restaurant_db')
+    const db = client.db('gold')
     const collection = db.collection('restaurants')
 
     const restaurants = await collection
@@ -33,11 +33,21 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const client = await clientPromise
-    const db = client.db('restaurant_db')
+    const db = client.db('gold')
     const collection = db.collection('restaurants')
 
     const body = await request.json()
-    const { name, description, address, phone, email, website, cuisine, isActive } = body
+    const { 
+      name, 
+      description, 
+      address, 
+      phone, 
+      email, 
+      website, 
+      cuisine, 
+      location,
+      isActive 
+    } = body
 
     // Validation
     if (!name || name.trim().length < 2) {
@@ -60,6 +70,18 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date()
+    
+    // Prepare location data if provided
+    let locationData = null
+    if (location && (location.lat || location.lng)) {
+      locationData = {
+        lat: location.lat ? parseFloat(location.lat) : null,
+        lng: location.lng ? parseFloat(location.lng) : null,
+        address: address?.trim() || '',
+        capturedAt: now
+      }
+    }
+
     const restaurant = {
       name: name.trim(),
       description: description?.trim() || '',
@@ -67,7 +89,8 @@ export async function POST(request: NextRequest) {
       phone: phone?.trim() || '',
       email: email?.trim() || '',
       website: website?.trim() || '',
-      cuisine: Array.isArray(cuisine) ? cuisine : [],
+      cuisine: Array.isArray(cuisine) ? cuisine : (cuisine ? [cuisine] : []),
+      location: locationData,
       isActive: isActive !== undefined ? isActive : true,
       createdAt: now,
       updatedAt: now
