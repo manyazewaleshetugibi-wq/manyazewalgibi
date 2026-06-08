@@ -66,6 +66,7 @@ const roleBasedNavigation = {
           { title: "Stock", url: "/stock" },
           { title: "Categories", url: "/scategory" },
           { title: "stockReport", url: "/stockReport" },
+          { title: "purchase-request", url: "/purchase-request" }
         ],
       },
      
@@ -81,7 +82,7 @@ const roleBasedNavigation = {
         ],
       },
       {
-        title: "Orders",
+        title: "Orders Management",
         url: "#",
         icon: ShoppingCart,
         items: [
@@ -97,10 +98,11 @@ const roleBasedNavigation = {
           { title: "Blogs", url: "/blog" },
           { title: "Contents", url: "/contents" },
           { title: "Applications", url: "/applications" },
+          
         ],
       },
       {
-        title: "Reports",
+        title: "Finance and Purchase",
         url: "#",
         icon: FileText,
         items: [
@@ -110,7 +112,7 @@ const roleBasedNavigation = {
         ],
       },
        {
-        title: "Steps-Standards",
+        title: "Hr Training and Culture",
         url: "#",
         icon: ChefHat,
         items: [
@@ -119,6 +121,7 @@ const roleBasedNavigation = {
             url: "/Pregister",
             icon: ListChecks
           },
+          { title: "Training", url: "/training", icon: BookCheckIcon },
           { 
             title: "Steps-Card", 
             url: "/preparation",
@@ -148,6 +151,10 @@ const roleBasedNavigation = {
             url: "/staffregister",
             icon: ListChecks
           },
+            { title: "Waitress", 
+              url: "/waitress", 
+              icon: UserSquare2Icon 
+            },
         
           { 
             title: "Restaurant-Management", 
@@ -173,10 +180,8 @@ const roleBasedNavigation = {
     projects: [
       { name: "Dashboard", url: "/dashboard", icon: Tag },
       { name: "POS", url: "/pos", icon: SquareTerminal },
-      { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Expenses", url: "/expenses", icon: DollarSign },
-      { name: "Feedback", url: "/feedback", icon: Pen },
-      { name: "Waitress", url: "/waitress", icon: UserSquare2Icon },
+      // { name: "Feedback", url: "/feedback", icon: Pen },
       { name: "search", url: "/search", icon: SearchCheckIcon },
       { name: "daily-tasks", url: "/daily-tasks", icon: ListOrderedIcon }
     ],
@@ -185,7 +190,7 @@ const roleBasedNavigation = {
   KITCHEN: {
     navMain: [
       {
-        title: "Orders",
+        title: "Orders Management",
         url: "#",
         icon: ShoppingCart,
         items: [

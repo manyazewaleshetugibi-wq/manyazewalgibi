@@ -23,27 +23,14 @@ function getFrequencyDays(frequency: string): number {
   return map[frequency] || 30;
 }
 
-function has21HoursPassed(lastGeneratedAt: Date): boolean {
-  const now = new Date();
-  const hoursDiff = (now.getTime() - lastGeneratedAt.getTime()) / (1000 * 60 * 60);
-  return hoursDiff >= 21;
-}
+// Removed has21HoursPassed function - no longer needed
 
 export async function POST(req: NextRequest) {
   try {
     const client = await clientPromise;
     const db = client.db("gold");
     
-    let settings = await db.collection("system_settings").findOne({ key: "last_purchase_request_generation" });
-    const lastGenerationTime = settings?.value ? new Date(settings.value) : null;
-    
-    if (lastGenerationTime && !has21HoursPassed(lastGenerationTime)) {
-      const hoursLeft = 21 - ((new Date().getTime() - lastGenerationTime.getTime()) / (1000 * 60 * 60));
-      return createResponse(429, false, `Please wait ${Math.ceil(hoursLeft)} hours before generating new requests`, {
-        hoursRemaining: Math.ceil(hoursLeft),
-        lastGeneratedAt: lastGenerationTime
-      });
-    }
+    // Removed the 21-hour check - can generate anytime
     
     const today = new Date().toISOString().split('T')[0];
     const stocks = await db.collection("stocks").find({ isActive: true }).toArray();
@@ -158,20 +145,11 @@ export async function GET(req: NextRequest) {
     const settings = await db.collection("system_settings").findOne({ key: "last_purchase_request_generation" });
     const lastGenerationTime = settings?.value ? new Date(settings.value) : null;
     
-    let canGenerate = true;
-    let hoursRemaining = 0;
-    
-    if (lastGenerationTime) {
-      const hoursPassed = (new Date().getTime() - lastGenerationTime.getTime()) / (1000 * 60 * 60);
-      if (hoursPassed < 21) {
-        canGenerate = false;
-        hoursRemaining = Math.ceil(21 - hoursPassed);
-      }
-    }
-    
+    // Always allow generation - no time limit
+    // Return status with canGenerate always true
     return createResponse(200, true, "Generation status", {
-      canGenerate,
-      hoursRemaining,
+      canGenerate: true,  // Always true now
+      hoursRemaining: 0,  // No limit
       lastGeneratedAt: lastGenerationTime
     });
   } catch (error) {
@@ -179,17 +157,3 @@ export async function GET(req: NextRequest) {
     return createResponse(500, false, "Internal Server Error", null);
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
