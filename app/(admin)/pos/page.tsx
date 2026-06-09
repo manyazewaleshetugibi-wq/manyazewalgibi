@@ -1,5 +1,3 @@
-// app/pos/page.tsx (UPDATED - Fetches restaurants from database)
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy, useRef } from "react"
@@ -203,6 +201,46 @@ const isPOSUser = (role: string | undefined): boolean => {
 const isKitchenUser = (role: string | undefined): boolean => {
   if (!role) return false;
   return role.toUpperCase() === "KITCHEN";
+};
+
+// Helper to get default restaurant ID
+const getDefaultRestaurantId = (): string => {
+  return "manyazewal1";
+};
+
+// Helper to get default restaurant name
+const getDefaultRestaurantName = (): string => {
+  return "Manyazewal Eshetu Gibi 1";
+};
+
+// Helper to determine restaurant based on waiter selection
+const getRestaurantForWaiter = (
+  waiterId: string | undefined, 
+  waitersList: Waiter[], 
+  defaultRestaurantId: string
+): string => {
+  // If no waiter selected, return Restaurant One
+  if (!waiterId || waiterId === "") {
+    return defaultRestaurantId;
+  }
+  
+  // Find the selected waiter
+  const selectedWaiter = waitersList.find(w => w._id === waiterId);
+  
+  // If waiter has restaurantId, use it
+  if (selectedWaiter?.restaurantId) {
+    return selectedWaiter.restaurantId;
+  }
+  
+  // If waiter has restaurantName, map it
+  if (selectedWaiter?.restaurantName) {
+    const name = selectedWaiter.restaurantName.toLowerCase();
+    if (name.includes('1') || name.includes('gibi 1')) return "manyazewal1";
+    if (name.includes('2') || name.includes('gibi 2')) return "manyazewal2";
+  }
+  
+  // Default to Restaurant One
+  return defaultRestaurantId;
 };
 
 // Custom debounce function
@@ -855,7 +893,7 @@ export default function POSPage() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedWaiter, setSelectedWaiter] = useState("")
-  const [selectedRestaurant, setSelectedRestaurant] = useState("")
+  const [selectedRestaurant, setSelectedRestaurant] = useState<string>(getDefaultRestaurantId())
   const [tableNumber, setTableNumber] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const [orderNumber, setOrderNumber] = useState(`ORD-${Date.now()}`)
@@ -934,35 +972,32 @@ export default function POSPage() {
           
           setRestaurants(activeRestaurants);
           
-          // Set default restaurant to "manyazewal1" if available, otherwise first active restaurant
-          const defaultRestaurant = activeRestaurants.find((r: Restaurant) => 
-            r._id === "manyazewal1" || r.name.toLowerCase().includes('1')
+          // Set default restaurant to Restaurant One
+          const restaurantOne = activeRestaurants.find((r: Restaurant) => 
+            r._id === "manyazewal1" || r.name.toLowerCase().includes('manyazewal 1') || r.name.includes('1')
           );
           
-          if (defaultRestaurant) {
-            setSelectedRestaurant(defaultRestaurant._id);
+          if (restaurantOne) {
+            setSelectedRestaurant(restaurantOne._id);
           } else if (activeRestaurants.length > 0) {
             setSelectedRestaurant(activeRestaurants[0]._id);
           } else {
-            // Fallback to default if no restaurants found
-            setSelectedRestaurant("manyazewal1");
+            setSelectedRestaurant(getDefaultRestaurantId());
           }
         } else {
-          // Fallback to default restaurant
           setRestaurants([
             { _id: "manyazewal1", name: "Manyazewal Eshetu Gibi 1", shortName: "Restaurant 1", isActive: true },
             { _id: "manyazewal2", name: "Manyazewal Eshetu Gibi 2", shortName: "Restaurant 2", isActive: true }
           ]);
-          setSelectedRestaurant("manyazewal1");
+          setSelectedRestaurant(getDefaultRestaurantId());
         }
       } catch (error) {
         console.error('Error fetching restaurants:', error);
-        // Fallback to default restaurants
         setRestaurants([
           { _id: "manyazewal1", name: "Manyazewal Eshetu Gibi 1", shortName: "Restaurant 1", isActive: true },
           { _id: "manyazewal2", name: "Manyazewal Eshetu Gibi 2", shortName: "Restaurant 2", isActive: true }
         ]);
-        setSelectedRestaurant("manyazewal1");
+        setSelectedRestaurant(getDefaultRestaurantId());
       }
     };
     
@@ -985,7 +1020,7 @@ export default function POSPage() {
           );
           
           if (matchingWaiter && matchingWaiter._id) {
-            const waiterRestaurantId = matchingWaiter.restaurantId || "manyazewal1";
+            const waiterRestaurantId = matchingWaiter.restaurantId || getDefaultRestaurantId();
             
             setCurrentUser({
               id: matchingWaiter._id,
@@ -997,28 +1032,29 @@ export default function POSPage() {
             });
             
             // Auto-select restaurant from user's assigned restaurant
-            setSelectedRestaurant(waiterRestaurantId);
+            if (waiterRestaurantId) {
+              setSelectedRestaurant(waiterRestaurantId);
+            }
             
             // For POS users, auto-select themselves as waiter
             if (isPOSUser(matchingWaiter.role || sessionData.user.role)) {
               setSelectedWaiter(matchingWaiter._id);
             }
           } else {
-            // Fallback: default to restaurant 1
             setCurrentUser({
               id: sessionData.user.id,
               name: sessionData.user.name,
               role: sessionData.user.role,
               email: sessionData.user.email,
-              restaurantId: "manyazewal1",
-              restaurantName: "Manyazewal Eshetu Gibi 1"
+              restaurantId: getDefaultRestaurantId(),
+              restaurantName: getDefaultRestaurantName()
             });
-            setSelectedRestaurant("manyazewal1");
+            setSelectedRestaurant(getDefaultRestaurantId());
           }
         }
       } catch (error) {
         console.error('Error fetching user:', error);
-        setSelectedRestaurant("manyazewal1");
+        setSelectedRestaurant(getDefaultRestaurantId());
       }
     };
     fetchCurrentUser();
@@ -1034,7 +1070,6 @@ export default function POSPage() {
         setWaiters(data || []);
         
         // For non-POS users, select first waiter if none selected
-        // CRITICAL FIX: Skip this for POS users to prevent overwriting their selected waiter
         if (!isPOS && !selectedWaiter && (data || []).length > 0) {
           setSelectedWaiter(data[0]._id);
         }
@@ -1044,7 +1079,7 @@ export default function POSPage() {
     };
     
     fetchWaiters();
-  }, [isPOS, selectedWaiter]); // Added isPOS to dependencies
+  }, [isPOS, selectedWaiter]);
 
   // Fetch items and categories
   useEffect(() => {
@@ -1153,11 +1188,9 @@ export default function POSPage() {
   // Start polling for transfers and assignments (only for POS users)
   useEffect(() => {
     if (isPOS && currentUser?.id) {
-      // Initial fetches
       fetchTransfers();
       fetchTableAssignments();
       
-      // Set up polling intervals
       pollingIntervalRef.current = setInterval(() => {
         if (isMountedRef.current) fetchTransfers();
       }, 15000);
@@ -1354,21 +1387,46 @@ export default function POSPage() {
     }
   }, [soundEnabled, playNotificationSound]);
 
-  // CRITICAL FIX: Updated handlePlaceOrder with proper waiter assignment
+  // UPDATED: handlePlaceOrder with Restaurant One as default when no waiter selected
   const handlePlaceOrder = async () => {
     // Determine which waiter ID to use based on user type
     let finalWaiterId = selectedWaiter;
     
-    // For POS users, ALWAYS use their own ID, never trust the selectedWaiter state
+    // For POS users, ALWAYS use their own ID
     if (isPOS && currentUser?.id) {
       finalWaiterId = currentUser.id;
-      // Also update the selectedWaiter state to match if it's different
       if (selectedWaiter !== currentUser.id) {
         setSelectedWaiter(currentUser.id);
       }
     }
     
-    const finalRestaurant = selectedRestaurant || "manyazewal1";
+    // Determine final restaurant - default to Restaurant One if nothing selected
+    let finalRestaurant = selectedRestaurant;
+    
+    // If no waiter selected, use Restaurant One
+    if (!finalWaiterId || finalWaiterId === "") {
+      finalRestaurant = getDefaultRestaurantId();
+    } else {
+      // Try to get restaurant from waiter if available
+      const selectedWaiterInfo = waiters.find(w => w._id === finalWaiterId);
+      if (selectedWaiterInfo?.restaurantId) {
+        finalRestaurant = selectedWaiterInfo.restaurantId;
+      } else if (selectedWaiterInfo?.restaurantName) {
+        const name = selectedWaiterInfo.restaurantName.toLowerCase();
+        if (name.includes('2') || name.includes('gibi 2')) {
+          finalRestaurant = "manyazewal2";
+        } else {
+          finalRestaurant = getDefaultRestaurantId();
+        }
+      } else {
+        finalRestaurant = getDefaultRestaurantId();
+      }
+    }
+    
+    // Ensure finalRestaurant is not empty
+    if (!finalRestaurant || finalRestaurant === "") {
+      finalRestaurant = getDefaultRestaurantId();
+    }
     
     // Validate based on user type
     if (isPOS) {
@@ -1405,7 +1463,7 @@ export default function POSPage() {
     const orderData = {
       orderNumber,
       tableNumber,
-      waiterId: finalWaiterId,  // Use the corrected waiter ID
+      waiterId: finalWaiterId,
       waiterName: isPOS 
         ? (currentUser?.name || selectedWaiterInfo?.name || "")
         : (selectedWaiterInfo?.name || ""),
@@ -1422,10 +1480,9 @@ export default function POSPage() {
       specialRequirements,
       isActive: true,
       restaurantId: finalRestaurant,
-      restaurantName: selectedRestaurantInfo?.name || finalRestaurant,
+      restaurantName: selectedRestaurantInfo?.name || getDefaultRestaurantName(),
       inTable: false,
       delivery: false,
-      // Add the creator info for audit trail
       createdBy: currentUser?.id,
       createdByName: currentUser?.name,
       createdByRole: currentUser?.role
@@ -1548,8 +1605,8 @@ export default function POSPage() {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
-              {/* Restaurant Selector - Fetched from database, always visible for ALL users */}
-              <Select value={selectedRestaurant} onValueChange={setSelectedRestaurant}>
+              {/* Restaurant Selector - Always defaults to Restaurant One if nothing selected */}
+              <Select value={selectedRestaurant || getDefaultRestaurantId()} onValueChange={setSelectedRestaurant}>
                 <SelectTrigger className="w-[110px] sm:w-[140px] lg:w-[160px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
                   <SelectValue placeholder="Select Restaurant" />
                 </SelectTrigger>
@@ -1600,6 +1657,13 @@ export default function POSPage() {
                   <UserIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary" />
                   <span className="text-[10px] sm:text-xs font-medium">{currentUser?.name || "POS Staff"}</span>
                 </div>
+              )}
+              
+              {/* Default Restaurant Indicator when no waiter selected */}
+              {!isPOS && (!selectedWaiter || selectedWaiter === "") && (
+                <Badge variant="outline" className="text-[8px] sm:text-[9px] bg-blue-50 text-blue-700 border-blue-200">
+                  Default: Restaurant 1
+                </Badge>
               )}
             </div>
 

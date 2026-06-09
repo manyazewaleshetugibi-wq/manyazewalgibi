@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { toast, Toaster } from "react-hot-toast"
 import { AnimatePresence } from "framer-motion"
+import { format } from "date-fns"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -37,7 +38,6 @@ import {
   Trash2,
   Flag,
   Volume2,
-  VolumeX,
 } from "lucide-react"
 import type { Order, Waitress, Restaurant, OrderStatus, StockProcessStatus } from "@/types/order"
 
@@ -48,17 +48,6 @@ import { OrderDetailModal } from "./OrderDetailModal"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
 import { SoundToggleButton, SoundControlDialog } from "./SoundControls"
 import { NotificationToast, notificationStyles } from "./NotificationToast"
-
-// Status options for dropdown
-const statusOptions: OrderStatus[] = [
-  "PENDING",
-  "CONFIRMED",
-  "PREPARING",
-  "PICKUP",
-  "SERVED",
-  "COMPLETED",
-  "CANCELLED",
-]
 
 // Helper functions
 const isAdminUser = (role: string | undefined): boolean => {
@@ -83,6 +72,27 @@ const fetchRestaurants = async (): Promise<Restaurant[]> => {
     console.error("Error fetching restaurants:", error)
     return []
   }
+}
+
+const getOrderRestaurantId = (order: Order): string | null => {
+  if (order.restaurantId) return order.restaurantId
+  if (order.delivery === true && order.restaurantName) {
+    return order.restaurantName
+  }
+  if (order.restaurantName?.includes("Manyazewal 1") || order.restaurantName === "Manyazewal Eshetu Gibi 1")
+    return "manyazewal1"
+  if (order.restaurantName?.includes("Manyazewal 2") || order.restaurantName === "Manyazewal Eshetu Gibi 2")
+    return "manyazewal2"
+  return null
+}
+
+const getRestaurantById = (restaurants: Restaurant[], restaurantId?: string): Restaurant | null => {
+  if (!restaurantId) return null
+  return restaurants.find(r => r._id === restaurantId) || null
+}
+
+const prefetchCommonItemCombinations = async (orders: Order[]) => {
+  // Implementation for prefetching items if needed
 }
 
 export default function OrderManagementMain() {
@@ -154,6 +164,49 @@ export default function OrderManagementMain() {
     checkPendingStockOrders,
   } = StockProcess({ onStockProcessed: () => fetchOrders(false) })
 
+  // Initialize sound on user click
+  const initializeSound = useCallback(async () => {
+    if (!soundInitialized) {
+      try {
+        await playNotificationSound()
+        setSoundInitialized(true)
+        setShowEnableSoundButton(false)
+        toast.success("🔊 Sound enabled! You will now hear notifications.", {
+          icon: "🔔",
+          duration: 3000,
+        })
+      } catch (error) {
+        setShowEnableSoundButton(true)
+      }
+    }
+  }, [playNotificationSound, soundInitialized])
+
+  // Auto-initialize sound on first user interaction
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+      if (!soundInitialized) {
+        initializeSound()
+      }
+      document.removeEventListener('click', handleFirstInteraction)
+      document.removeEventListener('keydown', handleFirstInteraction)
+    }
+    
+    document.addEventListener('click', handleFirstInteraction)
+    document.addEventListener('keydown', handleFirstInteraction)
+    
+    const timer = setTimeout(() => {
+      if (!soundInitialized) {
+        setShowEnableSoundButton(true)
+      }
+    }, 3000)
+    
+    return () => {
+      document.removeEventListener('click', handleFirstInteraction)
+      document.removeEventListener('keydown', handleFirstInteraction)
+      clearTimeout(timer)
+    }
+  }, [soundInitialized, initializeSound])
+
   // Fetch waitresses
   const fetchWaitresses = useCallback(async () => {
     try {
@@ -193,6 +246,7 @@ export default function OrderManagementMain() {
           setOrders(ordersWithFlags)
           lastOrderIdsRef.current = ordersWithFlags.map((order: Order) => order._id)
           lastFetchTimeRef.current = new Date().toISOString()
+          await prefetchCommonItemCombinations(ordersWithFlags)
         }
       } catch (error) {
         console.error("Error fetching orders:", error)
@@ -218,57 +272,6 @@ export default function OrderManagementMain() {
     }
   }, [])
 
-  // Initialize sound on user click
-  const initializeSound = useCallback(async () => {
-    if (!soundInitialized) {
-      try {
-        await playNotificationSound()
-        setSoundInitialized(true)
-        setShowEnableSoundButton(false)
-        toast.success("🔊 Sound enabled! You will now hear notifications.", {
-          icon: "🔔",
-          duration: 3000,
-        })
-        console.log("✅ Sound system initialized successfully")
-      } catch (error) {
-        console.error("❌ Failed to initialize sound:", error)
-        setShowEnableSoundButton(true)
-      }
-    }
-  }, [playNotificationSound, soundInitialized])
-
-  // Auto-initialize sound on first user interaction
-  useEffect(() => {
-    const handleFirstInteraction = () => {
-      if (!soundInitialized) {
-        initializeSound()
-      }
-      // Remove listener after first interaction
-      document.removeEventListener('click', handleFirstInteraction)
-      document.removeEventListener('keydown', handleFirstInteraction)
-      document.removeEventListener('touchstart', handleFirstInteraction)
-    }
-    
-    // Add listeners for first interaction
-    document.addEventListener('click', handleFirstInteraction)
-    document.addEventListener('keydown', handleFirstInteraction)
-    document.addEventListener('touchstart', handleFirstInteraction)
-    
-    // Show enable sound button if sound not initialized after 3 seconds
-    const timer = setTimeout(() => {
-      if (!soundInitialized) {
-        setShowEnableSoundButton(true)
-      }
-    }, 3000)
-    
-    return () => {
-      document.removeEventListener('click', handleFirstInteraction)
-      document.removeEventListener('keydown', handleFirstInteraction)
-      document.removeEventListener('touchstart', handleFirstInteraction)
-      clearTimeout(timer)
-    }
-  }, [soundInitialized, initializeSound])
-
   // Poll for new orders
   const pollNewOrders = useCallback(async () => {
     if (!isMountedRef.current) return
@@ -290,14 +293,9 @@ export default function OrderManagementMain() {
           (order: Order) => !lastOrderIdsRef.current.includes(order._id)
         )
         if (trulyNewOrders.length > 0) {
-          trulyNewOrders.forEach(async (order: Order) => {
-            // Play sound for new order (only if initialized)
+          trulyNewOrders.forEach((order: Order) => {
             if (soundInitialized) {
-              try {
-                await playNotificationSound()
-              } catch (error) {
-                console.log("Sound not ready yet")
-              }
+              playNotificationSound()
             }
             
             const orderType = order.inTable ? "In-Table" : order.delivery ? "Delivery" : "POS"
@@ -326,20 +324,43 @@ export default function OrderManagementMain() {
 
   // Handle status update
   const handleStatusUpdate = async (orderId: string, newStatus: OrderStatus) => {
+    const order = orders.find(o => o._id === orderId)
+    if (order?.markedForDeletion) {
+      toast.error("Cannot update status: Order is marked for deletion")
+      return
+    }
+    if (order?.status === "COMPLETED" || order?.status === "CANCELLED") {
+      toast.error(`Cannot update status: Order is already ${order.status.toLowerCase()}`)
+      return
+    }
+
+    const loadingToast = toast.loading(`Updating order status to ${newStatus}...`)
+    
     try {
       const response = await fetch(`/api/order`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderId, status: newStatus }),
       })
-      if (!response.ok) throw new Error("Failed to update order status")
+      
       const data = await response.json()
-      toast.success(data.message || "Order status updated successfully")
-      fetchOrders(false)
-      checkPendingStockOrders()
+      toast.dismiss(loadingToast)
+      
+      if (!response.ok) throw new Error(data.error || "Failed to update order status")
+      
+      toast.success(data.message || `Order status updated to ${newStatus} successfully`)
+      
+      if (newStatus === "COMPLETED" && data.completedBy) {
+        toast.success(`Order completed by ${data.completedBy.name}`, { duration: 3000 })
+        if (soundInitialized) playNotificationSound()
+      }
+      
+      await fetchOrders(false)
+      await checkPendingStockOrders()
     } catch (error) {
+      toast.dismiss(loadingToast)
       console.error("Error updating order status:", error)
-      toast.error("Failed to update order status")
+      toast.error(error instanceof Error ? error.message : "Failed to update order status")
     }
   }
 
@@ -350,8 +371,8 @@ export default function OrderManagementMain() {
       return
     }
     try {
-      const response = await fetch(`/api/order?id=${orderId}&reason=Admin deletion from UI`, {
-        method: "DELETE",
+      const response = await fetch(`/api/order?id=${orderId}&reason=Admin deletion from UI`, { 
+        method: "DELETE" 
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || "Failed to delete order")
@@ -406,8 +427,9 @@ export default function OrderManagementMain() {
           }),
         })
 
-        if (!response.ok) throw new Error("Failed to update item status")
         const data = await response.json()
+        if (!response.ok) throw new Error("Failed to update item status")
+
         toast.success(data.message || `Item marked as ${isUneditable ? "uneditable" : "editable"}`)
 
         setOrders((prevOrders) =>
@@ -420,9 +442,7 @@ export default function OrderManagementMain() {
                   ...updatedItems[itemIndex],
                   isUneditable,
                   uneditableAt: isUneditable ? new Date().toISOString() : undefined,
-                  uneditableBy: isUneditable
-                    ? session?.user?.name || session?.user?.email
-                    : undefined,
+                  uneditableBy: isUneditable ? session?.user?.name || session?.user?.email : undefined,
                 }
               }
               return { ...order, items: updatedItems, orderItems: updatedItems }
@@ -464,7 +484,7 @@ export default function OrderManagementMain() {
     [fetchOrders, checkPendingStockOrders]
   )
 
-  // Filtered and sorted orders with stock status
+  // Filtered and sorted orders
   const filteredAndSortedOrders = useMemo(() => {
     let filtered = orders.filter((order) => {
       if (order.deletedAt) return false
@@ -476,16 +496,13 @@ export default function OrderManagementMain() {
 
       const matchesStatus = !statusFilter || order.status === statusFilter
       const matchesWaitress = !waitressFilter || order.waiterId === waitressFilter
-      const matchesDate =
-        !dateFilter || new Date(order.createdAt).toDateString() === dateFilter.toDateString()
-      const matchesType =
-        !orderTypeFilter ||
+      const matchesDate = !dateFilter || new Date(order.createdAt).toDateString() === dateFilter.toDateString()
+      const matchesType = !orderTypeFilter ||
         (orderTypeFilter === "intable" && order.inTable === true) ||
         (orderTypeFilter === "delivery" && order.delivery === true) ||
         (orderTypeFilter === "pos" && !order.inTable && !order.delivery)
       const matchesMarked = !showMarkedOnly || order.markedForDeletion === true
 
-      // Stock status filter
       let matchesStockStatus = true
       if (stockStatusFilter !== "ALL") {
         if (stockStatusFilter === "PROCESSED") {
@@ -497,25 +514,19 @@ export default function OrderManagementMain() {
         }
       }
 
-      // Restaurant filter
       let matchesRestaurant = true
       if (restaurantFilter) {
-        matchesRestaurant = order.restaurantId === restaurantFilter || order.restaurantName === restaurantFilter
+        const orderRestaurantId = getOrderRestaurantId(order)
+        const restaurant = getRestaurantById(restaurants, orderRestaurantId || undefined)
+        matchesRestaurant = restaurant?._id === restaurantFilter || 
+                           order.restaurantName === restaurantFilter ||
+                           orderRestaurantId === restaurantFilter
       }
 
-      return (
-        matchesSearch &&
-        matchesStatus &&
-        matchesWaitress &&
-        matchesDate &&
-        matchesType &&
-        matchesRestaurant &&
-        matchesMarked &&
-        matchesStockStatus
-      )
+      return matchesSearch && matchesStatus && matchesWaitress && matchesDate && 
+             matchesType && matchesRestaurant && matchesMarked && matchesStockStatus
     })
 
-    // Sort
     filtered.sort((a, b) => {
       const aValue = a[sortField]
       const bValue = b[sortField]
@@ -528,19 +539,8 @@ export default function OrderManagementMain() {
     })
 
     return filtered
-  }, [
-    orders,
-    searchTerm,
-    statusFilter,
-    stockStatusFilter,
-    waitressFilter,
-    restaurantFilter,
-    dateFilter,
-    orderTypeFilter,
-    sortField,
-    sortDirection,
-    showMarkedOnly,
-  ])
+  }, [orders, searchTerm, statusFilter, stockStatusFilter, waitressFilter, restaurantFilter, 
+      dateFilter, orderTypeFilter, sortField, sortDirection, showMarkedOnly, restaurants])
 
   const totalPages = Math.ceil(filteredAndSortedOrders.length / itemsPerPage)
 
@@ -549,10 +549,7 @@ export default function OrderManagementMain() {
   }, [filteredAndSortedOrders.length])
 
   const paginatedOrders = useMemo(() => {
-    return filteredAndSortedOrders.slice(
-      (currentPage - 1) * itemsPerPage,
-      currentPage * itemsPerPage
-    )
+    return filteredAndSortedOrders.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
   }, [filteredAndSortedOrders, currentPage, itemsPerPage])
 
   const handleClearFilters = useCallback(() => {
@@ -591,9 +588,7 @@ export default function OrderManagementMain() {
           <Shield className="h-16 w-16 mx-auto mb-4 text-purple-900" />
           <h2 className="text-2xl font-bold mb-2">Authentication Required</h2>
           <p className="text-muted-foreground mb-4">Please login to access order management.</p>
-          <Button className="mt-4" onClick={() => (window.location.href = "/login")}>
-            Go to Login
-          </Button>
+          <Button onClick={() => (window.location.href = "/login")}>Go to Login</Button>
         </div>
       </div>
     )
@@ -602,7 +597,6 @@ export default function OrderManagementMain() {
   return (
     <div className="container mx-auto p-4 space-y-6">
       <style jsx global>{notificationStyles}</style>
-      
       <Toaster position="top-right" />
       
       <AnimatePresence>
@@ -620,12 +614,8 @@ export default function OrderManagementMain() {
         <Alert className="bg-yellow-50 border-yellow-200">
           <Volume2 className="h-4 w-4 text-yellow-600" />
           <AlertDescription className="text-yellow-800 flex items-center justify-between">
-            <span>Click anywhere on the page or use the button below to enable sound notifications</span>
-            <Button
-              onClick={initializeSound}
-              size="sm"
-              className="bg-yellow-600 hover:bg-yellow-700 text-white"
-            >
+            <span>Click anywhere or use the button below to enable sound notifications</span>
+            <Button onClick={initializeSound} size="sm" className="bg-yellow-600 hover:bg-yellow-700">
               Enable Sound
             </Button>
           </AlertDescription>
@@ -646,8 +636,7 @@ export default function OrderManagementMain() {
         <Alert className="bg-gray-50 border-gray-200">
           <Clock className="h-4 w-4 text-gray-600" />
           <AlertDescription className="text-gray-800">
-            Showing active orders + completed orders from last 2 hours. Older completed orders are
-            automatically hidden.
+            Showing active orders + completed orders from last 2 hours.
           </AlertDescription>
         </Alert>
       )}
@@ -656,33 +645,7 @@ export default function OrderManagementMain() {
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div className="flex items-center gap-3">
           <h1 className="text-3xl font-bold">Order Management</h1>
-          <Badge
-            variant="outline"
-            className={isAdmin ? "bg-red-100 text-red-800" : "bg-blue-100 text-blue-800"}
-          >
-            {isAdmin ? (
-              <>
-                <ShieldAlert className="h-3 w-3 mr-1" />
-                Admin
-              </>
-            ) : (
-              <>
-                <Shield className="h-3 w-3 mr-1" />
-                {userRole || "Staff"}
-              </>
-            )}
-          </Badge>
-          {soundInitialized && (
-            <Badge variant="outline" className="bg-green-100 text-green-800">
-              <Volume2 className="h-3 w-3 mr-1" />
-              Sound Ready
-            </Badge>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Sound Controls */}
-          <div className="flex items-center gap-1 mr-2">
+          <div className="flex items-center gap-1">
             <SoundToggleButton isEnabled={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
             <SoundControlDialog
               isEnabled={soundEnabled}
@@ -692,33 +655,22 @@ export default function OrderManagementMain() {
               onTestSound={playNotificationSound}
             />
           </div>
-          
-          {/* Manual sound enable button */}
+          <Badge variant="outline" className={isAdmin ? "bg-red-100 text-red-800" : "bg-blue-100 text-blue-800"}>
+            {isAdmin ? <><ShieldAlert className="h-3 w-3 mr-1" />Admin</> : <><Shield className="h-3 w-3 mr-1" />{userRole || "Staff"}</>}
+          </Badge>
+          {soundInitialized && <Badge variant="outline" className="bg-green-100 text-green-800">Sound Ready</Badge>}
+        </div>
+
+        <div className="flex items-center gap-2">
           {!soundInitialized && (
-            <Button
-              onClick={initializeSound}
-              variant="default"
-              size="sm"
-              className="gap-2 bg-yellow-600 hover:bg-yellow-700"
-            >
-              <Volume2 className="h-4 w-4" />
-              Enable Sound
+            <Button onClick={initializeSound} variant="default" size="sm" className="bg-yellow-600">
+              <Volume2 className="h-4 w-4 mr-2" />Enable Sound
             </Button>
           )}
-          
           {pendingStockCount > 0 && (
-            <Button
-              onClick={() => setShowConfirmDialog(true)}
-              variant="default"
-              className="relative bg-green-600 hover:bg-green-700 text-white gap-2"
-            >
-              <Package className="h-4 w-4" />
-              Process Stock ({pendingStockCount})
-              {failedStockCount > 0 && (
-                <Badge className="ml-1 bg-red-500 text-white text-xs">
-                  {failedStockCount} failed
-                </Badge>
-              )}
+            <Button onClick={() => setShowConfirmDialog(true)} className="bg-green-600 hover:bg-green-700 text-white gap-2">
+              <Package className="h-4 w-4" />Process Stock ({pendingStockCount})
+              {failedStockCount > 0 && <Badge className="ml-1 bg-red-500 text-white text-xs">{failedStockCount} failed</Badge>}
             </Button>
           )}
           <Button onClick={() => fetchOrders(true)} variant="outline" size="icon" disabled={loading}>
@@ -771,46 +723,24 @@ export default function OrderManagementMain() {
         <div className="border rounded-lg overflow-x-auto">
           <table className="w-full">
             <thead className="bg-muted">
-              <tr>
-                <th className="p-3 text-left">Order #</th>
-                <th className="p-3 text-left">Restaurant</th>
-                <th className="p-3 text-left">Type</th>
-                <th className="p-3 text-left">Stock Status</th>
-                <th className="p-3 text-left">Customer</th>
-                <th className="p-3 text-left">Waitress</th>
-                <th className="p-3 text-left">Table</th>
-                <th className="p-3 text-left">Status</th>
-                <th className="p-3 text-left">Total</th>
-                <th className="p-3 text-left">Date</th>
-                <th className="p-3 text-right">Actions</th>
-              </tr>
-            </thead>
+              <tr><th className="p-3 text-left">Order #</th><th className="p-3 text-left">Restaurant</th>
+              <th className="p-3 text-left">Type</th><th className="p-3 text-left">Stock Status</th>
+              <th className="p-3 text-left">Customer</th><th className="p-3 text-left">Waitress</th>
+              <th className="p-3 text-left">Table</th><th className="p-3 text-left">Status</th>
+              <th className="p-3 text-left">Total</th><th className="p-3 text-left">Date</th>
+              <th className="p-3 text-right">Actions</th></tr></thead>
             <tbody>
               {paginatedOrders.map((order) => (
                 <tr key={order._id} className="border-t">
                   <td className="p-3 font-medium">{order.orderNumber}</td>
-                  <td className="p-3">
-                    <Badge variant="outline">
-                      {restaurants.find(r => r._id === order.restaurantId)?.name || order.restaurantName || "Unknown"}
-                    </Badge>
-                  </td>
-                  <td className="p-3">
-                    {order.inTable ? "In-Table" : order.delivery ? "Delivery" : "POS"}
-                  </td>
-                  <td className="p-3">
-                    <StockStatusBadge order={order} />
-                  </td>
+                  <td className="p-3"><Badge variant="outline">{restaurants.find(r => r._id === order.restaurantId)?.name || order.restaurantName || "Unknown"}</Badge></td>
+                  <td className="p-3">{order.inTable ? "In-Table" : order.delivery ? "Delivery" : "POS"}</td>
+                  <td className="p-3"><StockStatusBadge order={order} /></td>
                   <td className="p-3">{order.customerName || "Walk-in"}</td>
-                  <td className="p-3">
-                    {waitresses.find(w => w._id === order.waiterId)?.name || order.waiterName || "Unknown"}
-                  </td>
+                  <td className="p-3">{waitresses.find(w => w._id === order.waiterId)?.name || order.waiterName || "Unknown"}</td>
                   <td className="p-3">{order.tableNumber}</td>
-                  <td className="p-3">
-                    <Badge variant="outline">{order.status}</Badge>
-                  </td>
-                  <td className="p-3">
-                    {order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
-                  </td>
+                  <td className="p-3"><Badge variant="outline">{order.status}</Badge></td>
+                  <td className="p-3">{order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</td>
                   <td className="p-3">{new Date(order.createdAt).toLocaleDateString()}</td>
                   <td className="p-3 text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -824,42 +754,27 @@ export default function OrderManagementMain() {
                         onStopSound={stopNotificationSound}
                       />
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
+                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
                           <DropdownMenuSeparator />
                           {isAdmin ? (
-                            <div
-                              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 text-red-600"
-                              onClick={() => handleDeleteOrder(order._id)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              <span>Delete Order</span>
+                            <div className="text-red-600 px-2 py-1.5 text-sm cursor-pointer" onClick={() => handleDeleteOrder(order._id)}>
+                              <Trash2 className="mr-2 h-4 w-4 inline" />Delete Order
                             </div>
                           ) : (
-                            <div
-                              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 text-yellow-600"
-                              onClick={() => {
-                                const reason = prompt("Please provide a reason for deletion request:")
-                                if (reason) handleMarkForDeletion(order._id, reason)
-                              }}
-                            >
-                              <Flag className="mr-2 h-4 w-4" />
-                              <span>Mark for Deletion</span>
+                            <div className="text-yellow-600 px-2 py-1.5 text-sm cursor-pointer" onClick={() => {
+                              const reason = prompt("Please provide a reason:")
+                              if (reason) handleMarkForDeletion(order._id, reason)
+                            }}>
+                              <Flag className="mr-2 h-4 w-4 inline" />Mark for Deletion
                             </div>
                           )}
                           <DropdownMenuSeparator />
                           <DropdownMenuLabel>Change Status</DropdownMenuLabel>
-                          {statusOptions.map((status) => (
-                            <DropdownMenuItem
-                              key={status}
-                              onClick={() => handleStatusUpdate(order._id, status)}
-                            >
-                              <span className="ml-2">{status}</span>
+                          {["PENDING","CONFIRMED","PREPARING","PICKUP","SERVED","COMPLETED","CANCELLED"].map((status) => (
+                            <DropdownMenuItem key={status} onClick={() => handleStatusUpdate(order._id, status as OrderStatus)}>
+                              {status}
                             </DropdownMenuItem>
                           ))}
                         </DropdownMenuContent>
@@ -897,45 +812,16 @@ export default function OrderManagementMain() {
       {totalPages > 1 && (
         <Pagination>
           <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-              />
-            </PaginationItem>
+            <PaginationItem><PaginationPrevious onClick={() => setCurrentPage(p => Math.max(1, p-1))} className={currentPage === 1 ? "opacity-50" : "cursor-pointer"} /></PaginationItem>
             {[...Array(Math.min(totalPages, 5))].map((_, i) => {
-              let pageNum
-              if (totalPages <= 5) {
-                pageNum = i + 1
-              } else if (currentPage <= 3) {
-                pageNum = i + 1
-              } else if (currentPage >= totalPages - 2) {
-                pageNum = totalPages - 4 + i
-              } else {
-                pageNum = currentPage - 2 + i
-              }
-              return (
-                <PaginationItem key={pageNum}>
-                  <PaginationLink
-                    onClick={() => setCurrentPage(pageNum)}
-                    isActive={currentPage === pageNum}
-                  >
-                    {pageNum}
-                  </PaginationLink>
-                </PaginationItem>
-              )
+              let pageNum = totalPages <= 5 ? i+1 : currentPage <= 3 ? i+1 : currentPage >= totalPages-2 ? totalPages-4+i : currentPage-2+i
+              return <PaginationItem key={pageNum}><PaginationLink onClick={() => setCurrentPage(pageNum)} isActive={currentPage === pageNum}>{pageNum}</PaginationLink></PaginationItem>
             })}
-            <PaginationItem>
-              <PaginationNext
-                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-              />
-            </PaginationItem>
+            <PaginationItem><PaginationNext onClick={() => setCurrentPage(p => Math.min(totalPages, p+1))} className={currentPage === totalPages ? "opacity-50" : "cursor-pointer"} /></PaginationItem>
           </PaginationContent>
         </Pagination>
       )}
 
-      {/* Stock Confirm Dialog */}
       <StockConfirmDialog />
     </div>
   )
