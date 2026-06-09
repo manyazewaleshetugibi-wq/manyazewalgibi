@@ -5,8 +5,8 @@ import { debugLog, debugError } from "../../utils/orderHelpers";
 
 // Simple rate limiting - only prevent too frequent runs
 let lastRunTime = 0;
-const MIN_INTERVAL_MS = 2 * 60 * 1000; // 5 minutes between runs
-const MAX_ORDERS_PER_RUN = 100; // Process 5 orders per run
+const MIN_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes between runs
+const MAX_ORDERS_PER_RUN = 100; // Process 100 orders per run
 
 export async function GET(req: NextRequest) {
   const now = Date.now();
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   
   lastRunTime = now;
   
-  debugLog(`🕐 Cron started - processing ${MAX_ORDERS_PER_RUN} orders...`);
+  debugLog(`🕐 Cron started - processing up to ${MAX_ORDERS_PER_RUN} orders...`);
   
   try {
     const startTime = Date.now();
@@ -34,21 +34,50 @@ export async function GET(req: NextRequest) {
     debugLog(`✅ Cron completed in ${duration}ms:`, {
       processed: result.processedOrders,
       failed: result.failedOrders,
-      pending: result.totalOrders
+      pending: result.totalOrders - result.processedOrders - result.failedOrders,
+      lowStockCount: result.lowStockItems?.length || 0,
+      errorCount: result.errors?.length || 0
     });
+    
+    // Log low stock items for debugging
+    if (result.lowStockItems && result.lowStockItems.length > 0) {
+      debugLog(`⚠️ Low stock items detected:`, result.lowStockItems.map((item: any) => ({
+        name: item.stockName,
+        current: item.currentStock,
+        required: item.requiredQuantity,
+        deficit: item.deficit,
+        unit: item.unit,
+        order: item.orderNumber
+      })));
+    }
+    
+    // Log errors for debugging
+    if (result.errors && result.errors.length > 0) {
+      debugLog(`❌ Processing errors:`, result.errors);
+    }
     
     return NextResponse.json({
       success: true,
       duration: `${duration}ms`,
       processedOrders: result.processedOrders,
       failedOrders: result.failedOrders,
-      pendingOrders: result.totalOrders - result.processedOrders
+      pendingOrders: result.totalOrders - result.processedOrders - result.failedOrders,
+      lowStockItems: result.lowStockItems || [],
+      errors: result.errors || []
     });
     
   } catch (error) {
     debugError("❌ Cron failed:", error);
     return NextResponse.json(
-      { success: false, error: String(error) },
+      { 
+        success: false, 
+        error: String(error),
+        processedOrders: 0,
+        failedOrders: 0,
+        pendingOrders: 0,
+        lowStockItems: [],
+        errors: []
+      },
       { status: 500 }
     );
   }
@@ -69,18 +98,34 @@ export async function POST(req: NextRequest) {
     const result = await processAllCompletedOrders(undefined, 100);
     const duration = Date.now() - startTime;
     
+    debugLog(`✅ Manual processing completed in ${duration}ms:`, {
+      processed: result.processedOrders,
+      failed: result.failedOrders,
+      lowStockCount: result.lowStockItems?.length || 0
+    });
+    
     return NextResponse.json({
       success: true,
       duration: `${duration}ms`,
       processedOrders: result.processedOrders,
       failedOrders: result.failedOrders,
-      pendingOrders: result.totalOrders - result.processedOrders
+      pendingOrders: result.totalOrders - result.processedOrders - result.failedOrders,
+      lowStockItems: result.lowStockItems || [],
+      errors: result.errors || []
     });
     
   } catch (error) {
     debugError("Manual processing error:", error);
     return NextResponse.json(
-      { success: false, error: String(error) },
+      { 
+        success: false, 
+        error: String(error),
+        processedOrders: 0,
+        failedOrders: 0,
+        pendingOrders: 0,
+        lowStockItems: [],
+        errors: []
+      },
       { status: 500 }
     );
   }

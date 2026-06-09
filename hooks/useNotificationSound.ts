@@ -1,127 +1,200 @@
 // hooks/useNotificationSound.ts
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 
 interface NotificationSoundHook {
   play: () => void;
+  stop: () => void;
   isEnabled: boolean;
   setIsEnabled: (enabled: boolean) => void;
   isReady: boolean;
+  volume: number;
+  setVolume: (volume: number) => void;
 }
 
 export const useNotificationSound = (): NotificationSoundHook => {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const [isEnabled, setIsEnabled] = useState(true);
   const [isReady, setIsReady] = useState(false);
-  const [audioLoaded, setAudioLoaded] = useState(false);
+  const [volume, setVolume] = useState(0.5);
+  const [userInteracted, setUserInteracted] = useState(false);
   
-  // Auto-initialize audio on component mount
-  useEffect(() => {
-    // Create audio element
-    const audio = new Audio();
-    audio.preload = 'auto';
-    audio.src = '/sounds/notification.mp3';
-    audio.volume = 0.5;
-    
-    audio.addEventListener('canplaythrough', () => {
-      console.log('Notification sound loaded successfully');
-      setAudioLoaded(true);
-      setIsReady(true);
-    });
-    
-    audio.addEventListener('error', () => {
-      console.log('Notification sound file not found, using Web Audio fallback');
-      setAudioLoaded(false);
-      // Still mark as ready because we have fallback
-      setIsReady(true);
-    });
-    
-    audioRef.current = audio;
-    
-    // Initialize Web Audio context for fallback (can be started later)
-    if (typeof window !== 'undefined') {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioContext) {
-        audioContextRef.current = new AudioContext();
-        // Note: Not starting the context yet - we'll start when playing
+  // Initialize Web Audio context
+  const initAudioContext = useCallback(async () => {
+    if (audioContextRef.current) {
+      // Check if context is usable
+      if (audioContextRef.current.state !== 'closed') {
+        return audioContextRef.current;
       }
     }
     
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-        audioRef.current = null;
+    if (typeof window !== 'undefined') {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        try {
+          const context = new AudioContextClass();
+          audioContextRef.current = context;
+          console.log('✅ Audio context initialized, state:', context.state);
+          
+          // Mark as ready when context is created
+          setIsReady(true);
+          
+          return context;
+        } catch (error) {
+          console.error('❌ Failed to create AudioContext:', error);
+          setIsReady(false);
+          return null;
+        }
       }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
+    }
+    setIsReady(false);
+    return null;
+  }, []);
+  
+  // Initialize on mount
+  useEffect(() => {
+    console.log('🔊 useNotificationSound mounted, initializing...');
+    initAudioContext();
+    
+    // Listen for user interaction to unlock audio
+    const handleUserInteraction = async () => {
+      if (!userInteracted && audioContextRef.current) {
+        console.log('👆 User interaction detected, unlocking audio...');
+        try {
+          if (audioContextRef.current.state === 'suspended') {
+            await audioContextRef.current.resume();
+            console.log('✅ Audio context resumed, state:', audioContextRef.current.state);
+          }
+          setUserInteracted(true);
+        } catch (error) {
+          console.error('❌ Failed to resume audio context:', error);
+        }
       }
     };
+    
+    // Add event listeners for user interaction
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('keydown', handleUserInteraction);
+    document.addEventListener('touchstart', handleUserInteraction);
+    
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(console.error);
+      }
+    };
+  }, [initAudioContext, userInteracted]);
+  
+  const stop = useCallback(() => {
+    // No need to stop individual oscillators as we create new ones each time
+    console.log('🔇 Stop requested');
   }, []);
-
-  // Play sound - will work automatically after initialization
-  const play = useCallback(() => {
+  
+  // Play beep sound
+  const play = useCallback(async () => {
+    console.log('🔊 play() called, isEnabled:', isEnabled, 'isReady:', isReady);
+    
     if (!isEnabled) {
-      console.log('Sound is disabled');
+      console.log('🔇 Sound is disabled');
       return;
     }
     
     if (!isReady) {
-      console.log('Sound not ready yet');
-      return;
+      console.log('⚠️ Sound not ready yet, trying to initialize...');
+      await initAudioContext();
     }
     
-    console.log('Playing notification sound...');
-    
-    // Try to play audio file first
-    if (audioRef.current && audioLoaded) {
-      audioRef.current.currentTime = 0;
-      const playPromise = audioRef.current.play();
-      
-      if (playPromise !== undefined) {
-        playPromise.catch((error) => {
-          console.log('Audio file play failed, using Web Audio fallback:', error);
-          playFallbackBeep();
-        });
-      }
-      return;
-    }
-    
-    // Fallback to Web Audio beep
-    playFallbackBeep();
-  }, [isEnabled, isReady, audioLoaded]);
-
-  const playFallbackBeep = useCallback(() => {
     try {
-      if (!audioContextRef.current) {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContext) return;
-        audioContextRef.current = new AudioContext();
+      let context = audioContextRef.current;
+      
+      if (!context) {
+        context = await initAudioContext();
+        if (!context) {
+          console.error('❌ No audio context available');
+          return;
+        }
       }
       
-      // Resume the audio context if it's suspended
-      if (audioContextRef.current.state === 'suspended') {
-        audioContextRef.current.resume();
+      // Check if context is suspended (browser autoplay policy)
+      if (context.state === 'suspended') {
+        console.log('⏸️ Audio context suspended, attempting to resume...');
+        await context.resume();
+        console.log('✅ Audio context resumed, new state:', context.state);
       }
       
-      const oscillator = audioContextRef.current.createOscillator();
-      const gainNode = audioContextRef.current.createGain();
+      if (context.state !== 'running') {
+        console.warn('⚠️ Audio context not running, state:', context.state);
+        return;
+      }
+      
+      // Create and play beep
+      const now = context.currentTime;
+      const oscillator = context.createOscillator();
+      const gainNode = context.createGain();
       
       oscillator.connect(gainNode);
-      gainNode.connect(audioContextRef.current.destination);
+      gainNode.connect(context.destination);
       
-      oscillator.frequency.value = 800;
-      gainNode.gain.value = 0.3;
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 880; // A5 note - pleasant notification
+      
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.02);
+      gainNode.gain.exponentialRampToValueAtTime(0.00001, now + 0.3);
       
       oscillator.start();
-      gainNode.gain.exponentialRampToValueAtTime(0.00001, audioContextRef.current.currentTime + 0.3);
-      oscillator.stop(audioContextRef.current.currentTime + 0.3);
+      oscillator.stop(now + 0.3);
       
-      console.log('Fallback beep played');
+      // Clean up
+      oscillator.onended = () => {
+        oscillator.disconnect();
+        gainNode.disconnect();
+      };
+      
+      console.log('🔔 Beep sound played successfully!');
+      
     } catch (error) {
-      console.error('Failed to play fallback beep:', error);
+      console.error('❌ Failed to play sound:', error);
     }
+  }, [isEnabled, isReady, volume, initAudioContext]);
+  
+  // Force unlock audio with a silent play on component mount
+  useEffect(() => {
+    const unlockAudio = async () => {
+      const context = audioContextRef.current;
+      if (context && context.state === 'suspended') {
+        try {
+          // Create a silent gain node to unlock audio
+          const silentGain = context.createGain();
+          silentGain.gain.value = 0;
+          silentGain.connect(context.destination);
+          const oscillator = context.createOscillator();
+          oscillator.connect(silentGain);
+          oscillator.start();
+          oscillator.stop(context.currentTime + 0.001);
+          console.log('🔓 Silent audio unlock attempted');
+        } catch (e) {
+          // Ignore
+        }
+      }
+    };
+    
+    // Try to unlock after a short delay
+    const timer = setTimeout(() => {
+      unlockAudio();
+    }, 1000);
+    
+    return () => clearTimeout(timer);
   }, []);
-
-  return { play, isEnabled, setIsEnabled, isReady };
+  
+  return { 
+    play, 
+    stop, 
+    isEnabled, 
+    setIsEnabled, 
+    isReady, 
+    volume, 
+    setVolume 
+  };
 };

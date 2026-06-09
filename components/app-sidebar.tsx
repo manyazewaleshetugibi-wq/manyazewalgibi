@@ -111,62 +111,68 @@ const roleBasedNavigation = {
           { title: "profit", url: "/profit" }
         ],
       },
-       {
-        title: "Hr Training and Culture",
+      // Updated HR Training and Culture section with 3-level nesting
+      {
+        title: "HR Training and Culture",
         url: "#",
         icon: ChefHat,
         items: [
-          { 
-            title: "Steps-Register", 
-            url: "/Pregister",
-            icon: ListChecks
+          {
+            title: "Training",
+            url: "/training",
+            icon: BookCheckIcon
           },
-          { title: "Training", url: "/training", icon: BookCheckIcon },
-          { 
-            title: "Steps-Card", 
-            url: "/preparation",
-            icon: ListChecks
-          },
-          { 
-            title: "Standards-Register", 
-            url: "/Sregister",
-            icon: ClipboardCheck
-          },
-          { 
-            title: "Standards-Cards", 
-            url: "/standards",
-            icon: ClipboardCheck
+          {
+            title: "SOP",
+            url: "#",
+            icon: ListChecks,
+            items: [
+              { 
+                title: "Steps-Register", 
+                url: "/Pregister",
+                icon: ListChecks
+              },
+              { 
+                title: "Steps-Card", 
+                url: "/preparation",
+                icon: ListChecks
+              },
+              { 
+                title: "Standards-Register", 
+                url: "/Sregister",
+                icon: ClipboardCheck
+              },
+              { 
+                title: "Standards-Cards", 
+                url: "/standards",
+                icon: ClipboardCheck
+              },
+            ],
           },
         ],
       },
-
- {
+      {
         title: "Restaurant and Staff ",
         url: "#",
         icon: ChefHat,
         items: [
-         
           { 
             title: "Staff Management", 
             url: "/staffregister",
             icon: ListChecks
           },
-            { title: "Waitress", 
-              url: "/waitress", 
-              icon: UserSquare2Icon 
-            },
-        
+          { 
+            title: "Waitress", 
+            url: "/waitress", 
+            icon: UserSquare2Icon 
+          },
           { 
             title: "Restaurant-Management", 
             url: "/restaurants",
             icon: ListChecks
           },
-
         ],
       },
-
-
-
       {
         title: "BirthDate",
         url: "/birthdate",
@@ -180,8 +186,6 @@ const roleBasedNavigation = {
     projects: [
       { name: "Dashboard", url: "/dashboard", icon: Tag },
       { name: "POS", url: "/pos", icon: SquareTerminal },
-      { name: "Expenses", url: "/expenses", icon: DollarSign },
-      // { name: "Feedback", url: "/feedback", icon: Pen },
       { name: "search", url: "/search", icon: SearchCheckIcon },
       { name: "daily-tasks", url: "/daily-tasks", icon: ListOrderedIcon }
     ],
@@ -342,7 +346,6 @@ const roleBasedNavigation = {
     ],
   },
 
-  
   PURCHASING: {
     navMain: [
       {
@@ -351,7 +354,6 @@ const roleBasedNavigation = {
         icon: ShoppingBag,
         items: [
           { title: "Purchase Requests", url: "/purchase-request" },
-        
         ],
       },
       {
@@ -372,7 +374,6 @@ const roleBasedNavigation = {
     ],
   },
 
-  // NEW: DELIVERY ROLE
   DELIVERY: {
     navMain: [
       {
@@ -381,10 +382,8 @@ const roleBasedNavigation = {
         icon: Truck,
         items: [
           { title: "Pending Deliveries", url: "/delivery" },
-         
         ],
       },
-   
     ],
     projects: [
       { name: "Dashboard", url: "/dashboard", icon: Tag },
@@ -449,7 +448,6 @@ const roleBasedNavigation = {
     ],
   },
 
-  // Default/Fallback role configuration
   DEFAULT: {
     navMain: [],
     projects: [
@@ -483,7 +481,7 @@ const normalizeRole = (role: string | undefined): string => {
 };
 
 // Function to get navigation for a role
-const getNavigationForRole = (role: string) => {
+const getNavigationForRole = (role: string | undefined) => {
   const normalizedRole = normalizeRole(role);
   
   // Check if the role exists in our configuration

@@ -13,6 +13,32 @@ type ProcessOrderResult = {
   itemsProcessed?: number;
   stockUsageRecords?: any[];
   processedStockIds?: string[];
+  lowStockItems?: LowStockItem[];
+  error?: string;
+};
+
+type LowStockItem = {
+  stockId: string;
+  stockName: string;
+  currentStock: number;
+  requiredQuantity: number;
+  deficit: number;
+  unit: string;
+  orderNumber: string;
+  menuItemName: string;
+  orderId: string;
+};
+
+type ProcessingError = {
+  orderNumber: string;
+  orderId: string;
+  error: string;
+  failedItems?: {
+    itemName: string;
+    stockName: string;
+    requiredQuantity: number;
+    availableStock: number;
+  }[];
 };
 
 // Transaction retry helper
@@ -159,6 +185,7 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
           stockUnit: stockItem.unit || "pcs",
           unitCost: Number(stockItem.unitCost) || Number(stockItem.costPerUnit) || 0,
           totalQuantityUsed: quantityNeeded,
+          currentStock: Number(stockItem.currentStock) || 0,
           items: [{
             itemId: new ObjectId(itemIdString),
             itemName: aggItem.itemName,
@@ -178,7 +205,49 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
     return { success: true, message: "No ingredients", noIngredients: true };
   }
 
-  // Process with transaction
+  // Check for insufficient stock BEFORE transaction
+  const lowStockItems: LowStockItem[] = [];
+  
+  for (const [stockIdString, ing] of allIngredients.entries()) {
+    const currentStock = ing.currentStock;
+    if (currentStock < ing.totalQuantityUsed) {
+      lowStockItems.push({
+        stockId: stockIdString,
+        stockName: ing.stockName,
+        currentStock: currentStock,
+        requiredQuantity: ing.totalQuantityUsed,
+        deficit: ing.totalQuantityUsed - currentStock,
+        unit: ing.stockUnit,
+        orderNumber: order.orderNumber,
+        menuItemName: ing.items[0]?.itemName || "Unknown",
+        orderId: order._id.toString()
+      });
+    }
+  }
+  
+  // If there are low stock items, return them without processing
+  if (lowStockItems.length > 0) {
+    debugLog(`Order ${order.orderNumber}: Insufficient stock for ${lowStockItems.length} items`, lowStockItems);
+    
+    // Update order with error info
+    await db.collection("orders").updateOne(
+      { _id: order._id },
+      {
+        $set: {
+          stockProcessingError: `Insufficient stock: ${lowStockItems.map(i => i.stockName).join(', ')}`,
+          stockProcessingFailedAt: new Date()
+        }
+      }
+    );
+    
+    return { 
+      success: false, 
+      lowStockItems,
+      message: `Insufficient stock for ${lowStockItems.length} items`
+    };
+  }
+
+  // Process with transaction (only if all stocks have sufficient quantity)
   return await withTransactionRetry(dbClient, async (session) => {
     const stillPending = await db.collection("orders").findOne(
       { _id: order._id, stockProcessed: { $ne: true } },
@@ -190,6 +259,7 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
     }
     
     const stockRecords = [];
+    const processedStockIds = [];
     
     for (const [stockIdString, ing] of allIngredients.entries()) {
       const stockId = new ObjectId(stockIdString);
@@ -238,6 +308,7 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
       
       await db.collection("used_stock").insertOne(record, { session });
       stockRecords.push(record);
+      processedStockIds.push(stockIdString);
     }
     
     // Mark order as processed
@@ -249,14 +320,18 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
           stockProcessedAt: new Date(),
           stockProcessingNote: `Processed ${stockRecords.length} stock records`
         },
-        $unset: { stockProcessingError: "" }
+        $unset: { stockProcessingError: "", stockProcessingFailedAt: "" }
       },
       { session }
     );
     
     debugLog(`✅ Order ${order.orderNumber}: ${stockRecords.length} stock records`);
     
-    return { success: true, recordsProcessed: stockRecords.length };
+    return { 
+      success: true, 
+      recordsProcessed: stockRecords.length,
+      processedStockIds
+    };
   }, 3);
 }
 
@@ -266,12 +341,16 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
 
   debugLog(`Finding up to ${batchSize} orders to process...`);
 
-  // Find orders ready for processing
+  // Find orders ready for processing (excluding previously failed ones)
   const orders = await db.collection("orders").aggregate([
     {
       $match: {
         status: { $regex: /^completed$/i },
-        "items.0": { $exists: true }
+        "items.0": { $exists: true },
+        $or: [
+          { stockProcessed: { $ne: true } },
+          { stockProcessed: { $exists: false } }
+        ]
       }
     },
     {
@@ -293,33 +372,79 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
   debugLog(`Found ${orders.length} orders to process`);
 
   if (orders.length === 0) {
-    return { totalOrders: 0, processedOrders: 0, failedOrders: 0 };
+    return { 
+      totalOrders: 0, 
+      processedOrders: 0, 
+      failedOrders: 0,
+      lowStockItems: [],
+      errors: []
+    };
   }
 
   let processed = 0;
   let failed = 0;
+  const allLowStockItems: LowStockItem[] = [];
+  const allErrors: ProcessingError[] = [];
 
   for (const order of orders) {
     try {
       const result = await processOrderStockUsage(order);
-      // Check if the result indicates success (either newly processed or already processed)
+      
       if (result.success) {
         processed++;
       } else {
         failed++;
+        
+        // Collect low stock items
+        if (result.lowStockItems && result.lowStockItems.length > 0) {
+          allLowStockItems.push(...result.lowStockItems);
+        }
+        
+        // Collect errors
+        allErrors.push({
+          orderNumber: order.orderNumber,
+          orderId: order._id.toString(),
+          error: result.message || "Processing failed"
+        });
       }
     } catch (error) {
       failed++;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      allErrors.push({
+        orderNumber: order.orderNumber,
+        orderId: order._id.toString(),
+        error: errorMessage
+      });
+      
       debugError(`Failed to process ${order.orderNumber}:`, error);
+      
+      // Update order with error info
+      await db.collection("orders").updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            stockProcessingError: errorMessage,
+            stockProcessingFailedAt: new Date()
+          }
+        }
+      );
     }
     
     // Small delay between orders
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
+  // Get unique low stock items (by stockId)
+  const uniqueLowStockItems = Array.from(
+    new Map(allLowStockItems.map(item => [item.stockId, item])).values()
+  );
+
   return {
     totalOrders: orders.length,
     processedOrders: processed,
-    failedOrders: failed
+    failedOrders: failed,
+    lowStockItems: uniqueLowStockItems,
+    errors: allErrors
   };
 }
