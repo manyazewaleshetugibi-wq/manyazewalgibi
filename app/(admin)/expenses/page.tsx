@@ -888,7 +888,7 @@ function CasualExpensesPage() {
     return dates.map(date => {
       const dateStr = format(date, 'yyyy-MM-dd')
       const dailyTotal = getFilteredExpensesByDate
-        .filter(e => e.date === dateStr && e.status === 'Paid')
+        .filter(e => e.date && e.date.startsWith(dateStr) && e.status === 'Paid')
         .reduce((sum, e) => sum + e.amount, 0)
       
       return {
@@ -2036,6 +2036,10 @@ export default function EnhancedExpensePage() {
       case '7d': return { start: subDays(now, 6), end: now }
       case '14d': return { start: subDays(now, 13), end: now }
       case '28d': return { start: subDays(now, 27), end: now }
+      case 'today': return { start: new Date(now.setHours(0,0,0,0)), end: new Date(now.setHours(23,59,59,999)) }
+      case 'yesterday': 
+        const yesterday = subDays(now, 1)
+        return { start: new Date(yesterday.setHours(0,0,0,0)), end: new Date(yesterday.setHours(23,59,59,999)) }
       case 'month': return { start: startOfMonth(now), end: now }
       default: return { start: startOfMonth(now), end: now }
     }
@@ -2058,7 +2062,7 @@ export default function EnhancedExpensePage() {
         .reduce((sum, p) => sum + p.totalAmount, 0)
       
       const casualTotal = casualExpenses
-        .filter(e => e.date === dateStr && e.status === 'Paid')
+        .filter(e => e.date && e.date.startsWith(dateStr))
         .reduce((sum, e) => sum + e.amount, 0)
       
       return {
@@ -2072,9 +2076,9 @@ export default function EnhancedExpensePage() {
   }, [commonExpenses, stockPurchases, casualExpenses, getDateRangeForDashboard])
 
   const totals = useMemo(() => {
-    const totalCasualAll = casualExpenses.reduce((sum, e) => sum + e.amount, 0)
     const totalCommon = dailyExpenseData.reduce((sum, d) => sum + d.Common, 0)
     const totalStock = dailyExpenseData.reduce((sum, d) => sum + d.Stock, 0)
+    const totalCasual = dailyExpenseData.reduce((sum, d) => sum + d.Casual, 0)
     const totalExpenses = dailyExpenseData.reduce((sum, d) => sum + d.Total, 0)
     
     let totalRevenue = 0
@@ -2094,7 +2098,7 @@ export default function EnhancedExpensePage() {
     return { 
       totalCommon, 
       totalStock, 
-      totalCasual: totalCasualAll,
+      totalCasual,
       totalExpenses, 
       totalRevenue, 
       totalProfit, 
@@ -2167,7 +2171,7 @@ export default function EnhancedExpensePage() {
           <CardContent className="p-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap gap-2">
-                {['7d', '14d', '28d', 'month'].map((filter) => (
+                {['today', 'yesterday', '7d', '14d', '28d', 'month'].map((filter) => (
                   <Button
                     key={filter}
                     variant={dateFilterType === filter ? "default" : "outline"}
@@ -2175,13 +2179,13 @@ export default function EnhancedExpensePage() {
                     onClick={() => setDateFilterType(filter as DateFilterType)}
                     className="rounded-full px-4"
                   >
-                    {filter === '7d' ? '7 Days' : filter === '14d' ? '14 Days' : filter === '28d' ? '28 Days' : 'Month'}
+                    {filter === 'today' ? 'Today' : filter === 'yesterday' ? 'Yesterday' : filter === '7d' ? '7 Days' : filter === '14d' ? '14 Days' : filter === '28d' ? '28 Days' : 'Month'}
                   </Button>
                 ))}
               </div>
               <Badge variant="secondary" className="rounded-full px-4 py-2">
                 <CalendarIcon className="h-3 w-3 mr-1" />
-                {dateFilterType === '7d' ? 'Last 7 Days' : dateFilterType === '14d' ? 'Last 14 Days' : dateFilterType === '28d' ? 'Last 28 Days' : 'This Month'}
+                {dateFilterType === 'today' ? 'Today' : dateFilterType === 'yesterday' ? 'Yesterday' : dateFilterType === '7d' ? 'Last 7 Days' : dateFilterType === '14d' ? 'Last 14 Days' : dateFilterType === '28d' ? 'Last 28 Days' : 'This Month'}
               </Badge>
             </div>
           </CardContent>
