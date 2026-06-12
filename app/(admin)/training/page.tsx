@@ -487,6 +487,11 @@ export default function TrainingPage() {
     return 100 * 1024 * 1024 // 100MB
   }
 
+  // Check if file is PDF
+  const isPdf = (url?: string) => {
+    return url?.toLowerCase().endsWith('.pdf') || false
+  }
+
   return (
     <div className="container mx-auto py-8 space-y-8">
       <div className="flex justify-between items-center">
@@ -563,7 +568,7 @@ export default function TrainingPage() {
                 <SelectItem value="image">Image</SelectItem>
                 <SelectItem value="document">Document (PDF, DOC, PPT, XLS)</SelectItem>
                 <SelectItem value="audio">Audio</SelectItem>
-                <SelectItem value="text">Text</SelectItem>
+                {/* <SelectItem value="text">Text</SelectItem> */}
               </SelectContent>
             </Select>
           </div>
@@ -855,6 +860,16 @@ export default function TrainingPage() {
                             {getIcon(training.type)}
                           </div>
                         )
+                      ) : training.type === 'document' && isPdf(training.fileUrl) ? (
+                        <div className="w-full h-full flex items-center justify-center text-center p-4">
+                          <div>
+                            <FilePdf className="w-12 h-12 mx-auto mb-2 text-red-500" />
+                            <p className="text-sm text-muted-foreground">PDF Document</p>
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{training.title}</p>
+                          </div>
+                        </div>
+                      ) : training.type === 'image' && training.fileUrl ? (
+                        <img src={training.fileUrl} alt={training.title} className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                           {getIcon(training.type)}
@@ -862,7 +877,11 @@ export default function TrainingPage() {
                       )}
                       <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                         <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                          <Play className="w-6 h-6 text-white" />
+                          {training.type === 'document' ? (
+                            <FilePdf className="w-6 h-6 text-white" />
+                          ) : (
+                            <Play className="w-6 h-6 text-white" />
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1009,8 +1028,8 @@ export default function TrainingPage() {
       <Dialog open={!!selectedTraining} onOpenChange={() => setSelectedTraining(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{selectedTraining?.title}</DialogTitle>
-            <DialogDescription>{selectedTraining?.description}</DialogDescription>
+            <DialogTitle>{selectedTraining?.title || 'Training Details'}</DialogTitle>
+            <DialogDescription>{selectedTraining?.description || ''}</DialogDescription>
           </DialogHeader>
           
           {selectedTraining && (
@@ -1022,11 +1041,11 @@ export default function TrainingPage() {
               </TabsList>
               
               <TabsContent value="preview" className="space-y-4">
-                {selectedTraining.type === "video" && selectedTraining.fileUrl && (
+                {selectedTraining?.type === "video" && selectedTraining?.fileUrl && (
                   <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-                    {getEmbedUrl(selectedTraining.fileUrl) ? (
+                    {getEmbedUrl(selectedTraining?.fileUrl) ? (
                       <iframe
-                        src={getEmbedUrl(selectedTraining.fileUrl) || ""}
+                        src={getEmbedUrl(selectedTraining?.fileUrl) || ""}
                         className="w-full h-full"
                         title={selectedTraining.title}
                         frameBorder="0"
@@ -1036,7 +1055,7 @@ export default function TrainingPage() {
                     ) : (
                       <ReactPlayer
                         ref={playerRef}
-                        url={selectedTraining.fileUrl}
+                        url={selectedTraining?.fileUrl}
                         width="100%"
                         height="100%"
                         playing={isPlaying}
@@ -1054,36 +1073,58 @@ export default function TrainingPage() {
                   </div>
                 )}
                 
-                {selectedTraining.type === "image" && selectedTraining.fileUrl && (
+                {selectedTraining?.type === "image" && selectedTraining?.fileUrl && (
                   <div className="relative rounded-lg overflow-hidden">
                     <img
-                      src={selectedTraining.fileUrl}
+                      src={selectedTraining?.fileUrl}
                       alt={selectedTraining.title}
                       className="w-full h-auto max-h-[60vh] object-contain"
                     />
                   </div>
                 )}
                 
-                {selectedTraining.type === "document" && selectedTraining.fileUrl && (
-                  <iframe
-                    src={`${selectedTraining.fileUrl}#view=fitH`}
-                    className="w-full h-[60vh] border rounded-lg"
-                    title={selectedTraining.title}
-                  />
+                {selectedTraining?.type === "document" && selectedTraining?.fileUrl && (
+                  <div className="rounded-lg overflow-hidden">
+                    {isPdf(selectedTraining?.fileUrl) ? (
+                      <iframe
+                        src={`${selectedTraining?.fileUrl}#view=fitH&toolbar=1&navpanes=1`}
+                        className="w-full h-[70vh] border-0"
+                        title={selectedTraining.title}
+                        style={{ backgroundColor: '#f5f5f5' }}
+                      >
+                        <p>Your browser doesn't support PDF embedding. 
+                          <a href={selectedTraining?.fileUrl} target="_blank" rel="noopener noreferrer">
+                            Click here to download the PDF
+                          </a>
+                        </p>
+                      </iframe>
+                    ) : (
+                      <div className="p-8 border rounded-lg text-center">
+                        <FilePdf className="w-16 h-16 mx-auto mb-4 text-red-500" />
+                        <p className="mb-4 text-muted-foreground">This document type may not be previewable in the browser.</p>
+                        <Button asChild>
+                          <a href={selectedTraining?.fileUrl} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="w-4 h-4 mr-2" />
+                            Open Document
+                          </a>
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 )}
                 
-                {selectedTraining.type === "audio" && selectedTraining.fileUrl && (
+                {selectedTraining?.type === "audio" && selectedTraining?.fileUrl && (
                   <div className="p-4 border rounded-lg">
-                    <audio controls className="w-full" src={selectedTraining.fileUrl}>
+                    <audio controls className="w-full" src={selectedTraining?.fileUrl}>
                       Your browser does not support the audio element.
                     </audio>
                   </div>
                 )}
                 
-                {selectedTraining.type === "text" && selectedTraining.fileUrl && (
+                {selectedTraining?.type === "text" && selectedTraining?.fileUrl && (
                   <div className="p-4 border rounded-lg">
                     <iframe
-                      src={selectedTraining.fileUrl}
+                      src={selectedTraining?.fileUrl}
                       className="w-full h-[60vh] border-0"
                       title={selectedTraining.title}
                     />
@@ -1095,26 +1136,26 @@ export default function TrainingPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Upload Status</Label>
-                    <div className="mt-2">{getStatusBadge(selectedTraining)}</div>
+                    <div className="mt-2">{selectedTraining && getStatusBadge(selectedTraining)}</div>
                   </div>
                   <div>
                     <Label>Progress</Label>
-                    <Progress value={selectedTraining.uploadProgress} className="mt-2" />
+                    <Progress value={selectedTraining?.uploadProgress || 0} className="mt-2" />
                   </div>
                   <div>
                     <Label>File Type</Label>
-                    <p className="mt-2 text-sm">{selectedTraining.mimeType || selectedTraining.type}</p>
+                    <p className="mt-2 text-sm">{selectedTraining?.mimeType || selectedTraining?.type}</p>
                   </div>
                   <div>
                     <Label>Format</Label>
-                    <p className="mt-2 text-sm">{selectedTraining.format || "N/A"}</p>
+                    <p className="mt-2 text-sm">{selectedTraining?.format || "N/A"}</p>
                   </div>
                 </div>
                 
-                {selectedTraining.error && (
+                {selectedTraining?.error && (
                   <div className="p-3 bg-destructive/10 rounded-lg">
                     <Label className="text-destructive">Error Details</Label>
-                    <p className="mt-1 text-sm">{selectedTraining.error}</p>
+                    <p className="mt-1 text-sm">{selectedTraining?.error}</p>
                   </div>
                 )}
               </TabsContent>
@@ -1123,43 +1164,43 @@ export default function TrainingPage() {
                 <div className="space-y-4">
                   <div>
                     <Label>File Name</Label>
-                    <p className="mt-1 text-sm">{selectedTraining.originalFileName || "N/A"}</p>
+                    <p className="mt-1 text-sm">{selectedTraining?.originalFileName || "N/A"}</p>
                   </div>
                   <div>
                     <Label>File Size</Label>
-                    <p className="mt-1 text-sm">{formatFileSize(selectedTraining.fileSize)}</p>
+                    <p className="mt-1 text-sm">{formatFileSize(selectedTraining?.fileSize)}</p>
                   </div>
                   <div>
                     <Label>Cloudinary Public ID</Label>
                     <p className="mt-1 text-sm font-mono text-muted-foreground break-all">
-                      {selectedTraining.publicId || "N/A"}
+                      {selectedTraining?.publicId || "N/A"}
                     </p>
                   </div>
                   <div>
                     <Label>Created At</Label>
-                    <p className="mt-1 text-sm">{formatDate(selectedTraining.createdAt)}</p>
+                    <p className="mt-1 text-sm">{formatDate(selectedTraining?.createdAt)}</p>
                   </div>
-                  {selectedTraining.completedAt && (
+                  {selectedTraining?.completedAt && (
                     <div>
                       <Label>Completed At</Label>
-                      <p className="mt-1 text-sm">{formatDate(selectedTraining.completedAt)}</p>
+                      <p className="mt-1 text-sm">{formatDate(selectedTraining?.completedAt)}</p>
                     </div>
                   )}
                 </div>
                 
-                {selectedTraining.fileUrl && (
+                {selectedTraining?.fileUrl && (
                   <div className="space-y-2">
                     <Label>Direct URL</Label>
                     <div className="flex gap-2">
                       <Input
-                        value={selectedTraining.fileUrl}
+                        value={selectedTraining?.fileUrl || ''}
                         readOnly
                         className="font-mono text-sm"
                       />
                       <Button
                         variant="outline"
                         size="icon"
-                        onClick={() => navigator.clipboard.writeText(selectedTraining.fileUrl!)}
+                        onClick={() => selectedTraining?.fileUrl && navigator.clipboard.writeText(selectedTraining.fileUrl)}
                       >
                         Copy
                       </Button>

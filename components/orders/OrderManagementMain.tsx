@@ -4,8 +4,18 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { toast, Toaster } from "react-hot-toast"
-import { AnimatePresence } from "framer-motion"
+import axios from "axios"
 import { format } from "date-fns"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -38,16 +48,59 @@ import {
   Trash2,
   Flag,
   Volume2,
+  CheckCircle,
+  XCircle,
+  Home,
+  ShoppingBag,
+  Building2,
+  Loader2,
+  AlertCircle,
+  Truck,
+  Lock,
 } from "lucide-react"
-import type { Order, Waitress, Restaurant, OrderStatus, StockProcessStatus } from "@/types/order"
+import type { Order, Waitress, Restaurant, OrderStatus } from "@/types/order"
 
 import { FilterBar } from "./FilterBar"
 import { OrderCard } from "./OrderCard"
-import { StockProcess } from "./StockProcess"
 import { OrderDetailModal } from "./OrderDetailModal"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
 import { SoundToggleButton, SoundControlDialog } from "./SoundControls"
 import { NotificationToast, notificationStyles } from "./NotificationToast"
+import { TableCell, TableRow } from "../ui/table"
+import { AnimatePresence } from "framer-motion"
+
+// Configure axios instance - NO TIMEOUT LIMITS
+const api = axios.create({
+  baseURL: '/api',
+  timeout: 0, // 0 means no timeout
+  headers: { 'Content-Type': 'application/json' }
+})
+
+// Add retry interceptor for 5xx server errors and network errors
+api.interceptors.response.use(undefined, async (err) => {
+  const config = err.config
+  const isServerError = err.response && err.response.status >= 500 && err.response.status <= 504
+  const isNetworkError = !err.response
+  
+  if (!config || config.retry === false || (!isServerError && !isNetworkError)) {
+    return Promise.reject(err)
+  }
+  
+  config.retryCount = config.retryCount || 0
+  
+  if (config.retryCount >= 3) {
+    console.error(`Max retries reached for ${config.url}`)
+    return Promise.reject(err)
+  }
+  
+  config.retryCount += 1
+  
+  const delayTime = 1000 * Math.pow(2, config.retryCount - 1)
+  console.log(`Retrying ${config.url} (attempt ${config.retryCount}) in ${delayTime}ms...`)
+  
+  await new Promise(resolve => setTimeout(resolve, delayTime))
+  return api(config)
+})
 
 // Helper functions
 const isAdminUser = (role: string | undefined): boolean => {
@@ -60,12 +113,12 @@ const isOrderEdited = (order: Order): boolean => {
   return !!(order.orderItems && order.orderItems.length > 0)
 }
 
+// Fetch restaurants - NO TIMEOUT
 const fetchRestaurants = async (): Promise<Restaurant[]> => {
   try {
-    const response = await fetch('/api/restaurants')
-    const data = await response.json()
-    if (data.success && Array.isArray(data.data)) {
-      return data.data.filter((r: Restaurant) => r.isActive !== false)
+    const response = await api.get('/restaurants')
+    if (response.data.success && Array.isArray(response.data.data)) {
+      return response.data.data.filter((r: Restaurant) => r.isActive !== false)
     }
     return []
   } catch (error) {
@@ -91,10 +144,6 @@ const getRestaurantById = (restaurants: Restaurant[], restaurantId?: string): Re
   return restaurants.find(r => r._id === restaurantId) || null
 }
 
-const prefetchCommonItemCombinations = async (orders: Order[]) => {
-  // Implementation for prefetching items if needed
-}
-
 export default function OrderManagementMain() {
   const { data: session } = useSession()
   
@@ -104,31 +153,40 @@ export default function OrderManagementMain() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingRestaurants, setLoadingRestaurants] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | null>(null)
+  const [waitressFilter, setWaitressFilter] = useState<string | null>(null)
+  const [restaurantFilter, setRestaurantFilter] = useState<string | null>(null)
+  const [orderTypeFilter, setOrderTypeFilter] = useState<string | null>(null)
+  const [dateFilter, setDateFilter] = useState<Date | null>(null)
+  const [sortField, setSortField] = useState<keyof Order>("createdAt")
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [viewMode, setViewMode] = useState<"list" | "grid">("grid")
+  const [showMarkedOnly, setShowMarkedOnly] = useState(false)
   const [filterInfo, setFilterInfo] = useState<{
     isAdmin: boolean
     timeFilterHours: number | null
     message: string
   } | null>(null)
   
-  // Filter states
-  const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | null>(null)
-  const [stockStatusFilter, setStockStatusFilter] = useState<StockProcessStatus | "ALL">("ALL")
-  const [restaurantFilter, setRestaurantFilter] = useState<string | null>(null)
-  const [orderTypeFilter, setOrderTypeFilter] = useState<string | null>(null)
-  const [waitressFilter, setWaitressFilter] = useState<string | null>(null)
-  const [dateFilter, setDateFilter] = useState<Date | null>(null)
-  const [showMarkedOnly, setShowMarkedOnly] = useState(false)
-  const [sortField] = useState<keyof Order>("createdAt")
-  const [sortDirection] = useState<"asc" | "desc">("desc")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [viewMode, setViewMode] = useState<"list" | "grid">("grid")
+  // Stock processing states
+  const [pendingStockCount, setPendingStockCount] = useState<number>(0)
+  const [failedStockCount, setFailedStockCount] = useState<number>(0)
+  const [failedOrdersList, setFailedOrdersList] = useState<Order[]>([])
+  const [pendingOrdersList, setPendingOrdersList] = useState<Order[]>([])
+  const [processingStock, setProcessingStock] = useState<boolean>(false)
+  const [stockError, setStockError] = useState<string | null>(null)
+  const [showConfirmDialog, setShowConfirmDialog] = useState<boolean>(false)
+  const [showFailedDetails, setShowFailedDetails] = useState<boolean>(false)
   
-  // Notification state
+  // Sound states
   const [showNotification, setShowNotification] = useState(false)
   const [notificationData, setNotificationData] = useState({ title: "", message: "" })
   const [soundInitialized, setSoundInitialized] = useState(false)
   const [showEnableSoundButton, setShowEnableSoundButton] = useState(false)
+  const [lastSoundPlayTime, setLastSoundPlayTime] = useState<number>(0)
   
   const itemsPerPage = 12
   const userRole = session?.user?.role
@@ -138,10 +196,11 @@ export default function OrderManagementMain() {
     : null
 
   // Refs for polling
-  const lastOrderIdsRef = useRef<string[]>([])
+  const lastOrderIdsRef = useRef<Set<string>>(new Set())
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastFetchTimeRef = useRef<string>(new Date().toISOString())
   const isMountedRef = useRef<boolean>(true)
+  const soundQueueRef = useRef<number[]>([])
 
   // Sound hook
   const {
@@ -149,88 +208,51 @@ export default function OrderManagementMain() {
     stop: stopNotificationSound,
     isEnabled: soundEnabled,
     setIsEnabled: setSoundEnabled,
-    isReady: soundReady,
     volume,
     setVolume,
   } = useNotificationSound()
 
-  // Stock process hook
-  const {
-    pendingStockCount,
-    failedStockCount,
-    StockStatusBadge,
-    StockConfirmDialog,
-    setShowConfirmDialog,
-    checkPendingStockOrders,
-  } = StockProcess({ onStockProcessed: () => fetchOrders(false) })
-
-  // Initialize sound on user click
-  const initializeSound = useCallback(async () => {
-    if (!soundInitialized) {
-      try {
-        await playNotificationSound()
-        setSoundInitialized(true)
-        setShowEnableSoundButton(false)
-        toast.success("🔊 Sound enabled! You will now hear notifications.", {
-          icon: "🔔",
-          duration: 3000,
-        })
-      } catch (error) {
-        setShowEnableSoundButton(true)
-      }
-    }
-  }, [playNotificationSound, soundInitialized])
-
-  // Auto-initialize sound on first user interaction
-  useEffect(() => {
-    const handleFirstInteraction = () => {
-      if (!soundInitialized) {
-        initializeSound()
-      }
-      document.removeEventListener('click', handleFirstInteraction)
-      document.removeEventListener('keydown', handleFirstInteraction)
+  // Enhanced sound play function with debouncing and queue handling
+  const safePlaySound = useCallback(async () => {
+    if (!soundEnabled || !soundInitialized) {
+      return false
     }
     
-    document.addEventListener('click', handleFirstInteraction)
-    document.addEventListener('keydown', handleFirstInteraction)
-    
-    const timer = setTimeout(() => {
-      if (!soundInitialized) {
-        setShowEnableSoundButton(true)
-      }
-    }, 3000)
-    
-    return () => {
-      document.removeEventListener('click', handleFirstInteraction)
-      document.removeEventListener('keydown', handleFirstInteraction)
-      clearTimeout(timer)
+    // Debounce: Don't play more than once every 2 seconds
+    const now = Date.now()
+    if (now - lastSoundPlayTime < 2000) {
+      soundQueueRef.current.push(now)
+      setTimeout(() => {
+        if (soundQueueRef.current.length > 0 && isMountedRef.current) {
+          soundQueueRef.current = []
+          safePlaySound()
+        }
+      }, 2000 - (now - lastSoundPlayTime))
+      return false
     }
-  }, [soundInitialized, initializeSound])
-
-  // Fetch waitresses
-  const fetchWaitresses = useCallback(async () => {
+    
     try {
-      const response = await fetch("/api/waitress")
-      if (!response.ok) throw new Error("Failed to fetch waitresses")
-      const data = await response.json()
-      if (isMountedRef.current) {
-        setWaitresses(data || [])
+      const result = await playNotificationSound()
+      if (result !== false) {
+        setLastSoundPlayTime(now)
       }
+      return result !== false
     } catch (error) {
-      console.error("Error fetching waitresses:", error)
-      toast.error("Failed to fetch waitresses")
+      console.error("Sound play error:", error)
+      return false
     }
-  }, [])
+  }, [playNotificationSound, soundEnabled, soundInitialized, lastSoundPlayTime])
 
-  // Fetch orders
+  // ========== FETCH ORDERS ==========
   const fetchOrders = useCallback(
     async (showLoading = true) => {
       if (showLoading) setLoading(true)
+      
       try {
-        const url = isAdmin ? "/api/order?all=true" : "/api/order"
-        const response = await fetch(url)
-        if (!response.ok) throw new Error("Failed to fetch orders")
-        const data = await response.json()
+        const url = isAdmin ? "/order?all=true" : "/order"
+        const response = await api.get(url)
+        
+        const data = response.data
 
         if (data.filterInfo) {
           setFilterInfo(data.filterInfo)
@@ -244,21 +266,186 @@ export default function OrderManagementMain() {
 
         if (isMountedRef.current) {
           setOrders(ordersWithFlags)
-          lastOrderIdsRef.current = ordersWithFlags.map((order: Order) => order._id)
+          setTotalPages(Math.ceil(ordersWithFlags.length / itemsPerPage))
+          
+          const newOrderIds = new Set(ordersWithFlags.map((order: Order) => order._id))
+          lastOrderIdsRef.current = newOrderIds
           lastFetchTimeRef.current = new Date().toISOString()
-          await prefetchCommonItemCombinations(ordersWithFlags)
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching orders:", error)
-        if (showLoading) toast.error("Failed to fetch orders")
+        if (showLoading && isMountedRef.current) {
+          if (error.response?.status === 500) {
+            toast.error("Server error. Please try again in a moment.")
+          } else {
+            toast.error("Failed to fetch orders")
+          }
+        }
       } finally {
         if (showLoading && isMountedRef.current) setLoading(false)
       }
     },
-    [isAdmin]
+    [isAdmin, itemsPerPage]
   )
 
-  // Load restaurants
+  // ========== CHECK PENDING STOCK ORDERS ==========
+  const checkPendingStockOrders = useCallback(async () => {
+    try {
+      const response = await api.get('/order?all=true&status=COMPLETED')
+      
+      const completedOrders = response.data.orders || []
+      const pending = completedOrders.filter(
+        (order: Order) => order.status === "COMPLETED" && !order.stockProcessed && !order.stockProcessingError
+      )
+      const failed = completedOrders.filter(
+        (order: Order) => order.status === "COMPLETED" && !order.stockProcessed && order.stockProcessingError
+      )
+      
+      if (isMountedRef.current) {
+        setPendingStockCount(pending.length)
+        setFailedStockCount(failed.length)
+        setPendingOrdersList(pending)
+        setFailedOrdersList(failed)
+        
+        if (pending.length === 0 && failed.length === 0) {
+          setStockError(null)
+        }
+      }
+    } catch (error: any) {
+      console.error('Error checking pending stock:', error)
+      if (isMountedRef.current) {
+        setStockError('Failed to check')
+      }
+    }
+  }, [])
+
+  // ========== HANDLE PROCESS STOCK ==========
+  const handleProcessStock = useCallback(async () => {
+    setProcessingStock(true)
+    setStockError(null)
+    
+    const loadingToast = toast.loading('Processing stock...')
+    
+    try {
+      const response = await api.get('/cron/process-stock')
+      const result = response.data
+      
+      toast.dismiss(loadingToast)
+      
+      if (result.success) {
+        const processed = result.processedOrders || 0
+        const failed = result.failedOrders || 0
+        
+        if (processed > 0) {
+          toast.success(`✅ Successfully processed ${processed} orders!`)
+          await safePlaySound()
+        }
+        if (failed > 0) {
+          toast.error(`⚠️ ${failed} orders failed to process`, { duration: 8000 })
+          if (result.errors && result.errors.length > 0) {
+            console.error('Failed orders:', result.errors)
+          }
+        }
+        if (processed === 0 && failed === 0) {
+          toast('No pending orders to process', { icon: 'ℹ️' })
+        }
+        
+        setTimeout(() => {
+          checkPendingStockOrders()
+          fetchOrders(false)
+        }, 2000)
+      } else {
+        throw new Error(result.error || 'Processing failed')
+      }
+    } catch (error: any) {
+      toast.dismiss(loadingToast)
+      console.error('Error processing stock:', error)
+      if (error.response?.status === 500) {
+        toast.error('Server connection issue. Please try again in a moment.')
+      } else {
+        toast.error('Failed to process stock. Please try again.')
+      }
+      setStockError('Error')
+    } finally {
+      setProcessingStock(false)
+      setShowConfirmDialog(false)
+    }
+  }, [checkPendingStockOrders, fetchOrders, safePlaySound])
+
+  // ========== INITIALIZE SOUND ==========
+  const initializeSound = useCallback(async () => {
+    if (!soundInitialized && soundEnabled) {
+      try {
+        await playNotificationSound()
+        setSoundInitialized(true)
+        setShowEnableSoundButton(false)
+        toast.success("🔊 Sound enabled! You will now hear notifications for new orders.", {
+          icon: "🔔",
+          duration: 3000,
+        })
+      } catch (error) {
+        console.error("Failed to initialize sound:", error)
+        setShowEnableSoundButton(true)
+        setSoundInitialized(false)
+      }
+    }
+  }, [playNotificationSound, soundInitialized, soundEnabled])
+
+  // Auto-initialize sound on first user interaction
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+      if (!soundInitialized && soundEnabled) {
+        initializeSound()
+      }
+      document.removeEventListener('click', handleFirstInteraction)
+      document.removeEventListener('keydown', handleFirstInteraction)
+      document.removeEventListener('touchstart', handleFirstInteraction)
+    }
+    
+    document.addEventListener('click', handleFirstInteraction)
+    document.addEventListener('keydown', handleFirstInteraction)
+    document.addEventListener('touchstart', handleFirstInteraction)
+    
+    const timer = setTimeout(() => {
+      if (!soundInitialized && isMountedRef.current && soundEnabled) {
+        setShowEnableSoundButton(true)
+      }
+    }, 3000)
+    
+    return () => {
+      document.removeEventListener('click', handleFirstInteraction)
+      document.removeEventListener('keydown', handleFirstInteraction)
+      document.removeEventListener('touchstart', handleFirstInteraction)
+      clearTimeout(timer)
+    }
+  }, [soundInitialized, initializeSound, soundEnabled])
+
+  // Auto-refresh pending stock count every 30 seconds
+  useEffect(() => {
+    checkPendingStockOrders()
+    const interval = setInterval(() => {
+      checkPendingStockOrders()
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [checkPendingStockOrders])
+
+  // ========== FETCH WAITRESSES ==========
+  const fetchWaitresses = useCallback(async () => {
+    try {
+      const response = await api.get('/waitress')
+      
+      if (isMountedRef.current) {
+        setWaitresses(response.data || [])
+      }
+    } catch (error: any) {
+      console.error("Error fetching waitresses:", error)
+      if (isMountedRef.current) {
+        setWaitresses([])
+      }
+    }
+  }, [])
+
+  // ========== LOAD RESTAURANTS ==========
   const loadRestaurants = useCallback(async () => {
     try {
       const data = await fetchRestaurants()
@@ -272,17 +459,17 @@ export default function OrderManagementMain() {
     }
   }, [])
 
-  // Poll for new orders
+  // ========== POLL NEW ORDERS ==========
   const pollNewOrders = useCallback(async () => {
     if (!isMountedRef.current) return
+    
     try {
       const url = isAdmin
-        ? `/api/order?all=true&after=${lastFetchTimeRef.current}`
-        : `/api/order?after=${lastFetchTimeRef.current}`
-      const response = await fetch(url)
-      if (!response.ok) throw new Error("Failed to fetch new orders")
-      const data = await response.json()
-      const newOrders = (data.orders || []).map((order: Order) => ({
+        ? `/order?all=true&after=${lastFetchTimeRef.current}`
+        : `/order?after=${lastFetchTimeRef.current}`
+      const response = await api.get(url)
+      
+      const newOrders = (response.data.orders || []).map((order: Order) => ({
         ...order,
         isEdited: isOrderEdited(order),
         markedForDeletion: order.markedForDeletion || false,
@@ -290,120 +477,149 @@ export default function OrderManagementMain() {
 
       if (newOrders.length > 0 && isMountedRef.current) {
         const trulyNewOrders = newOrders.filter(
-          (order: Order) => !lastOrderIdsRef.current.includes(order._id)
+          (order: Order) => !lastOrderIdsRef.current.has(order._id)
         )
+        
         if (trulyNewOrders.length > 0) {
-          trulyNewOrders.forEach((order: Order) => {
-            if (soundInitialized) {
-              playNotificationSound()
+          // Play sound for new orders
+          const playSoundWithRetry = async (retries = 2) => {
+            if (soundEnabled) {
+              try {
+                if (!soundInitialized) {
+                  await initializeSound()
+                }
+                await safePlaySound()
+              } catch (error) {
+                console.error("Failed to play notification sound:", error)
+                if (retries > 0) {
+                  setTimeout(() => playSoundWithRetry(retries - 1), 500)
+                }
+              }
             }
-            
+          }
+          
+          playSoundWithRetry()
+          
+          // Show notifications for new orders
+          trulyNewOrders.slice(0, 3).forEach((order: Order, index: number) => {
             const orderType = order.inTable ? "In-Table" : order.delivery ? "Delivery" : "POS"
-            const restaurant = restaurants.find(r => r._id === order.restaurantId)
-            const restaurantName = restaurant?.name || order.restaurantName || "Unknown"
+            const message = `New ${orderType} order #${order.orderNumber} from ${order.customerName || "Walk-in"}`
             
-            setNotificationData({
-              title: `New ${orderType} Order #${order.orderNumber}`,
-              message: `${restaurantName} | Table ${order.tableNumber} | ${order.items?.length || 0} items`,
-            })
-            setShowNotification(true)
-            setTimeout(() => setShowNotification(false), 4000)
-            
-            toast.success(`New ${orderType} order #${order.orderNumber}!`, {
+            toast.success(message, {
               duration: 5000,
               icon: "🔔",
             })
+            
+            if (index === 0) {
+              setNotificationData({
+                title: "New Order Arrived! 🎉",
+                message: `${orderType} order #${order.orderNumber}\nTotal: ${order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}`
+              })
+              setShowNotification(true)
+              setTimeout(() => setShowNotification(false), 5000)
+            }
           })
+          
+          setOrders(prev => {
+            const updatedOrders = [...trulyNewOrders, ...prev]
+            trulyNewOrders.forEach(order => {
+              lastOrderIdsRef.current.add(order._id)
+            })
+            return updatedOrders
+          })
+          
+          lastFetchTimeRef.current = new Date().toISOString()
+          await checkPendingStockOrders()
         }
-        await fetchOrders(false)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error polling new orders:", error)
     }
-  }, [playNotificationSound, fetchOrders, isAdmin, restaurants, soundInitialized])
+  }, [isAdmin, soundEnabled, soundInitialized, safePlaySound, checkPendingStockOrders, initializeSound])
 
-  // Handle status update
+  // ========== HANDLE STATUS UPDATE ==========
   const handleStatusUpdate = async (orderId: string, newStatus: OrderStatus) => {
-    const order = orders.find(o => o._id === orderId)
-    if (order?.markedForDeletion) {
-      toast.error("Cannot update status: Order is marked for deletion")
-      return
-    }
-    if (order?.status === "COMPLETED" || order?.status === "CANCELLED") {
-      toast.error(`Cannot update status: Order is already ${order.status.toLowerCase()}`)
-      return
-    }
-
     const loadingToast = toast.loading(`Updating order status to ${newStatus}...`)
     
     try {
-      const response = await fetch(`/api/order`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId, status: newStatus }),
-      })
+      const response = await api.patch('/order', { orderId, status: newStatus })
+      const data = response.data
       
-      const data = await response.json()
       toast.dismiss(loadingToast)
-      
-      if (!response.ok) throw new Error(data.error || "Failed to update order status")
-      
-      toast.success(data.message || `Order status updated to ${newStatus} successfully`)
+      toast.success(data.message || "Order status updated successfully")
       
       if (newStatus === "COMPLETED" && data.completedBy) {
         toast.success(`Order completed by ${data.completedBy.name}`, { duration: 3000 })
-        if (soundInitialized) playNotificationSound()
+        await safePlaySound()
       }
+      
+      setOrders(prev => prev.map((o: Order) => o._id === orderId ? { ...o, status: newStatus } : o))
       
       await fetchOrders(false)
       await checkPendingStockOrders()
-    } catch (error) {
+    } catch (error: any) {
       toast.dismiss(loadingToast)
       console.error("Error updating order status:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to update order status")
+      if (error.response?.status === 500) {
+        toast.error("Server error. Please try again.")
+      } else {
+        toast.error("Failed to update order status")
+      }
     }
   }
 
-  // Handle delete order
+  // ========== HANDLE DELETE ORDER ==========
   const handleDeleteOrder = async (orderId: string) => {
     if (!isAdmin) {
       toast.error("Only administrators can delete orders")
       return
     }
+    
+    const loadingToast = toast.loading("Deleting order...")
+    
     try {
-      const response = await fetch(`/api/order?id=${orderId}&reason=Admin deletion from UI`, { 
-        method: "DELETE" 
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || "Failed to delete order")
-      toast.success(data.message || "Order deleted successfully")
-      fetchOrders(false)
-      checkPendingStockOrders()
-    } catch (error) {
+      await api.delete(`/order?id=${orderId}&reason=Admin deletion from UI`)
+      toast.dismiss(loadingToast)
+      toast.success("Order deleted successfully")
+      
+      setOrders(prev => prev.filter(o => o._id !== orderId))
+      lastOrderIdsRef.current.delete(orderId)
+      
+      await fetchOrders(false)
+      await checkPendingStockOrders()
+    } catch (error: any) {
+      toast.dismiss(loadingToast)
       console.error("Error deleting order:", error)
-      toast.error("Failed to delete order")
+      if (error.response?.status === 500) {
+        toast.error("Server error. Please try again.")
+      } else {
+        toast.error("Failed to delete order")
+      }
     }
   }
 
-  // Handle mark for deletion
+  // ========== HANDLE MARK FOR DELETION ==========
   const handleMarkForDeletion = useCallback(
     async (orderId: string, reason: string) => {
+      const loadingToast = toast.loading("Marking order for deletion...")
+      
       try {
-        const response = await fetch(`/api/order`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderId,
-            action: "mark-for-deletion",
-            reason,
-            requestedBy: session?.user?.name || session?.user?.email || "Unknown User",
-            requestedAt: new Date().toISOString(),
-          }),
+        await api.patch('/order', {
+          orderId,
+          action: "mark-for-deletion",
+          reason,
+          requestedBy: session?.user?.name || session?.user?.email || "Unknown User",
+          requestedAt: new Date().toISOString(),
         })
-        if (!response.ok) throw new Error("Failed to mark order for deletion")
+        
+        toast.dismiss(loadingToast)
         toast.success("Order has been marked for deletion")
-        fetchOrders(false)
-      } catch (error) {
+        
+        setOrders(prev => prev.map(o => o._id === orderId ? { ...o, markedForDeletion: true, deletionRequestReason: reason } : o))
+        
+        await fetchOrders(false)
+      } catch (error: any) {
+        toast.dismiss(loadingToast)
         console.error("Error marking order for deletion:", error)
         toast.error("Failed to mark order for deletion")
       }
@@ -411,25 +627,19 @@ export default function OrderManagementMain() {
     [fetchOrders, session]
   )
 
-  // Handle toggle item uneditable
+  // ========== HANDLE TOGGLE ITEM UNEDITABLE ==========
   const handleToggleItemUneditable = useCallback(
     async (orderId: string, itemIndex: number, isUneditable: boolean) => {
       try {
-        const response = await fetch(`/api/order`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderId,
-            action: "toggle-item-uneditable",
-            itemIndex,
-            isUneditable,
-            uneditableBy: session?.user?.name || session?.user?.email || "Unknown",
-          }),
+        const response = await api.patch('/order', {
+          orderId,
+          action: "toggle-item-uneditable",
+          itemIndex,
+          isUneditable,
+          uneditableBy: session?.user?.name || session?.user?.email || "Unknown",
         })
 
-        const data = await response.json()
-        if (!response.ok) throw new Error("Failed to update item status")
-
+        const data = response.data
         toast.success(data.message || `Item marked as ${isUneditable ? "uneditable" : "editable"}`)
 
         setOrders((prevOrders) =>
@@ -442,7 +652,9 @@ export default function OrderManagementMain() {
                   ...updatedItems[itemIndex],
                   isUneditable,
                   uneditableAt: isUneditable ? new Date().toISOString() : undefined,
-                  uneditableBy: isUneditable ? session?.user?.name || session?.user?.email : undefined,
+                  uneditableBy: isUneditable
+                    ? session?.user?.name || session?.user?.email
+                    : undefined,
                 }
               }
               return { ...order, items: updatedItems, orderItems: updatedItems }
@@ -450,8 +662,9 @@ export default function OrderManagementMain() {
             return order
           })
         )
+
         setTimeout(() => fetchOrders(false), 500)
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error toggling item uneditable status:", error)
         toast.error(error instanceof Error ? error.message : "Failed to update item status")
       }
@@ -459,32 +672,171 @@ export default function OrderManagementMain() {
     [fetchOrders, session]
   )
 
-  // Handle retry stock for specific order
+  // ========== HANDLE RETRY STOCK FOR ORDER ==========
   const handleRetryStockForOrder = useCallback(
     async (orderId: string) => {
+      const loadingToast = toast.loading("Retrying stock processing...")
+      
       try {
-        const response = await fetch('/api/cron/process-stock', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId })
-        })
-        const result = await response.json()
-        if (result.success) {
-          toast.success(`Retried stock processing for order`)
-          fetchOrders(false)
-          checkPendingStockOrders()
+        const response = await api.post('/cron/process-stock', { orderId })
+        const result = response.data
+        
+        toast.dismiss(loadingToast)
+        
+        if (result.success && result.processedOrders > 0) {
+          toast.success(`✅ Stock processed successfully for order!`)
+          await fetchOrders(false)
+          await checkPendingStockOrders()
+          await safePlaySound()
+        } else if (result.success && result.processedOrders === 0) {
+          toast.info(`No pending stock to process for this order`)
         } else {
           throw new Error(result.error || 'Retry failed')
         }
-      } catch (error) {
+      } catch (error: any) {
+        toast.dismiss(loadingToast)
         console.error('Error retrying stock:', error)
-        toast.error('Failed to retry stock processing')
+        if (error.response?.status === 500) {
+          toast.error("Server connection issue. Please try again.")
+        } else {
+          toast.error('Failed to retry stock processing')
+        }
       }
     },
-    [fetchOrders, checkPendingStockOrders]
+    [fetchOrders, checkPendingStockOrders, safePlaySound]
   )
 
-  // Filtered and sorted orders
+  // ========== STOCK STATUS BADGE ==========
+  const StockStatusBadge = ({ order }: { order: Order }) => {
+    if (order.stockProcessed) {
+      return (
+        <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+          <CheckCircle className="h-3 w-3 mr-1" />
+          Stock Processed
+        </Badge>
+      )
+    } else if (order.stockProcessingError) {
+      return (
+        <Badge variant="outline" className="bg-red-100 text-red-800 border-red-200 cursor-help" title={order.stockProcessingError}>
+          <XCircle className="h-3 w-3 mr-1" />
+          Stock Failed
+        </Badge>
+      )
+    } else if (order.status === "COMPLETED") {
+      return (
+        <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-200">
+          <Clock className="h-3 w-3 mr-1" />
+          Pending Stock
+        </Badge>
+      )
+    }
+    return null
+  }
+
+  // ========== STOCK CONFIRM DIALOG ==========
+  const StockConfirmDialogComponent = () => (
+    <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+      <AlertDialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Process Stock for {pendingStockCount} Orders?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will deduct stock quantities for {pendingStockCount} completed order(s).
+            This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        
+        {failedStockCount > 0 && (
+          <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-red-800 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                {failedStockCount} Order(s) Previously Failed
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFailedDetails(!showFailedDetails)}
+                className="text-red-600 border-red-300 hover:bg-red-100"
+              >
+                {showFailedDetails ? "Hide Details" : "Show Details"}
+              </Button>
+            </div>
+            
+            {showFailedDetails && (
+              <div className="space-y-3 max-h-60 overflow-y-auto">
+                {failedOrdersList.map((order) => (
+                  <div key={order._id} className="bg-white rounded-lg p-3 border border-red-200">
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="font-semibold text-red-800">Order #{order.orderNumber}</p>
+                      <Badge variant="outline" className="bg-red-100 text-red-800">
+                        Failed
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-red-700 mb-2">
+                      <span className="font-medium">Error:</span> {order.stockProcessingError}
+                    </p>
+                    {order.stockProcessingFailedAt && (
+                      <p className="text-xs text-red-500">
+                        Failed at: {new Date(order.stockProcessingFailedAt).toLocaleString()}
+                      </p>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowConfirmDialog(false)
+                        handleRetryStockForOrder(order._id)
+                      }}
+                      className="mt-2 text-red-600 border-red-300 hover:bg-red-50"
+                    >
+                      <RefreshCcw className="h-3 w-3 mr-1" />
+                      Retry This Order
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        
+        <AlertDialogFooter className="flex gap-2">
+          <AlertDialogCancel onClick={() => setShowConfirmDialog(false)}>
+            Cancel
+          </AlertDialogCancel>
+          {failedStockCount > 0 && (
+            <Button
+              onClick={() => {
+                setShowConfirmDialog(false)
+                failedOrdersList.forEach(order => handleRetryStockForOrder(order._id))
+              }}
+              disabled={processingStock}
+              variant="outline"
+              className="gap-2"
+            >
+              <RefreshCcw className={`h-4 w-4 ${processingStock ? "animate-spin" : ""}`} />
+              Retry All Failed ({failedStockCount})
+            </Button>
+          )}
+          <AlertDialogAction
+            onClick={handleProcessStock}
+            className="bg-green-600 hover:bg-green-700"
+            disabled={processingStock || pendingStockCount === 0}
+          >
+            {processingStock ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              "Yes, Process Stock"
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+
+  // ========== FILTERED ORDERS ==========
   const filteredAndSortedOrders = useMemo(() => {
     let filtered = orders.filter((order) => {
       if (order.deletedAt) return false
@@ -503,17 +855,6 @@ export default function OrderManagementMain() {
         (orderTypeFilter === "pos" && !order.inTable && !order.delivery)
       const matchesMarked = !showMarkedOnly || order.markedForDeletion === true
 
-      let matchesStockStatus = true
-      if (stockStatusFilter !== "ALL") {
-        if (stockStatusFilter === "PROCESSED") {
-          matchesStockStatus = order.stockProcessed === true
-        } else if (stockStatusFilter === "PENDING") {
-          matchesStockStatus = order.status === "COMPLETED" && !order.stockProcessed && !order.stockProcessingError
-        } else if (stockStatusFilter === "FAILED") {
-          matchesStockStatus = !order.stockProcessed && !!order.stockProcessingError
-        }
-      }
-
       let matchesRestaurant = true
       if (restaurantFilter) {
         const orderRestaurantId = getOrderRestaurantId(order)
@@ -524,7 +865,7 @@ export default function OrderManagementMain() {
       }
 
       return matchesSearch && matchesStatus && matchesWaitress && matchesDate && 
-             matchesType && matchesRestaurant && matchesMarked && matchesStockStatus
+             matchesType && matchesRestaurant && matchesMarked
     })
 
     filtered.sort((a, b) => {
@@ -539,23 +880,24 @@ export default function OrderManagementMain() {
     })
 
     return filtered
-  }, [orders, searchTerm, statusFilter, stockStatusFilter, waitressFilter, restaurantFilter, 
-      dateFilter, orderTypeFilter, sortField, sortDirection, showMarkedOnly, restaurants])
-
-  const totalPages = Math.ceil(filteredAndSortedOrders.length / itemsPerPage)
+  }, [orders, searchTerm, statusFilter, waitressFilter, restaurantFilter, dateFilter, 
+      orderTypeFilter, sortField, sortDirection, showMarkedOnly, restaurants])
 
   useEffect(() => {
+    setTotalPages(Math.ceil(filteredAndSortedOrders.length / itemsPerPage))
     setCurrentPage(1)
-  }, [filteredAndSortedOrders.length])
+  }, [filteredAndSortedOrders.length, itemsPerPage])
 
   const paginatedOrders = useMemo(() => {
-    return filteredAndSortedOrders.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+    return filteredAndSortedOrders.slice(
+      (currentPage - 1) * itemsPerPage,
+      currentPage * itemsPerPage
+    )
   }, [filteredAndSortedOrders, currentPage, itemsPerPage])
 
   const handleClearFilters = useCallback(() => {
     setSearchTerm("")
     setStatusFilter(null)
-    setStockStatusFilter("ALL")
     setWaitressFilter(null)
     setRestaurantFilter(null)
     setOrderTypeFilter(null)
@@ -563,16 +905,24 @@ export default function OrderManagementMain() {
     setShowMarkedOnly(false)
   }, [])
 
-  // Initialize
+  // ========== INITIALIZE ==========
   useEffect(() => {
     isMountedRef.current = true
+    
     const initialize = async () => {
-      await Promise.all([fetchOrders(true), fetchWaitresses(), loadRestaurants()])
+      await Promise.allSettled([
+        fetchOrders(true),
+        loadRestaurants(),
+        fetchWaitresses()
+      ])
+      
       pollingIntervalRef.current = setInterval(() => {
         pollNewOrders()
       }, 30000)
     }
+    
     initialize()
+    
     return () => {
       isMountedRef.current = false
       if (pollingIntervalRef.current) {
@@ -580,6 +930,92 @@ export default function OrderManagementMain() {
       }
     }
   }, [fetchOrders, fetchWaitresses, loadRestaurants, pollNewOrders])
+
+  // ========== STATUS OPTIONS ==========
+  const statusOptions: OrderStatus[] = [
+    "PENDING",
+    "CONFIRMED",
+    "PREPARING",
+    "PICKUP",
+    "SERVED",
+    "COMPLETED",
+    "CANCELLED",
+  ]
+
+  const statusIcons: Record<OrderStatus, React.ReactNode> = {
+    PENDING: <Clock className="h-4 w-4" />,
+    CONFIRMED: <span className="h-4 w-4">✓</span>,
+    PREPARING: <span className="h-4 w-4">👨‍🍳</span>,
+    PICKUP: <span className="h-4 w-4">🚚</span>,
+    SERVED: <span className="h-4 w-4">☕</span>,
+    COMPLETED: <CheckCircle className="h-4 w-4" />,
+    CANCELLED: <XCircle className="h-4 w-4" />,
+  }
+
+  const statusColors: Record<OrderStatus, string> = {
+    PENDING: "bg-yellow-100 text-yellow-800",
+    CONFIRMED: "bg-blue-100 text-blue-800",
+    PREPARING: "bg-purple-100 text-purple-800",
+    PICKUP: "bg-indigo-100 text-indigo-800",
+    SERVED: "bg-green-100 text-green-800",
+    COMPLETED: "bg-teal-100 text-teal-800",
+    CANCELLED: "bg-red-100 text-red-800",
+  }
+
+  const getOrderTypeDisplay = (order: Order) => {
+    if (order.inTable === true) {
+      return (
+        <Badge variant="outline" className="bg-green-100 text-green-800">
+          <Home className="h-3 w-3 mr-1" />
+          In-Table
+        </Badge>
+      )
+    } else if (order.delivery === true) {
+      return (
+        <Badge variant="outline" className="bg-blue-100 text-blue-800">
+          <Truck className="h-3 w-3 mr-1" />
+          Delivery
+        </Badge>
+      )
+    } else {
+      return (
+        <Badge variant="outline" className="bg-purple-100 text-purple-800">
+          <ShoppingBag className="h-3 w-3 mr-1" />
+          POS
+        </Badge>
+      )
+    }
+  }
+
+  const getRestaurantDisplay = (order: Order) => {
+    const orderRestaurantId = getOrderRestaurantId(order)
+    const restaurant = getRestaurantById(restaurants, orderRestaurantId || undefined)
+    
+    if (restaurant) {
+      return (
+        <Badge variant="outline" className="bg-indigo-100 text-indigo-800">
+          <Building2 className="h-3 w-3 mr-1" />
+          {restaurant.name}
+        </Badge>
+      )
+    }
+    
+    if (order.restaurantName) {
+      return (
+        <Badge variant="outline" className="bg-gray-100 text-gray-800">
+          <Building2 className="h-3 w-3 mr-1" />
+          {order.restaurantName}
+        </Badge>
+      )
+    }
+    
+    return (
+      <Badge variant="outline" className="bg-gray-100 text-gray-800">
+        <Building2 className="h-3 w-3 mr-1" />
+        Unknown
+      </Badge>
+    )
+  }
 
   if (!session) {
     return (
@@ -609,12 +1045,11 @@ export default function OrderManagementMain() {
         )}
       </AnimatePresence>
 
-      {/* Sound initialization alert */}
-      {showEnableSoundButton && !soundInitialized && (
+      {showEnableSoundButton && !soundInitialized && soundEnabled && (
         <Alert className="bg-yellow-50 border-yellow-200">
           <Volume2 className="h-4 w-4 text-yellow-600" />
           <AlertDescription className="text-yellow-800 flex items-center justify-between">
-            <span>Click anywhere or use the button below to enable sound notifications</span>
+            <span>Click anywhere or use the button below to enable sound notifications for new orders</span>
             <Button onClick={initializeSound} size="sm" className="bg-yellow-600 hover:bg-yellow-700">
               Enable Sound
             </Button>
@@ -622,7 +1057,6 @@ export default function OrderManagementMain() {
         </Alert>
       )}
 
-      {/* Info Alerts */}
       {isAdmin && filterInfo && filterInfo.timeFilterHours === 24 && (
         <Alert className="bg-blue-50 border-blue-200">
           <Info className="h-4 w-4 text-blue-600" />
@@ -652,25 +1086,43 @@ export default function OrderManagementMain() {
               onToggle={() => setSoundEnabled(!soundEnabled)}
               volume={volume}
               onVolumeChange={setVolume}
-              onTestSound={playNotificationSound}
+              onTestSound={safePlaySound}
             />
           </div>
           <Badge variant="outline" className={isAdmin ? "bg-red-100 text-red-800" : "bg-blue-100 text-blue-800"}>
             {isAdmin ? <><ShieldAlert className="h-3 w-3 mr-1" />Admin</> : <><Shield className="h-3 w-3 mr-1" />{userRole || "Staff"}</>}
           </Badge>
-          {soundInitialized && <Badge variant="outline" className="bg-green-100 text-green-800">Sound Ready</Badge>}
+          {soundInitialized && soundEnabled && <Badge variant="outline" className="bg-green-100 text-green-800">Sound Ready</Badge>}
         </div>
 
         <div className="flex items-center gap-2">
-          {!soundInitialized && (
+          {!soundInitialized && soundEnabled && (
             <Button onClick={initializeSound} variant="default" size="sm" className="bg-yellow-600">
               <Volume2 className="h-4 w-4 mr-2" />Enable Sound
             </Button>
           )}
-          {pendingStockCount > 0 && (
-            <Button onClick={() => setShowConfirmDialog(true)} className="bg-green-600 hover:bg-green-700 text-white gap-2">
-              <Package className="h-4 w-4" />Process Stock ({pendingStockCount})
-              {failedStockCount > 0 && <Badge className="ml-1 bg-red-500 text-white text-xs">{failedStockCount} failed</Badge>}
+          {(pendingStockCount > 0 || failedStockCount > 0) && (
+            <Button
+              onClick={() => setShowConfirmDialog(true)}
+              disabled={processingStock}
+              className="bg-green-600 hover:bg-green-700 text-white gap-2"
+            >
+              {processingStock ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Package className="h-4 w-4" />
+                  Process Stock ({pendingStockCount})
+                  {failedStockCount > 0 && (
+                    <Badge className="ml-1 bg-red-500 text-white text-xs cursor-help" title={`${failedStockCount} orders failed to process`}>
+                      {failedStockCount} failed
+                    </Badge>
+                  )}
+                </>
+              )}
             </Button>
           )}
           <Button onClick={() => fetchOrders(true)} variant="outline" size="icon" disabled={loading}>
@@ -685,8 +1137,8 @@ export default function OrderManagementMain() {
         onSearchChange={setSearchTerm}
         statusFilter={statusFilter}
         onStatusFilterChange={setStatusFilter}
-        stockStatusFilter={stockStatusFilter}
-        onStockStatusFilterChange={setStockStatusFilter}
+        stockStatusFilter={"ALL"}
+        onStockStatusFilterChange={() => {}}
         restaurantFilter={restaurantFilter}
         onRestaurantFilterChange={setRestaurantFilter}
         orderTypeFilter={orderTypeFilter}
@@ -727,62 +1179,95 @@ export default function OrderManagementMain() {
               <th className="p-3 text-left">Type</th><th className="p-3 text-left">Stock Status</th>
               <th className="p-3 text-left">Customer</th><th className="p-3 text-left">Waitress</th>
               <th className="p-3 text-left">Table</th><th className="p-3 text-left">Status</th>
-              <th className="p-3 text-left">Total</th><th className="p-3 text-left">Date</th>
-              <th className="p-3 text-right">Actions</th></tr></thead>
+              <th className="p-3 text-left">Locked</th>
+              <th className="p-3 text-left">Deletion Req</th><th className="p-3 text-left">Total</th>
+              <th className="p-3 text-left">Date</th><th className="p-3 text-right">Actions</th></tr></thead>
             <tbody>
-              {paginatedOrders.map((order) => (
-                <tr key={order._id} className="border-t">
-                  <td className="p-3 font-medium">{order.orderNumber}</td>
-                  <td className="p-3"><Badge variant="outline">{restaurants.find(r => r._id === order.restaurantId)?.name || order.restaurantName || "Unknown"}</Badge></td>
-                  <td className="p-3">{order.inTable ? "In-Table" : order.delivery ? "Delivery" : "POS"}</td>
-                  <td className="p-3"><StockStatusBadge order={order} /></td>
-                  <td className="p-3">{order.customerName || "Walk-in"}</td>
-                  <td className="p-3">{waitresses.find(w => w._id === order.waiterId)?.name || order.waiterName || "Unknown"}</td>
-                  <td className="p-3">{order.tableNumber}</td>
-                  <td className="p-3"><Badge variant="outline">{order.status}</Badge></td>
-                  <td className="p-3">{order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</td>
-                  <td className="p-3">{new Date(order.createdAt).toLocaleDateString()}</td>
-                  <td className="p-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <OrderDetailModal
-                        order={order}
-                        waitresses={waitresses}
-                        restaurants={restaurants}
-                        isAdmin={isAdmin}
-                        onToggleItemUneditable={handleToggleItemUneditable}
-                        StockStatusBadge={StockStatusBadge}
-                        onStopSound={stopNotificationSound}
-                      />
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          {isAdmin ? (
-                            <div className="text-red-600 px-2 py-1.5 text-sm cursor-pointer" onClick={() => handleDeleteOrder(order._id)}>
-                              <Trash2 className="mr-2 h-4 w-4 inline" />Delete Order
-                            </div>
-                          ) : (
-                            <div className="text-yellow-600 px-2 py-1.5 text-sm cursor-pointer" onClick={() => {
-                              const reason = prompt("Please provide a reason:")
-                              if (reason) handleMarkForDeletion(order._id, reason)
-                            }}>
-                              <Flag className="mr-2 h-4 w-4 inline" />Mark for Deletion
-                            </div>
-                          )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Change Status</DropdownMenuLabel>
-                          {["PENDING","CONFIRMED","PREPARING","PICKUP","SERVED","COMPLETED","CANCELLED"].map((status) => (
-                            <DropdownMenuItem key={status} onClick={() => handleStatusUpdate(order._id, status as OrderStatus)}>
-                              {status}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {paginatedOrders.map((order) => {
+                const waitress = waitresses.find((w) => w._id === order.waiterId)
+                const displayItems = order.orderItems || order.items
+                const lockedCount = displayItems.filter((item) => item.isUneditable).length
+
+                return (
+                  <TableRow key={order._id} className={order.markedForDeletion ? "bg-yellow-50/50" : ""}>
+                    <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                    <TableCell>{getRestaurantDisplay(order)}</TableCell>
+                    <TableCell>{getOrderTypeDisplay(order)}</TableCell>
+                    <TableCell><StockStatusBadge order={order} /></TableCell>
+                    <TableCell>{order.customerName || "Walk-in"}</TableCell>
+                    <TableCell>{waitress?.name || order.waiterName || "Unknown"}</TableCell>
+                    <TableCell>{order.tableNumber}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={statusColors[order.status]}>
+                        {statusIcons[order.status]} {order.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {lockedCount > 0 ? (
+                        <Badge variant="outline" className="bg-green-100 text-green-700">
+                          <Lock className="h-3 w-3 mr-1" />
+                          {lockedCount}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-gray-50 text-gray-400">0</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {order.markedForDeletion && order.deletionRequestReason ? (
+                        <Badge variant="outline" className="bg-yellow-100 text-yellow-800 cursor-help" title={order.deletionRequestReason}>
+                          <Flag className="h-3 w-3 mr-1" />Yes
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-gray-50 text-gray-400">No</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {order.finalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}
+                    </TableCell>
+                    <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <OrderDetailModal
+                          order={order}
+                          waitresses={waitresses}
+                          restaurants={restaurants}
+                          isAdmin={isAdmin}
+                          onToggleItemUneditable={handleToggleItemUneditable}
+                          StockStatusBadge={StockStatusBadge}
+                          onStopSound={stopNotificationSound}
+                        />
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {isAdmin ? (
+                              <div className="text-red-600 px-2 py-1.5 text-sm cursor-pointer" onClick={() => handleDeleteOrder(order._id)}>
+                                <Trash2 className="mr-2 h-4 w-4 inline" />Delete Order
+                              </div>
+                            ) : (
+                              <div className="text-yellow-600 px-2 py-1.5 text-sm cursor-pointer" onClick={() => {
+                                const reason = prompt("Please provide a reason:")
+                                if (reason) handleMarkForDeletion(order._id, reason)
+                              }}>
+                                <Flag className="mr-2 h-4 w-4 inline" />Mark for Deletion
+                              </div>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>Change Status</DropdownMenuLabel>
+                            {statusOptions.map((status) => (
+                              <DropdownMenuItem key={status} onClick={() => handleStatusUpdate(order._id, status)}>
+                                {statusIcons[status]}
+                                <span className="ml-2">{status}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -822,7 +1307,7 @@ export default function OrderManagementMain() {
         </Pagination>
       )}
 
-      <StockConfirmDialog />
+      <StockConfirmDialogComponent />
     </div>
   )
 }

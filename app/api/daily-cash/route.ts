@@ -10,7 +10,7 @@ export async function GET(request: Request) {
     const db = client.db(DB_NAME);
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date');
-    const limit = parseInt(searchParams.get('limit') || '10');
+    const limit = parseInt(searchParams.get('limit') || '100');
 
     if (date) {
       // Get entry for specific date
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
         } : null 
       });
     } else {
-      // Get recent entries
+      // Get all entries (no limit by default, or use provided limit)
       const entries = await db
         .collection('dailyCash')
         .find({})
@@ -61,9 +61,9 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     // Validate required fields
-    if (!body.date || body.cashAmount === undefined || body.bankAmount === undefined) {
+    if (!body.date || body.cashAmount === undefined || body.transferAmount === undefined) {
       return NextResponse.json(
-        { success: false, error: 'Missing required fields' },
+        { success: false, error: 'Missing required fields: date, cashAmount, and transferAmount are required' },
         { status: 400 }
       );
     }
@@ -80,11 +80,16 @@ export async function POST(request: Request) {
       );
     }
 
+    const cashValue = parseFloat(body.cashAmount) || 0;
+    const transferValue = parseFloat(body.transferAmount) || 0;
+    const totalValue = cashValue + transferValue;
+
     const newEntry = {
       date: body.date,
-      cashAmount: parseFloat(body.cashAmount),
-      bankAmount: parseFloat(body.bankAmount),
-      totalAmount: parseFloat(body.cashAmount) + parseFloat(body.bankAmount),
+      cashAmount: cashValue,
+      transferAmount: transferValue,
+      totalAmount: totalValue,
+      zReportNumber: body.zReportNumber || undefined,
       notes: body.notes || '',
       createdBy: body.createdBy || 'admin',
       createdAt: new Date(),
@@ -132,13 +137,30 @@ export async function PUT(request: Request) {
       );
     }
 
-    const updateData = {
-      cashAmount: parseFloat(body.cashAmount),
-      bankAmount: parseFloat(body.bankAmount),
-      totalAmount: parseFloat(body.cashAmount) + parseFloat(body.bankAmount),
+    // Validate required fields for update
+    if (body.cashAmount === undefined || body.transferAmount === undefined) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required fields: cashAmount and transferAmount are required' },
+        { status: 400 }
+      );
+    }
+
+    const cashValue = parseFloat(body.cashAmount) || 0;
+    const transferValue = parseFloat(body.transferAmount) || 0;
+    const totalValue = cashValue + transferValue;
+
+    const updateData: any = {
+      cashAmount: cashValue,
+      transferAmount: transferValue,
+      totalAmount: totalValue,
       notes: body.notes || '',
       updatedAt: new Date(),
     };
+
+    // Only update zReportNumber if provided
+    if (body.zReportNumber !== undefined) {
+      updateData.zReportNumber = body.zReportNumber || undefined;
+    }
 
     const result = await db
       .collection('dailyCash')

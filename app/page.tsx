@@ -1757,6 +1757,7 @@ export default function MenuPage() {
                         onTableNumberChange={setTableNumber}
                         selectedTableData={selectedTableData}
                         onTableSelect={handleTableSelect}
+                        onTableSelect={(table) => handleTableSelect(table)}
                         waiters={waiters}
                         selectedWaiter={getAutoAssignedWaiter()}
                         onWaiterChange={() => {}}

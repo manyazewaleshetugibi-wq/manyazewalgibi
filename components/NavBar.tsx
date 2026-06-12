@@ -82,7 +82,7 @@ interface NavLinkProps {
 
 const navLinks = [
   { href: "/", icon: UtensilsCrossed, label: "Menu", className: "hidden md:inline-flex text-purple-900" },
-  { href: "/menu", icon: Home, label: "Home", className: "hidden md:inline-flex " },
+  { href: "/Home", icon: Home, label: "Home", className: "hidden md:inline-flex " },
   { href: "/about", icon: Info, label: "About Us", className: "hidden md:inline-flex " },
   { href: "/blogs", icon: BookOpen, label: "Blogs", className: "hidden md:inline-flex " },
   { href: "/contact", icon: PhoneCall, label: "Contact Us", className: "hidden md:inline-flex " },
@@ -312,6 +312,7 @@ export function NavBar() {
       // Sign out from NextAuth
       await signOut({ 
         redirect: !isSilent,
+        redirect: isSilent ? false : true,
         callbackUrl: isSilent ? undefined : redirectPath
       })
       

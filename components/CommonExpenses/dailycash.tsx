@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { 
   Wallet, 
-  Landmark, 
   Save, 
   RefreshCcw, 
   CalendarIcon, 
@@ -20,7 +19,9 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertCircle,
-  Info
+  Info,
+  Receipt,
+  ArrowRightLeft
 } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
@@ -61,8 +62,9 @@ interface DailyCashEntry {
   _id: string
   date: string
   cashAmount: number
-  bankAmount: number
+  transferAmount: number
   totalAmount: number
+  zReportNumber?: string
   notes?: string
   createdBy?: string
   createdAt?: string
@@ -72,7 +74,8 @@ interface DailyCashEntry {
 export default function DailyCash() {
   // Form state
   const [cashAmount, setCashAmount] = useState<string>("")
-  const [bankAmount, setBankAmount] = useState<string>("")
+  const [transferAmount, setTransferAmount] = useState<string>("")
+  const [zReportNumber, setZReportNumber] = useState<string>("")
   const [notes, setNotes] = useState<string>("")
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null)
@@ -120,8 +123,9 @@ export default function DailyCash() {
         entry.date.includes(searchTerm) ||
         entry.notes?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         entry.cashAmount.toString().includes(searchTerm) ||
-        entry.bankAmount.toString().includes(searchTerm) ||
-        entry.totalAmount.toString().includes(searchTerm)
+        entry.transferAmount.toString().includes(searchTerm) ||
+        entry.totalAmount.toString().includes(searchTerm) ||
+        entry.zReportNumber?.toLowerCase().includes(searchTerm.toLowerCase())
       )
       setFilteredEntries(filtered)
     }
@@ -170,10 +174,10 @@ export default function DailyCash() {
       return
     }
 
-    if (!bankAmount || parseFloat(bankAmount) < 0) {
+    if (!transferAmount || parseFloat(transferAmount) < 0) {
       toast({
         title: "Validation Error",
-        description: "Please enter a valid bank amount",
+        description: "Please enter a valid transfer amount",
         variant: "destructive",
       })
       return
@@ -196,14 +200,15 @@ export default function DailyCash() {
 
     try {
       const cashValue = parseFloat(cashAmount) || 0
-      const bankValue = parseFloat(bankAmount) || 0
-      const totalValue = cashValue + bankValue
+      const transferValue = parseFloat(transferAmount) || 0
+      const totalValue = cashValue + transferValue
 
       const entryData = {
         date: dateStr,
         cashAmount: cashValue,
-        bankAmount: bankValue,
+        transferAmount: transferValue,
         totalAmount: totalValue,
+        zReportNumber: zReportNumber || undefined,
         notes: notes || "",
       }
 
@@ -307,7 +312,8 @@ export default function DailyCash() {
     setSelectedEntryId(entry._id)
     setSelectedDate(parseISO(entry.date))
     setCashAmount(entry.cashAmount.toString())
-    setBankAmount(entry.bankAmount.toString())
+    setTransferAmount(entry.transferAmount?.toString() || "0")
+    setZReportNumber(entry.zReportNumber || "")
     setNotes(entry.notes || "")
     setDuplicateError(null)
     setShowEditDialog(true)
@@ -326,7 +332,8 @@ export default function DailyCash() {
 
   const resetForm = () => {
     setCashAmount("")
-    setBankAmount("")
+    setTransferAmount("")
+    setZReportNumber("")
     setNotes("")
     setSelectedDate(new Date())
     setSelectedEntryId(null)
@@ -438,26 +445,26 @@ export default function DailyCash() {
                     </CardContent>
                   </Card>
 
-                  {/* Bank Amount Card */}
-                  <Card className="border-2 border-green-200">
-                    <CardHeader className="bg-green-50/50 pb-2">
-                      <CardTitle className="flex items-center gap-2 text-green-700">
-                        <Landmark className="h-5 w-5" />
-                        Bank Amount
+                  {/* Transfer Amount Card */}
+                  <Card className="border-2 border-purple-200">
+                    <CardHeader className="bg-purple-50/50 pb-2">
+                      <CardTitle className="flex items-center gap-2 text-purple-700">
+                        <ArrowRightLeft className="h-5 w-5" />
+                        Transfer Amount
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="pt-4">
                       <div className="space-y-2">
-                        <Label htmlFor="bankAmount">Enter Bank Amount (ETB)</Label>
+                        <Label htmlFor="transferAmount">Enter Transfer Amount (ETB)</Label>
                         <div className="relative">
                           <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                           <Input
-                            id="bankAmount"
+                            id="transferAmount"
                             type="number"
                             step="0.01"
                             min="0"
-                            value={bankAmount}
-                            onChange={(e) => setBankAmount(e.target.value)}
+                            value={transferAmount}
+                            onChange={(e) => setTransferAmount(e.target.value)}
                             className="pl-10"
                             placeholder="0.00"
                             required
@@ -468,13 +475,34 @@ export default function DailyCash() {
                   </Card>
                 </div>
 
+                {/* Z-Report Section - Simple like other registers */}
+                <Card className="border-2 border-orange-200">
+                  <CardHeader className="bg-orange-50/50">
+                    <CardTitle className="flex items-center gap-2 text-orange-700">
+                      <Receipt className="h-5 w-5" />
+                      Z-Report Number
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="zReportNumber">Enter Z-Report Number</Label>
+                      <Input
+                        id="zReportNumber"
+                        value={zReportNumber}
+                        onChange={(e) => setZReportNumber(e.target.value)}
+                        placeholder="e.g., Z-001, 12345, or leave empty"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+
                 {/* Total Summary Card */}
                 <Card className="bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200">
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                       <span className="text-lg font-semibold text-purple-800">Total Daily Cash:</span>
                       <span className="text-3xl font-bold text-purple-600">
-                        {formatCurrency((parseFloat(cashAmount) || 0) + (parseFloat(bankAmount) || 0))}
+                        {formatCurrency((parseFloat(cashAmount) || 0) + (parseFloat(transferAmount) || 0))}
                       </span>
                     </div>
                   </CardContent>
@@ -561,14 +589,15 @@ export default function DailyCash() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
+              <div className="rounded-md border overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
                       <TableHead className="text-right">Cash Amount</TableHead>
-                      <TableHead className="text-right">Bank Amount</TableHead>
+                      <TableHead className="text-right">Transfer Amount</TableHead>
                       <TableHead className="text-right">Total Amount</TableHead>
+                      <TableHead>Z-Report #</TableHead>
                       <TableHead>Notes</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -586,11 +615,18 @@ export default function DailyCash() {
                           <TableCell className="text-right text-blue-600">
                             {formatCurrency(entry.cashAmount)}
                           </TableCell>
-                          <TableCell className="text-right text-green-600">
-                            {formatCurrency(entry.bankAmount)}
+                          <TableCell className="text-right text-purple-600">
+                            {formatCurrency(entry.transferAmount || 0)}
                           </TableCell>
-                          <TableCell className="text-right font-bold text-purple-600">
+                          <TableCell className="text-right font-bold text-orange-600">
                             {formatCurrency(entry.totalAmount)}
+                          </TableCell>
+                          <TableCell>
+                            {entry.zReportNumber ? (
+                              <Badge variant="outline" className="bg-orange-50">
+                                {entry.zReportNumber}
+                              </Badge>
+                            ) : '-'}
                           </TableCell>
                           <TableCell className="max-w-[200px] truncate">
                             {entry.notes || '-'}
@@ -620,7 +656,7 @@ export default function DailyCash() {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           {searchTerm ? "No entries found matching your search" : "No entries found"}
                         </TableCell>
                       </TableRow>
@@ -710,7 +746,7 @@ export default function DailyCash() {
                   </p>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="addCashAmount">Cash Amount (ETB)</Label>
                   <Input
@@ -724,18 +760,30 @@ export default function DailyCash() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="addBankAmount">Bank Amount (ETB)</Label>
+                  <Label htmlFor="addTransferAmount">Transfer Amount (ETB)</Label>
                   <Input
-                    id="addBankAmount"
+                    id="addTransferAmount"
                     type="number"
                     step="0.01"
                     min="0"
-                    value={bankAmount}
-                    onChange={(e) => setBankAmount(e.target.value)}
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
                     required
                   />
                 </div>
               </div>
+              
+              {/* Simple Z-Report field */}
+              <div className="space-y-2">
+                <Label htmlFor="addZReportNumber">Z-Report Number (Optional)</Label>
+                <Input
+                  id="addZReportNumber"
+                  value={zReportNumber}
+                  onChange={(e) => setZReportNumber(e.target.value)}
+                  placeholder="Enter Z-Report number"
+                />
+              </div>
+              
               <div className="space-y-2">
                 <Label htmlFor="addNotes">Notes (Optional)</Label>
                 <Input
@@ -745,11 +793,11 @@ export default function DailyCash() {
                   placeholder="Add any additional notes..."
                 />
               </div>
-              <div className="bg-purple-50 p-3 rounded-lg">
+              <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-3 rounded-lg">
                 <div className="flex justify-between items-center">
                   <span className="font-semibold">Total:</span>
                   <span className="text-xl font-bold text-purple-600">
-                    {formatCurrency((parseFloat(cashAmount) || 0) + (parseFloat(bankAmount) || 0))}
+                    {formatCurrency((parseFloat(cashAmount) || 0) + (parseFloat(transferAmount) || 0))}
                   </span>
                 </div>
               </div>
@@ -786,7 +834,7 @@ export default function DailyCash() {
                   {format(selectedDate, 'PPPP')}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="editCashAmount">Cash Amount (ETB)</Label>
                   <Input
@@ -800,18 +848,30 @@ export default function DailyCash() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="editBankAmount">Bank Amount (ETB)</Label>
+                  <Label htmlFor="editTransferAmount">Transfer Amount (ETB)</Label>
                   <Input
-                    id="editBankAmount"
+                    id="editTransferAmount"
                     type="number"
                     step="0.01"
                     min="0"
-                    value={bankAmount}
-                    onChange={(e) => setBankAmount(e.target.value)}
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
                     required
                   />
                 </div>
               </div>
+              
+              {/* Simple Z-Report field */}
+              <div className="space-y-2">
+                <Label htmlFor="editZReportNumber">Z-Report Number (Optional)</Label>
+                <Input
+                  id="editZReportNumber"
+                  value={zReportNumber}
+                  onChange={(e) => setZReportNumber(e.target.value)}
+                  placeholder="Enter Z-Report number"
+                />
+              </div>
+              
               <div className="space-y-2">
                 <Label htmlFor="editNotes">Notes (Optional)</Label>
                 <Input
@@ -821,11 +881,11 @@ export default function DailyCash() {
                   placeholder="Add any additional notes..."
                 />
               </div>
-              <div className="bg-purple-50 p-3 rounded-lg">
+              <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-3 rounded-lg">
                 <div className="flex justify-between items-center">
                   <span className="font-semibold">Total:</span>
                   <span className="text-xl font-bold text-purple-600">
-                    {formatCurrency((parseFloat(cashAmount) || 0) + (parseFloat(bankAmount) || 0))}
+                    {formatCurrency((parseFloat(cashAmount) || 0) + (parseFloat(transferAmount) || 0))}
                   </span>
                 </div>
               </div>
@@ -864,7 +924,7 @@ export default function DailyCash() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card className="border-blue-200">
                   <CardHeader className="bg-blue-50/50 py-2">
                     <CardTitle className="text-sm flex items-center gap-1 text-blue-700">
@@ -877,29 +937,39 @@ export default function DailyCash() {
                   </CardContent>
                 </Card>
 
-                <Card className="border-green-200">
-                  <CardHeader className="bg-green-50/50 py-2">
-                    <CardTitle className="text-sm flex items-center gap-1 text-green-700">
-                      <Landmark className="h-4 w-4" />
-                      Bank
+                <Card className="border-purple-200">
+                  <CardHeader className="bg-purple-50/50 py-2">
+                    <CardTitle className="text-sm flex items-center gap-1 text-purple-700">
+                      <ArrowRightLeft className="h-4 w-4" />
+                      Transfer
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="pt-2">
-                    <p className="text-xl font-bold text-green-600">{formatCurrency(selectedEntry.bankAmount)}</p>
+                    <p className="text-xl font-bold text-purple-600">{formatCurrency(selectedEntry.transferAmount || 0)}</p>
                   </CardContent>
                 </Card>
               </div>
 
-              <Card className="bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200">
+              <Card className="bg-gradient-to-r from-orange-50 to-yellow-50 border-orange-200">
                 <CardContent className="pt-4">
                   <div className="flex justify-between items-center">
                     <span className="font-semibold">Total Amount:</span>
-                    <span className="text-2xl font-bold text-purple-600">
+                    <span className="text-2xl font-bold text-orange-600">
                       {formatCurrency(selectedEntry.totalAmount)}
                     </span>
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Simple Z-Report display */}
+              {selectedEntry.zReportNumber && (
+                <div>
+                  <Label className="text-sm text-gray-500">Z-Report Number</Label>
+                  <p className="p-2 bg-orange-50 rounded border border-orange-200 font-medium">
+                    {selectedEntry.zReportNumber}
+                  </p>
+                </div>
+              )}
 
               {selectedEntry.notes && (
                 <div>

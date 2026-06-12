@@ -120,11 +120,18 @@ const normalizeDate = (dateStr: string): string => {
   }
 }
 
-// Calculate total cost for a stock - EXACT same calculation as stock page
-const calculateTotalCost = (stockId: string, purchases: StockPurchase[]): number => {
-  return purchases
-    .filter((purchase) => purchase.stockId === stockId)
-    .reduce((total, purchase) => total + purchase.quantity * purchase.unitPrice, 0)
+// FIXED: Calculate total cost for a stock - SAME calculation as stock page
+// Uses: current stock × last purchase price (not total historical purchases)
+const calculateCurrentStockValue = (stock: StockItem, purchases: StockPurchase[]): number => {
+  // Get last purchase price (most recent purchase by date)
+  const stockPurchases = purchases
+    .filter((purchase) => purchase.stockId === stock._id)
+    .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
+  
+  const lastPurchasePrice = stockPurchases.length > 0 ? stockPurchases[0].unitPrice : 0
+  
+  // Calculate value = current stock × last purchase price
+  return stock.currentStock * lastPurchasePrice
 }
 
 // Loading Spinner Component
@@ -295,11 +302,10 @@ function Dashboard() {
   }, [orderReport, yesterdayStr])
 
   // Calculate Today's Expenses (Common + Casual + Stock Purchases)
-  // FIXED: Proper date normalization for casual expenses
   const todaysExpenses = useMemo(() => {
     let total = 0
     
-    // 1. Casual Expenses from /api/expense - FIXED date comparison
+    // 1. Casual Expenses from /api/expense
     if (expenses) {
       total += expenses
         .filter((expense) => {
@@ -326,11 +332,10 @@ function Dashboard() {
     return total
   }, [expenses, commonExpenses, stockPurchases, todayStr, todayDate])
 
-  // Calculate Yesterday's Expenses for comparison - FIXED date normalization
+  // Calculate Yesterday's Expenses
   const yesterdaysExpenses = useMemo(() => {
     let total = 0
     
-    // 1. Casual Expenses from /api/expense - FIXED date comparison
     if (expenses) {
       total += expenses
         .filter((expense) => {
@@ -340,14 +345,12 @@ function Dashboard() {
         .reduce((sum, expense) => sum + expense.amount, 0)
     }
     
-    // 2. Common Expenses (amortized daily)
     if (commonExpenses) {
       commonExpenses.forEach(expense => {
         total += getDailyCommonAmount(expense, yesterdayDate)
       })
     }
     
-    // 3. Stock Purchases from /api/stock-purchase
     if (stockPurchases) {
       total += stockPurchases
         .filter((purchase) => purchase.purchaseDate?.startsWith(yesterdayStr))
@@ -378,28 +381,44 @@ function Dashboard() {
     return Math.round(yesterdaysRevenue / avgOrderValue)
   }, [orderReport, yesterdayStr, yesterdaysRevenue])
 
-  // Calculate Current Stock Value - EXACT SAME calculation as stock page
+  // FIXED: Calculate Current Stock Value - SAME calculation as stock page
+  // Uses: current stock × last purchase price (not total historical purchases)
   const currentStockValue = useMemo(() => {
     if (!stock || !stockPurchases) return 0
     
     let totalValue = 0
     stock.forEach((item) => {
-      totalValue += calculateTotalCost(item._id, stockPurchases)
+      totalValue += calculateCurrentStockValue(item, stockPurchases)
     })
     
     return totalValue
   }, [stock, stockPurchases])
 
-  // Calculate Yesterday's Stock Value (estimate based on today's purchases)
+  // Calculate Yesterday's Stock Value (estimate)
   const yesterdayStockValue = useMemo(() => {
-    if (!stockPurchases) return currentStockValue * 0.95
+    if (!stock || !stockPurchases) return currentStockValue * 0.95
     
-    const todayPurchases = stockPurchases
-      .filter(p => p.purchaseDate?.startsWith(todayStr))
-      .reduce((sum, p) => sum + (p.quantity * p.unitPrice), 0)
+    // Calculate yesterday's value by estimating stock levels before today's purchases
+    let totalValue = 0
+    stock.forEach((item) => {
+      // Get purchases before today
+      const previousPurchases = stockPurchases
+        .filter(p => p.stockId === item._id && !p.purchaseDate?.startsWith(todayStr))
+        .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
+      
+      const lastPurchasePrice = previousPurchases.length > 0 ? previousPurchases[0].unitPrice : 0
+      
+      // Estimate yesterday's stock (today's stock minus today's purchases)
+      const todayPurchasesQuantity = stockPurchases
+        .filter(p => p.stockId === item._id && p.purchaseDate?.startsWith(todayStr))
+        .reduce((sum, p) => sum + p.quantity, 0)
+      
+      const yesterdayStock = item.currentStock - todayPurchasesQuantity
+      totalValue += yesterdayStock * lastPurchasePrice
+    })
     
-    return Math.max(0, currentStockValue - todayPurchases)
-  }, [stockPurchases, currentStockValue, todayStr])
+    return totalValue
+  }, [stock, stockPurchases, currentStockValue, todayStr])
 
   // Calculate Today's Stock Costs (purchases made today)
   const todaysStockCosts = useMemo(() => {
@@ -472,7 +491,7 @@ function Dashboard() {
     return Object.values(orderReport.dailySales).reduce((a, b) => a + b, 0)
   }, [orderReport])
 
-  // Calculate casual expenses breakdown for display with proper date sorting
+  // Calculate casual expenses breakdown for display
   const recentCasualExpenses = useMemo(() => {
     if (!expenses) return []
     return [...expenses]
@@ -569,7 +588,7 @@ function Dashboard() {
                 trend={stockChange >= 0 ? "up" : "down"}
                 isLoading={isLoading}
                 color="info"
-                description="Total cost of all purchases"
+                description="Current stock × last purchase price"
                 navigateTo="/stock"
               />
             </motion.div>
