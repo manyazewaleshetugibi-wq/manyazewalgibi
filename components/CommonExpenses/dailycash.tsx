@@ -1045,6 +1045,7 @@ export default function DailyCash() {
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
+        
       </AlertDialog>
     </div>
   )
