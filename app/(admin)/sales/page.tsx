@@ -104,8 +104,8 @@ type Order = {
   }
   paymentScreenshotUrl?: string
   customerName?: string
-  branch?: string // Some orders might have branch field
-  location?: string // Some orders might have location field
+  branch?: string
+  location?: string
 }
 
 type Waitress = {
@@ -120,6 +120,15 @@ type Waitress = {
   restaurantId?: string
   restaurantName?: string
   branch?: string
+}
+
+type Restaurant = {
+  _id: string
+  name: string
+  shortName: string
+  isActive: boolean
+  branchCode?: string
+  color?: string
 }
 
 type MenuItem = {
@@ -194,122 +203,133 @@ type DateFilterType = 'today' | 'yesterday' | 'last7days' | 'thisWeek' | 'lastWe
 type AnalyticsView = 'sales' | 'restaurants' | 'waiters' | 'orderTypes'
 
 // ============================================
-// Constants & Helpers
+// API Functions
 // ============================================
 
-const RESTAURANTS = [
-  { id: "manyazewal1", name: "Manyazewal Eshetu Gibi 1", shortName: "Manyazewal 1", color: "indigo", branchCode: "M1" },
-  { id: "manyazewal2", name: "Manyazewal Eshetu Gibi 2", shortName: "Manyazewal 2", color: "rose", branchCode: "M2" },
-]
-
-// Waiter to restaurant mapping based on the data shown
-const WAITER_RESTAURANT_MAP: Record<string, string> = {
-  // Map waiter names to restaurant IDs
-  "kidist genetu": "manyazewal1",
-  "fikir memberu": "manyazewal1",
-  "betelhem markos": "manyazewal2",
-  // Add more mappings as needed
+// Fetch restaurants from API
+const fetchRestaurantsFromAPI = async (): Promise<Restaurant[]> => {
+  try {
+    const response = await fetch('/api/restaurants')
+    const data = await response.json()
+    
+    if (data.success && Array.isArray(data.data)) {
+      return data.data
+        .filter((r: any) => r.isActive !== false)
+        .map((r: any) => ({
+          _id: r._id,
+          name: r.name,
+          shortName: r.name.includes('1') ? 'Restaurant 1' : (r.name.includes('2') ? 'Restaurant 2' : r.name.substring(0, 15)),
+          isActive: r.isActive,
+          branchCode: r.branchCode,
+          color: r.color
+        }))
+    }
+    return []
+  } catch (error) {
+    console.error("Error fetching restaurants:", error)
+    return []
+  }
 }
 
-// Helper function to get restaurant ID from order - IMPROVED VERSION
-const getOrderRestaurantId = (order: Order): string => {
-  console.log("Processing order:", order.orderNumber, "Restaurant data:", {
-    restaurantId: order.restaurantId,
-    restaurantName: order.restaurantName,
-    branch: (order as any).branch,
-    location: (order as any).location,
-    waiterName: order.waiterName
-  })
-  
-  // FIRST: Check if order has direct restaurantId from database
+// Fetch waiters with restaurant info
+const fetchWaitressesWithRestaurants = async (): Promise<Waitress[]> => {
+  try {
+    const response = await fetch("/api/waitress")
+    const data = await response.json()
+    return data || []
+  } catch (error) {
+    console.error("Error fetching waitresses:", error)
+    return []
+  }
+}
+
+// Helper function to get restaurant ID from order - IMPROVED with dynamic mapping
+const getOrderRestaurantId = (
+  order: Order, 
+  waitersList: Waitress[], 
+  restaurantsList: Restaurant[]
+): string => {
+  // 1. Direct ID match from order data (priority)
   if (order.restaurantId) {
-    if (order.restaurantId === "manyazewal1" || order.restaurantId === "manyazewal2") {
-      return order.restaurantId
-    }
-    // If it's a MongoDB ObjectId, try to map it
-    if (order.restaurantId.match(/^[0-9a-fA-F]{24}$/)) {
-      // You may need to check against known restaurant IDs in your database
-      // For now, check waiter mapping as fallback
-    }
+    return order.restaurantId
   }
   
-  // SECOND: Check restaurantName field
-  if (order.restaurantName) {
-    const name = order.restaurantName.toLowerCase()
-    if (name.includes("manyazewal") || name.includes("eshetu gibi")) {
-      if (name.includes("1") || name.includes("gibi 1")) return "manyazewal1"
-      if (name.includes("2") || name.includes("gibi 2")) return "manyazewal2"
-    }
+  // 2. Direct name match from order data (fuzzy)
+  const rName = (order.restaurantName || "").toLowerCase()
+  if (rName) {
+    const match = restaurantsList.find(r => 
+      r.name.toLowerCase() === rName || 
+      r.name.toLowerCase().includes(rName) || 
+      rName.includes(r.name.toLowerCase())
+    )
+    if (match) return match._id
   }
   
-  // THIRD: Map by waiter name (most reliable based on your data)
-  if (order.waiterName) {
-    const waiterName = order.waiterName.toLowerCase()
-    for (const [waiter, restaurant] of Object.entries(WAITER_RESTAURANT_MAP)) {
-      if (waiterName.includes(waiter.toLowerCase())) {
-        return restaurant
-      }
-    }
+  // 3. Fallback check for Manyazewal specific branch naming patterns (1, 2, 3)
+  if (rName.includes("1") || rName.includes("gibi 1")) {
+    const match = restaurantsList.find(r => r._id === "manyazewal1" || r.name.includes("1"))
+    if (match) return match._id
+  }
+  if (rName.includes("2") || rName.includes("gibi 2")) {
+    const match = restaurantsList.find(r => r._id === "manyazewal2" || r.name.includes("2"))
+    if (match) return match._id
+  }
+  if (rName.includes("3") || rName.includes("gibi 3")) {
+    const match = restaurantsList.find(r => r._id === "manyazewal3" || r.name.includes("3"))
+    if (match) return match._id
   }
   
-  // FOURTH: Map by waiter ID if we have mapping
+  // 4. Map by waiter's restaurant assignment
   if (order.waiterId) {
-    // Check if we have a mapping for this waiter ID
-    // This would come from your database or configuration
+    const waiter = waitersList.find(w => w._id === order.waiterId)
+    if (waiter?.restaurantId) {
+      return waiter.restaurantId
+    }
   }
   
-  // FIFTH: Check branch or location fields
-  if ((order as any).branch) {
-    const branch = (order as any).branch.toLowerCase()
-    if (branch.includes("1") || branch === "manyazewal1") return "manyazewal1"
-    if (branch.includes("2") || branch === "manyazewal2") return "manyazewal2"
-  }
-  
-  if ((order as any).location) {
-    const location = (order as any).location.toLowerCase()
-    if (location.includes("1") || location.includes("gibi 1")) return "manyazewal1"
-    if (location.includes("2") || location.includes("gibi 2")) return "manyazewal2"
-  }
-  
-  // SIXTH: Check table number prefix
-  if (order.tableNumber) {
-    const tableNum = String(order.tableNumber)
-    if (tableNum.startsWith("1") || tableNum.startsWith("M1")) return "manyazewal1"
-    if (tableNum.startsWith("2") || tableNum.startsWith("M2")) return "manyazewal2"
-  }
-  
-  // SEVENTH: Check order number prefix
-  if (order.orderNumber) {
-    const orderNum = order.orderNumber.toUpperCase()
-    if (orderNum.includes("M1") || orderNum.includes("BRANCH1")) return "manyazewal1"
-    if (orderNum.includes("M2") || orderNum.includes("BRANCH2")) return "manyazewal2"
-  }
-  
-  // DEFAULT: Manyazewal 1 as default (since most orders seem to be from there)
-  return "manyazewal1"
+  return "unassigned"
 }
 
 // Helper function to get restaurant display name
-const getRestaurantDisplayName = (order: Order): string => {
-  const restaurantId = getOrderRestaurantId(order)
-  const restaurant = RESTAURANTS.find(r => r.id === restaurantId)
-  if (restaurant) return restaurant.name
-  return order.restaurantName || "Manyazewal 1"
-}
-
-// Helper function to check if order has restaurant info
-const hasRestaurantInfo = (order: Order): boolean => {
-  return true // All orders should have restaurant info now
+const getRestaurantDisplayName = (
+  order: Order, 
+  waitersList: Waitress[], 
+  restaurantsList: Restaurant[]
+): string => {
+  const restaurantId = getOrderRestaurantId(order, waitersList, restaurantsList)
+  const restaurant = restaurantsList.find(r => r._id === restaurantId)
+  if (restaurant) return restaurant.name || restaurant.shortName
+  return order.restaurantName || "Unassigned"
 }
 
 // Filter orders by restaurant
-const filterOrdersByRestaurant = (orders: Order[], restaurantId: string): Order[] => {
+const filterOrdersByRestaurant = (
+  orders: Order[], 
+  restaurantId: string, 
+  waitersList: Waitress[], 
+  restaurantsList: Restaurant[]
+): Order[] => {
   if (restaurantId === 'all') return orders
   if (restaurantId === 'unassigned') {
-    // This should now return very few or no orders
-    return orders.filter(order => !getOrderRestaurantId(order) || getOrderRestaurantId(order) === 'unassigned')
+    return orders.filter(order => {
+      const orderRestaurantId = getOrderRestaurantId(order, waitersList, restaurantsList)
+      return orderRestaurantId === 'unassigned' || !orderRestaurantId
+    })
   }
-  return orders.filter(order => getOrderRestaurantId(order) === restaurantId)
+  return orders.filter(order => {
+    const orderRestaurantId = getOrderRestaurantId(order, waitersList, restaurantsList)
+    return orderRestaurantId === restaurantId
+  })
+}
+
+// Create restaurant options from dynamic list
+const getRestaurantOptions = (restaurants: Restaurant[]) => {
+  return restaurants.map(r => ({
+    id: r._id,
+    name: r.name,
+    shortName: r.shortName,
+    color: r.color || 'indigo'
+  }))
 }
 
 const ORDER_TYPES = [
@@ -357,16 +377,15 @@ const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>
   }
 }
 
-// UPDATED: Fetch all orders without limit
+// Fetch waiter report with optional limit
 const fetchWaiterReport = async (waiterId?: string, startDate?: string, endDate?: string, restaurantId?: string, limit?: number): Promise<WaiterReportResponse> => {
   const params = new URLSearchParams()
   if (startDate) params.append('startDate', startDate)
   if (endDate) params.append('endDate', endDate)
   if (waiterId && waiterId !== 'all') params.append('waiterId', waiterId)
   if (restaurantId && restaurantId !== 'all' && restaurantId !== 'unassigned') params.append('restaurantId', restaurantId)
-  // Remove limit parameter to get ALL orders, or set a high limit
   if (limit && limit > 0) params.append('limit', limit.toString())
-  else params.append('limit', '10000') // Get up to 10000 orders
+  else params.append('limit', '10000')
   
   const url = `/api/order/waiterreport${params.toString() ? `?${params.toString()}` : ''}`
   console.log("Fetching URL:", url)
@@ -942,6 +961,7 @@ interface DashboardHeaderProps {
   onRestaurantChange: (value: string) => void
   onWaiterChange: (value: string) => void
   waitresses: Waitress[]
+  restaurants: Restaurant[]
   onRefresh: () => void
   isRefreshing: boolean
   dateRangeLabel: string
@@ -961,6 +981,7 @@ function DashboardHeader({
   onRestaurantChange,
   onWaiterChange,
   waitresses,
+  restaurants,
   onRefresh,
   isRefreshing,
   dateRangeLabel,
@@ -1011,8 +1032,8 @@ function DashboardHeader({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Restaurants</SelectItem>
-              {RESTAURANTS.map((restaurant) => (
-                <SelectItem key={restaurant.id} value={restaurant.id}>
+              {restaurants.map((restaurant) => (
+                <SelectItem key={restaurant._id} value={restaurant._id}>
                   {restaurant.name}
                 </SelectItem>
               ))}
@@ -1110,6 +1131,7 @@ export default function DashboardPage() {
   const [salesData, setSalesData] = useState<SalesData | null>(null)
   const [waiterReportData, setWaiterReportData] = useState<WaiterReportResponse | null>(null)
   const [waitresses, setWaitresses] = useState<Waitress[]>([])
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [selectedWaiter, setSelectedWaiter] = useState<string>('all')
   const [selectedRestaurant, setSelectedRestaurant] = useState<string>('all')
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([])
@@ -1133,33 +1155,32 @@ export default function DashboardPage() {
   })
 
   const initialFetchDone = useRef(false)
-  const waitressesFetched = useRef(false)
+
+  // Fetch restaurants on mount
+  useEffect(() => {
+    const loadRestaurants = async () => {
+      const restaurantData = await fetchRestaurantsFromAPI()
+      setRestaurants(restaurantData)
+    }
+    loadRestaurants()
+  }, [])
 
   // Fetch waitresses
   useEffect(() => {
-    if (!waitressesFetched.current) {
-      waitressesFetched.current = true
-      loadWaitresses()
+    const loadWaitresses = async () => {
+      const data = await fetchWaitressesWithRestaurants()
+      setWaitresses(data)
     }
+    loadWaitresses()
   }, [])
 
-  // Fetch initial data
+  // Fetch initial data when restaurants and waitresses are loaded
   useEffect(() => {
-    if (waitresses.length > 0 && !initialFetchDone.current) {
+    if (restaurants.length > 0 && waitresses.length > 0 && !initialFetchDone.current) {
       initialFetchDone.current = true
       loadData()
     }
-  }, [waitresses])
-
-  // Load waitresses
-  const loadWaitresses = async () => {
-    try {
-      const data = await fetchWaitresses()
-      setWaitresses(data)
-    } catch (error) {
-      console.error('Error loading waitresses:', error)
-    }
-  }
+  }, [restaurants, waitresses])
 
   // Enhance orders with menu item data
   const enhanceOrdersWithMenuItems = useCallback((orders: Order[], itemsMap: Map<string, MenuItem>): Order[] => {
@@ -1229,7 +1250,7 @@ export default function DashboardPage() {
     })
   }, [])
 
-  // Load main data - UPDATED to fetch all orders
+  // Load main data
   const loadData = async () => {
     setIsLoading(true)
     try {
@@ -1237,7 +1258,6 @@ export default function DashboardPage() {
       const endDateStr = format(dateRange.end, 'yyyy-MM-dd')
       const apiRestaurantId = selectedRestaurant === 'unassigned' ? 'all' : selectedRestaurant
 
-      // Fetch with high limit to get all orders
       const reportData = await fetchWaiterReport(selectedWaiter, startDateStr, endDateStr, apiRestaurantId, 10000)
       setWaiterReportData(reportData)
 
@@ -1245,8 +1265,8 @@ export default function DashboardPage() {
         let orders = reportData.orders || []
         console.log(`Loaded ${orders.length} orders from API`)
         
-        // Apply restaurant filter
-        orders = filterOrdersByRestaurant(orders, selectedRestaurant)
+        // Apply restaurant filter using dynamic restaurant detection
+        orders = filterOrdersByRestaurant(orders, selectedRestaurant, waitresses, restaurants)
         console.log(`After restaurant filter: ${orders.length} orders`)
 
         const itemsMap = await fetchMenuItemsForOrders(orders)
@@ -1284,7 +1304,7 @@ export default function DashboardPage() {
         const previousReportData = await fetchWaiterReport(selectedWaiter, previousStartStr, previousEndStr, apiRestaurantId, 10000)
         if (previousReportData.success) {
           let previousOrders = previousReportData.orders || []
-          previousOrders = filterOrdersByRestaurant(previousOrders, selectedRestaurant)
+          previousOrders = filterOrdersByRestaurant(previousOrders, selectedRestaurant, waitresses, restaurants)
           
           const previousItemsMap = await fetchMenuItemsForOrders(previousOrders)
           const enhancedPreviousOrders = enhanceOrdersWithMenuItems(previousOrders, previousItemsMap)
@@ -1344,7 +1364,7 @@ export default function DashboardPage() {
 
       if (reportData.success) {
         let orders = reportData.orders || []
-        orders = filterOrdersByRestaurant(orders, selectedRestaurant)
+        orders = filterOrdersByRestaurant(orders, selectedRestaurant, waitresses, restaurants)
 
         const itemsMap = await fetchMenuItemsForOrders(orders)
         const enhancedOrders = enhanceOrdersWithMenuItems(orders, itemsMap)
@@ -1380,7 +1400,7 @@ export default function DashboardPage() {
         const previousReportData = await fetchWaiterReport(selectedWaiter, previousStartStr, previousEndStr, apiRestaurantId, 10000)
         if (previousReportData.success) {
           let previousOrders = previousReportData.orders || []
-          previousOrders = filterOrdersByRestaurant(previousOrders, selectedRestaurant)
+          previousOrders = filterOrdersByRestaurant(previousOrders, selectedRestaurant, waitresses, restaurants)
           
           const previousItemsMap = await fetchMenuItemsForOrders(previousOrders)
           const enhancedPreviousOrders = enhanceOrdersWithMenuItems(previousOrders, previousItemsMap)
@@ -1426,7 +1446,7 @@ export default function DashboardPage() {
 
       if (reportData.success) {
         let orders = reportData.orders || []
-        orders = filterOrdersByRestaurant(orders, restaurantId)
+        orders = filterOrdersByRestaurant(orders, restaurantId, waitresses, restaurants)
 
         const itemsMap = await fetchMenuItemsForOrders(orders)
         const enhancedOrders = enhanceOrdersWithMenuItems(orders, itemsMap)
@@ -1475,7 +1495,7 @@ export default function DashboardPage() {
 
       if (reportData.success) {
         let orders = reportData.orders || []
-        orders = filterOrdersByRestaurant(orders, selectedRestaurant)
+        orders = filterOrdersByRestaurant(orders, selectedRestaurant, waitresses, restaurants)
 
         const itemsMap = await fetchMenuItemsForOrders(orders)
         const enhancedOrders = enhanceOrdersWithMenuItems(orders, itemsMap)
@@ -1547,13 +1567,14 @@ export default function DashboardPage() {
     return { totalSales, orderCount, averageOrderValue, totalTax: 0, totalDiscounts: 0 }
   }, [filteredOverviewOrders])
 
-  // Prepare restaurant ranking data
+  // Prepare restaurant ranking data using dynamic detection
   const restaurantRankingData = useMemo((): RankingItem[] => {
     const restaurantSales = new Map<string, { name: string; sales: number; orders: number }>()
     
     filteredOverviewOrders.forEach(order => {
-      const restaurantId = getOrderRestaurantId(order)
-      const restaurantName = getRestaurantDisplayName(order)
+      const restaurantId = getOrderRestaurantId(order, waitresses, restaurants)
+      const restaurant = restaurants.find(r => r._id === restaurantId)
+      const restaurantName = restaurant?.name || order.restaurantName || 'Unassigned'
       const existing = restaurantSales.get(restaurantId) || { name: restaurantName, sales: 0, orders: 0 }
       restaurantSales.set(restaurantId, {
         name: restaurantName,
@@ -1571,7 +1592,7 @@ export default function DashboardPage() {
         orders: data.orders,
       }))
       .sort((a, b) => b.value - a.value)
-  }, [filteredOverviewOrders])
+  }, [filteredOverviewOrders, waitresses, restaurants])
 
   // Prepare waiter ranking data
   const waiterRankingData = useMemo((): RankingItem[] => {
@@ -1689,7 +1710,7 @@ export default function DashboardPage() {
     ? 'All Restaurants'
     : selectedRestaurant === 'unassigned'
     ? 'Unassigned Orders'
-    : RESTAURANTS.find(r => r.id === selectedRestaurant)?.name || 'Selected Restaurant'
+    : restaurants.find(r => r._id === selectedRestaurant)?.name || 'Selected Restaurant'
   
   const currentWaiterName = selectedWaiter === 'all'
     ? 'All Waiters'
@@ -1727,6 +1748,7 @@ export default function DashboardPage() {
           onRestaurantChange={handleRestaurantChange}
           onWaiterChange={handleWaiterChange}
           waitresses={waitresses}
+          restaurants={restaurants}
           onRefresh={handleRefresh}
           isRefreshing={isRefreshing}
           dateRangeLabel={dateRangeLabel}
@@ -1844,7 +1866,7 @@ export default function DashboardPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredOverviewOrders.map((order) => {
-                    const restaurantName = getRestaurantDisplayName(order)
+                    const restaurantName = getRestaurantDisplayName(order, waitresses, restaurants)
                     const orderType = order.inTable === true 
                       ? { icon: <Home className="h-3 w-3" />, label: "Dine In", color: "bg-green-100 text-green-800" }
                       : order.delivery === true
@@ -1974,7 +1996,7 @@ export default function DashboardPage() {
                     </div>
                     <div>
                       <h4 className="font-medium text-sm text-muted-foreground">Restaurant</h4>
-                      <p>{getRestaurantDisplayName(selectedOrder)}</p>
+                      <p>{getRestaurantDisplayName(selectedOrder, waitresses, restaurants)}</p>
                     </div>
                     <div>
                       <h4 className="font-medium text-sm text-muted-foreground">Table Number</h4>

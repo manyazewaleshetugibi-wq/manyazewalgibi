@@ -2,7 +2,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
-
 import { auth } from "@/auth";
 
 // Debug flag
@@ -18,7 +17,7 @@ function debugError(message: string, error: any) {
   console.error(`[ERROR] ${message}`, error);
 }
 
-// GET: Fetch orders for reports with filtering by date and waiter
+// GET: Fetch orders for reports with filtering by date, waiter, and restaurant
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
@@ -34,11 +33,12 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const waiterId = searchParams.get('waiterId');
-    const paymentMethod = searchParams.get('paymentMethod'); // Optional: filter by payment method
+    const restaurantId = searchParams.get('restaurantId'); // NEW: Restaurant filter
+    const paymentMethod = searchParams.get('paymentMethod');
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
     const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1;
-    const pageSize = 50; // Items per page
-    const excludeCalculated = searchParams.get('excludeCalculated') === 'true'; // Exclude calculated orders
+    const pageSize = 50;
+    const excludeCalculated = searchParams.get('excludeCalculated') === 'true';
 
     // Validate required parameters
     if (!startDate || !endDate) {
@@ -57,7 +57,6 @@ export async function GET(req: NextRequest) {
     if (waiterId === 'all' || !waiterId) {
       targetWaiterId = 'all';
     } else if (waiterId === 'current') {
-      // Get current waitress by email
       const currentWaitress = await db.collection("waitresses").findOne(
         { email: session.user.email }
       );
@@ -66,7 +65,9 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    debugLog(`Fetching reports from ${startDate} to ${endDate} for waiter: ${targetWaiterId}`);
+    debugLog(`Fetching reports from ${startDate} to ${endDate}`);
+    debugLog(`Waiter filter: ${targetWaiterId}`);
+    debugLog(`Restaurant filter: ${restaurantId || 'none'}`);
     debugLog(`Exclude calculated: ${excludeCalculated}`);
 
     // Build query - ONLY COMPLETED ORDERS
@@ -75,12 +76,12 @@ export async function GET(req: NextRequest) {
         $gte: new Date(startDate),
         $lte: new Date(endDate + 'T23:59:59.999Z'),
       },
-      status: 'COMPLETED', // Only fetch completed orders
+      status: 'COMPLETED',
     };
 
     // Exclude calculated orders if requested
     if (excludeCalculated) {
-      query.calculated = { $ne: true }; // Only include orders where calculated is not true
+      query.calculated = { $ne: true };
     }
 
     // Add waiter filter if specified and not 'all'
@@ -88,12 +89,24 @@ export async function GET(req: NextRequest) {
       query.waiterId = targetWaiterId;
     }
 
+    // NEW: Add restaurant filter if specified
+    if (restaurantId && restaurantId !== 'all' && restaurantId !== 'unassigned') {
+      // Try to match by restaurantId (ObjectId or string)
+      if (ObjectId.isValid(restaurantId)) {
+        query.restaurantId = restaurantId;
+      } else {
+        // Also support string-based restaurantId
+        query.restaurantId = restaurantId;
+      }
+      debugLog(`Filtering by restaurantId: ${restaurantId}`);
+    }
+
     // Add payment method filter if specified
     if (paymentMethod && paymentMethod !== 'all') {
       query.paymentMethod = paymentMethod;
     }
 
-    debugLog('Query (only completed orders):', query);
+    debugLog('Query:', JSON.stringify(query, null, 2));
 
     // Get total count for pagination
     const totalCount = await db.collection("orders").countDocuments(query);
@@ -115,6 +128,21 @@ export async function GET(req: NextRequest) {
           preserveNullAndEmptyArrays: true,
         },
       },
+      // NEW: Lookup restaurant information
+      {
+        $lookup: {
+          from: 'restaurants',
+          localField: 'restaurantId',
+          foreignField: '_id',
+          as: 'restaurantInfo',
+        },
+      },
+      {
+        $unwind: {
+          path: '$restaurantInfo',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
       {
         $lookup: {
           from: 'items',
@@ -122,6 +150,17 @@ export async function GET(req: NextRequest) {
           foreignField: '_id',
           as: 'itemDetails',
         },
+      },
+      // NEW: Add restaurant name from the lookup or fallback to order's restaurantName
+      {
+        $addFields: {
+          enrichedRestaurantName: {
+            $ifNull: ['$restaurantInfo.name', '$restaurantName']
+          },
+          enrichedRestaurantId: {
+            $ifNull: ['$restaurantInfo._id', '$restaurantId']
+          }
+        }
       },
       {
         $sort: { createdAt: -1 },
@@ -132,7 +171,6 @@ export async function GET(req: NextRequest) {
     if (limit) {
       pipeline.push({ $limit: limit });
     } else {
-      // Default pagination
       const skip = (page - 1) * pageSize;
       pipeline.push({ $skip: skip });
       pipeline.push({ $limit: pageSize });
@@ -142,6 +180,8 @@ export async function GET(req: NextRequest) {
     const orders = await db.collection("orders")
       .aggregate(pipeline)
       .toArray();
+
+    debugLog(`Found ${orders.length} orders`);
 
     // Get summary statistics (without pagination)
     const summaryPipeline = [
@@ -164,7 +204,7 @@ export async function GET(req: NextRequest) {
       .aggregate(summaryPipeline)
       .toArray();
 
-    // Get orders by status breakdown (will only show COMPLETED since that's all we query)
+    // Get orders by status breakdown
     const statusBreakdownPipeline = [
       { $match: query },
       {
@@ -246,7 +286,7 @@ export async function GET(req: NextRequest) {
       averageOrderValue: day.orders > 0 ? day.total / day.orders : 0,
     }));
 
-    // Transform orders to match frontend interface
+    // Transform orders to match frontend interface - INCLUDING RESTAURANT INFO
     const transformedOrders = orders.map(order => ({
       _id: order._id.toString(),
       orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
@@ -262,6 +302,10 @@ export async function GET(req: NextRequest) {
       specialRequirements: order.specialRequirements || '',
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
+      // RESTAURANT INFO - CRITICAL FOR FILTERING
+      restaurantId: order.restaurantId || order.enrichedRestaurantId || null,
+      restaurantName: order.restaurantName || order.enrichedRestaurantName || null,
+      // Order items
       orderItems: (order.items || []).map((item: any, index: number) => ({
         menuItemId: item.itemId || item.menuItemId || '',
         name: item.name || 'Unknown Item',
@@ -272,8 +316,10 @@ export async function GET(req: NextRequest) {
       })),
       paymentMethod: order.paymentMethod || 'CASH',
       waiterId: order.waiterId || '',
-      calculated: order.calculated || false, // Include calculated flag
+      waiterName: order.waiterInfo?.name || '',
+      calculated: order.calculated || false,
       delivery: order.delivery || false,
+      inTable: order.inTable === true || (!order.delivery && order.inTable !== false),
       deliveryInfo: order.deliveryInfo,
       paymentScreenshotUrl: order.paymentScreenshotUrl,
       waiterInfo: order.waiterInfo ? {
@@ -283,7 +329,7 @@ export async function GET(req: NextRequest) {
       } : undefined,
     }));
 
-    // Get all waiters for filter dropdown
+    // Get all waiters for filter dropdown (include restaurant info)
     const allWaiters = await db.collection("waitresses")
       .find({})
       .project({
@@ -291,6 +337,19 @@ export async function GET(req: NextRequest) {
         name: 1,
         shift: 1,
         email: 1,
+        restaurantId: 1,
+        restaurantName: 1,
+      })
+      .toArray();
+
+    // NEW: Get all restaurants for filter dropdown
+    const allRestaurants = await db.collection("restaurants")
+      .find({ isActive: { $ne: false } })
+      .project({
+        _id: 1,
+        name: 1,
+        shortName: 1,
+        isActive: 1,
       })
       .toArray();
 
@@ -303,6 +362,16 @@ export async function GET(req: NextRequest) {
       totalGuests: 0,
       averageOrderValue: 0,
     };
+
+    // Debug log restaurant distribution
+    const restaurantDistribution = transformedOrders.reduce((acc, order) => {
+      const restId = order.restaurantId || 'no-restaurant';
+      acc[restId] = (acc[restId] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    debugLog('Restaurant distribution in response:', restaurantDistribution);
+    debugLog(`Total restaurants in DB: ${allRestaurants.length}`);
 
     return NextResponse.json({
       success: true,
@@ -344,6 +413,15 @@ export async function GET(req: NextRequest) {
         name: w.name,
         shift: w.shift,
         email: w.email,
+        restaurantId: w.restaurantId,
+        restaurantName: w.restaurantName,
+      })),
+      // NEW: Return restaurants list for frontend
+      restaurants: allRestaurants.map(r => ({
+        _id: r._id.toString(),
+        name: r.name,
+        shortName: r.shortName || r.name,
+        isActive: r.isActive,
       })),
       pagination: {
         page,
@@ -355,11 +433,11 @@ export async function GET(req: NextRequest) {
         start: startDate,
         end: endDate,
       },
-      // Add info about what status filter was applied
       filterInfo: {
-        statusFilter: 'COMPLETED', // Always COMPLETED
+        statusFilter: 'COMPLETED',
         includeAllStatuses: false,
         excludeCalculated,
+        restaurantFilterApplied: restaurantId || 'none',
       }
     });
 
@@ -404,11 +482,10 @@ export async function POST(req: NextRequest) {
 
     // Handle different export formats
     if (format === 'csv') {
-      // Create CSV content
       const csvRows = [];
       
-      // Add headers
-      csvRows.push('Order Number,Date,Customer,Table,Waiter,Status,Payment Method,Items,Total,Calculated');
+      // Add headers with restaurant info
+      csvRows.push('Order Number,Date,Customer,Table,Waiter,Restaurant,Status,Payment Method,Items,Total,Calculated');
       
       // Add data rows
       data.orders.forEach((order: any) => {
@@ -418,6 +495,7 @@ export async function POST(req: NextRequest) {
           `"${order.customer}"`,
           order.table,
           `"${order.waiter}"`,
+          `"${order.restaurantName || ''}"`,
           order.status,
           order.paymentMethod,
           order.items,

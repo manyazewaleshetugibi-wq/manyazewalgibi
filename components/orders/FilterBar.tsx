@@ -108,6 +108,13 @@ export function FilterBar({
     }
   }, [onSearchChange])
 
+  // Get the display name for the selected restaurant
+  const getSelectedRestaurantName = () => {
+    if (!restaurantFilter || restaurantFilter === "All") return "All Restaurants"
+    const restaurant = restaurants.find(r => r._id === restaurantFilter)
+    return restaurant?.name || restaurantFilter
+  }
+
   return (
     <Card>
       <CardContent className="p-6">
@@ -163,12 +170,18 @@ export function FilterBar({
             </SelectContent>
           </Select>
 
+          {/* UPDATED: Restaurant filter with proper value handling */}
           <Select
             value={restaurantFilter || "All"}
-            onValueChange={(value) => onRestaurantFilterChange(value === "All" ? null : value)}
+            onValueChange={(value) => {
+              // Pass the restaurant ID when a restaurant is selected, null for "All"
+              onRestaurantFilterChange(value === "All" ? null : value)
+            }}
           >
             <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Filter by Restaurant" />
+              <SelectValue placeholder="Filter by Restaurant">
+                {getSelectedRestaurantName()}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="All">All Restaurants</SelectItem>

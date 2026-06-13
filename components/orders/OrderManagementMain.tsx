@@ -836,7 +836,7 @@ export default function OrderManagementMain() {
     </AlertDialog>
   )
 
-  // ========== FILTERED ORDERS ==========
+  // ========== FILTERED ORDERS (FIXED RESTAURANT FILTERING) ==========
   const filteredAndSortedOrders = useMemo(() => {
     let filtered = orders.filter((order) => {
       if (order.deletedAt) return false
@@ -855,13 +855,45 @@ export default function OrderManagementMain() {
         (orderTypeFilter === "pos" && !order.inTable && !order.delivery)
       const matchesMarked = !showMarkedOnly || order.markedForDeletion === true
 
+      // FIXED: Restaurant filtering logic
       let matchesRestaurant = true
-      if (restaurantFilter) {
-        const orderRestaurantId = getOrderRestaurantId(order)
-        const restaurant = getRestaurantById(restaurants, orderRestaurantId || undefined)
-        matchesRestaurant = restaurant?._id === restaurantFilter || 
-                           order.restaurantName === restaurantFilter ||
-                           orderRestaurantId === restaurantFilter
+      if (restaurantFilter && restaurantFilter !== "all" && restaurantFilter !== "All") {
+        // Get the restaurant ID from the order using multiple possible sources
+        let orderRestaurantId = null
+        
+        // Check if order has direct restaurantId
+        if (order.restaurantId) {
+          orderRestaurantId = order.restaurantId
+        } 
+        // Try to derive from restaurantName if it matches known restaurants
+        else if (order.restaurantName && restaurants.length > 0) {
+          const matchingRestaurant = restaurants.find(r => 
+            r.name === order.restaurantName || 
+            order.restaurantName?.includes(r.name) ||
+            r.name?.includes(order.restaurantName || "")
+          )
+          if (matchingRestaurant) {
+            orderRestaurantId = matchingRestaurant._id
+          }
+        }
+        // Special case for Manyazewal restaurants
+        else if (order.restaurantName?.includes("Manyazewal 1") || order.restaurantName === "Manyazewal Eshetu Gibi 1") {
+          orderRestaurantId = "manyazewal1"
+        }
+        else if (order.restaurantName?.includes("Manyazewal 2") || order.restaurantName === "Manyazewal Eshetu Gibi 2") {
+          orderRestaurantId = "manyazewal2"
+        }
+        
+        // Compare the restaurant filter (which is an _id) with the order's restaurant ID
+        matchesRestaurant = orderRestaurantId === restaurantFilter
+        
+        // If still no match, try to match by restaurant name directly
+        if (!matchesRestaurant && order.restaurantName) {
+          const restaurant = restaurants.find(r => r._id === restaurantFilter)
+          if (restaurant && order.restaurantName === restaurant.name) {
+            matchesRestaurant = true
+          }
+        }
       }
 
       return matchesSearch && matchesStatus && matchesWaitress && matchesDate && 
@@ -1175,13 +1207,22 @@ export default function OrderManagementMain() {
         <div className="border rounded-lg overflow-x-auto">
           <table className="w-full">
             <thead className="bg-muted">
-              <tr><th className="p-3 text-left">Order #</th><th className="p-3 text-left">Restaurant</th>
-              <th className="p-3 text-left">Type</th><th className="p-3 text-left">Stock Status</th>
-              <th className="p-3 text-left">Customer</th><th className="p-3 text-left">Waitress</th>
-              <th className="p-3 text-left">Table</th><th className="p-3 text-left">Status</th>
-              <th className="p-3 text-left">Locked</th>
-              <th className="p-3 text-left">Deletion Req</th><th className="p-3 text-left">Total</th>
-              <th className="p-3 text-left">Date</th><th className="p-3 text-right">Actions</th></tr></thead>
+              <tr>
+                <th className="p-3 text-left">Order #</th>
+                <th className="p-3 text-left">Restaurant</th>
+                <th className="p-3 text-left">Type</th>
+                <th className="p-3 text-left">Stock Status</th>
+                <th className="p-3 text-left">Customer</th>
+                <th className="p-3 text-left">Waitress</th>
+                <th className="p-3 text-left">Table</th>
+                <th className="p-3 text-left">Status</th>
+                <th className="p-3 text-left">Locked</th>
+                <th className="p-3 text-left">Deletion Req</th>
+                <th className="p-3 text-left">Total</th>
+                <th className="p-3 text-left">Date</th>
+                <th className="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
             <tbody>
               {paginatedOrders.map((order) => {
                 const waitress = waitresses.find((w) => w._id === order.waiterId)

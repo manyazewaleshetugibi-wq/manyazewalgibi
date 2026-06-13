@@ -218,10 +218,14 @@ const getRestaurantForWaiter = (
   waiterId: string | undefined, 
   waitersList: Waiter[], 
   defaultRestaurantId: string
-): string => {
+): { id: string; name: string } => {
   // If no waiter selected, return Restaurant One
   if (!waiterId || waiterId === "") {
-    return defaultRestaurantId;
+    const defaultRestaurant = waitersList.find(w => w.restaurantId === defaultRestaurantId);
+    return {
+      id: defaultRestaurantId,
+      name: defaultRestaurant?.restaurantName || getDefaultRestaurantName()
+    };
   }
   
   // Find the selected waiter
@@ -229,18 +233,40 @@ const getRestaurantForWaiter = (
   
   // If waiter has restaurantId, use it
   if (selectedWaiter?.restaurantId) {
-    return selectedWaiter.restaurantId;
+    // Find restaurant name from the restaurant ID
+    return {
+      id: selectedWaiter.restaurantId,
+      name: selectedWaiter.restaurantName || getRestaurantNameFromId(selectedWaiter.restaurantId)
+    };
   }
   
   // If waiter has restaurantName, map it
   if (selectedWaiter?.restaurantName) {
     const name = selectedWaiter.restaurantName.toLowerCase();
-    if (name.includes('1') || name.includes('gibi 1')) return "manyazewal1";
-    if (name.includes('2') || name.includes('gibi 2')) return "manyazewal2";
+    if (name.includes('2') || name.includes('gibi 2')) {
+      return { id: "manyazewal2", name: "Manyazewal Eshetu Gibi 2" };
+    } else {
+      return { id: "manyazewal1", name: "Manyazewal Eshetu Gibi 1" };
+    }
   }
   
   // Default to Restaurant One
-  return defaultRestaurantId;
+  return {
+    id: defaultRestaurantId,
+    name: getDefaultRestaurantName()
+  };
+};
+
+// Helper to get restaurant name from ID
+const getRestaurantNameFromId = (restaurantId: string): string => {
+  switch (restaurantId) {
+    case "manyazewal1":
+      return "Manyazewal Eshetu Gibi 1";
+    case "manyazewal2":
+      return "Manyazewal Eshetu Gibi 2";
+    default:
+      return getDefaultRestaurantName();
+  }
 };
 
 // Custom debounce function
@@ -894,6 +920,7 @@ export default function POSPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedWaiter, setSelectedWaiter] = useState("")
   const [selectedRestaurant, setSelectedRestaurant] = useState<string>(getDefaultRestaurantId())
+  const [selectedRestaurantName, setSelectedRestaurantName] = useState<string>(getDefaultRestaurantName())
   const [tableNumber, setTableNumber] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const [orderNumber, setOrderNumber] = useState(`ORD-${Date.now()}`)
@@ -979,10 +1006,13 @@ export default function POSPage() {
           
           if (restaurantOne) {
             setSelectedRestaurant(restaurantOne._id);
+            setSelectedRestaurantName(restaurantOne.name);
           } else if (activeRestaurants.length > 0) {
             setSelectedRestaurant(activeRestaurants[0]._id);
+            setSelectedRestaurantName(activeRestaurants[0].name);
           } else {
             setSelectedRestaurant(getDefaultRestaurantId());
+            setSelectedRestaurantName(getDefaultRestaurantName());
           }
         } else {
           setRestaurants([
@@ -990,6 +1020,7 @@ export default function POSPage() {
             { _id: "manyazewal2", name: "Manyazewal Eshetu Gibi 2", shortName: "Restaurant 2", isActive: true }
           ]);
           setSelectedRestaurant(getDefaultRestaurantId());
+          setSelectedRestaurantName(getDefaultRestaurantName());
         }
       } catch (error) {
         console.error('Error fetching restaurants:', error);
@@ -998,6 +1029,7 @@ export default function POSPage() {
           { _id: "manyazewal2", name: "Manyazewal Eshetu Gibi 2", shortName: "Restaurant 2", isActive: true }
         ]);
         setSelectedRestaurant(getDefaultRestaurantId());
+        setSelectedRestaurantName(getDefaultRestaurantName());
       }
     };
     
@@ -1021,6 +1053,7 @@ export default function POSPage() {
           
           if (matchingWaiter && matchingWaiter._id) {
             const waiterRestaurantId = matchingWaiter.restaurantId || getDefaultRestaurantId();
+            const waiterRestaurantName = matchingWaiter.restaurantName || getRestaurantNameFromId(waiterRestaurantId);
             
             setCurrentUser({
               id: matchingWaiter._id,
@@ -1028,12 +1061,13 @@ export default function POSPage() {
               role: matchingWaiter.role || sessionData.user.role,
               email: matchingWaiter.email,
               restaurantId: waiterRestaurantId,
-              restaurantName: matchingWaiter.restaurantName
+              restaurantName: waiterRestaurantName
             });
             
             // Auto-select restaurant from user's assigned restaurant
             if (waiterRestaurantId) {
               setSelectedRestaurant(waiterRestaurantId);
+              setSelectedRestaurantName(waiterRestaurantName);
             }
             
             // For POS users, auto-select themselves as waiter
@@ -1050,15 +1084,27 @@ export default function POSPage() {
               restaurantName: getDefaultRestaurantName()
             });
             setSelectedRestaurant(getDefaultRestaurantId());
+            setSelectedRestaurantName(getDefaultRestaurantName());
           }
         }
       } catch (error) {
         console.error('Error fetching user:', error);
         setSelectedRestaurant(getDefaultRestaurantId());
+        setSelectedRestaurantName(getDefaultRestaurantName());
       }
     };
     fetchCurrentUser();
   }, []);
+
+  // Update selected restaurant name when restaurant changes
+  useEffect(() => {
+    const restaurant = restaurants.find(r => r._id === selectedRestaurant);
+    if (restaurant) {
+      setSelectedRestaurantName(restaurant.name);
+    } else {
+      setSelectedRestaurantName(getRestaurantNameFromId(selectedRestaurant));
+    }
+  }, [selectedRestaurant, restaurants]);
 
   // Fetch waiters (for Admin/Kitchen dropdown - POS users don't need this dropdown)
   useEffect(() => {
@@ -1387,7 +1433,7 @@ export default function POSPage() {
     }
   }, [soundEnabled, playNotificationSound]);
 
-  // UPDATED: handlePlaceOrder with Restaurant One as default when no waiter selected
+  // FIXED: handlePlaceOrder with proper restaurant information
   const handlePlaceOrder = async () => {
     // Determine which waiter ID to use based on user type
     let finalWaiterId = selectedWaiter;
@@ -1400,32 +1446,23 @@ export default function POSPage() {
       }
     }
     
-    // Determine final restaurant - default to Restaurant One if nothing selected
-    let finalRestaurant = selectedRestaurant;
+    // Determine final restaurant - use selectedRestaurant from state
+    let finalRestaurantId = selectedRestaurant;
+    let finalRestaurantName = selectedRestaurantName;
     
-    // If no waiter selected, use Restaurant One
-    if (!finalWaiterId || finalWaiterId === "") {
-      finalRestaurant = getDefaultRestaurantId();
-    } else {
-      // Try to get restaurant from waiter if available
-      const selectedWaiterInfo = waiters.find(w => w._id === finalWaiterId);
-      if (selectedWaiterInfo?.restaurantId) {
-        finalRestaurant = selectedWaiterInfo.restaurantId;
-      } else if (selectedWaiterInfo?.restaurantName) {
-        const name = selectedWaiterInfo.restaurantName.toLowerCase();
-        if (name.includes('2') || name.includes('gibi 2')) {
-          finalRestaurant = "manyazewal2";
-        } else {
-          finalRestaurant = getDefaultRestaurantId();
-        }
-      } else {
-        finalRestaurant = getDefaultRestaurantId();
-      }
+    // If no restaurant selected, use default
+    if (!finalRestaurantId || finalRestaurantId === "") {
+      finalRestaurantId = getDefaultRestaurantId();
+      finalRestaurantName = getDefaultRestaurantName();
     }
     
-    // Ensure finalRestaurant is not empty
-    if (!finalRestaurant || finalRestaurant === "") {
-      finalRestaurant = getDefaultRestaurantId();
+    // Try to get restaurant from waiter if available (for non-POS users)
+    if (!isPOS && finalWaiterId && finalWaiterId !== "") {
+      const selectedWaiterInfo = waiters.find(w => w._id === finalWaiterId);
+      if (selectedWaiterInfo?.restaurantId) {
+        finalRestaurantId = selectedWaiterInfo.restaurantId;
+        finalRestaurantName = selectedWaiterInfo.restaurantName || getRestaurantNameFromId(finalRestaurantId);
+      }
     }
     
     // Validate based on user type
@@ -1457,7 +1494,6 @@ export default function POSPage() {
       }
     })
 
-    const selectedRestaurantInfo = restaurants.find(r => r._id === finalRestaurant);
     const selectedWaiterInfo = waiters.find(w => w._id === finalWaiterId);
     
     const orderData = {
@@ -1479,14 +1515,21 @@ export default function POSPage() {
       paymentMethod: "CARD",
       specialRequirements,
       isActive: true,
-      restaurantId: finalRestaurant,
-      restaurantName: selectedRestaurantInfo?.name || getDefaultRestaurantName(),
-      inTable: false,
+      restaurantId: finalRestaurantId,
+      restaurantName: finalRestaurantName,
+      inTable: false,  // POS orders are typically in-table orders
       delivery: false,
       createdBy: currentUser?.id,
       createdByName: currentUser?.name,
       createdByRole: currentUser?.role
     }
+
+    console.log("Placing order with restaurant:", { 
+      restaurantId: finalRestaurantId, 
+      restaurantName: finalRestaurantName,
+      waiterId: finalWaiterId,
+      isPOS: isPOS
+    });
 
     const orderToast = toast.loading("Placing your order...")
 
@@ -1605,8 +1648,14 @@ export default function POSPage() {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
-              {/* Restaurant Selector - Always defaults to Restaurant One if nothing selected */}
-              <Select value={selectedRestaurant || getDefaultRestaurantId()} onValueChange={setSelectedRestaurant}>
+              {/* Restaurant Selector - Shows current restaurant */}
+              <Select value={selectedRestaurant || getDefaultRestaurantId()} onValueChange={(value) => {
+                setSelectedRestaurant(value);
+                const restaurant = restaurants.find(r => r._id === value);
+                if (restaurant) {
+                  setSelectedRestaurantName(restaurant.name);
+                }
+              }}>
                 <SelectTrigger className="w-[110px] sm:w-[140px] lg:w-[160px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
                   <SelectValue placeholder="Select Restaurant" />
                 </SelectTrigger>
@@ -1659,12 +1708,11 @@ export default function POSPage() {
                 </div>
               )}
               
-              {/* Default Restaurant Indicator when no waiter selected */}
-              {!isPOS && (!selectedWaiter || selectedWaiter === "") && (
-                <Badge variant="outline" className="text-[8px] sm:text-[9px] bg-blue-50 text-blue-700 border-blue-200">
-                  Default: Restaurant 1
-                </Badge>
-              )}
+              {/* Current Restaurant Indicator */}
+              <Badge variant="outline" className="text-[8px] sm:text-[9px] bg-indigo-50 text-indigo-700 border-indigo-200">
+                <Building2 className="h-2.5 w-2.5 mr-1" />
+                {selectedRestaurantName || getDefaultRestaurantName()}
+              </Badge>
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
@@ -1874,7 +1922,7 @@ export default function POSPage() {
             <h3 className="font-medium text-[10px] sm:text-xs flex items-center gap-1 sm:gap-2">
               <ChefHat className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-primary animate-pulse" />
               Preparing Order
-            </h3>
+            </h3> 
             <Badge className="bg-primary/20 text-primary border-none px-1.5 sm:px-2 text-[8px] sm:text-[10px]">{orderProgress}%</Badge>
           </div>
           <Progress value={orderProgress} className="w-full h-1 sm:h-1.5 bg-primary/10" />
