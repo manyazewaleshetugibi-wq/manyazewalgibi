@@ -35,7 +35,7 @@ interface RestaurantInfo {
 
 type Gender = 'male' | 'female'
 
-// Animation variants defined outside component so it can be accessed by both
+// Animation variants
 const formVariants: Variants = {
   hidden: { opacity: 0, y: 20 },
   visible: {
@@ -88,7 +88,7 @@ const PasswordInput = ({ id, placeholder, value, onChange, required, error, isMo
   )
 }
 
-// Form Content Component with itemVariants now accessible
+// Form Content Component
 function FormContent({
   firstName, setFirstName,
   lastName, setLastName,
@@ -108,32 +108,32 @@ function FormContent({
 }: any) {
   return (
     <div className={cn("space-y-5", isMobile ? "px-2" : "")}>
-      {/* Location Card - Mobile optimized */}
+      {/* Location Card - Minimized and compact */}
       <motion.div variants={itemVariants}>
         <div className={cn(
-          "rounded-xl border-2 transition-all duration-300 overflow-hidden",
+          "rounded-xl border transition-all duration-300 overflow-hidden",
           location.address && !location.error 
-            ? "border-green-200 bg-green-50/50 dark:bg-green-950/10" 
+            ? "border-green-200 bg-green-50/40 dark:bg-green-950/5" 
             : location.error 
-              ? "border-red-200 bg-red-50/50"
-              : "border-purple-100 bg-purple-50/50"
+              ? "border-red-200 bg-red-50/40"
+              : "border-purple-100 bg-purple-50/40"
         )}>
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-3">
+          <div className="p-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className={cn(
-                  "p-1.5 rounded-lg",
+                  "p-1 rounded-lg",
                   location.address && !location.error 
                     ? "bg-green-100 text-green-600" 
                     : "bg-purple-100 text-purple-600"
                 )}>
-                  <MapPinned className="h-4 w-4" />
+                  <MapPinned className="h-3.5 w-3.5" />
                 </div>
                 <div>
-                  <Label className="font-semibold text-sm text-gray-700 dark:text-gray-300">
+                  <Label className="font-semibold text-xs text-gray-700 dark:text-gray-300">
                     Delivery Location
                   </Label>
-                  <p className="text-[10px] text-gray-400">We'll deliver to this address</p>
+                  <p className="text-[9px] text-gray-400">We'll deliver to this address</p>
                 </div>
               </div>
               <Button
@@ -142,18 +142,18 @@ function FormContent({
                 disabled={location.loading}
                 size="sm"
                 className={cn(
-                  "h-9 px-3 text-xs font-medium transition-all duration-300",
-                  "bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white shadow-md"
+                  "h-7 px-2 text-[10px] font-medium transition-all duration-300",
+                  "bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white shadow-sm"
                 )}
               >
                 {location.loading ? (
                   <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                    Detecting...
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                    ...
                   </>
                 ) : (
                   <>
-                    <Crosshair className="h-3.5 w-3.5 mr-1" />
+                    <Crosshair className="h-3 w-3 mr-1" />
                     Detect
                   </>
                 )}
@@ -166,10 +166,10 @@ function FormContent({
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="mt-2 flex items-center gap-2 text-sm text-purple-600 bg-purple-100 rounded-lg p-2"
+                  className="mt-2 flex items-center gap-2 text-xs text-purple-600 bg-purple-100 rounded-md p-1.5"
                 >
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-xs">Getting your location...</span>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span className="text-[10px]">Getting your location...</span>
                 </motion.div>
               )}
 
@@ -178,19 +178,19 @@ function FormContent({
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="mt-2 space-y-1.5"
+                  className="mt-2"
                 >
-                  <div className="flex items-start gap-2 bg-white/60 rounded-lg p-2">
-                    <CircleCheckBig className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  <div className="flex items-start gap-1.5 bg-white/50 rounded-md p-1.5">
+                    <CircleCheckBig className="h-3 w-3 text-green-500 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-medium text-gray-700 dark:text-gray-300">
                         Location detected!
                       </p>
-                      <p className="text-[10px] text-gray-500 line-clamp-2">
-                        {location.address}
+                      <p className="text-[9px] text-gray-500 truncate">
+                        {location.address.split(',')[0]}{location.address.split(',')[1] ? `, ${location.address.split(',')[1]}` : ''}
                       </p>
                       {location.city && (
-                        <p className="text-[9px] text-purple-500 mt-0.5">
+                        <p className="text-[8px] text-purple-500">
                           {location.city}, {location.country}
                         </p>
                       )}
@@ -204,17 +204,17 @@ function FormContent({
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="mt-2 flex items-center gap-2 text-red-600 bg-red-100 rounded-lg p-2"
+                  className="mt-2 flex items-center gap-1.5 text-red-600 bg-red-100 rounded-md p-1.5"
                 >
-                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                  <span className="text-xs flex-1">{location.error}</span>
+                  <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                  <span className="text-[9px] flex-1">{location.error}</span>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={getUserLocation}
-                    className="h-6 text-xs"
+                    className="h-5 text-[9px] px-1"
                   >
-                    Try Again
+                    Retry
                   </Button>
                 </motion.div>
               )}
@@ -223,9 +223,9 @@ function FormContent({
         </div>
       </motion.div>
 
-      {/* Form Fields - Vertical layout with improved spacing */}
+      {/* Form Fields */}
       <div className="space-y-4">
-        {/* Name Row - Vertical on mobile, horizontal on desktop */}
+        {/* Name Row */}
         <div className={cn(
           "grid gap-4",
           isMobile ? "grid-cols-1" : "grid-cols-2 gap-3"
@@ -462,10 +462,10 @@ function FormContent({
               initial={{ opacity: 0, y: -5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -5 }}
-              className="text-xs text-red-600 bg-red-50 border border-red-200 p-3 rounded-lg flex items-center gap-2"
+              className="text-xs text-red-600 bg-red-50 border border-red-200 p-2 rounded-lg flex items-center gap-2"
             >
               <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              <span className="flex-1">{error}</span>
+              <span className="flex-1 text-xs">{error}</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -494,7 +494,7 @@ function FormContent({
           </Button>
         </motion.div>
 
-        {/* Desktop Footer Links - Added inside FormContent for desktop */}
+        {/* Desktop Footer Links */}
         {!isMobile && (
           <motion.div variants={itemVariants} className="pt-4 space-y-3">
             <div className="text-center">
@@ -520,7 +520,7 @@ function FormContent({
 // Desktop Slides Component
 function DesktopSlides({ slides, restaurantInfo, currentSlide, setCurrentSlide }: any) {
   return (
-    <div className="relative hidden md:block overflow-hidden bg-gradient-to-br from-purple-900 to-indigo-900">
+    <div className="relative hidden md:block overflow-hidden bg-gradient-to-br from-purple-900 to-indigo-900 rounded-2xl">
       <div className="absolute inset-0">
         <Image
           src="/stock1.jpg"
@@ -926,53 +926,71 @@ export default function RegisterPage() {
       </div>
 
       <div className="relative z-10 container mx-auto px-4 py-6 md:py-8 max-w-6xl">
-        {/* Desktop Card Layout */}
-        <div className="hidden md:block overflow-hidden rounded-2xl shadow-2xl">
-          <div className="grid md:grid-cols-2">
-            {/* Form Section - Desktop */}
-            <motion.div variants={itemVariants} className="bg-white dark:bg-gray-900 p-5 md:p-6 space-y-4">
-              <ScrollArea className="h-full pr-2 md:pr-4 max-h-[85vh]">
-                <FormContent
-                  firstName={firstName}
-                  setFirstName={setFirstName}
-                  lastName={lastName}
-                  setLastName={setLastName}
-                  email={email}
-                  setEmail={setEmail}
-                  phone={phone}
-                  setPhone={setPhone}
-                  password={password}
-                  setPassword={setPassword}
-                  confirmPassword={confirmPassword}
-                  setConfirmPassword={setConfirmPassword}
-                  birthDate={birthDate}
-                  setBirthDate={setBirthDate}
-                  inviterCode={inviterCode}
-                  setInviterCode={setInviterCode}
-                  gender={gender}
-                  setGender={setGender}
-                  address={address}
-                  setAddress={setAddress}
-                  errors={errors}
-                  clearFieldError={clearFieldError}
-                  location={location}
-                  getUserLocation={getUserLocation}
-                  validatingInviter={validatingInviter}
-                  inviterValid={inviterValid}
-                  inviterDetails={inviterDetails}
-                  error={error}
-                  isRegistering={isRegistering}
-                  handleRegister={handleRegister}
+        {/* Desktop Layout - Clean split */}
+        <div className="hidden md:grid md:grid-cols-2 gap-8">
+          {/* Form Section - Desktop */}
+          <motion.div variants={itemVariants} className="space-y-6">
+            <div className="text-center mb-6">
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                className="w-20 h-20 mx-auto mb-4 flex items-center justify-center bg-gradient-to-br from-purple-100 to-purple-200 rounded-full shadow-lg"
+              >
+                <Image
+                  src="/man_logo.jpg"
+                  alt="Logo"
+                  width={60}
+                  height={60}
+                  className="rounded-full"
                 />
-              </ScrollArea>
-            </motion.div>
+              </motion.div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent">
+                Create Account
+              </h1>
+              <p className="text-sm text-gray-500 mt-1">Join our restaurant family & enjoy exclusive benefits</p>
+            </div>
+            <ScrollArea className="h-full pr-2 md:pr-4 max-h-[75vh]">
+              <FormContent
+                firstName={firstName}
+                setFirstName={setFirstName}
+                lastName={lastName}
+                setLastName={setLastName}
+                email={email}
+                setEmail={setEmail}
+                phone={phone}
+                setPhone={setPhone}
+                password={password}
+                setPassword={setPassword}
+                confirmPassword={confirmPassword}
+                setConfirmPassword={setConfirmPassword}
+                birthDate={birthDate}
+                setBirthDate={setBirthDate}
+                inviterCode={inviterCode}
+                setInviterCode={setInviterCode}
+                gender={gender}
+                setGender={setGender}
+                address={address}
+                setAddress={setAddress}
+                errors={errors}
+                clearFieldError={clearFieldError}
+                location={location}
+                getUserLocation={getUserLocation}
+                validatingInviter={validatingInviter}
+                inviterValid={inviterValid}
+                inviterDetails={inviterDetails}
+                error={error}
+                isRegistering={isRegistering}
+                handleRegister={handleRegister}
+              />
+            </ScrollArea>
+          </motion.div>
 
-            {/* Right Side - Desktop */}
-            <DesktopSlides slides={slides} restaurantInfo={restaurantInfo} currentSlide={currentSlide} setCurrentSlide={setCurrentSlide} />
-          </div>
+          {/* Right Side - Desktop Slides */}
+          <DesktopSlides slides={slides} restaurantInfo={restaurantInfo} currentSlide={currentSlide} setCurrentSlide={setCurrentSlide} />
         </div>
 
-        {/* Mobile Layout - Full width, no card background */}
+        {/* Mobile Layout */}
         <div className="md:hidden">
           <motion.div variants={itemVariants} className="space-y-6">
             {/* Mobile Header */}
@@ -999,7 +1017,7 @@ export default function RegisterPage() {
               </div>
             </motion.div>
 
-            {/* Mobile Form Content - No background card, just clean inputs */}
+            {/* Mobile Form Content */}
             <div className="space-y-5">
               <FormContent
                 firstName={firstName}
@@ -1111,6 +1129,7 @@ export default function RegisterPage() {
           </motion.div>
         )}
       </AnimatePresence>
+      
     </motion.div>
   )
 }
