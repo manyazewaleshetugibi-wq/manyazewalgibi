@@ -31,6 +31,13 @@ import {
   Truck,
   ShoppingBag,
   Store,
+  Phone,
+  Mail,
+  Facebook,
+  Twitter,
+  Instagram,
+  MapPin,
+  Clock,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -40,6 +47,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
+import { FaTiktok } from "react-icons/fa"
 import axios from "axios"
 
 // API client setup
@@ -81,11 +89,33 @@ interface NavLinkProps {
 }
 
 const navLinks = [
-  { href: "/", icon: UtensilsCrossed, label: "Menu", className: "hidden md:inline-flex text-purple-900" },
-  { href: "/menu", icon: Home, label: "Home", className: "hidden md:inline-flex " },
-  { href: "/about", icon: Info, label: "About Us", className: "hidden md:inline-flex " },
-  { href: "/blogs", icon: BookOpen, label: "Blogs", className: "hidden md:inline-flex " },
-  { href: "/contact", icon: PhoneCall, label: "Contact Us", className: "hidden md:inline-flex " },
+  { href: "/home", icon: Home, label: "Home" },
+  { href: "/about", icon: Info, label: "About Us" },
+  { href: "/", icon: UtensilsCrossed, label: "Menu" }, // Changed from "/" to "/menu"
+  { href: "/blogs", icon: BookOpen, label: "Blogs" },
+  { href: "/contact", icon: PhoneCall, label: "Contact Us" },
+]
+
+// Social media links configuration
+const socialLinks = [
+  { 
+    href: "https://www.facebook.com/share/1KKkkU45nA/", 
+    icon: Facebook, 
+    label: "Facebook",
+    color: "hover:text-blue-600"
+  },
+  { 
+    href: "https://instagram.com/manyazewal", 
+    icon: Instagram, 
+    label: "Instagram",
+    color: "hover:text-pink-600"
+  },
+  { 
+    href: "https://www.tiktok.com/@manyazewalgibi", 
+    icon: FaTiktok, 
+    label: "TikTok",
+    color: "hover:text-black"
+  },
 ]
 
 export function NavBar() {
@@ -98,7 +128,6 @@ export function NavBar() {
   
   // Cast session user to ExtendedUser type
   const user = session?.user as ExtendedUser | undefined
-  const isUserRole = user?.role === "user"
 
   // Close menu when route changes
   useEffect(() => {
@@ -109,17 +138,20 @@ export function NavBar() {
   useEffect(() => {
     if (isMenuOpen) {
       document.body.style.overflow = 'hidden'
+      // Add a class to the root element for additional styling if needed
+      document.documentElement.classList.add('mobile-menu-open')
     } else {
       document.body.style.overflow = 'unset'
+      document.documentElement.classList.remove('mobile-menu-open')
     }
     return () => {
       document.body.style.overflow = 'unset'
+      document.documentElement.classList.remove('mobile-menu-open')
     }
   }, [isMenuOpen])
 
   // Comprehensive user validation function
   const validateUserSession = async () => {
-    // Skip validation if no user
     if (!user?.id && !user?.email) {
       return true
     }
@@ -129,9 +161,7 @@ export function NavBar() {
       setValidationError(null)
       
       let userData = null
-      let endpoint = ''
       
-      // Try multiple endpoints to find the user
       const endpoints = [
         `/users/${user.id}`,
         `/staff/${user.id}`,
@@ -142,9 +172,7 @@ export function NavBar() {
       
       for (const ep of endpoints) {
         try {
-          endpoint = ep
           const response = await api.get(ep, { timeout: 5000 })
-          
           if (response.data?.success && response.data?.data) {
             userData = response.data.data
             break
@@ -155,62 +183,45 @@ export function NavBar() {
             }
           }
         } catch (err) {
-          console.log(`Endpoint ${ep} failed, trying next...`)
           continue
         }
       }
       
-      // Case 1: User not found in database - force logout
       if (!userData) {
-        console.error('User not found in database - invalidating session')
         setValidationError('User account not found')
         await handleLogout(true, '?error=user_not_found')
         return false
       }
       
-      // Case 2: User exists but status is not active - force logout
       if (userData.status && userData.status !== 'active') {
-        console.log(`User account is ${userData.status}. Logging out...`)
         setValidationError(`Account is ${userData.status}`)
         await handleLogout(true, `?error=account_${userData.status}`)
         return false
       }
       
-      // Case 3: User exists and is active - session is valid
       return true
       
     } catch (error: any) {
-      console.error('Failed to validate user session:', error)
-      
-      // If it's a network error, don't logout immediately - might be temporary
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-        console.log('Network timeout during validation - keeping session for now')
         return true
       }
-      
-      // For other errors, check if it's a 404 (user not found)
       if (error.response?.status === 404) {
-        console.error('User not found (404) - invalidating session')
         setValidationError('User account not found')
         await handleLogout(true, '?error=user_not_found')
         return false
       }
-      
-      // For other server errors, keep session but log the error
       return true
     } finally {
       setIsCheckingStatus(false)
     }
   }
 
-  // Initial session validation on mount and when session changes
   useEffect(() => {
     let validationTimeout: NodeJS.Timeout
     let isMounted = true
 
     const validateInitialSession = async () => {
       if (user && isMounted) {
-        // Small delay to ensure session is fully loaded
         validationTimeout = setTimeout(async () => {
           if (isMounted) {
             await validateUserSession()
@@ -229,15 +240,12 @@ export function NavBar() {
     }
   }, [user?.id, user?.email])
 
-  // Periodic session validation (every 60 seconds for staff roles, every 5 minutes for users)
   useEffect(() => {
-    // Don't run periodic checks if no user
     if (!user) return
 
-    // Set different intervals based on role
     const staffRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'waitress', 'fb', 'marketing', 'finance', 'pos']
     const isStaff = staffRoles.includes(user.role)
-    const intervalTime = !isStaff ? 300000 : 60000 // 5 minutes for customers, 1 minute for staff
+    const intervalTime = !isStaff ? 300000 : 60000
 
     const intervalId = setInterval(async () => {
       await validateUserSession()
@@ -246,7 +254,6 @@ export function NavBar() {
     return () => clearInterval(intervalId)
   }, [user?.id, user?.email, user?.role])
 
-  // Check on focus/visibility change (when user returns to tab)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && user) {
@@ -269,23 +276,33 @@ export function NavBar() {
     }
   }, [user])
 
+  // Helper function to check if a route is active
+  const isRouteActive = (href: string) => {
+    if (href === "/home") {
+      return pathname === "/home" 
+    }
+    return pathname === href
+  }
+
   const NavLink = ({ href, icon: Icon, children, onClick }: NavLinkProps) => {
-    const isActive = pathname === href || (href === "/" && pathname === "/home")
+    const isActive = isRouteActive(href)
+    
     return (
       <Link
         href={href}
         onClick={onClick}
         className={`relative flex items-center text-base font-medium transition-colors duration-200 whitespace-nowrap ${
-          isActive ? "text-[#1a1942]" : "text-gray-600 hover:text-[#1a1942]"
+          isActive ? "text-purple-900" : "text-gray-600 hover:text-purple-900"
         }`}
       >
         <Icon className="w-5 h-5 mr-2 md:hidden" />
         <span>{children}</span>
         {isActive && (
           <motion.div
-            className="absolute bottom-0 left-0 w-full h-0.5 bg-[#1a1942]"
+            className="absolute bottom-0 left-0 w-full h-0.5 bg-purple-900"
             layoutId="underline"
             initial={false}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
           />
         )}
       </Link>
@@ -294,121 +311,52 @@ export function NavBar() {
 
   const handleLogout = async (isSilent: boolean = false, redirectPath: string = "/login") => {
     try {
-      // Clear any stored data
       localStorage.removeItem("rememberedEmail")
       localStorage.removeItem("next-auth.session-token")
       localStorage.removeItem("next-auth.callback-url")
       localStorage.removeItem("next-auth.csrf-token")
-      
-      // Clear session storage
       sessionStorage.clear()
-      
-      // Clear any validation error
       setValidationError(null)
-      
-      // Close mobile menu if open
       setIsMenuOpen(false)
       
-      // Sign out from NextAuth
       await signOut({ 
         redirect: !isSilent,
         callbackUrl: isSilent ? undefined : redirectPath
       })
       
-      // If silent logout, manually redirect
       if (isSilent) {
         router.push(redirectPath)
       }
     } catch (error) {
-      console.error('Logout error:', error)
-      // Force redirect on error
       window.location.href = redirectPath
     }
   }
 
   const getDashboardLink = (role: Role): { path: string, label: string, icon: React.ComponentType<{ className?: string }> } => {
     const roleRoutes: Record<Role, { path: string, label: string, icon: React.ComponentType<{ className?: string }> }> = {
-      admin: { 
-        path: "/dashboard", 
-        label: "Admin Dashboard", 
-        icon: LayoutDashboard 
-      },
-      pos: { 
-        path: "/pos", 
-        label: "Point of Sale", 
-        icon: ShoppingCart 
-      },
-      kitchen: { 
-        path: "/orders", 
-        label: "Kitchen Orders", 
-        icon: ChefHat 
-      },
-      fb: { 
-        path: "/items", 
-        label: "Food & Beverage", 
-        icon: UtensilsCrossed 
-      },
-      "f&b": { 
-        path: "/items", 
-        label: "Food & Beverage", 
-        icon: UtensilsCrossed 
-      },
-      marketing: { 
-        path: "/blog", 
-        label: "Marketing Dashboard", 
-        icon: Megaphone 
-      },
-      finance: { 
-        path: "/sales", 
-        label: "Finance Dashboard", 
-        icon: DollarSign 
-      },
-      stock_manager: { 
-        path: "/stock", 
-        label: "Stock Management", 
-        icon: Package 
-      },
-      purchasing: { 
-        path: "/purchase-request", 
-        label: "Purchasing Dashboard", 
-        icon: ShoppingBag 
-      },
-      delivery: { 
-        path: "/delivery", 
-        label: "Delivery Dashboard", 
-        icon: Truck 
-      },
-      waitress: { 
-        path: "/pos", 
-        label: "Take Orders", 
-        icon: Store 
-      },
-      customer: { 
-        path: "/blogs", 
-        label: "Blogs", 
-        icon: BookOpen 
-      },
-      user: {
-        path: "/",
-        label: "Dashboard",
-        icon: LayoutDashboard
-      }
+      admin: { path: "/dashboard", label: "Admin Dashboard", icon: LayoutDashboard },
+      pos: { path: "/pos", label: "Point of Sale", icon: ShoppingCart },
+      kitchen: { path: "/orders", label: "Kitchen Orders", icon: ChefHat },
+      fb: { path: "/items", label: "Food & Beverage", icon: UtensilsCrossed },
+      "f&b": { path: "/items", label: "Food & Beverage", icon: UtensilsCrossed },
+      marketing: { path: "/blog", label: "Marketing Dashboard", icon: Megaphone },
+      finance: { path: "/sales", label: "Finance Dashboard", icon: DollarSign },
+      stock_manager: { path: "/stock", label: "Stock Management", icon: Package },
+      purchasing: { path: "/purchase-request", label: "Purchasing Dashboard", icon: ShoppingBag },
+      delivery: { path: "/delivery", label: "Delivery Dashboard", icon: Truck },
+      waitress: { path: "/pos", label: "Take Orders", icon: Store },
+      customer: { path: "/blogs", label: "Blogs", icon: BookOpen },
+      user: { path: "/", label: "Dashboard", icon: LayoutDashboard }
     }
     
-    return roleRoutes[role] || { 
-      path: "/", 
-      label: "Dashboard", 
-      icon: LayoutDashboard 
-    }
+    return roleRoutes[role] || { path: "/", label: "Dashboard", icon: LayoutDashboard }
   }
 
-  // Function to handle login button click
   const handleLoginClick = () => {
     setIsMenuOpen(false)
     router.push("/login")
   }
 
-  // Function to handle register button click
   const handleRegisterClick = () => {
     setIsMenuOpen(false)
     router.push("/Register")
@@ -425,7 +373,6 @@ export function NavBar() {
     }
 
     if (user) {
-      // Show validation error if any
       if (validationError) {
         return (
           <div className="flex items-center gap-3">
@@ -448,26 +395,25 @@ export function NavBar() {
               <Button 
                 variant="ghost" 
                 size="default"
-                className="relative group hover:bg-[#1a1942]/10 transition-colors px-4"
+                className="relative group hover:bg-purple-100 transition-colors px-4"
               >
                 <div className="flex items-center gap-2">
                   <div className="relative">
-                    <User className="w-5 h-5 text-[#1a1942]" />
+                    <User className="w-5 h-5 text-purple-900" />
                     <motion.div
                       className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full border border-white"
                       animate={{ scale: [1, 1.3, 1] }}
                       transition={{ repeat: Infinity, duration: 2 }}
                     />
                   </div>
-                  <span className="hidden md:inline font-medium text-[#1a1942]">
+                  <span className="hidden md:inline font-medium text-purple-900">
                     {displayName}
                   </span>
-                  <ArrowRight className="w-4 h-4 text-[#1a1942]/60 hidden md:inline" />
+                  <ArrowRight className="w-4 h-4 text-purple-900/60 hidden md:inline" />
                 </div>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
-              {/* User info section */}
               <div className="px-2 py-1.5">
                 <p className="text-sm font-medium text-gray-900 truncate">
                   {user.name || user.email}
@@ -477,19 +423,12 @@ export function NavBar() {
                 </p>
               </div>
               <DropdownMenuSeparator />
-
-              {/* Dashboard link */}
               <DropdownMenuItem asChild>
-                <Link 
-                  href={dashboardPath} 
-                  className="flex items-center w-full cursor-pointer"
-                >
-                  <DashboardIcon className="w-4 h-4 mr-2 text-[#1a1942]" />
+                <Link href={dashboardPath} className="flex items-center w-full cursor-pointer">
+                  <DashboardIcon className="w-4 h-4 mr-2 text-purple-900" />
                   <span className="font-medium">{dashboardLabel}</span>
                 </Link>
               </DropdownMenuItem>
-
-              {/* Customer-specific links */}
               {isCustomer && (
                 <>
                   <DropdownMenuSeparator />
@@ -507,7 +446,6 @@ export function NavBar() {
                   </DropdownMenuItem>
                 </>
               )}
-              
               {userRole === 'waitress' && (
                 <>
                   <DropdownMenuSeparator />
@@ -525,8 +463,6 @@ export function NavBar() {
                   </DropdownMenuItem>
                 </>
               )}
-
-              {/* Change password if required */}
               {user.requiresPasswordChange && (
                 <>
                   <DropdownMenuSeparator />
@@ -538,9 +474,7 @@ export function NavBar() {
                   </DropdownMenuItem>
                 </>
               )}
-
               <DropdownMenuSeparator />
-              {/* Logout */}
               <DropdownMenuItem 
                 onClick={() => handleLogout(false)}
                 className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer"
@@ -554,10 +488,8 @@ export function NavBar() {
       )
     }
 
-    // For non-authenticated users - show both Login and Register buttons
     return (
       <div className="flex items-center gap-3">
-        {/* Register Button */}
         <motion.div
           initial={false}
           whileHover={{ scale: 1.05 }}
@@ -568,17 +500,11 @@ export function NavBar() {
             variant="outline" 
             size="default"
             onClick={handleRegisterClick}
-            className="relative overflow-hidden group border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white transition-all duration-300 px-6"
+            className="relative overflow-hidden group bg-purple-200/20 backdrop-blur-sm text-purple-700 border-purple-300 hover:bg-purple-600 hover:text-white hover:border-purple-600 transition-all duration-300 px-6"
           >
-            <UserPlus className="w-4 h-4 mr-2" />
-            <span className="font-medium tracking-wide">
-              Register
-            </span>
-            <div className="absolute inset-0 rounded-md bg-gradient-to-r from-transparent via-[#1a1942]/10 to-transparent opacity-0 group-hover:opacity-100 blur-sm transition-opacity duration-300" />
+            <span className="font-medium tracking-wide">Register</span>
           </Button>
         </motion.div>
-
-        {/* Login Button */}
         <motion.div
           initial={false}
           whileHover={{ scale: 1.05 }}
@@ -589,14 +515,9 @@ export function NavBar() {
             variant="default" 
             size="default"
             onClick={handleLoginClick}
-            className="relative overflow-hidden group bg-gradient-to-r from-[#1a1942] to-[#3a378f] hover:from-[#3a378f] hover:to-[#1a1942] shadow-lg hover:shadow-xl transition-all duration-300 border-0 px-6"
+            className="relative overflow-hidden group bg-purple-600 text-white border border-purple-400 hover:bg-transparent hover:text-purple-700 hover:border-purple-600 shadow-lg hover:shadow-md transition-all duration-300 px-6"
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
-            <Sparkles className="w-4 h-4 mr-2 opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
-            <span className="font-semibold text-white tracking-wide">
-              Login
-            </span>
-            <div className="absolute inset-0 rounded-md bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 group-hover:opacity-100 blur-sm transition-opacity duration-300" />
+            <span className="font-semibold tracking-wide relative z-10">Login</span>
           </Button>
         </motion.div>
       </div>
@@ -605,28 +526,131 @@ export function NavBar() {
 
   return (
     <>
+      {/* Sub Header - Modern Mobile-Friendly Layout */}
+      <div className="bg-gradient-to-r from-purple-900 to-purple-800 text-white border-b border-purple-700/50">
+        <div className="px-4 mx-auto max-w-7xl sm:px-6 lg:px-8">
+          {/* Desktop Layout */}
+          <div className="hidden md:flex items-center justify-between py-2">
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <Phone className="w-4 h-4 text-purple-300" />
+                <a href="tel:+251911234567" className="hover:text-purple-200 transition-colors">+251 911 234 567</a>
+              </div>
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-purple-300" />
+                <a href="mailto:info@manyazewal.com" className="hover:text-purple-200 transition-colors">info@manyazewal.com</a>
+              </div>
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-purple-300" />
+                <span>Bole, Addis Ababa, Ethiopia</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-purple-300" />
+                <span>Open: 9:00 AM - 10:00 PM</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-purple-300 text-xs">Follow us:</span>
+              <div className="flex items-center gap-2">
+                {socialLinks.map((social) => (
+                  <motion.a
+                    key={social.label}
+                    href={social.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-all duration-300 ${social.color}`}
+                    whileHover={{ scale: 1.1, y: -2 }}
+                    whileTap={{ scale: 0.95 }}
+                    aria-label={social.label}
+                  >
+                    <social.icon className="w-4 h-4" />
+                  </motion.a>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile Layout - Social Icons Left, Auth Text Right */}
+          <div className="flex md:hidden items-center justify-between py-2">
+            {/* Left Section - Social Icons */}
+            <div className="flex items-center gap-2">
+              {socialLinks.map((social) => (
+                <motion.a
+                  key={social.label}
+                  href={social.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-all duration-300 ${social.color}`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  aria-label={social.label}
+                >
+                  <social.icon className="w-3.5 h-3.5" />
+                </motion.a>
+              ))}
+            </div>
+
+            {/* Right Section - Login/Register Text Links */}
+            <div className="flex items-center gap-3">
+              {!user ? (
+                <>
+                  <button
+                    onClick={handleRegisterClick}
+                    className="text-xs font-medium text-white/90 hover:text-white transition-colors"
+                  >
+                    Register
+                  </button>
+                  <span className="text-white/30 text-xs">|</span>
+                  <button
+                    onClick={handleLoginClick}
+                    className="text-xs font-semibold text-white hover:text-purple-200 transition-colors"
+                  >
+                    Login
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <User className="w-3.5 h-3.5 text-white" />
+                    <motion.div
+                      className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-green-400 rounded-full border border-purple-900"
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ repeat: Infinity, duration: 2 }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium text-white/90 truncate max-w-[100px]">
+                    {user.name || user.email?.split('@')[0]}
+                  </span>
+                  <button
+                    onClick={() => handleLogout(false)}
+                    className="text-xs text-white/70 hover:text-white transition-colors"
+                  >
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Header */}
       <header className="sticky top-0 z-50 bg-purple-200/40 backdrop-blur-md supports-[backdrop-filter]:bg-purple-200/30 shadow-sm">
         <div className="px-4 mx-auto max-w-7xl sm:px-6 lg:px-8">
           <nav className="flex items-center justify-between h-16 md:h-20">
-            {/* Logo on the left */}
             <div className="flex items-center flex-1">
               <Link href="/" className="flex items-center group">
-                <motion.div
-                  whileHover={{ scale: 1.05 }}
-                  transition={{ type: "spring", stiffness: 400, damping: 10 }}
-                >
+                <motion.div whileHover={{ scale: 1.05 }} transition={{ type: "spring", stiffness: 400, damping: 10 }}>
                   <Image 
                     src="/man_logo.jpg" 
                     alt="Manyazewal Logo" 
                     width={80} 
                     height={80} 
-                    className="w-auto h-10 md:h-12 transition-transform duration-300 group-hover:scale-105 rounded-xl border border-transparent group-hover:border-[#1a1942] shadow-sm group-hover:shadow-md" 
+                    className="w-auto h-10 md:h-12 transition-transform duration-300 group-hover:scale-105 rounded-xl border border-transparent group-hover:border-purple-900 shadow-sm group-hover:shadow-md" 
                   />
                 </motion.div>
               </Link>
             </div>
-
-            {/* Center navigation links */}
             <div className="hidden md:flex md:items-center md:justify-center md:flex-1 md:gap-4 lg:gap-8">
               {navLinks.map((link) => (
                 <NavLink key={link.href} href={link.href} icon={link.icon}>
@@ -634,22 +658,17 @@ export function NavBar() {
                 </NavLink>
               ))}
             </div>
-
-            {/* Right side - User menu and mobile menu button */}
             <div className="flex items-center justify-end flex-1 gap-4">
-              {/* User menu / Auth buttons */}
               <div className="hidden md:flex items-center">
                 {renderUserMenu()}
               </div>
-
-              {/* Mobile menu button */}
               <div className="md:hidden">
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => setIsMenuOpen(true)}
                   aria-label="Open menu"
-                  className="relative text-[#1a1942] hover:bg-[#1a1942]/10"
+                  className="relative text-purple-900 hover:bg-purple-100"
                 >
                   <Menu className="w-6 h-6" />
                 </Button>
@@ -659,261 +678,286 @@ export function NavBar() {
         </div>
       </header>
 
-      {/* Mobile Side Menu - Overlay and Slide-in Panel */}
+      {/* Mobile Side Menu - Full overlay that covers all page content */}
       <AnimatePresence>
         {isMenuOpen && (
           <>
-            {/* Backdrop Overlay */}
+            {/* Full-screen backdrop overlay - covers everything including header */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 md:hidden"
+              transition={{ duration: 0.25 }}
+              className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100]"
               onClick={() => setIsMenuOpen(false)}
+              style={{ top: 0, left: 0, right: 0, bottom: 0 }}
             />
             
-            {/* Slide-in Panel from Right */}
+            {/* Slide-in Panel from Right - Above the overlay */}
             <motion.div
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 bottom-0 w-[85%] max-w-sm bg-white dark:bg-gray-900 shadow-2xl z-50 md:hidden overflow-y-auto"
+              transition={{ type: "spring", damping: 30, stiffness: 350 }}
+              className="fixed top-0 right-0 bottom-0 w-[75%] max-w-sm bg-white dark:bg-gray-900 shadow-2xl z-[101] overflow-hidden"
+              style={{ top: 0, right: 0, bottom: 0 }}
             >
-              {/* Header with close button */}
-              <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 py-4 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Image 
-                    src="/man_logo.jpg" 
-                    alt="Logo" 
-                    width={40} 
-                    height={40} 
-                    className="rounded-lg"
-                  />
-                  <span className="font-semibold text-[#1a1942] dark:text-purple-400">
-                    Menu
-                  </span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
+              {/* Menu Content - Compact, fits in one screen without scrolling */}
+              <div className="flex flex-col h-full">
+                {/* Close button - positioned at top right */}
+                <button
                   onClick={() => setIsMenuOpen(false)}
-                  className="hover:bg-gray-100 dark:hover:bg-gray-800"
+                  className="absolute top-3 right-3 z-10 p-1.5 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  aria-label="Close menu"
                 >
-                  <X className="w-5 h-5" />
-                </Button>
-              </div>
+                  <X className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                </button>
 
-              {/* Menu Content */}
-              <div className="px-4 py-6 space-y-6">
-                {/* Navigation Links */}
-                <div className="space-y-3">
-                  {navLinks.map((link) => (
-                    <NavLink 
-                      key={link.href} 
-                      href={link.href} 
-                      icon={link.icon}
-                      onClick={() => setIsMenuOpen(false)}
-                    >
-                      {link.label}
-                    </NavLink>
-                  ))}
-                </div>
-                
-                {/* Divider */}
-                <div className="border-t border-gray-100 dark:border-gray-800"></div>
-                
-                {/* Auth Section */}
-                <div className="space-y-3">
-                  {!user ? (
-                    <>
-                      {/* Login Button */}
-                      <Button 
-                        variant="default" 
-                        size="lg"
-                        className="w-full bg-gradient-to-r from-[#1a1942] to-[#3a378f] hover:from-[#3a378f] hover:to-[#1a1942]"
-                        onClick={handleLoginClick}
-                      >
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        Login
-                      </Button>
-                      
-                      {/* Register Button */}
-                      <Button 
-                        variant="outline" 
-                        size="lg"
-                        className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
-                        onClick={handleRegisterClick}
-                      >
-                        <UserPlus className="w-4 h-4 mr-2" />
-                        Register
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      {/* User Profile Card */}
-                      <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-gradient-to-r from-[#1a1942] to-[#3a378f] rounded-full flex items-center justify-center">
-                            <User className="w-5 h-5 text-white" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
-                              {user.name || user.email}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                              {user.role.toLowerCase().replace(/_/g, ' ')}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Dashboard Link */}
-                      <Button 
-                        variant="outline" 
-                        size="lg"
-                        className="w-full border-[#1a1942] text-[#1a1942] hover:bg-[#1a1942] hover:text-white"
-                        onClick={() => {
-                          const { path } = getDashboardLink(user.role)
-                          if (user.requiresPasswordChange) {
-                            router.push("/change-password")
-                          } else {
-                            router.push(path)
-                          }
-                          setIsMenuOpen(false)
-                        }}
-                      >
-                        <LayoutDashboard className="w-4 h-4 mr-2" />
-                        {getDashboardLink(user.role).label}
-                      </Button>
-
-                      {/* Role-specific quick links in mobile menu */}
-                      {user.role === 'purchasing' && (
-                        <>
-                          <Button 
-                            variant="outline" 
-                            size="lg"
-                            className="w-full border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-                            onClick={() => {
-                              router.push("/purchase-request")
-                              setIsMenuOpen(false)
-                            }}
-                          >
-                            <ShoppingBag className="w-4 h-4 mr-2" />
-                            Purchase Requests
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="lg"
-                            className="w-full border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-                            onClick={() => {
-                              router.push("/suppliers")
-                              setIsMenuOpen(false)
-                            }}
-                          >
-                            <Package className="w-4 h-4 mr-2" />
-                            Suppliers
-                          </Button>
-                        </>
-                      )}
-
-                      {user.role === 'delivery' && (
-                        <>
-                          <Button 
-                            variant="outline" 
-                            size="lg"
-                            className="w-full border-teal-200 text-teal-600 hover:bg-teal-50"
-                            onClick={() => {
-                              router.push("/delivery/pending")
-                              setIsMenuOpen(false)
-                            }}
-                          >
-                            <Truck className="w-4 h-4 mr-2" />
-                            Pending Deliveries
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="lg"
-                            className="w-full border-teal-200 text-teal-600 hover:bg-teal-50"
-                            onClick={() => {
-                              router.push("/delivery/active")
-                              setIsMenuOpen(false)
-                            }}
-                          >
-                            <ClipboardList className="w-4 h-4 mr-2" />
-                            Active Deliveries
-                          </Button>
-                        </>
-                      )}
-
-                      {user.role === 'waitress' && (
-                        <>
-                          <Button 
-                            variant="outline" 
-                            size="lg"
-                            className="w-full border-pink-200 text-pink-600 hover:bg-pink-50"
-                            onClick={() => {
-                              router.push("/pos")
-                              setIsMenuOpen(false)
-                            }}
-                          >
-                            <Store className="w-4 h-4 mr-2" />
-                            Take Order
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="lg"
-                            className="w-full border-pink-200 text-pink-600 hover:bg-pink-50"
-                            onClick={() => {
-                              router.push("/myorders")
-                              setIsMenuOpen(false)
-                            }}
-                          >
-                            <ClipboardList className="w-4 h-4 mr-2" />
-                            My Orders
-                          </Button>
-                        </>
-                      )}
-
-                      {/* Change password if required */}
-                      {user.requiresPasswordChange && (
+                <div className="flex-1 px-4 py-4 space-y-3 overflow-y-auto">
+                  {/* Navigation Links - No icons, minimal spacing, with active indicators */}
+                  <div className="space-y-0.5">
+                    {navLinks.map((link) => {
+                      const isActive = isRouteActive(link.href)
+                      return (
+                        <Link
+                          key={link.href}
+                          href={link.href}
+                          onClick={() => setIsMenuOpen(false)}
+                          className={`block py-2 text-sm font-medium transition-all duration-200 rounded-md ${
+                            isActive
+                              ? "text-purple-900 bg-purple-50 border-l-4 border-purple-900 pl-3 -ml-0.5" 
+                              : "text-gray-700 hover:text-purple-900 hover:bg-purple-50/50 pl-3"
+                          }`}
+                        >
+                          {link.label}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                  
+                  {/* Thin Divider */}
+                  <div className="border-t border-gray-100 dark:border-gray-800 my-1"></div>
+                  
+                  {/* Auth Section - Ultra Compact */}
+                  <div className="space-y-2">
+                    {!user ? (
+                      <div className="flex gap-2 pt-1">
+                        <Button 
+                          variant="default" 
+                          size="sm"
+                          className="flex-1 bg-purple-600 text-white text-xs py-1.5 h-auto rounded-md"
+                          onClick={handleLoginClick}
+                        >
+                          Login
+                        </Button>
                         <Button 
                           variant="outline" 
-                          size="lg"
-                          className="w-full border-amber-200 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                          size="sm"
+                          className="flex-1 border-purple-300 text-purple-700 text-xs py-1.5 h-auto rounded-md"
+                          onClick={handleRegisterClick}
+                        >
+                          Register
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        {/* User info - ultra compact */}
+                        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-md px-2 py-1.5">
+                          <p className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
+                            {user.name || user.email}
+                          </p>
+                          <p className="text-[10px] text-gray-500 dark:text-gray-400 capitalize">
+                            {user.role.toLowerCase().replace(/_/g, ' ')}
+                          </p>
+                        </div>
+                        
+                        {/* Dashboard link - compact */}
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="w-full text-xs py-1.5 h-auto rounded-md justify-start"
                           onClick={() => {
-                            router.push("/change-password")
+                            const { path } = getDashboardLink(user.role)
+                            if (user.requiresPasswordChange) {
+                              router.push("/change-password")
+                            } else {
+                              router.push(path)
+                            }
                             setIsMenuOpen(false)
                           }}
                         >
-                          <AlertCircle className="w-4 h-4 mr-2" />
-                          Change Password
+                          <LayoutDashboard className="w-3 h-3 mr-1.5" />
+                          {getDashboardLink(user.role).label}
                         </Button>
-                      )}
-                      
-                      {/* Logout Button */}
-                      <Button 
-                        variant="outline" 
-                        size="lg"
-                        className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                        onClick={() => {
-                          handleLogout(false)
-                          setIsMenuOpen(false)
-                        }}
-                      >
-                        <LogOut className="w-4 h-4 mr-2" />
-                        Logout
-                      </Button>
-                    </>
-                  )}
-                </div>
 
-                {/* Footer Info */}
-                <div className="pt-4">
-                  <p className="text-xs text-center text-gray-500 dark:text-gray-400">
-                    © 2024 Manyazewal Restaurant
-                  </p>
+                        {/* Role-specific links - ultra compact row */}
+                        {user.role === 'purchasing' && (
+                          <div className="flex gap-1.5">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="flex-1 text-[10px] py-1 h-auto rounded-md justify-center"
+                              onClick={() => {
+                                router.push("/purchase-request")
+                                setIsMenuOpen(false)
+                              }}
+                            >
+                              <ShoppingBag className="w-2.5 h-2.5 mr-1" />
+                              Requests
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="flex-1 text-[10px] py-1 h-auto rounded-md justify-center"
+                              onClick={() => {
+                                router.push("/suppliers")
+                                setIsMenuOpen(false)
+                              }}
+                            >
+                              <Package className="w-2.5 h-2.5 mr-1" />
+                              Suppliers
+                            </Button>
+                          </div>
+                        )}
+
+                        {user.role === 'delivery' && (
+                          <div className="flex gap-1.5">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="flex-1 text-[10px] py-1 h-auto rounded-md justify-center"
+                              onClick={() => {
+                                router.push("/delivery/pending")
+                                setIsMenuOpen(false)
+                              }}
+                            >
+                              <Truck className="w-2.5 h-2.5 mr-1" />
+                              Pending
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="flex-1 text-[10px] py-1 h-auto rounded-md justify-center"
+                              onClick={() => {
+                                router.push("/delivery/active")
+                                setIsMenuOpen(false)
+                              }}
+                            >
+                              <ClipboardList className="w-2.5 h-2.5 mr-1" />
+                              Active
+                            </Button>
+                          </div>
+                        )}
+
+                        {user.role === 'waitress' && (
+                          <div className="flex gap-1.5">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="flex-1 text-[10px] py-1 h-auto rounded-md justify-center"
+                              onClick={() => {
+                                router.push("/pos")
+                                setIsMenuOpen(false)
+                              }}
+                            >
+                              <Store className="w-2.5 h-2.5 mr-1" />
+                              Order
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="flex-1 text-[10px] py-1 h-auto rounded-md justify-center"
+                              onClick={() => {
+                                router.push("/myorders")
+                                setIsMenuOpen(false)
+                              }}
+                            >
+                              <ClipboardList className="w-2.5 h-2.5 mr-1" />
+                              My Orders
+                            </Button>
+                          </div>
+                        )}
+
+                        {user.requiresPasswordChange && (
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="w-full border-amber-200 text-amber-600 text-xs py-1.5 h-auto rounded-md justify-start"
+                            onClick={() => {
+                              router.push("/change-password")
+                              setIsMenuOpen(false)
+                            }}
+                          >
+                            <AlertCircle className="w-3 h-3 mr-1.5" />
+                            Change Password
+                          </Button>
+                        )}
+                        
+                        {/* Logout Button - compact */}
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="w-full border-red-200 text-red-600 text-xs py-1.5 h-auto rounded-md justify-start hover:bg-red-50"
+                          onClick={() => {
+                            handleLogout(false)
+                            setIsMenuOpen(false)
+                          }}
+                        >
+                          <LogOut className="w-3 h-3 mr-1.5" />
+                          Logout
+                        </Button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Contact Info - Ultra compact */}
+                  <div className="space-y-1.5 pt-1 border-t border-gray-100 dark:border-gray-800">
+                    <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">Contact</p>
+                    <div className="space-y-1">
+                      <a href="tel:+251911234567" className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-purple-600 transition-colors">
+                        <Phone className="w-2.5 h-2.5" />
+                        +251 911 234 567
+                      </a>
+                      <a href="mailto:info@manyazewal.com" className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-purple-600 transition-colors">
+                        <Mail className="w-2.5 h-2.5" />
+                        info@manyazewal.com
+                      </a>
+                      <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                        <MapPin className="w-2.5 h-2.5" />
+                        Bole, Addis Ababa
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                        <Clock className="w-2.5 h-2.5" />
+                        9AM - 10PM
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Social Media - Small icons */}
+                  <div className="space-y-1.5">
+                    <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">Follow</p>
+                    <div className="flex gap-2">
+                      {socialLinks.map((social) => (
+                        <motion.a
+                          key={social.label}
+                          href={social.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`p-1.5 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-all duration-200 ${social.color}`}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          aria-label={social.label}
+                        >
+                          <social.icon className="w-3 h-3" />
+                        </motion.a>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Footer - Minimal */}
+                  <div className="pt-1 pb-1">
+                    <p className="text-[8px] text-center text-gray-400">© 2024 Manyazewal Restaurant</p>
+                  </div>
                 </div>
               </div>
             </motion.div>

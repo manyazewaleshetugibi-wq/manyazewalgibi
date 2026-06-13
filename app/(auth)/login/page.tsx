@@ -224,11 +224,25 @@ function LoginPage() {
       initial="hidden"
       animate="visible"
       variants={formVariants}
-      className="flex min-h-screen items-center justify-center p-4 bg-gradient-to-b from-background to-purple-50 dark:to-purple-950/20"
+      className="flex min-h-screen items-center justify-center p-4 md:bg-gradient-to-b md:from-background md:to-purple-50 dark:md:to-purple-950/20"
     >
-      <div className={cn("flex flex-col gap-6 w-full max-w-[900px]")}>
-        <Card className="overflow-hidden border-2 border-purple-200 dark:border-purple-900 shadow-lg hover:shadow-purple-100 dark:hover:shadow-purple-900/20 transition-shadow duration-300">
-          <CardContent className="grid p-0 md:grid-cols-2">
+      <div className={cn(
+        "flex flex-col gap-6 w-full max-w-[900px]",
+        "md:max-w-[900px]"
+      )}>
+        {/* On mobile: No card background, full width form. On desktop: Card with shadow and border */}
+        <div className={cn(
+          "overflow-hidden w-full",
+          // Desktop styles
+          "md:border-2 md:border-purple-200 dark:md:border-purple-900 md:shadow-lg md:hover:shadow-purple-100 dark:md:hover:shadow-purple-900/20 md:transition-shadow md:duration-300 md:rounded-lg",
+          // Mobile styles: clean, no background, no border, no shadow
+          "bg-transparent md:bg-card"
+        )}>
+          <div className={cn(
+            "grid w-full",
+            "md:grid-cols-2",
+            "grid-cols-1"
+          )}>
             <motion.form 
               variants={itemVariants} 
               onSubmit={handleSubmit} 
@@ -405,7 +419,8 @@ function LoginPage() {
               </div>
             </motion.form>
 
-            <div className="relative hidden md:block overflow-hidden bg-gradient-to-br from-purple-900 to-purple-700">
+            {/* Desktop only: right side image panel - hidden on mobile */}
+            <div className="relative hidden md:block overflow-hidden bg-gradient-to-br from-purple-900 to-purple-700 rounded-r-lg">
               <motion.div
                 initial={{ scale: 1.1, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -440,33 +455,10 @@ function LoginPage() {
                 </div>
               </motion.div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <motion.div
-          variants={itemVariants}
-          className="text-center text-xs text-muted-foreground [&_a]:underline hover:[&_a]:text-purple-900"
-        >
-          By clicking continue, you agree to our{" "}
-          <motion.a
-            href="#"
-            className="text-purple-600 dark:text-purple-400 hover:text-purple-900 dark:hover:text-purple-300"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            Terms of Service
-          </motion.a>{" "}
-          and{" "}
-          <motion.a
-            href="#"
-            className="text-purple-600 dark:text-purple-400 hover:text-purple-900 dark:hover:text-purple-300"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            Privacy Policy
-          </motion.a>
-          .
-        </motion.div>
+        
       </div>
     </motion.div>
   );

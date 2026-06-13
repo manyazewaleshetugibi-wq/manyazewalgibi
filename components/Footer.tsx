@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import { Button } from "@/components/ui/button"
-import { Twitter, Facebook, Instagram, Mail, MapPin, Phone } from 'lucide-react'
+import { Facebook, Instagram, Mail, MapPin, Phone } from 'lucide-react'
 import Image from 'next/image'
 
 // TikTok Icon Component (since it's not in lucide-react)
@@ -16,6 +16,28 @@ const TikTokIcon = ({ className = "w-5 h-5" }) => (
     <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1.04-.1z"/>
   </svg>
 )
+
+// Social media links configuration
+const socialLinks = [
+  { 
+    href: "https://www.facebook.com/share/1KKkkU45nA/", 
+    icon: Facebook, 
+    label: "Facebook",
+    color: "hover:text-blue-600"
+  },
+  { 
+    href: "https://instagram.com/manyazewal", 
+    icon: Instagram, 
+    label: "Instagram",
+    color: "hover:text-pink-600"
+  },
+  { 
+    href: "https://www.tiktok.com/@manyazewalgibi", 
+    icon: TikTokIcon, 
+    label: "TikTok",
+    color: "hover:text-black"
+  },
+]
 
 export function Footer() {
   return (
@@ -45,42 +67,19 @@ export function Footer() {
 
             {/* Social Media Icons */}
             <ul className="flex items-center space-x-3 mt-9">
-              <li>
-                <a 
-                  href="#" 
-                  title="Twitter" 
-                  className="flex items-center justify-center text-white transition-all duration-200 bg-purple-900 rounded-full w-10 h-10 hover:bg-purple-800 focus:bg-purple-800 hover:scale-110 transform"
-                >
-                  <Twitter className="w-5 h-5" />
-                </a>
-              </li>
-              <li>
-                <a 
-                  href="#" 
-                  title="Facebook" 
-                  className="flex items-center justify-center text-white transition-all duration-200 bg-purple-900 rounded-full w-10 h-10 hover:bg-purple-800 focus:bg-purple-800 hover:scale-110 transform"
-                >
-                  <Facebook className="w-5 h-5" />
-                </a>
-              </li>
-              <li>
-                <a 
-                  href="#" 
-                  title="Instagram" 
-                  className="flex items-center justify-center text-white transition-all duration-200 bg-purple-900 rounded-full w-10 h-10 hover:bg-purple-800 focus:bg-purple-800 hover:scale-110 transform"
-                >
-                  <Instagram className="w-5 h-5" />
-                </a>
-              </li>
-              <li>
-                <a 
-                  href="#" 
-                  title="TikTok" 
-                  className="flex items-center justify-center text-white transition-all duration-200 bg-purple-900 rounded-full w-10 h-10 hover:bg-purple-800 focus:bg-purple-800 hover:scale-110 transform"
-                >
-                  <TikTokIcon className="w-5 h-5" />
-                </a>
-              </li>
+              {socialLinks.map((social) => (
+                <li key={social.label}>
+                  <a 
+                    href={social.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={social.label}
+                    className={`flex items-center justify-center text-white transition-all duration-200 bg-purple-900 rounded-full w-10 h-10 hover:bg-purple-800 focus:bg-purple-800 hover:scale-110 transform ${social.color}`}
+                  >
+                    <social.icon className="w-5 h-5" />
+                  </a>
+                </li>
+              ))}
             </ul>
           </div>
 

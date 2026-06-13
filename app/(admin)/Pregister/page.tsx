@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { toast, Toaster } from "react-hot-toast";
@@ -10,7 +10,6 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
-  CardFooter,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,10 +53,18 @@ import {
   X,
   ShoppingCart,
   Timer,
-  Info,
+  ChevronRight,
+  Maximize2,
+  Minimize2,
+  MoreHorizontal,
+  Hash,
+  Calendar,
+  Layers,
 } from "lucide-react";
 import { extractFirstNumber, extractTemperature } from "@/types/preparation";
 import type { SelectedIngredient } from "@/types/preparation";
+import { motion, AnimatePresence } from "framer-motion";
+import PreparationPanel from "./PreparationPanel";
 
 interface Item {
   _id: string;
@@ -121,6 +128,13 @@ export default function PreparationRegisterPage() {
   const [selectedIngredientForStep, setSelectedIngredientForStep] = useState<StockItem | null>(null);
   const [ingredientQuantity, setIngredientQuantity] = useState(1);
   const [showIngredientDialog, setShowIngredientDialog] = useState(false);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isPanelExpanded, setIsPanelExpanded] = useState(false);
+  
+  // State for showing more items
+  const [showMoreRecipes, setShowMoreRecipes] = useState(false);
+  const [showMoreIngredients, setShowMoreIngredients] = useState(false);
+  const INITIAL_DISPLAY_COUNT = 3;
 
   // Fetch items, ingredients, and registered recipes
   useEffect(() => {
@@ -186,12 +200,24 @@ export default function PreparationRegisterPage() {
     }
   };
 
+  // Auto-open panel when item is selected
   useEffect(() => {
     if (selectedItemId && !isEditMode) {
       checkExistingRecipe();
-    } else {
-      setExistingRecipe(null);
+      setIsPanelOpen(true);
+      // Prevent body scroll when panel is open
+      document.body.style.overflow = 'hidden';
+    } else if (!selectedItemId) {
+      setIsPanelOpen(false);
+      setIsPanelExpanded(false);
+      // Restore body scroll when panel is closed
+      document.body.style.overflow = 'unset';
     }
+    
+    // Cleanup on unmount
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
   }, [selectedItemId, isEditMode]);
 
   const checkExistingRecipe = async () => {
@@ -445,12 +471,13 @@ export default function PreparationRegisterPage() {
       setExistingRecipe(null);
       setItemSearchTerm("");
       setIngredientSearchTerm("");
+      setIsPanelOpen(false);
+      setIsPanelExpanded(false);
+      document.body.style.overflow = 'unset';
       
       // Refresh registered recipes list
       await fetchRegisteredRecipes();
       
-      // Optional: Redirect to display page
-      // router.push('/preparation');
     } catch (error: any) {
       console.error("Error saving recipe:", error);
       toast.error(error.message || "Failed to save recipe");
@@ -462,380 +489,141 @@ export default function PreparationRegisterPage() {
   const currentStepData = steps[currentStep];
   const progress = ((currentStep + 1) / steps.length) * 100;
 
-  const registeredItems = registeredRecipes.map(recipe => ({
-    id: recipe._id,
-    itemId: recipe.itemId,
-    itemName: recipe.itemName,
-    stepsCount: recipe.steps?.length || 0,
-    totalTime: recipe.totalTime,
-    version: recipe.version,
-    updatedAt: recipe.updatedAt
-  }));
+  const selectedItem = items.find(item => item._id === selectedItemId);
+  
+  // Get displayed items for "Show More" functionality
+  const displayedRecipes = showMoreRecipes ? registeredRecipes : registeredRecipes.slice(0, INITIAL_DISPLAY_COUNT);
+  const displayedIngredients = showMoreIngredients ? filteredIngredients : filteredIngredients.slice(0, INITIAL_DISPLAY_COUNT);
 
   if (fetchingItems) {
     return (
       <div className="container mx-auto p-8 flex items-center justify-center min-h-screen">
-        <Card className="p-8 text-center">
+        <div className="p-8 text-center border border-gray-200 bg-white shadow-sm">
           <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-purple-600" />
-          <p className="text-lg">Loading...</p>
-        </Card>
+          <p className="text-lg font-medium text-gray-600">Loading...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto p-4 max-w-7xl">
+    <div className="min-h-screen bg-gray-50">
       <Toaster position="top-right" />
       
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold flex items-center gap-2">
-          <ListChecks className="h-8 w-8 text-purple-600" />
-          Food Preparation Recipe Registration
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Register cooking steps with descriptive text for time, heat, and temperature
-        </p>
-        {isEditMode && (
-          <Badge className="mt-2 bg-blue-100 text-blue-800">
-            <Edit className="h-3 w-3 mr-1" />
-            Edit Mode - Updating existing recipe (Version {existingRecipe?.version})
-          </Badge>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Registration Form */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Item Selection */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Select Menu Item</CardTitle>
-              <CardDescription>Choose the item you want to create preparation steps for</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search menu items..."
-                  value={itemSearchTerm}
-                  onChange={(e) => setItemSearchTerm(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <Select value={selectedItemId} onValueChange={setSelectedItemId} disabled={isEditMode}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select an item..." />
-                </SelectTrigger>
-                <SelectContent className="max-h-80">
-                  {filteredItems.map((item) => (
-                    <SelectItem key={item._id} value={item._id}>
-                      <div className="flex items-center gap-2">
-                        {item.imageUrl && (
-                          <img src={item.imageUrl} alt={item.name} className="w-6 h-6 rounded object-cover" />
-                        )}
-                        <span>{item.name}</span>
-                        <Badge variant="outline" className="ml-2">
-                          {item.price?.toLocaleString()} ETB
-                        </Badge>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {isFetchingRecipe && (
-                <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Checking for existing recipe...
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Steps Progress */}
-          {selectedItemId && (
-            <>
-              <Card>
-                <CardHeader>
-                  <div className="flex justify-between items-center">
-                    <CardTitle>
-                      Step {currentStep + 1} of {steps.length}
-                    </CardTitle>
-                    <Badge variant="outline" className="text-lg">
-                      {Math.round(progress)}% Complete
-                    </Badge>
-                  </div>
-                  <Progress value={progress} className="mt-2" />
-                </CardHeader>
-              </Card>
-
-              {/* Current Step Form */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <ChefHat className="h-5 w-5" />
-                    Step {currentStep + 1} Details
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label>Step Description *</Label>
-                    <Textarea
-                      placeholder="Describe the cooking/preparation step..."
-                      value={currentStepData.description}
-                      onChange={(e) => handleStepChange("description", e.target.value)}
-                      rows={3}
-                      className="mt-1"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label className="flex items-center gap-2">
-                        <Timer className="h-4 w-4" />
-                        Time Description * (e.g., "cook for 5 minutes", "simmer for 10 min")
-                      </Label>
-                      <Input
-                        value={currentStepData.timeText}
-                        onChange={(e) => handleTimeChange(e.target.value)}
-                        placeholder="e.g., cook for 5 minutes, simmer for 10 min"
-                        className="mt-1"
-                      />
-                      {currentStepData.timeValue > 0 && (
-                        <p className="text-xs text-green-600 mt-1">
-                          ✓ Extracted time: {currentStepData.timeValue} minutes (used for total calculation)
-                        </p>
-                      )}
-                    </div>
-
-                    <div>
-                      <Label className="flex items-center gap-2">
-                        <Flame className="h-4 w-4" />
-                        Heat Description (e.g., "low to preserve taste", "medium-high heat")
-                      </Label>
-                      <Input
-                        value={currentStepData.heatText}
-                        onChange={(e) => handleHeatChange(e.target.value)}
-                        placeholder="e.g., low to preserve food taste, medium-high heat"
-                        className="mt-1"
-                      />
-                    </div>
-
-                    <div>
-                      <Label className="flex items-center gap-2">
-                        <Thermometer className="h-4 w-4" />
-                        Temperature Description (e.g., "180°C preheated", "hot oil")
-                      </Label>
-                      <Input
-                        value={currentStepData.tempText}
-                        onChange={(e) => handleTempChange(e.target.value)}
-                        placeholder="e.g., 180°C preheated oven, hot oil around 350°F"
-                        className="mt-1"
-                      />
-                      {currentStepData.tempValue && (
-                        <p className="text-xs text-green-600 mt-1">
-                          ✓ Extracted temperature: {currentStepData.tempValue}°C
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Multiple Ingredients Selection */}
-                  <div>
-                    <Label className="flex items-center gap-2 mb-2">
-                      <Package className="h-4 w-4" />
-                      Ingredients Needed (Multiple)
-                    </Label>
-                    
-                    {currentStepData.ingredients && currentStepData.ingredients.length > 0 && (
-                      <div className="mb-3 space-y-2">
-                        {currentStepData.ingredients.map((ingredient: SelectedIngredient, idx: number) => (
-                          <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-                            <div className="flex items-center gap-2">
-                              <Package className="h-4 w-4 text-green-600" />
-                              <span className="text-sm font-medium">{ingredient.name}</span>
-                              <Badge variant="outline" className="text-xs">
-                                {ingredient.quantity} {ingredient.unit}
-                              </Badge>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveIngredientFromStep(idx)}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setShowIngredientDialog(true)}
-                      className="w-full"
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Ingredient
-                    </Button>
-                  </div>
-
-                  <div>
-                    <Label>Additional Notes</Label>
-                    <Textarea
-                      placeholder="Any special instructions or notes..."
-                      value={currentStepData.notes || ""}
-                      onChange={(e) => handleStepChange("notes", e.target.value || null)}
-                      rows={2}
-                      className="mt-1"
-                    />
-                  </div>
-                </CardContent>
-                <CardFooter className="flex justify-between">
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => setCurrentStep(Math.max(0, currentStep - 1))}
-                      disabled={currentStep === 0}
-                    >
-                      <ArrowLeft className="h-4 w-4 mr-2" />
-                      Previous
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => setCurrentStep(Math.min(steps.length - 1, currentStep + 1))}
-                      disabled={currentStep === steps.length - 1}
-                    >
-                      Next
-                      <ArrowRight className="h-4 w-4 ml-2" />
-                    </Button>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="destructive"
-                      onClick={() => handleRemoveStep(currentStep)}
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Remove Step
-                    </Button>
-                    <Button onClick={handleAddStep}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Step
-                    </Button>
-                  </div>
-                </CardFooter>
-              </Card>
-
-              {/* Steps Summary */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Steps Summary</CardTitle>
-                  <CardDescription>Review all steps before saving</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2 max-h-80 overflow-y-auto">
-                    {steps.map((step, idx) => (
-                      <div
-                        key={idx}
-                        className={`p-3 rounded-lg border ${
-                          idx === currentStep ? "bg-purple-50 border-purple-300 dark:bg-purple-950/20" : "bg-gray-50 dark:bg-gray-900/20"
-                        }`}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1 flex-wrap">
-                              <Badge className="bg-purple-600">Step {idx + 1}</Badge>
-                              {step.timeText && (
-                                <Badge variant="outline">
-                                  <Timer className="h-3 w-3 mr-1" />
-                                  {step.timeText}
-                                </Badge>
-                              )}
-                              {step.heatText && (
-                                <Badge variant="outline">
-                                  <Flame className="h-3 w-3 mr-1" />
-                                  {step.heatText}
-                                </Badge>
-                              )}
-                            </div>
-                            <p className="text-sm mt-1">{step.description || "No description"}</p>
-                            {step.tempText && (
-                              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                                <Thermometer className="h-3 w-3" />
-                                {step.tempText}
-                              </p>
-                            )}
-                            {step.ingredients && step.ingredients.length > 0 && (
-                              <div className="mt-2 flex flex-wrap gap-1">
-                                {step.ingredients.map((ing: SelectedIngredient, i: number) => (
-                                  <Badge key={i} variant="secondary" className="text-xs">
-                                    {ing.name} ({ing.quantity} {ing.unit})
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          <Button variant="ghost" size="sm" onClick={() => setCurrentStep(idx)}>
-                            Edit
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button
-                    className="w-full bg-green-600 hover:bg-green-700"
-                    onClick={handleSubmit}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Save className="h-4 w-4 mr-2" />
-                        {isEditMode ? `Update Recipe (${steps.length} steps)` : `Save Complete Recipe (${steps.length} steps)`}
-                      </>
-                    )}
-                  </Button>
-                </CardFooter>
-              </Card>
-            </>
-          )}
+      <div className="container mx-auto p-4 max-w-7xl">
+        {/* Header Section */}
+        <div className="mb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-white shadow-sm border border-gray-200">
+              <ListChecks className="h-5 w-5 text-purple-600" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-800">Food Preparation Recipe Registration</h1>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Register cooking steps with descriptive text for time, heat, and temperature
+              </p>
+            </div>
+          </div>
         </div>
 
-        {/* Right Column - Registered Items List */}
-        <div className="lg:col-span-1 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5 text-green-600" />
-                  Registered Recipes
-                </span>
-                <Button variant="ghost" size="sm" onClick={fetchRegisteredRecipes}>
-                  <RefreshCw className="h-4 w-4" />
+        {/* Menu Selection Card */}
+        <div className="border border-gray-200 bg-white shadow-sm mb-6 hover:shadow-md transition-shadow">
+          <div className="p-4 border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <ChefHat className="h-4 w-4 text-purple-600" />
+              <h3 className="text-base font-semibold text-gray-800">Select Menu Item</h3>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Choose the item you want to create preparation steps for</p>
+          </div>
+          <div className="p-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                  <Input
+                    placeholder="Search menu items..."
+                    value={itemSearchTerm}
+                    onChange={(e) => setItemSearchTerm(e.target.value)}
+                    className="pl-9 border-gray-300 focus:border-purple-500 focus:ring-purple-500 h-9 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex-1">
+                <Select value={selectedItemId} onValueChange={setSelectedItemId} disabled={isEditMode}>
+                  <SelectTrigger className="h-9 border-gray-300 bg-white text-sm">
+                    <SelectValue placeholder="Select an item..." />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-80">
+                    {filteredItems.map((item) => (
+                      <SelectItem key={item._id} value={item._id}>
+                        <div className="flex items-center gap-2">
+                          {item.imageUrl && (
+                            <img src={item.imageUrl} alt={item.name} className="w-5 h-5 object-cover" />
+                          )}
+                          <span className="font-medium text-sm">{item.name}</span>
+                          <Badge variant="outline" className="ml-2 text-xs">
+                            {item.price?.toLocaleString()} ETB
+                          </Badge>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {isFetchingRecipe && (
+              <div className="flex items-center gap-2 mt-3 text-xs text-gray-500">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Checking for existing recipe...
+              </div>
+            )}
+            {isEditMode && (
+              <div className="mt-3">
+                <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                  <Edit className="h-3 w-3 mr-1" />
+                  Edit Mode - Version {existingRecipe?.version}
+                </Badge>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Two Column Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Registered Recipes */}
+          <div className="border border-gray-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+            <div className="p-4 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  <h3 className="text-sm font-semibold text-gray-800">Registered Recipes</h3>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={fetchRegisteredRecipes}
+                  className="h-7 w-7 p-0 hover:bg-gray-100"
+                >
+                  <RefreshCw className="h-3.5 w-3.5 text-gray-500" />
                 </Button>
-              </CardTitle>
-              <CardDescription>
-                {registeredItems.length} recipe{registeredItems.length !== 1 ? 's' : ''} registered
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {registeredItems.length === 0 ? (
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {registeredRecipes.length} recipe{registeredRecipes.length !== 1 ? 's' : ''} registered
+              </p>
+            </div>
+            <div className="p-4">
+              {registeredRecipes.length === 0 ? (
                 <div className="text-center py-8">
-                  <ChefHat className="h-12 w-12 mx-auto mb-3 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">No recipes registered yet</p>
+                  <ChefHat className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                  <p className="text-sm text-gray-400">No recipes registered yet</p>
+                  <p className="text-xs text-gray-400 mt-1">Select a menu item to create your first recipe</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {registeredItems.map((recipe) => (
+                <div className="space-y-2">
+                  {displayedRecipes.map((recipe) => (
                     <div
-                      key={recipe.id}
-                      className="p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-900/20 cursor-pointer transition-colors"
+                      key={recipe._id}
+                      className="group p-3 border border-gray-100 hover:border-green-200 hover:bg-green-50/20 cursor-pointer transition-all duration-200"
                       onClick={() => {
                         setSelectedItemId(recipe.itemId);
                         setItemSearchTerm("");
@@ -844,83 +632,165 @@ export default function PreparationRegisterPage() {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="font-medium text-sm">{recipe.itemName}</span>
+                            <span className="font-medium text-sm text-gray-800">{recipe.itemName}</span>
                             {recipe.version && recipe.version > 1 && (
-                              <Badge variant="outline" className="text-xs">
+                              <Badge variant="outline" className="text-xs px-1.5 py-0 text-gray-500">
                                 v{recipe.version}
                               </Badge>
                             )}
                           </div>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                          <div className="flex items-center gap-4 text-xs text-gray-500">
                             <span className="flex items-center gap-1">
-                              <Utensils className="h-3 w-3" />
-                              {recipe.stepsCount} steps
+                              <Layers className="h-3 w-3" />
+                              {recipe.steps?.length || 0} steps
                             </span>
                             <span className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />
-                              {recipe.totalTime} min total
+                              {recipe.totalTime} min
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {new Date(recipe.updatedAt).toLocaleDateString()}
                             </span>
                           </div>
                         </div>
-                        <Badge variant="secondary" className="text-xs">
-                          Edit
-                        </Badge>
+                        <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-green-600 group-hover:translate-x-0.5 transition-all" />
                       </div>
                     </div>
                   ))}
+                  
+                  {registeredRecipes.length > INITIAL_DISPLAY_COUNT && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowMoreRecipes(!showMoreRecipes)}
+                      className="w-full text-xs h-8 text-gray-500 hover:text-purple-600 mt-2"
+                    >
+                      <MoreHorizontal className="h-3 w-3 mr-1" />
+                      {showMoreRecipes ? "Show Less" : `Show ${registeredRecipes.length - INITIAL_DISPLAY_COUNT} More`}
+                    </Button>
+                  )}
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          {/* Stock Ingredients List */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5 text-blue-600" />
-                Stock Ingredients
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          {/* Stock Ingredients */}
+          <div className="border border-gray-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+            <div className="p-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <Package className="h-4 w-4 text-blue-600" />
+                <h3 className="text-sm font-semibold text-gray-800">Stock Ingredients</h3>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Available ingredients in your inventory</p>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                 <Input
                   placeholder="Search ingredients..."
                   value={ingredientSearchTerm}
                   onChange={(e) => setIngredientSearchTerm(e.target.value)}
-                  className="pl-9"
+                  className="pl-9 border-gray-300 focus:border-blue-500 focus:ring-blue-500 h-8 text-sm"
                 />
               </div>
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {filteredIngredients.map((ingredient) => (
-                  <div key={ingredient._id} className="flex items-center justify-between p-2 rounded-lg bg-gray-50 dark:bg-gray-900/20">
-                    <div>
-                      <p className="text-sm font-medium">{ingredient.name}</p>
-                      <p className="text-xs text-muted-foreground">Unit: {ingredient.unit}</p>
-                    </div>
-                    <Badge variant={ingredient.currentStock > 0 ? "default" : "destructive"}>
-                      Stock: {ingredient.currentStock || ingredient.quantity || 0}
-                    </Badge>
+              <div className="space-y-2">
+                {filteredIngredients.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Package className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <p className="text-sm text-gray-400">No ingredients found</p>
                   </div>
-                ))}
+                ) : (
+                  <>
+                    {displayedIngredients.map((ingredient) => (
+                      <div key={ingredient._id} className="flex items-center justify-between p-3 border border-gray-100 hover:border-blue-200 hover:bg-blue-50/20 transition-all duration-200">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-800">{ingredient.name}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Unit: {ingredient.unit}</p>
+                        </div>
+                        <Badge className={`text-xs px-2 py-0.5 ${
+                          ingredient.currentStock > 10 
+                            ? "bg-green-100 text-green-700 border-green-200" 
+                            : ingredient.currentStock > 0 
+                            ? "bg-yellow-100 text-yellow-700 border-yellow-200"
+                            : "bg-red-100 text-red-700 border-red-200"
+                        }`}>
+                          {ingredient.currentStock || ingredient.quantity || 0}
+                        </Badge>
+                      </div>
+                    ))}
+                    
+                    {filteredIngredients.length > INITIAL_DISPLAY_COUNT && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowMoreIngredients(!showMoreIngredients)}
+                        className="w-full text-xs h-8 text-gray-500 hover:text-blue-600 mt-2"
+                      >
+                        <MoreHorizontal className="h-3 w-3 mr-1" />
+                        {showMoreIngredients ? "Show Less" : `Show ${filteredIngredients.length - INITIAL_DISPLAY_COUNT} More`}
+                      </Button>
+                    )}
+                  </>
+                )}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
 
+      {/* Preparation Panel Component */}
+      <PreparationPanel
+        isOpen={isPanelOpen}
+        onClose={() => {
+          setIsPanelOpen(false);
+          setSelectedItemId("");
+          document.body.style.overflow = 'unset';
+        }}
+        selectedItem={selectedItem}
+        steps={steps}
+        currentStep={currentStep}
+        setCurrentStep={setCurrentStep}
+        setSteps={setSteps}
+        isEditMode={isEditMode}
+        existingRecipe={existingRecipe}
+        loading={loading}
+        isPanelExpanded={isPanelExpanded}
+        setIsPanelExpanded={setIsPanelExpanded}
+        selectedItemId={selectedItemId}
+        ingredients={ingredients}
+        selectedIngredientForStep={selectedIngredientForStep}
+        setSelectedIngredientForStep={setSelectedIngredientForStep}
+        ingredientQuantity={ingredientQuantity}
+        setIngredientQuantity={setIngredientQuantity}
+        showIngredientDialog={showIngredientDialog}
+        setShowIngredientDialog={setShowIngredientDialog}
+        handleAddIngredientToStep={handleAddIngredientToStep}
+        handleRemoveIngredientFromStep={handleRemoveIngredientFromStep}
+        handleTimeChange={handleTimeChange}
+        handleHeatChange={handleHeatChange}
+        handleTempChange={handleTempChange}
+        handleAddStep={handleAddStep}
+        handleRemoveStep={handleRemoveStep}
+        handleStepChange={handleStepChange}
+        handleSubmit={handleSubmit}
+      />
+
       {/* Add Ingredient Dialog */}
       <Dialog open={showIngredientDialog} onOpenChange={setShowIngredientDialog}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5" />
+            <DialogTitle className="flex items-center gap-2 text-base text-gray-800">
+              <ShoppingCart className="h-4 w-4 text-purple-600" />
               Add Ingredient to Step {currentStep + 1}
             </DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">
+              Select an ingredient and specify the required quantity
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Select Ingredient</Label>
+              <label className="text-xs text-gray-700 mb-1 block">Ingredient</label>
               <Select
                 value={selectedIngredientForStep?._id || ""}
                 onValueChange={(value) => {
@@ -928,34 +798,40 @@ export default function PreparationRegisterPage() {
                   setSelectedIngredientForStep(ingredient || null);
                 }}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose an ingredient..." />
+                <SelectTrigger className="h-9 text-sm border-gray-300">
+                  <SelectValue placeholder="Choose ingredient..." />
                 </SelectTrigger>
                 <SelectContent>
                   {ingredients.map((ingredient) => (
                     <SelectItem key={ingredient._id} value={ingredient._id}>
-                      {ingredient.name} (Stock: {ingredient.currentStock || ingredient.quantity || 0} {ingredient.unit})
+                      <div className="flex items-center justify-between w-full">
+                        <span>{ingredient.name}</span>
+                        <Badge variant="outline" className="ml-2 text-xs">
+                          Stock: {ingredient.currentStock || ingredient.quantity || 0} {ingredient.unit}
+                        </Badge>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Quantity</Label>
+              <label className="text-xs text-gray-700 mb-1 block">Quantity</label>
               <Input
                 type="number"
                 min={0.1}
                 step={0.1}
                 value={ingredientQuantity}
                 onChange={(e) => setIngredientQuantity(parseFloat(e.target.value) || 0)}
+                className="h-9 text-sm border-gray-300"
               />
             </div>
-            <div className="flex gap-3">
-              <Button onClick={handleAddIngredientToStep} className="flex-1">
-                <Plus className="h-4 w-4 mr-2" />
-                Add
+            <div className="flex gap-3 pt-2">
+              <Button onClick={handleAddIngredientToStep} className="flex-1 h-9 text-sm bg-purple-600 hover:bg-purple-700">
+                <Plus className="h-3.5 w-3.5 mr-2" />
+                Add to Step
               </Button>
-              <Button variant="outline" onClick={() => setShowIngredientDialog(false)} className="flex-1">
+              <Button variant="outline" onClick={() => setShowIngredientDialog(false)} className="flex-1 h-9 text-sm border-gray-300">
                 Cancel
               </Button>
             </div>
@@ -967,27 +843,31 @@ export default function PreparationRegisterPage() {
       <Dialog open={showExistingDialog} onOpenChange={setShowExistingDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-amber-500" />
+            <DialogTitle className="flex items-center gap-2 text-base text-gray-800">
+              <AlertCircle className="h-4 w-4 text-amber-500" />
               Recipe Already Exists
             </DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">
+              A recipe for "{selectedItem?.name}" already exists. What would you like to do?
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-lg">
-              <p className="text-sm font-medium mb-2">Recipe Details:</p>
-              <ul className="text-sm space-y-1">
+            <div className="bg-amber-50 p-4 border border-amber-200">
+              <p className="text-xs font-medium text-amber-800 mb-2">Existing Recipe Details:</p>
+              <ul className="text-xs space-y-1 text-amber-700">
                 <li>• Steps: {existingRecipe?.steps.length}</li>
                 <li>• Total Time: {existingRecipe?.totalTime} minutes</li>
                 <li>• Version: {existingRecipe?.version}</li>
+                <li>• Last Updated: {existingRecipe?.updatedAt ? new Date(existingRecipe.updatedAt).toLocaleDateString() : 'N/A'}</li>
               </ul>
             </div>
             <div className="flex gap-3">
-              <Button onClick={loadRecipeForEdit} className="flex-1">
-                <Edit className="h-4 w-4 mr-2" />
+              <Button onClick={loadRecipeForEdit} className="flex-1 h-9 text-sm bg-blue-600 hover:bg-blue-700">
+                <Edit className="h-3.5 w-3.5 mr-2" />
                 Edit Existing
               </Button>
-              <Button onClick={createNewRecipe} variant="outline" className="flex-1">
-                <Plus className="h-4 w-4 mr-2" />
+              <Button onClick={createNewRecipe} variant="outline" className="flex-1 h-9 text-sm border-gray-300">
+                <Plus className="h-3.5 w-3.5 mr-2" />
                 Create New
               </Button>
             </div>

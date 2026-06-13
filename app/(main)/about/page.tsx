@@ -23,9 +23,6 @@ export default function RestaurantLanding() {
       <main className="flex-1">
         <AboutSection />
         <ImageFeatures/>
-        <FeaturesSection />
-        <TestimonialsSection />
-        <FAQSection />
       </main>
       <Footer />
     </motion.div>

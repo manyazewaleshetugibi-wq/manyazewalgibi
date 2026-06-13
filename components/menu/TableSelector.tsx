@@ -1,23 +1,21 @@
-// components/TableSelector.tsx
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import {
-  Users, MapPin, Home, RefreshCw, Armchair, Store,
-  CheckCircle, Coffee, Clock, AlertCircle, XCircle, Maximize2,
-  ChevronDown, Filter, Layers, Eye, UserCheck, Timer,
-  Lock, AlertTriangle, X, Undo2, ClipboardList
+  Users, MapPin, Armchair, Store,
+  CheckCircle, Coffee, Clock, AlertCircle, XCircle,
+  Filter, Layers, Eye, UserCheck, Timer,
+  Lock, X, Undo2, ClipboardList, User, RefreshCw, SwitchCamera
 } from 'lucide-react';
 import axios from 'axios';
 import { useSession } from 'next-auth/react';
+import { v4 as uuidv4 } from 'uuid';
 
-// UI Components
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -38,8 +36,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from '@/components/ui/alert';
 
-// Types
 export interface TableData {
   id: string;
   number: number;
@@ -91,6 +93,8 @@ interface ActiveSelection {
   selectedAt: string;
   expiresAt: string;
   orderId?: string;
+  isAnonymous?: boolean;
+  anonymousId?: string;
 }
 
 interface TableSelectorProps {
@@ -103,25 +107,16 @@ interface TableSelectorProps {
   allowUnselect?: boolean;
   restaurantId?: string;
   floor?: string;
-  arrangementId?: string;
-  showOrderInfo?: boolean; // New prop to show order info on reserved tables
+  showOrderInfo?: boolean;
+  autoSwitchTables?: boolean;
 }
 
-// Location icons
-const LOCATION_ICONS: Record<string, string> = {
-  salon: '🏠', garden: '🌳', kitchen: '🍳', terrace: '🌅',
-  bar: '🍸', vip: '⭐', window: '🪟', entrance: '🚪',
-  private: '🔒', outdoor: '☀️',
-};
-
-// Status config
 const STATUS_CONFIG: Record<TableData['status'], { 
   color: string; 
   bgGradient: string; 
   label: string;
   badgeColor: string;
   icon: JSX.Element;
-  description?: string;
 }> = {
   available: {
     color: 'text-green-600',
@@ -160,7 +155,6 @@ const STATUS_CONFIG: Record<TableData['status'], {
   }
 };
 
-// Floor order for sorting
 const FLOOR_ORDER: Record<string, number> = {
   'Ground Floor': 1,
   'First Floor': 2,
@@ -170,7 +164,16 @@ const FLOOR_ORDER: Record<string, number> = {
   'Basement': 6
 };
 
-// Countdown timer component
+const getAnonymousId = (): string => {
+  if (typeof window === 'undefined') return '';
+  let anonymousId = localStorage.getItem('table_selector_anonymous_id');
+  if (!anonymousId) {
+    anonymousId = uuidv4();
+    localStorage.setItem('table_selector_anonymous_id', anonymousId);
+  }
+  return anonymousId;
+};
+
 const SelectionTimer = ({ expiresAt, onExpire }: { expiresAt: string; onExpire?: () => void }) => {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   
@@ -197,50 +200,51 @@ const SelectionTimer = ({ expiresAt, onExpire }: { expiresAt: string; onExpire?:
   if (timeLeft <= 0) return null;
   
   return (
-    <div className="flex items-center gap-1 text-xs">
+    <div className="flex items-center gap-1 text-xs font-mono">
       <Timer className="w-3 h-3" />
       <span>{minutes}:{seconds.toString().padStart(2, '0')}</span>
     </div>
   );
 };
 
-// Table Icon for Layout View
 const TableIcon = ({ 
   table, 
   isSelected, 
   activeSelection,
   currentUserEmail,
+  anonymousId,
   onUnselect,
   onClick,
   allowUnselect = true,
-  showOrderInfo = false
 }: { 
   table: TableData; 
   isSelected: boolean;
   activeSelection: ActiveSelection | null;
   currentUserEmail?: string;
+  anonymousId?: string;
   onUnselect?: (tableId: string) => void;
   onClick: (table: TableData) => void;
   allowUnselect?: boolean;
-  showOrderInfo?: boolean;
 }) => {
   const config = STATUS_CONFIG[table.status];
-  const locationIcon = table.location ? LOCATION_ICONS[table.location] || '📍' : '';
   const isAvailable = table.status === 'available';
   const isReservedByOrder = table.status === 'reserved' && table.reservationInfo?.orderId;
   
   const isSelectedByAny = activeSelection && activeSelection.tableId === table.id;
-  const isSelectedByMe = isSelectedByAny && activeSelection?.selectedBy === currentUserEmail;
+  const isSelectedByMe = isSelectedByAny && (
+    (currentUserEmail && activeSelection?.selectedBy === currentUserEmail) ||
+    (anonymousId && activeSelection?.anonymousId === anonymousId)
+  );
   const isSelectedByOther = isSelectedByAny && !isSelectedByMe;
   
   const getShapeStyle = () => {
     let base = `absolute cursor-pointer bg-gradient-to-br ${config.bgGradient} 
-      border-2 shadow-md hover:shadow-lg transition-all`;
+      border-2 shadow-md hover:shadow-lg transition-all duration-200`;
     
     if (isSelected) {
-      base += ' ring-4 ring-purple-400 ring-opacity-50 scale-105';
+      base += ' ring-4 ring-purple-400 ring-opacity-50 scale-105 z-20';
     } else if (isSelectedByMe) {
-      base += ' ring-4 ring-green-400 ring-opacity-50';
+      base += ' ring-4 ring-green-400 ring-opacity-50 z-10';
     } else if (isSelectedByOther) {
       base += ' ring-4 ring-yellow-400 ring-opacity-50 opacity-75';
     } else if (isReservedByOrder) {
@@ -250,13 +254,12 @@ const TableIcon = ({
     if (!isAvailable || isSelectedByOther || isReservedByOrder) {
       base += ' opacity-50 cursor-not-allowed';
     } else if (!isSelectedByOther && !isSelectedByMe) {
-      base += ' hover:scale-105';
+      base += ' hover:scale-105 hover:z-30';
     }
     
     switch (table.shape) {
       case 'circle': return `${base} rounded-full flex items-center justify-center`;
       case 'square': return `${base} rounded-lg flex items-center justify-center`;
-      case 'rectangle': return `${base} rounded-lg flex items-center justify-center`;
       default: return `${base} rounded-full flex items-center justify-center`;
     }
   };
@@ -264,15 +267,15 @@ const TableIcon = ({
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isSelectedByOther) {
-      toast.error(`Table ${table.number} is currently selected by ${activeSelection?.selectedByName}`);
+      toast.error(`Table ${table.number} is being selected by another customer.`);
       return;
     }
     if (isReservedByOrder) {
-      toast.error(`Table ${table.number} has an active order and cannot be selected`);
+      toast.error(`Table ${table.number} has an active order.`);
       return;
     }
     if (!isAvailable) {
-      toast.error(`Table ${table.number} is currently ${table.status} and cannot be selected`);
+      toast.error(`Table ${table.number} is currently ${table.status}.`);
       return;
     }
     onClick(table);
@@ -302,40 +305,9 @@ const TableIcon = ({
       whileHover={{ scale: (isAvailable && !isSelectedByOther && !isSelectedByMe && !isReservedByOrder) ? 1.05 : 1 }}
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.2 }}
     >
       <div className="relative w-full h-full flex flex-col items-center justify-center p-1">
-        {table.location && (
-          <div className="absolute -top-1 -left-1">
-            <Badge className="bg-purple-600 text-white text-[6px] sm:text-[8px] px-1 py-0.5">
-              {locationIcon}
-            </Badge>
-          </div>
-        )}
-        
-        {table.floor && (
-          <div className="absolute -top-1 -right-1">
-            <Badge className="bg-blue-600 text-white text-[6px] sm:text-[8px] px-1 py-0.5">
-              {table.floor === 'Ground Floor' ? 'GF' : table.floor === 'First Floor' ? '1F' : table.floor === 'Second Floor' ? '2F' : 'RF'}
-            </Badge>
-          </div>
-        )}
-        
-        {isSelectedByAny && (
-          <div className="absolute -top-2 -right-2">
-            <Badge className={`${isSelectedByMe ? 'bg-green-500' : 'bg-yellow-500'} text-white text-[6px] sm:text-[8px] px-1 py-0.5 animate-pulse`}>
-              {isSelectedByMe ? <UserCheck className="w-2 h-2" /> : <Eye className="w-2 h-2" />}
-            </Badge>
-          </div>
-        )}
-
-        {isReservedByOrder && showOrderInfo && (
-          <div className="absolute -top-2 -right-2">
-            <Badge className="bg-orange-500 text-white text-[6px] sm:text-[8px] px-1 py-0.5">
-              <ClipboardList className="w-2 h-2" />
-            </Badge>
-          </div>
-        )}
-        
         <div className="font-bold text-white text-[8px] sm:text-xs">T{table.number}</div>
         <div className="flex items-center gap-0.5 text-white text-[7px] sm:text-[10px]">
           <Users className="w-2 h-2 sm:w-2.5 sm:h-2.5" />
@@ -351,20 +323,16 @@ const TableIcon = ({
           </div>
         )}
         
-        {isReservedByOrder && showOrderInfo && (
-          <div className="absolute inset-0 bg-orange-500/20 rounded-full flex items-center justify-center">
-            <span className="text-[6px] font-bold text-orange-700 bg-white/80 px-1 rounded">ORDER</span>
-          </div>
-        )}
-        
         {isSelectedByMe && (
           <div className="absolute inset-0 bg-green-500/20 rounded-full flex items-center justify-center">
-            <span className="text-[8px] font-bold text-green-700 bg-white/80 px-1 rounded">YOU</span>
+            <span className="text-[8px] font-bold text-green-700 bg-white/80 px-1 rounded">
+              YOU
+            </span>
           </div>
         )}
         
         {isSelectedByMe && activeSelection && (
-          <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap">
+          <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap z-30">
             <SelectionTimer 
               expiresAt={activeSelection.expiresAt} 
               onExpire={() => onUnselect && onUnselect(table.id)} 
@@ -385,11 +353,62 @@ const TableIcon = ({
   );
 };
 
-// Table Detail Dialog
+const SelectedTableBanner = ({ 
+  selectedTable, 
+  activeSelection, 
+  onUnselect, 
+  isSelecting 
+}: { 
+  selectedTable: TableData | null;
+  activeSelection: ActiveSelection | null;
+  onUnselect: () => void;
+  isSelecting: boolean;
+}) => {
+  if (!selectedTable || !activeSelection) return null;
+  
+  return (
+    <Alert className="bg-green-50 border-green-200">
+      <UserCheck className="h-4 w-4 text-green-600" />
+      <AlertTitle className="text-green-800 text-sm font-medium">
+        Currently Selected Table
+      </AlertTitle>
+      <AlertDescription className="text-green-700">
+        <div className="flex items-center justify-between flex-wrap gap-2 mt-1">
+          <div>
+            <span className="font-bold">Table {selectedTable.number}</span>
+            <span className="text-xs ml-2 text-green-600">
+              ({selectedTable.capacity} seats)
+            </span>
+            {activeSelection.expiresAt && (
+              <div className="text-xs mt-1">
+                <SelectionTimer 
+                  expiresAt={activeSelection.expiresAt} 
+                  onExpire={onUnselect}
+                />
+              </div>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onUnselect}
+            disabled={isSelecting}
+            className="border-red-300 text-red-600 hover:bg-red-50"
+          >
+            <Undo2 className="w-3 h-3 mr-1" />
+            Unselect
+          </Button>
+        </div>
+      </AlertDescription>
+    </Alert>
+  );
+};
+
 const TableDetailDialog = ({
   table,
   activeSelection,
   currentUserEmail,
+  anonymousId,
   open,
   onOpenChange,
   onSelect,
@@ -397,72 +416,67 @@ const TableDetailDialog = ({
   isUserLoggedIn,
   onLoginRequired,
   allowUnselect = true,
-  showOrderInfo = false,
 }: {
   table: TableData | null;
   activeSelection: ActiveSelection | null;
   currentUserEmail?: string;
+  anonymousId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelect: (table: TableData) => void;
+  onSelect: (table: TableData) => Promise<void>;
   onUnselect?: () => void;
   isUserLoggedIn: boolean;
   onLoginRequired?: () => void;
   allowUnselect?: boolean;
-  showOrderInfo?: boolean;
 }) => {
+  const [isActionLoading, setIsActionLoading] = useState(false);
+  
   if (!table) return null;
   
   const config = STATUS_CONFIG[table.status];
-  const locationIcon = table.location ? LOCATION_ICONS[table.location] || '📍' : '';
   const isAvailable = table.status === 'available';
   const isReservedByOrder = table.status === 'reserved' && table.reservationInfo?.orderId;
   const isSelectedByAny = activeSelection && activeSelection.tableId === table.id;
-  const isSelectedByOther = isSelectedByAny && activeSelection?.selectedBy !== currentUserEmail;
-  const isSelectedByMe = isSelectedByAny && activeSelection?.selectedBy === currentUserEmail;
+  const isSelectedByOther = isSelectedByAny && 
+    activeSelection?.selectedBy !== currentUserEmail && 
+    activeSelection?.anonymousId !== anonymousId;
+  const isSelectedByMe = isSelectedByAny && 
+    ((currentUserEmail && activeSelection?.selectedBy === currentUserEmail) ||
+     (anonymousId && activeSelection?.anonymousId === anonymousId));
   
   const canSelect = isAvailable && !isSelectedByAny && !isReservedByOrder;
   const canUnselect = isSelectedByMe && allowUnselect;
 
-  const handleSelect = () => {
-    if (!isUserLoggedIn) {
-      onLoginRequired?.();
-      return;
-    }
+  const handleSelect = async () => {
+    if (isActionLoading) return;
     if (isReservedByOrder) {
-      toast.error(`Table ${table.number} has an active order and cannot be selected`);
+      toast.error(`Table ${table.number} has an active order.`);
       return;
     }
     if (!canSelect) {
       if (isSelectedByOther) {
-        toast.error(`Table ${table.number} is currently selected by ${activeSelection?.selectedByName}`);
+        toast.error(`Table ${table.number} is being selected by another customer.`);
       } else if (!isAvailable) {
-        toast.error(`Table ${table.number} is currently ${table.status} and cannot be selected`);
+        toast.error(`Table ${table.number} is currently ${table.status}.`);
       }
       return;
     }
-    onSelect(table);
-    onOpenChange(false);
-    toast.success(`Table ${table.number} selected!`);
-  };
-
-  const handleUnselect = () => {
-    if (canUnselect && onUnselect) {
-      onUnselect();
+    setIsActionLoading(true);
+    try {
+      await onSelect(table);
       onOpenChange(false);
-      toast.success(`Table ${table.number} unselected`);
+    } finally {
+      setIsActionLoading(false);
     }
   };
 
-  const getTimeRemaining = () => {
-    if (!activeSelection || activeSelection.tableId !== table.id) return null;
-    const expiry = new Date(activeSelection.expiresAt).getTime();
-    const now = new Date().getTime();
-    const remaining = Math.max(0, Math.floor((expiry - now) / 60000));
-    return remaining;
+  const handleUnselect = () => {
+    if (isActionLoading) return;
+    if (canUnselect && onUnselect) {
+      onUnselect();
+      onOpenChange(false);
+    }
   };
-
-  const timeRemaining = getTimeRemaining();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -480,8 +494,35 @@ const TableDetailDialog = ({
         </DialogHeader>
 
         <div className="space-y-3 py-2">
-          {/* Show order info for reserved tables */}
-          {isReservedByOrder && showOrderInfo && table.reservationInfo && (
+          {isSelectedByMe && activeSelection && (
+            <div className="p-3 rounded-lg border bg-green-50 border-green-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-green-600" />
+                  <span className="text-sm font-medium text-green-800">
+                    You have selected this table
+                  </span>
+                </div>
+                <SelectionTimer 
+                  expiresAt={activeSelection.expiresAt} 
+                  onExpire={handleUnselect}
+                />
+              </div>
+            </div>
+          )}
+
+          {isSelectedByOther && (
+            <div className="p-3 rounded-lg border bg-yellow-50 border-yellow-200">
+              <div className="flex items-center gap-2">
+                <Eye className="w-4 h-4 text-yellow-600" />
+                <span className="text-sm font-medium text-yellow-800">
+                  Selected by another customer
+                </span>
+              </div>
+            </div>
+          )}
+
+          {isReservedByOrder && table.reservationInfo && (
             <div className="p-3 rounded-lg border bg-orange-50 border-orange-200">
               <div className="flex items-center gap-2 mb-2">
                 <ClipboardList className="w-4 h-4 text-orange-600" />
@@ -493,48 +534,13 @@ const TableDetailDialog = ({
               {table.reservationInfo.customerName && (
                 <p className="text-xs text-orange-700">Customer: {table.reservationInfo.customerName}</p>
               )}
-              {table.reservationInfo.orderStatus && (
-                <p className="text-xs text-orange-700">Status: {table.reservationInfo.orderStatus}</p>
-              )}
-            </div>
-          )}
-
-          {isSelectedByAny && (
-            <div className={`p-3 rounded-lg border ${isSelectedByMe ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {isSelectedByMe ? (
-                    <UserCheck className="w-4 h-4 text-green-600" />
-                  ) : (
-                    <Eye className="w-4 h-4 text-yellow-600" />
-                  )}
-                  <span className={`text-sm font-medium ${isSelectedByMe ? 'text-green-800' : 'text-yellow-800'}`}>
-                    {isSelectedByMe 
-                      ? 'You have selected this table' 
-                      : `Selected by ${activeSelection?.selectedByName}`}
-                  </span>
-                </div>
-                {isSelectedByMe && activeSelection && (
-                  <div className="text-xs text-green-600">
-                    <SelectionTimer 
-                      expiresAt={activeSelection.expiresAt} 
-                      onExpire={handleUnselect}
-                    />
-                  </div>
-                )}
-              </div>
-              {isSelectedByOther && timeRemaining !== null && (
-                <p className="text-xs text-yellow-600 mt-2">
-                  Selection expires in {timeRemaining} minute{timeRemaining !== 1 ? 's' : ''}
-                </p>
-              )}
             </div>
           )}
 
           <div className="flex items-center justify-between p-2 sm:p-3 bg-gray-50 rounded-lg">
             <span className="text-xs sm:text-sm text-gray-600">Status</span>
             <Badge className={`${config.badgeColor} text-xs`}>
-              {isReservedByOrder && showOrderInfo ? 'Reserved (Order)' : config.label}
+              {isReservedByOrder ? 'Reserved (Order)' : config.label}
             </Badge>
           </div>
 
@@ -568,7 +574,7 @@ const TableDetailDialog = ({
               <span className="text-xs sm:text-sm text-gray-600 flex items-center gap-1">
                 <MapPin className="w-3 h-3 sm:w-4 sm:h-4" /> Location
               </span>
-              <span className="font-semibold text-sm">{locationIcon} {table.location}</span>
+              <span className="font-semibold text-sm">{table.location}</span>
             </div>
           )}
 
@@ -599,27 +605,30 @@ const TableDetailDialog = ({
         </div>
 
         <div className="flex gap-2 mt-2">
-          <Button variant="outline" className="flex-1 text-sm" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" className="flex-1 text-sm" onClick={() => onOpenChange(false)} disabled={isActionLoading}>
             Cancel
           </Button>
           {canUnselect ? (
             <Button
               className="flex-1 text-sm bg-red-600 hover:bg-red-700 text-white"
               onClick={handleUnselect}
+              disabled={isActionLoading}
             >
               <Undo2 className="w-4 h-4 mr-2" />
               Unselect Table
             </Button>
           ) : (
             <Button
-              className={`flex-1 text-sm ${canSelect ? 'bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950' : 'bg-gray-400'}`}
+              className={`flex-1 text-sm ${canSelect ? 'bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950' : 'bg-gray-400 cursor-not-allowed'}`}
               onClick={handleSelect}
-              disabled={!canSelect || !isUserLoggedIn || isSelectedByOther || isReservedByOrder}
+              disabled={!canSelect || isActionLoading}
             >
-              {isSelectedByMe ? 'Already Selected' : 
+              {isActionLoading ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : isSelectedByMe ? 'Already Selected' : 
                isSelectedByOther ? 'Selected by Another' : 
                isReservedByOrder ? 'Has Active Order' : 
-               !isAvailable ? `Not Available (${config.label})` : 
+               !isAvailable ? `Not Available` : 
                'Select Table'}
             </Button>
           )}
@@ -629,7 +638,6 @@ const TableDetailDialog = ({
   );
 };
 
-// Floor Card Component
 const FloorCard = ({ 
   floor, 
   restaurants, 
@@ -691,20 +699,21 @@ const FloorCard = ({
   );
 };
 
-// Main Component
+// Main Component - COMPLETE WITH GUEST SUPPORT
 export function TableSelector({
   onTableSelect,
   selectedTable = null,
-  isUserLoggedIn = true,
+  isUserLoggedIn = false, // Default to false for guest access
   onLoginRequired,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
   allowUnselect = true,
   restaurantId: propRestaurantId,
   floor: propFloor,
-  showOrderInfo = true, // Default to true to show order info
+  showOrderInfo = true,
+  autoSwitchTables = true,
 }: TableSelectorProps) {
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const [restaurants, setRestaurants] = useState<RestaurantData[]>([]);
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<string>(propRestaurantId || '');
   const [selectedFloor, setSelectedFloor] = useState<string>(propFloor || '');
@@ -722,167 +731,112 @@ export function TableSelector({
   
   const [activeSelection, setActiveSelection] = useState<ActiveSelection | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const [isSessionExpired, setIsSessionExpired] = useState(false);
+  const [isSwitchingTable, setIsSwitchingTable] = useState(false);
+  
+  const selectionLockRef = useRef(false);
+  const lastSelectionAttemptRef = useRef<number>(0);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const POLLING_INTERVAL = 5000;
-
+  const POLLING_INTERVAL = 3000;
+  
+  const anonymousId = useMemo(() => {
+    if (isUserLoggedIn) return undefined;
+    return getAnonymousId();
+  }, [isUserLoggedIn]);
+  
   const open = controlledOpen ?? internalOpen;
   const setOpen = controlledOnOpenChange ?? setInternalOpen;
 
+  const isAuthenticated = useCallback(() => {
+    // Guest users are always "authenticated" for table selection
+    if (!isUserLoggedIn) return true;
+    return sessionStatus === 'authenticated' && session?.user?.email;
+  }, [isUserLoggedIn, sessionStatus, session]);
+
+  const handleSessionExpired = useCallback(() => {
+    // Don't expire for guests
+    if (!isUserLoggedIn) return;
+    
+    if (isSessionExpired) return;
+    setIsSessionExpired(true);
+    setActiveSelection(null);
+    if (selectedTable) {
+      onTableSelect(null, selectedRestaurantId, selectedFloor);
+    }
+    toast.error('Session expired. Please log in again.');
+    if (onLoginRequired) onLoginRequired();
+  }, [isSessionExpired, selectedTable, selectedRestaurantId, selectedFloor, onTableSelect, onLoginRequired, isUserLoggedIn]);
+
+  const getAxiosConfig = useCallback(() => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (!isUserLoggedIn && anonymousId) {
+      headers['X-Anonymous-Id'] = anonymousId;
+    }
+    return { headers, withCredentials: isUserLoggedIn, timeout: 30000 };
+  }, [isUserLoggedIn, anonymousId]);
+
   const fetchSelectionStatus = useCallback(async () => {
-    if (!selectedRestaurantId || !selectedFloor) return;
+    if (!selectedRestaurantId || !selectedFloor || isSessionExpired) return;
     
     try {
       const response = await axios.get('/api/tables/arrangement', {
-        params: {
-          restaurantId: selectedRestaurantId,
-          floor: selectedFloor,
-          includeSelections: true,
-          skipSync: false // Ensure we get synced data
-        }
+        params: { restaurantId: selectedRestaurantId, floor: selectedFloor, includeSelections: true, skipSync: false },
+        ...getAxiosConfig()
       });
       
-      if (response.data.success) {
-        if (response.data.activeSelection) {
-          setActiveSelection(response.data.activeSelection);
-        } else {
+      if (response.data.success && response.data.activeSelection) {
+        const selection = response.data.activeSelection;
+        const isUsersSelection = (isUserLoggedIn && selection.selectedBy === session?.user?.email) ||
+          (!isUserLoggedIn && selection.anonymousId === anonymousId);
+        
+        if (isUsersSelection) {
+          setActiveSelection(selection);
+        } else if (!isUsersSelection && activeSelection?.tableId === selection.tableId) {
+          setActiveSelection(null);
+          if (selectedTable?.id === selection.tableId) {
+            onTableSelect(null, selectedRestaurantId, selectedFloor);
+          }
+        }
+      } else if (response.data.success && !response.data.activeSelection) {
+        if (activeSelection) {
           setActiveSelection(null);
         }
       }
     } catch (error) {
-      // Silently fail polling
+      console.debug('Polling error:', error);
     }
-  }, [selectedRestaurantId, selectedFloor]);
-
-  const setupPolling = useCallback(() => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-    }
-
-    pollingIntervalRef.current = setInterval(() => {
-      fetchSelectionStatus();
-    }, POLLING_INTERVAL);
-  }, [fetchSelectionStatus]);
+  }, [selectedRestaurantId, selectedFloor, isSessionExpired, getAxiosConfig, isUserLoggedIn, session, anonymousId, activeSelection, selectedTable, onTableSelect]);
 
   useEffect(() => {
-    const currentRestaurantId = selectedRestaurantId;
-    const currentFloor = selectedFloor;
-    
-    if (!currentRestaurantId || !currentFloor || !open) {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
+    if (!selectedRestaurantId || !selectedFloor || !open || isSessionExpired) {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
       }
       return;
     }
-
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-
-    let sseFailed = false;
-
-    try {
-      const es = new EventSource(`/api/tables/arrangement/selection-status?restaurantId=${currentRestaurantId}&floor=${currentFloor}`);
-      
-      es.onopen = () => {
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        sseFailed = false;
-      };
-      
-      es.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'selection') {
-            const newSelection = data.data;
-            
-            setActiveSelection(prev => {
-              // If selection was cleared (by timer or user), update table status to available
-              if (newSelection === null && prev !== null) {
-                setTables(currentTables => currentTables.map(t => 
-                  t.id === prev.tableId ? { ...t, status: 'available' as const, lastUpdated: new Date() } : t
-                ));
-              } 
-              // If a new selection is detected, sync the table status to reserved
-              else if (newSelection !== null && (!prev || prev.tableId !== newSelection.tableId)) {
-                setTables(currentTables => currentTables.map(t => 
-                  t.id === newSelection.tableId ? { ...t, status: 'reserved' as const, lastUpdated: new Date() } : t
-                ));
-              }
-              return newSelection;
-            });
-            
-            if (newSelection && newSelection.selectedBy !== session?.user?.email && newSelection.selectedBy !== 'anonymous') {
-              toast(`${newSelection.selectedByName} selected Table ${newSelection.tableNumber}`, {
-                icon: '🪑',
-                duration: 2000,
-              });
-            }
-            if (newSelection === null && activeSelection !== null) {
-              toast(`Table selection has been released`, {
-                icon: '🔓',
-                duration: 2000,
-              });
-            }
-          }
-        } catch (error) {
-          console.error('Error parsing SSE message:', error);
-        }
-      };
-
-      es.onerror = () => {
-        if (!sseFailed) {
-          sseFailed = true;
-          es.close();
-          setupPolling();
-        }
-      };
-
-      eventSourceRef.current = es;
-    } catch (error) {
-      setupPolling();
-    }
-
+    pollingIntervalRef.current = setInterval(fetchSelectionStatus, POLLING_INTERVAL);
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
     };
-  }, [selectedRestaurantId, selectedFloor, open, session, setupPolling, activeSelection]);
+  }, [selectedRestaurantId, selectedFloor, open, fetchSelectionStatus, isSessionExpired]);
 
   const fetchAllRestaurants = useCallback(async () => {
+    if (isSessionExpired) return;
     try {
-      const response = await axios.get('/api/tables/arrangement', {
-        params: { fetchAll: true }
-      });
-      
+      const response = await axios.get('/api/tables/arrangement', { params: { fetchAll: true }, ...getAxiosConfig() });
       if (response.data.success && response.data.data) {
-        const data = response.data.data;
-        const restaurantsArray = Array.isArray(data) ? data : [data];
+        const restaurantsArray = Array.isArray(response.data.data) ? response.data.data : [response.data.data];
         setRestaurants(restaurantsArray);
         
-        const floors = [...new Set(restaurantsArray.map(r => r.floor))];
-        floors.sort((a, b) => (FLOOR_ORDER[a] || 999) - (FLOOR_ORDER[b] || 999));
-        
-        if (!propRestaurantId && floors.length > 0 && !selectedFloor) {
+        if (!propRestaurantId && restaurantsArray.length > 0 && !selectedFloor) {
+          const floors = [...new Set(restaurantsArray.map(r => r.floor))];
+          floors.sort((a, b) => (FLOOR_ORDER[a] || 999) - (FLOOR_ORDER[b] || 999));
           setSelectedFloor(floors[0]);
-          const firstRestaurantOnFloor = restaurantsArray.find(r => r.floor === floors[0]);
-          if (firstRestaurantOnFloor) {
-            setSelectedRestaurantId(firstRestaurantOnFloor.restaurantId);
-            setCurrentRestaurantName(firstRestaurantOnFloor.restaurantName);
+          const firstRestaurant = restaurantsArray.find(r => r.floor === floors[0]);
+          if (firstRestaurant) {
+            setSelectedRestaurantId(firstRestaurant.restaurantId);
+            setCurrentRestaurantName(firstRestaurant.restaurantName);
           }
         } else if (propRestaurantId) {
           const propRestaurant = restaurantsArray.find(r => r.restaurantId === propRestaurantId);
@@ -895,22 +849,17 @@ export function TableSelector({
       }
     } catch (err) {
       console.error('Error fetching restaurants:', err);
-      setRestaurants([]);
     }
-  }, [selectedFloor, propRestaurantId, propFloor]);
+  }, [propRestaurantId, selectedFloor, getAxiosConfig, isSessionExpired]);
 
   const fetchTablesForSelection = useCallback(async () => {
-    if (!selectedRestaurantId || !selectedFloor) return;
+    if (!selectedRestaurantId || !selectedFloor || isSessionExpired) return;
     
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      // This GET request now automatically syncs with pending orders
       const response = await axios.get('/api/tables/arrangement', {
-        params: { 
-          restaurantId: selectedRestaurantId, 
-          floor: selectedFloor,
-          includeSelections: true
-        }
+        params: { restaurantId: selectedRestaurantId, floor: selectedFloor, includeSelections: true },
+        ...getAxiosConfig()
       });
       
       if (response.data.success && response.data.data) {
@@ -925,7 +874,6 @@ export function TableSelector({
           floor: selectedFloor,
           restaurantId: selectedRestaurantId,
           restaurantName: arrangement.restaurantName,
-          reservationInfo: t.reservationInfo || null, // Include reservation info from sync
         }));
         setTables(tableData);
         setDimensions(arrangement.dimensions || { width: 800, height: 500 });
@@ -933,134 +881,257 @@ export function TableSelector({
         setLastSyncTime(new Date());
         
         if (response.data.activeSelection) {
-          setActiveSelection(response.data.activeSelection);
+          const selection = response.data.activeSelection;
+          const isUsersSelection = (isUserLoggedIn && selection.selectedBy === session?.user?.email) ||
+            (!isUserLoggedIn && selection.anonymousId === anonymousId);
+          if (isUsersSelection) {
+            setActiveSelection(selection);
+          } else {
+            setActiveSelection(null);
+          }
+        } else {
+          setActiveSelection(null);
         }
-        
-        // Log sync info if present
-        if (response.data.syncInfo) {
-          console.log('[TableSelector] Auto-sync performed:', response.data.syncInfo);
-        }
-      } else {
-        setTables([]);
       }
     } catch (err) {
       console.error('Error fetching tables:', err);
-      setTables([]);
     } finally {
       setIsLoading(false);
     }
-  }, [selectedRestaurantId, selectedFloor]);
+  }, [selectedRestaurantId, selectedFloor, getAxiosConfig, isSessionExpired, isUserLoggedIn, session, anonymousId]);
 
   useEffect(() => {
     fetchAllRestaurants();
   }, [fetchAllRestaurants]);
 
   useEffect(() => {
-    if (open && selectedRestaurantId && selectedFloor) {
+    if (open && selectedRestaurantId && selectedFloor && !isSessionExpired && isAuthenticated()) {
       fetchTablesForSelection();
     }
-  }, [open, selectedRestaurantId, selectedFloor, fetchTablesForSelection]);
+  }, [open, selectedRestaurantId, selectedFloor, fetchTablesForSelection, isSessionExpired, isAuthenticated]);
 
   const handleRestaurantSelect = (restaurantId: string, floor: string) => {
+    if (isSessionExpired) {
+      toast.error('Session expired. Please refresh the page.');
+      return;
+    }
     setSelectedRestaurantId(restaurantId);
     setSelectedFloor(floor);
     const restaurant = restaurants.find(r => r.restaurantId === restaurantId);
-    if (restaurant) {
-      setCurrentRestaurantName(restaurant.restaurantName);
-    }
+    if (restaurant) setCurrentRestaurantName(restaurant.restaurantName);
   };
 
   const handleTableClick = (table: TableData) => {
+    if (isSessionExpired) {
+      toast.error('Session expired. Please refresh the page.');
+      return;
+    }
     setSelectedTableForDetail(table);
     setShowDetailDialog(true);
   };
 
-  const handleUnselectTable = async (tableId?: string) => {
+  const handleUnselectTable = async (tableId?: string, skipToast: boolean = false) => {
     const targetTableId = tableId || activeSelection?.tableId;
-    
     if (!targetTableId) {
-      toast.error('You have no active table selection');
+      if (!skipToast) toast.error('No active table selection');
       return;
     }
-
-    // Find the specific table to ensure we use its correct restaurant and floor context
-    const targetTable = tables.find(t => t.id === targetTableId);
-    const rId = targetTable?.restaurantId || selectedRestaurantId;
-    const fName = targetTable?.floor || selectedFloor;
-
-    if (!rId || !fName) {
-      toast.error('Missing restaurant or floor information');
-      return;
-    }
-
-    const clearLocalState = () => {
-      setActiveSelection(null);
-      setTables(prev => prev.map(t => 
-        t.id === targetTableId 
-          ? { ...t, status: 'available' as const, lastUpdated: new Date() }
-          : t
-      ));
-      onTableSelect(null, rId, fName);
-    };
-
+    if (selectionLockRef.current) return;
+    
+    selectionLockRef.current = true;
+    
     try {
-      setIsSelecting(true);
-      const response = await axios.patch('/api/tables/arrangement', {
-        restaurantId: rId,
-        floor: fName,
+      if (!isUserLoggedIn) {
+        setActiveSelection(null);
+        setTables(prev => prev.map(t => t.id === targetTableId ? { ...t, status: 'available' as const, lastUpdated: new Date() } : t));
+        onTableSelect(null, selectedRestaurantId, selectedFloor);
+        if (!skipToast) toast.success('Table unselected');
+        selectionLockRef.current = false;
+        return;
+      }
+      
+      if (!isAuthenticated()) {
+        handleSessionExpired();
+        selectionLockRef.current = false;
+        return;
+      }
+      
+      await axios.patch('/api/tables/arrangement', {
+        restaurantId: selectedRestaurantId,
+        floor: selectedFloor,
         tableId: targetTableId,
         unselectTable: true
-      });
+      }, getAxiosConfig());
       
-      if (response.data.success) {
-        clearLocalState();
-        toast.success(`Table unselected successfully`);
-      }
+      setActiveSelection(null);
+      setTables(prev => prev.map(t => t.id === targetTableId ? { ...t, status: 'available' as const, lastUpdated: new Date(), reservationInfo: null } : t));
+      onTableSelect(null, selectedRestaurantId, selectedFloor);
+      if (!skipToast) toast.success('Table unselected');
     } catch (error: any) {
-      console.error('Error unselecting table:', error);
-      // If 400 or 404, the selection likely already expired on the server.
-      // We should still clear local state to unblock the UI.
-      if (error.response?.status === 400 || error.response?.status === 404) {
-        clearLocalState();
+      console.error('Unselect error:', error);
+      if (error.response?.status === 401) {
+        handleSessionExpired();
       } else {
-        toast.error(error.response?.data?.error || 'Failed to unselect table.');
+        if (activeSelection?.tableId === targetTableId) {
+          setActiveSelection(null);
+          setTables(prev => prev.map(t => t.id === targetTableId ? { ...t, status: 'available' as const, lastUpdated: new Date() } : t));
+          onTableSelect(null, selectedRestaurantId, selectedFloor);
+          if (!skipToast) toast.success('Table selection cleared');
+        } else if (!skipToast) {
+          toast.error('Failed to unselect table');
+        }
       }
     } finally {
-      setIsSelecting(false);
+      selectionLockRef.current = false;
+    }
+  };
+
+  // Atomic switch table function - works for both guests and logged-in users
+  const handleSwitchTableAtomic = async (newTable: TableData) => {
+    if (isSwitchingTable) return;
+    if (selectionLockRef.current) return;
+    
+    setIsSwitchingTable(true);
+    selectionLockRef.current = true;
+    
+    try {
+      const requestBody: Record<string, any> = {
+        restaurantId: selectedRestaurantId,
+        floor: selectedFloor,
+        tableId: newTable.id,
+        switchTable: true,
+        duration: 3,
+      };
+      
+      if (!isUserLoggedIn && anonymousId) {
+        requestBody.anonymousId = anonymousId;
+      }
+      
+      const response = await axios.patch('/api/tables/arrangement', requestBody, getAxiosConfig());
+      
+      if (response.data.success) {
+        const selectionData = response.data.data.selection;
+        const newSelection: ActiveSelection = {
+          tableId: newTable.id,
+          tableNumber: newTable.number,
+          selectedBy: selectionData.selectedBy,
+          selectedByName: selectionData.selectedByName,
+          selectedAt: selectionData.selectedAt,
+          expiresAt: selectionData.expiresAt,
+          isAnonymous: !isUserLoggedIn,
+          anonymousId: !isUserLoggedIn ? anonymousId : undefined
+        };
+        setActiveSelection(newSelection);
+        
+        setTables(prev => prev.map(t => {
+          if (t.id === newTable.id) {
+            return { ...t, status: 'reserved' as const, lastUpdated: new Date(), reservationInfo: selectionData };
+          }
+          if (response.data.data.previousTableId === t.id) {
+            return { ...t, status: 'available' as const, lastUpdated: new Date(), reservationInfo: null };
+          }
+          return t;
+        }));
+        
+        onTableSelect({ ...newTable, restaurantId: selectedRestaurantId, restaurantName: currentRestaurantName, floor: selectedFloor }, selectedRestaurantId, selectedFloor);
+        toast.success(`Switched to Table ${newTable.number}`);
+      }
+    } catch (error: any) {
+      console.error('Switch table error:', error);
+      
+      if (error.response?.status === 401) {
+        handleSessionExpired();
+      } else if (error.response?.status === 409) {
+        toast.error(`Table ${newTable.number} was just taken by another customer`);
+        await fetchTablesForSelection();
+      } else if (error.response?.status === 400) {
+        toast.error(error.response?.data?.error || 'Cannot switch to this table');
+      } else {
+        toast.error('Failed to switch tables. Please try again.');
+      }
+    } finally {
+      setIsSwitchingTable(false);
+      selectionLockRef.current = false;
     }
   };
 
   const handleSelectTable = async (table: TableData) => {
-    if (!isUserLoggedIn) {
-      onLoginRequired?.();
+    const now = Date.now();
+    
+    // Rate limiting for manual mode only
+    if (!autoSwitchTables && now - lastSelectionAttemptRef.current < 2000) {
+      toast.loading('Please wait before selecting again...', { duration: 1000 });
       return;
     }
     
-    if (isSelecting) {
-      toast.loading('Processing selection...');
+    if (selectionLockRef.current) return;
+    if (isSessionExpired) {
+      toast.error('Session expired. Please refresh the page.');
       return;
     }
     
-    // Check if table has active order before attempting selection
-    if (table.status === 'reserved' && table.reservationInfo?.orderId) {
-      toast.error(`Table ${table.number} has an active order and cannot be selected`);
+    if (table.status !== 'available') {
+      toast.error(`Table ${table.number} is currently ${table.status}`);
       return;
     }
+    
+    if (isUserLoggedIn && !isAuthenticated()) {
+      handleSessionExpired();
+      return;
+    }
+    
+    // If auto-switch is enabled, use atomic switch operation
+    if (autoSwitchTables) {
+      await handleSwitchTableAtomic(table);
+      return;
+    }
+    
+    // Manual mode - original logic (works for guests)
+    lastSelectionAttemptRef.current = now;
+    
+    if (activeSelection && activeSelection.tableId === table.id) {
+      toast.info(`Table ${table.number} already selected`);
+      setOpen(false);
+      onTableSelect({ ...table, restaurantId: selectedRestaurantId, restaurantName: currentRestaurantName, floor: selectedFloor }, selectedRestaurantId, selectedFloor);
+      return;
+    }
+    
+    if (activeSelection && activeSelection.tableId !== table.id && isUserLoggedIn) {
+      toast.error(`You already have Table ${activeSelection.tableNumber} selected. Please unselect it first.`);
+      return;
+    }
+    
+    selectionLockRef.current = true;
+    setIsSelecting(true);
     
     try {
-      setIsSelecting(true);
-      
-      const response = await axios.patch('/api/tables/arrangement', {
+      const requestBody: Record<string, any> = {
         restaurantId: selectedRestaurantId,
         floor: selectedFloor,
         tableId: table.id,
         selectTable: true,
         duration: 3,
-        updates: { temporaryReserve: true }
-      });
+      };
+      
+      if (!isUserLoggedIn && anonymousId) {
+        requestBody.anonymousId = anonymousId;
+      }
+      
+      const response = await axios.patch('/api/tables/arrangement', requestBody, getAxiosConfig());
       
       if (response.data.success) {
-        setActiveSelection(response.data.data.selection);
+        const selectionData = response.data.data.selection;
+        const newSelection: ActiveSelection = {
+          tableId: table.id,
+          tableNumber: table.number,
+          selectedBy: selectionData.selectedBy,
+          selectedByName: selectionData.selectedByName,
+          selectedAt: selectionData.selectedAt,
+          expiresAt: selectionData.expiresAt,
+          isAnonymous: !isUserLoggedIn,
+          anonymousId: !isUserLoggedIn ? anonymousId : undefined
+        };
+        setActiveSelection(newSelection);
         
         setTables(prev => prev.map(t => 
           t.id === table.id 
@@ -1068,49 +1139,38 @@ export function TableSelector({
             : t
         ));
         
-        // Pass complete table data including restaurant info
-        const selectedTableWithDetails = {
-          ...table,
-          restaurantId: selectedRestaurantId,
-          restaurantName: currentRestaurantName,
-          floor: selectedFloor
-        };
-        
-        onTableSelect(selectedTableWithDetails, selectedRestaurantId, selectedFloor);
+        onTableSelect({ ...table, restaurantId: selectedRestaurantId, restaurantName: currentRestaurantName, floor: selectedFloor }, selectedRestaurantId, selectedFloor);
         setOpen(false);
-        toast.success(`Table ${table.number} selected successfully!`);
+        toast.success(`Table ${table.number} selected! You have 3 minutes.`);
       }
     } catch (error: any) {
-      console.error('Error selecting table:', error);
+      console.error('Select error:', error);
       
-      if (error.response?.status === 409) {
-        const conflictData = error.response.data;
-        toast.error(conflictData.error || 'Table already selected by another customer');
-        
-        if (conflictData.currentSelection) {
-          setActiveSelection(conflictData.currentSelection);
+      if (error.response?.status === 401) {
+        handleSessionExpired();
+      } else if (error.response?.status === 409) {
+        const errorData = error.response?.data;
+        if (errorData?.currentSelection) {
+          toast.error(`You already have Table ${errorData.currentSelection.tableNumber} selected. Please unselect it first.`);
+        } else {
+          toast.error(`Table ${table.number} was just taken by another customer`);
+          await fetchTablesForSelection();
         }
-      } else if (error.response?.status === 401) {
-        toast.error('Please login to select a table');
-        onLoginRequired?.();
-      } else if (error.response?.status === 404) {
-        toast.error('Table arrangement not found. Please contact restaurant staff.');
+      } else if (error.response?.status === 500) {
+        toast.error('Server error. Please try again.');
       } else {
-        toast.error(error.response?.data?.error || 'Failed to select table. Please try again.');
+        toast.error(error.response?.data?.error || 'Unable to select table. Please try again.');
       }
     } finally {
+      selectionLockRef.current = false;
       setIsSelecting(false);
     }
   };
 
-  // Filter tables by status
   const filteredTables = useMemo(() => {
-    return statusFilter === 'all' 
-      ? tables 
-      : tables.filter(t => t.status === statusFilter);
+    return statusFilter === 'all' ? tables : tables.filter(t => t.status === statusFilter);
   }, [tables, statusFilter]);
 
-  // Get unique floors for display - always show all floors
   const uniqueFloors = useMemo(() => {
     const floors = [...new Set(restaurants.map(r => r.floor))];
     floors.sort((a, b) => (FLOOR_ORDER[a] || 999) - (FLOOR_ORDER[b] || 999));
@@ -1122,19 +1182,41 @@ export function TableSelector({
     available: tables.filter(t => t.status === 'available').length,
     occupied: tables.filter(t => t.status === 'occupied').length,
     reserved: tables.filter(t => t.status === 'reserved').length,
-    cleaning: tables.filter(t => t.status === 'cleaning').length,
-    maintenance: tables.filter(t => t.status === 'maintenance').length,
   };
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
   const scaledWidth = isMobile ? Math.min(dimensions.width * 0.7, 500) : dimensions.width;
   const scaledHeight = isMobile ? Math.min(dimensions.height * 0.7, 400) : dimensions.height;
 
-  const isTableSelectedByMe = activeSelection && activeSelection.selectedBy === session?.user?.email;
+  const isTableSelectedByMe = activeSelection && (
+    (isUserLoggedIn && activeSelection.selectedBy === session?.user?.email) ||
+    (!isUserLoggedIn && activeSelection.anonymousId === anonymousId)
+  );
+
+  if (isSessionExpired) {
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-[400px] text-center">
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center justify-center gap-2">
+              <AlertCircle className="w-5 h-5" />
+              Session Expired
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-6">
+            <p className="text-gray-600 mb-4">Your session has expired. Please log in again to continue.</p>
+            <Button onClick={() => { if (onLoginRequired) onLoginRequired(); else window.location.reload(); }} className="bg-purple-600 hover:bg-purple-700">
+              Log In Again
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   const content = (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <div className="p-2 bg-gradient-to-r from-purple-800 to-purple-900 rounded-xl">
             <Armchair className="w-5 h-5 text-white" />
@@ -1150,28 +1232,30 @@ export function TableSelector({
           </div>
         </div>
         
-        {allowUnselect && isTableSelectedByMe && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleUnselectTable()}
-            disabled={isSelecting}
-            className="gap-2 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
-          >
-            <Undo2 className="w-4 h-4" />
-            Unselect Table {activeSelection?.tableNumber}
-          </Button>
+        {!isUserLoggedIn && (
+          <div className="bg-purple-100 rounded-full px-2 py-1 text-xs text-purple-700">
+            <User className="w-3 h-3 inline mr-1" />
+            Guest Mode
+          </div>
+        )}
+
+        {autoSwitchTables && (
+          <div className="bg-blue-100 rounded-full px-2 py-1 text-xs text-blue-700 flex items-center gap-1">
+            <SwitchCamera className="w-3 h-3" />
+            Auto-Switch ON
+          </div>
         )}
       </div>
 
-      {/* Last sync info - helpful for customers to know data is current */}
-      {lastSyncTime && (
-        <div className="text-[10px] text-gray-400 text-right">
-          Updated: {lastSyncTime.toLocaleTimeString()}
-        </div>
+      {selectedTable && isTableSelectedByMe && (
+        <SelectedTableBanner 
+          selectedTable={selectedTable}
+          activeSelection={activeSelection}
+          onUnselect={() => handleUnselectTable()}
+          isSelecting={isSelecting}
+        />
       )}
 
-      {/* Floor Selection - Always visible with full filtering functionality */}
       {uniqueFloors.length > 0 && (
         <div className="space-y-2">
           <div className="text-xs text-gray-500 flex items-center gap-1">
@@ -1192,159 +1276,68 @@ export function TableSelector({
         </div>
       )}
 
-      {/* View Mode Toggle & Filters */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
-          <Button
-            variant={viewMode === 'layout' ? 'default' : 'outline'}
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => setViewMode('layout')}
-          >
-            Layout View
-          </Button>
-          <Button
-            variant={viewMode === 'list' ? 'default' : 'outline'}
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => setViewMode('list')}
-          >
-            List View
-          </Button>
+          <Button variant={viewMode === 'layout' ? 'default' : 'outline'} size="sm" className="h-8 text-xs" onClick={() => setViewMode('layout')}>Layout</Button>
+          <Button variant={viewMode === 'list' ? 'default' : 'outline'} size="sm" className="h-8 text-xs" onClick={() => setViewMode('list')}>List</Button>
         </div>
-        
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-32 h-8 text-xs">
-            <Filter className="w-3 h-3 mr-1" />
-            <SelectValue />
-          </SelectTrigger>
+          <SelectTrigger className="w-32 h-8 text-xs"><Filter className="w-3 h-3 mr-1" /><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Tables</SelectItem>
             <SelectItem value="available">Available Only</SelectItem>
-            <SelectItem value="occupied">Occupied</SelectItem>
-            <SelectItem value="reserved">Reserved</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-5 gap-1">
-        <div className="bg-green-50 rounded-lg px-2 py-1 text-center">
-          <div className="text-sm font-bold text-green-600">{stats.available}</div>
-          <div className="text-[8px] text-gray-500">Free</div>
-        </div>
-        <div className="bg-red-50 rounded-lg px-2 py-1 text-center">
-          <div className="text-sm font-bold text-red-600">{stats.occupied}</div>
-          <div className="text-[8px] text-gray-500">Used</div>
-        </div>
-        <div className="bg-yellow-50 rounded-lg px-2 py-1 text-center">
-          <div className="text-sm font-bold text-yellow-600">{stats.reserved}</div>
-          <div className="text-[8px] text-gray-500">Reserved</div>
-        </div>
-        <div className="bg-blue-50 rounded-lg px-2 py-1 text-center">
-          <div className="text-sm font-bold text-blue-600">{stats.cleaning}</div>
-          <div className="text-[8px] text-gray-500">Cleaning</div>
-        </div>
-        <div className="bg-gray-50 rounded-lg px-2 py-1 text-center">
-          <div className="text-sm font-bold">{stats.total}</div>
-          <div className="text-[8px] text-gray-500">Total</div>
-        </div>
+      <div className="grid grid-cols-4 gap-1">
+        <div className="bg-green-50 rounded-lg px-2 py-1 text-center"><div className="text-sm font-bold text-green-600">{stats.available}</div><div className="text-[8px] text-gray-500">Free</div></div>
+        <div className="bg-red-50 rounded-lg px-2 py-1 text-center"><div className="text-sm font-bold text-red-600">{stats.occupied}</div><div className="text-[8px] text-gray-500">Used</div></div>
+        <div className="bg-yellow-50 rounded-lg px-2 py-1 text-center"><div className="text-sm font-bold text-yellow-600">{stats.reserved}</div><div className="text-[8px] text-gray-500">Reserved</div></div>
+        <div className="bg-gray-50 rounded-lg px-2 py-1 text-center"><div className="text-sm font-bold">{stats.total}</div><div className="text-[8px] text-gray-500">Total</div></div>
       </div>
 
-      {/* Selected Table Preview */}
-      {selectedTable && (
-        <div className="p-3 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${STATUS_CONFIG[selectedTable.status].bgGradient} flex items-center justify-center`}>
-              <Armchair className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <span className="font-medium text-purple-900">Table {selectedTable.number}</span>
-              <div className="text-xs text-gray-600">
-                {selectedTable.capacity} seats • {selectedTable.location || 'No location'}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge className={STATUS_CONFIG[selectedTable.status].badgeColor}>
-              {selectedTable.reservationInfo?.orderId && showOrderInfo ? 'Reserved (Order)' : STATUS_CONFIG[selectedTable.status].label}
-            </Badge>
-            {allowUnselect && isTableSelectedByMe && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleUnselectTable()}
-                className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            )}
-          </div>
+      {autoSwitchTables && (
+        <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded-lg text-center">
+          💡 Auto-switch is enabled. Click any available table to automatically switch your selection.
         </div>
       )}
 
-      {/* Tables Display */}
-      {isLoading ? (
-        <div className="flex items-center justify-center h-[300px]">
-          <RefreshCw className="w-8 h-8 text-purple-600 animate-spin" />
+      {!isUserLoggedIn && (
+        <div className="text-xs text-purple-600 bg-purple-50 p-2 rounded-lg text-center">
+          🍽️ Guest Mode: You can select a table without logging in. Your selection will be held for 3 minutes.
         </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center h-[300px]"><RefreshCw className="w-8 h-8 text-purple-600 animate-spin" /></div>
       ) : filteredTables.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Armchair className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">No tables found</p>
-            <p className="text-xs text-gray-400 mt-1">Try changing the filter or selecting a different floor</p>
-          </CardContent>
-        </Card>
+        <Card><CardContent className="py-12 text-center"><Armchair className="w-16 h-16 text-gray-300 mx-auto mb-4" /><p className="text-gray-500">No tables found</p></CardContent></Card>
       ) : viewMode === 'layout' ? (
-        <div className="relative">
-          {/* Zoom controls for mobile */}
-          {isMobile && (
-            <div className="flex items-center justify-end gap-2 mb-2">
-              <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => setZoom(Math.max(50, zoom - 10))}>-</Button>
-              <span className="text-xs">{zoom}%</span>
-              <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => setZoom(Math.min(150, zoom + 10))}>+</Button>
-              <Maximize2 className="w-3 h-3 cursor-pointer" onClick={() => setZoom(100)} />
-            </div>
-          )}
-          
-          <div 
-            className="relative bg-gradient-to-br from-purple-50/30 to-white rounded-xl border border-purple-100 overflow-auto"
-            style={{ height: '400px', maxHeight: '60vh' }}
-          >
-            <div 
-              className="relative"
-              style={{ 
-                width: scaledWidth * (zoom / 100),
-                height: scaledHeight * (zoom / 100),
-                transform: `scale(${zoom / 100})`,
-                transformOrigin: 'top left',
-              }}
-            >
-              {filteredTables.map((table) => (
-                <TableIcon
-                  key={table.id}
-                  table={table}
-                  isSelected={selectedTable?.id === table.id}
-                  activeSelection={activeSelection}
-                  currentUserEmail={session?.user?.email}
-                  onUnselect={handleUnselectTable}
-                  onClick={handleTableClick}
-                  allowUnselect={allowUnselect}
-                  showOrderInfo={showOrderInfo}
-                />
-              ))}
-            </div>
+        <div className="relative bg-gradient-to-br from-purple-50/30 to-white rounded-xl border border-purple-100 overflow-auto" style={{ height: '400px', maxHeight: '60vh' }}>
+          <div className="relative" style={{ width: scaledWidth * (zoom / 100), height: scaledHeight * (zoom / 100), transform: `scale(${zoom / 100})`, transformOrigin: 'top left' }}>
+            {filteredTables.map((table) => (
+              <TableIcon
+                key={table.id}
+                table={table}
+                isSelected={selectedTable?.id === table.id}
+                activeSelection={activeSelection}
+                currentUserEmail={session?.user?.email}
+                anonymousId={anonymousId}
+                onUnselect={handleUnselectTable}
+                onClick={handleTableClick}
+                allowUnselect={allowUnselect}
+              />
+            ))}
           </div>
         </div>
       ) : (
         <div className="space-y-2 max-h-[400px] overflow-y-auto">
           {filteredTables.map((table) => {
-            const isSelectedByAny = activeSelection && activeSelection.tableId === table.id;
-            const isSelectedByOther = isSelectedByAny && activeSelection?.selectedBy !== session?.user?.email;
-            const isSelectedByMe = isSelectedByAny && activeSelection?.selectedBy === session?.user?.email;
-            const isReservedByOrder = table.status === 'reserved' && table.reservationInfo?.orderId;
-              
+            const isSelectedByMe = activeSelection?.tableId === table.id && 
+              ((session?.user?.email && activeSelection?.selectedBy === session?.user?.email) ||
+               (anonymousId && activeSelection?.anonymousId === anonymousId));
+            
             return (
               <div
                 key={table.id}
@@ -1353,10 +1346,6 @@ export function TableSelector({
                     ? 'border-purple-500 bg-purple-50' 
                     : isSelectedByMe
                     ? 'border-green-500 bg-green-50'
-                    : isSelectedByOther
-                    ? 'border-yellow-500 bg-yellow-50 opacity-75'
-                    : isReservedByOrder
-                    ? 'border-orange-500 bg-orange-50/30'
                     : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50/50'
                 }`}
                 onClick={() => handleTableClick(table)}
@@ -1367,26 +1356,15 @@ export function TableSelector({
                       <Armchair className="w-5 h-5 text-white" />
                     </div>
                     <div>
-                      <div className="font-medium text-gray-800">Table {table.number}</div>
-                      <div className="text-xs text-gray-500 flex items-center gap-2">
-                        <span className="flex items-center gap-0.5"><Users className="w-3 h-3" />{table.capacity} seats</span>
-                        {table.location && <span>{LOCATION_ICONS[table.location]} {table.location}</span>}
-                      </div>
+                      <div className="font-medium">Table {table.number}</div>
+                      <div className="text-xs text-gray-500">{table.capacity} seats</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {isSelectedByMe && (
-                      <Badge className="bg-green-500 text-white text-xs">Selected by You</Badge>
+                      <Badge className="bg-green-500 text-white text-xs">Selected</Badge>
                     )}
-                    {isSelectedByOther && (
-                      <Badge className="bg-yellow-500 text-white text-xs">Selected</Badge>
-                    )}
-                    {isReservedByOrder && showOrderInfo && (
-                      <Badge className="bg-orange-500 text-white text-xs">Order Active</Badge>
-                    )}
-                    <Badge className={STATUS_CONFIG[table.status].badgeColor}>
-                      {isReservedByOrder && showOrderInfo ? 'Reserved' : STATUS_CONFIG[table.status].label}
-                    </Badge>
+                    <Badge className={STATUS_CONFIG[table.status].badgeColor}>{STATUS_CONFIG[table.status].label}</Badge>
                     {isSelectedByMe && allowUnselect && (
                       <Button
                         variant="ghost"
@@ -1404,17 +1382,7 @@ export function TableSelector({
                 </div>
                 {isSelectedByMe && activeSelection && (
                   <div className="mt-2 text-xs text-green-600">
-                    <SelectionTimer expiresAt={activeSelection.expiresAt} />
-                  </div>
-                )}
-                {isSelectedByOther && activeSelection && (
-                  <div className="mt-1 text-xs text-yellow-600">
-                    by {activeSelection.selectedByName}
-                  </div>
-                )}
-                {isReservedByOrder && showOrderInfo && table.reservationInfo?.orderNumber && (
-                  <div className="mt-1 text-xs text-orange-600">
-                    Order #{table.reservationInfo.orderNumber} in progress
+                    <SelectionTimer expiresAt={activeSelection.expiresAt} onExpire={() => handleUnselectTable(table.id)} />
                   </div>
                 )}
               </div>
@@ -1424,77 +1392,61 @@ export function TableSelector({
       )}
       
       <div className="text-xs text-gray-400 text-center">
-        💡 Click on a table to view details • Only available tables can be selected
-        {allowUnselect && " • Click X to unselect your selected table"}
+        {autoSwitchTables 
+          ? "💡 Click any available table to automatically switch your selection"
+          : "💡 Click on a green available table to select it • Selected tables are held for 3 minutes"}
       </div>
     </div>
   );
-
-  if (controlledOpen !== undefined) {
-    return (
-      <>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="sm:max-w-[800px] max-w-[95vw] max-h-[90vh] bg-gradient-to-br from-white to-purple-50/30 rounded-xl overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-xl">
-                <Armchair className="w-5 h-5 text-purple-600" />
-                Select a Table
-              </DialogTitle>
-              <DialogDescription>
-                Browse tables by floor and restaurant, then click on an available table to select
-              </DialogDescription>
-            </DialogHeader>
-            {content}
-          </DialogContent>
-        </Dialog>
-
-        <TableDetailDialog
-          table={selectedTableForDetail}
-          activeSelection={activeSelection}
-          currentUserEmail={session?.user?.email}
-          open={showDetailDialog}
-          onOpenChange={setShowDetailDialog}
-          onSelect={handleSelectTable}
-          onUnselect={() => handleUnselectTable(selectedTableForDetail?.id)}
-          isUserLoggedIn={isUserLoggedIn}
-          onLoginRequired={onLoginRequired}
-          allowUnselect={allowUnselect}
-          showOrderInfo={showOrderInfo}
-        />
-      </>
-    );
-  }
-
+  
   return (
     <>
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" className="h-[90vh] rounded-t-xl p-0">
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1 bg-gray-300 rounded-full z-50" />
-          <SheetHeader className="pt-4 px-4">
-            <SheetTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <Armchair className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
-              Select a Table
-            </SheetTitle>
-          </SheetHeader>
-          <div className="pt-2 px-4 pb-4 h-full overflow-y-auto">
-            {content}
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      <TableDetailDialog
-        table={selectedTableForDetail}
-        activeSelection={activeSelection}
-        currentUserEmail={session?.user?.email}
-        open={showDetailDialog}
-        onOpenChange={setShowDetailDialog}
-        onSelect={handleSelectTable}
-        onUnselect={() => handleUnselectTable(selectedTableForDetail?.id)}
-        isUserLoggedIn={isUserLoggedIn}
-        onLoginRequired={onLoginRequired}
-        allowUnselect={allowUnselect}
-        showOrderInfo={showOrderInfo}
-      />
+      {controlledOpen !== undefined ? (
+        <>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogContent className="sm:max-w-[800px] max-w-[95vw] max-h-[90vh] bg-gradient-to-br from-white to-purple-50/30 rounded-xl overflow-y-auto">
+              <DialogHeader><DialogTitle className="flex items-center gap-2 text-xl"><Armchair className="w-5 h-5 text-purple-600" />Select a Table</DialogTitle><DialogDescription>Browse tables by floor and restaurant</DialogDescription></DialogHeader>
+              {content}
+            </DialogContent>
+          </Dialog>
+          <TableDetailDialog
+            table={selectedTableForDetail}
+            activeSelection={activeSelection}
+            currentUserEmail={session?.user?.email}
+            anonymousId={anonymousId}
+            open={showDetailDialog}
+            onOpenChange={setShowDetailDialog}
+            onSelect={handleSelectTable}
+            onUnselect={() => handleUnselectTable(selectedTableForDetail?.id)}
+            isUserLoggedIn={isUserLoggedIn}
+            onLoginRequired={onLoginRequired}
+            allowUnselect={allowUnselect}
+          />
+        </>
+      ) : (
+        <>
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetContent side="bottom" className="h-[90vh] rounded-t-xl p-0">
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1 bg-gray-300 rounded-full z-50" />
+              <SheetHeader className="pt-4 px-4"><SheetTitle className="flex items-center gap-2 text-base"><Armchair className="w-4 h-4 text-purple-600" />Select a Table</SheetTitle></SheetHeader>
+              <div className="pt-2 px-4 pb-4 h-full overflow-y-auto">{content}</div>
+            </SheetContent>
+          </Sheet>
+          <TableDetailDialog
+            table={selectedTableForDetail}
+            activeSelection={activeSelection}
+            currentUserEmail={session?.user?.email}
+            anonymousId={anonymousId}
+            open={showDetailDialog}
+            onOpenChange={setShowDetailDialog}
+            onSelect={handleSelectTable}
+            onUnselect={() => handleUnselectTable(selectedTableForDetail?.id)}
+            isUserLoggedIn={isUserLoggedIn}
+            onLoginRequired={onLoginRequired}
+            allowUnselect={allowUnselect}
+          />
+        </>
+      )}
     </>
   );
 }

@@ -4,7 +4,6 @@ import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { useInView } from 'react-intersection-observer'
 import { useState, useEffect } from 'react'
-import { Clock, Award } from 'lucide-react'
 
 export function AboutSection() {
   const [ref, inView] = useInView({
@@ -51,14 +50,14 @@ export function AboutSection() {
   }
 
   return (
-    <section className="py-24 bg-gradient-to-b from-white to-purple-50/30">
+    <section className="pt-12 md:pt-24 pb-0 bg-gradient-to-b from-white to-purple-50/30">
       <div className="container px-4 mx-auto sm:px-6 lg:px-8">
         <motion.div
           ref={ref}
           variants={containerVariants}
           initial="hidden"
           animate={inView ? 'visible' : 'hidden'}
-          className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center"
+          className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-16 items-center"
         >
           <motion.div variants={itemVariants} className="relative h-full flex items-center">
             <div className="absolute w-full h-full bg-gradient-to-br from-purple-800 to-purple-900 rounded-3xl transform rotate-3 scale-105 -z-10 opacity-20" />
@@ -76,46 +75,42 @@ export function AboutSection() {
           <div className="lg:pl-8">
             <motion.h2 
               variants={itemVariants}
-              className="text-4xl md:text-5xl font-bold text-purple-900 mb-8 leading-tight"
+              className="text-2xl md:text-4xl lg:text-5xl font-bold text-purple-900 mb-4 md:mb-8 leading-tight"
             >
               We are doing more than you expect
             </motion.h2>
 
             <motion.p 
               variants={itemVariants}
-              className="text-gray-600 mb-10 leading-relaxed text-lg"
+              className="text-gray-600 mb-4 md:mb-10 leading-relaxed text-sm md:text-base lg:text-lg"
             >
               Welcome to Manyazewal Eshetu Gibi, a culinary oasis in the heart of Bole. Our restaurant offers a unique fusion of Ethiopian cultural dishes, international favorites, and innovative creations. From our organic ingredients to our attentive staff, every detail is crafted to elevate your dining experience.
             </motion.p>
 
             <motion.p 
               variants={itemVariants}
-              className="text-gray-600 mb-10 leading-relaxed text-lg"
+              className="text-gray-600 mb-6 md:mb-10 leading-relaxed text-sm md:text-base lg:text-lg"
             >
               But we're more than just a restaurant. Discover our workspace services, enjoy a game of basketball, or join our transformative Saturday seminars featuring Manyazewal Eshetu and other inspirational speakers. At Manyazewal, we're not just serving food - we're nourishing body, mind, and soul.
             </motion.p>
 
-            <div className="grid grid-cols-2 gap-8">
-              <motion.div variants={itemVariants} className="flex items-center gap-6">
-                <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center">
-                  <Clock className="w-10 h-10 text-purple-900" />
-                </div>
-                <div>
-                  <div className="text-4xl font-bold text-purple-900">{count}</div>
-                  <div className="text-gray-600 text-lg">Years of Excellence</div>
-                </div>
-              </motion.div>
+            {/* Stats Section - Inline on mobile, without icons */}
+            <motion.div 
+              variants={itemVariants}
+              className="flex flex-row justify-between items-center gap-3 md:gap-4 lg:gap-8"
+            >
+              {/* Years of Excellence */}
+              <div className="flex-1 text-center">
+                <div className="text-xl md:text-2xl lg:text-4xl font-bold text-purple-900">{count}</div>
+                <div className="text-xs md:text-sm lg:text-lg text-gray-600">Years of Excellence</div>
+              </div>
 
-              <motion.div variants={itemVariants} className="flex items-center gap-6">
-                <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center">
-                  <Award className="w-10 h-10 text-purple-900" />
-                </div>
-                <div>
-                  <div className="text-4xl font-bold text-purple-900">100%</div>
-                  <div className="text-gray-600 text-lg">Customer Satisfaction</div>
-                </div>
-              </motion.div>
-            </div>
+              {/* Customer Satisfaction */}
+              <div className="flex-1 text-center">
+                <div className="text-xl md:text-2xl lg:text-4xl font-bold text-purple-900">99.9%</div>
+                <div className="text-xs md:text-sm lg:text-lg text-gray-600">Customer Satisfaction</div>
+              </div>
+            </motion.div>
           </div>
         </motion.div>
       </div>
