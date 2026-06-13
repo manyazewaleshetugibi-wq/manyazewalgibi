@@ -1482,5 +1482,6 @@ export default function ExpensesPage() {
       {/* Daily Cash Dialog */}
       <DailyCashDialog open={showDailyCash} onOpenChange={setShowDailyCash} />
     </div>
+    
   )
 }
