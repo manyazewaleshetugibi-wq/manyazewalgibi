@@ -42,6 +42,16 @@ import {
   ShoppingCart,
   Hash,
   AlertCircle,
+  CheckCircle2,
+  Circle,
+  Play,
+  Zap,
+  Gauge,
+  ListChecks,
+  Sparkles,
+  PanelsTopLeft,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -100,6 +110,7 @@ export default function PreparationDisplayPage() {
   const [selectedItem, setSelectedItem] = useState<string>("all");
   const [currentStepIndex, setCurrentStepIndex] = useState<Record<string, number>>({});
   const [isFlipping, setIsFlipping] = useState<Record<string, boolean>>({});
+  const [compactMode, setCompactMode] = useState<Record<string, boolean>>({});
 
   const isAdmin = session?.user?.role?.toString().toUpperCase() === "ADMIN";
 
@@ -121,10 +132,13 @@ export default function PreparationDisplayPage() {
         setFilteredRecipes(data.recipes);
         // Initialize current step index for each recipe
         const initialIndex: Record<string, number> = {};
+        const initialCompact: Record<string, boolean> = {};
         data.recipes.forEach((recipe: ExtendedRecipe) => {
           initialIndex[recipe._id!] = 0;
+          initialCompact[recipe._id!] = false;
         });
         setCurrentStepIndex(initialIndex);
+        setCompactMode(initialCompact);
       } else {
         toast.error("Failed to fetch recipes");
       }
@@ -189,6 +203,10 @@ export default function PreparationDisplayPage() {
     }, 300);
   };
 
+  const toggleCompactMode = (recipeId: string) => {
+    setCompactMode(prev => ({ ...prev, [recipeId]: !prev[recipeId] }));
+  };
+
   const getTotalTimeDisplay = (totalTime: number) => {
     const hours = Math.floor(totalTime / 60);
     const minutes = totalTime % 60;
@@ -199,280 +217,360 @@ export default function PreparationDisplayPage() {
   };
 
   const getDifficultyLevel = (steps: number, totalTime: number) => {
-    if (steps <= 3 && totalTime <= 30) return { label: "Easy", color: "bg-green-100 text-green-800 border-green-200", icon: "🌟" };
-    if (steps <= 6 && totalTime <= 60) return { label: "Medium", color: "bg-yellow-100 text-yellow-800 border-yellow-200", icon: "⭐" };
-    return { label: "Advanced", color: "bg-red-100 text-red-800 border-red-200", icon: "🔥" };
+    if (steps <= 3 && totalTime <= 30) return { label: "Easy", color: "bg-emerald-100 text-emerald-800 border-emerald-200", icon: "🌱" };
+    if (steps <= 6 && totalTime <= 60) return { label: "Medium", color: "bg-amber-100 text-amber-800 border-amber-200", icon: "⚡" };
+    return { label: "Advanced", color: "bg-rose-100 text-rose-800 border-rose-200", icon: "🔥" };
   };
 
-  const StepBookCard = ({ step, stepNumber, totalSteps, isActive }: { 
+  // Modern Step Card Component - Minimal & Focused
+  const ModernStepCard = ({ step, stepNumber, totalSteps, isActive, compact }: { 
     step: any; 
     stepNumber: number; 
     totalSteps: number;
     isActive: boolean;
+    compact: boolean;
   }) => {
     if (!isActive) return null;
     
-    // Get display values (support both old and new data structure)
-    const timeDisplay = step.timeText || (step.timeAmount ? `${step.timeAmount} minutes` : null);
+    const timeDisplay = step.timeText || (step.timeAmount ? `${step.timeAmount} min` : null);
     const heatDisplay = step.heatText || step.heatPower;
-    const tempDisplay = step.tempText || (step.temperature ? `${step.temperature}°C` : null);
-    const timeValue = step.timeValue || step.timeAmount || 0;
+    const tempDisplay = step.tempText || (step.temperature ? `${step.temperature}°` : null);
     const hasIngredients = step.ingredients && step.ingredients.length > 0;
     const singleIngredient = step.ingredientName;
     
-    return (
-      <motion.div
-        initial={{ opacity: 0, rotateY: -90 }}
-        animate={{ opacity: 1, rotateY: 0 }}
-        exit={{ opacity: 0, rotateY: 90 }}
-        transition={{ duration: 0.4, type: "spring", stiffness: 100 }}
-        className="book-page"
-      >
-        <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-800 dark:to-gray-900 rounded-xl shadow-2xl overflow-hidden border-2 border-amber-200 dark:border-amber-800">
-          {/* Book Page Header */}
-          <div className="bg-gradient-to-r from-amber-600 to-orange-600 p-4 text-white">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5" />
-                <span className="text-sm font-medium">Step {stepNumber} of {totalSteps}</span>
+    if (compact) {
+      return (
+        <motion.div
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.25 }}
+          className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden"
+        >
+          {/* Compact Header */}
+          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800/50 dark:to-gray-900 border-b border-gray-100 dark:border-gray-800">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400 text-xs font-bold">
+                {stepNumber}
               </div>
-              <Bookmark className="h-5 w-5" />
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                of {totalSteps}
+              </span>
+            </div>
+            <div className="flex gap-1.5">
+              {timeDisplay && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400">
+                  <Timer className="h-2.5 w-2.5 mr-0.5" />
+                  {timeDisplay}
+                </Badge>
+              )}
+              {heatDisplay && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400">
+                  <Flame className="h-2.5 w-2.5 mr-0.5" />
+                  {heatDisplay}
+                </Badge>
+              )}
             </div>
           </div>
-
-          {/* Book Page Content */}
-          <div className="p-6">
-            {/* Step Title */}
-            <div className="mb-4 pb-3 border-b-2 border-dashed border-amber-300 dark:border-amber-700">
-              <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-                <span className="text-2xl text-amber-600">{stepNumber}</span>
-                <span>-</span>
-                <span>Preparation Step</span>
-              </h3>
+          
+          {/* Compact Content */}
+          <div className="p-4">
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              {step.description}
+            </p>
+            {(hasIngredients || singleIngredient) && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {hasIngredients ? (
+                  step.ingredients.slice(0, 2).map((ing: any, idx: number) => (
+                    <Badge key={idx} variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-emerald-50 dark:bg-emerald-950/30">
+                      {ing.name}
+                    </Badge>
+                  ))
+                ) : (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-emerald-50 dark:bg-emerald-950/30">
+                    {singleIngredient}
+                  </Badge>
+                )}
+                {(hasIngredients && step.ingredients.length > 2) && (
+                  <span className="text-[10px] text-gray-400">+{step.ingredients.length - 2}</span>
+                )}
+              </div>
+            )}
+          </div>
+        </motion.div>
+      );
+    }
+    
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.3 }}
+        className="bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden"
+      >
+        {/* Step Header with Visual Progress */}
+        <div className="relative px-5 pt-5 pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 text-white font-bold text-lg shadow-md">
+                {stepNumber}
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Step</p>
+                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">{stepNumber} of {totalSteps}</p>
+              </div>
             </div>
-
-            {/* Time and Metadata - Using descriptive text */}
-            <div className="flex flex-wrap gap-2 mb-4">
+            <div className="flex gap-2">
               {timeDisplay && (
-                <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-sm py-1 px-3">
+                <Badge className="bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 border-0 px-2 py-1">
                   <Timer className="h-3 w-3 mr-1" />
                   {timeDisplay}
                 </Badge>
               )}
               {heatDisplay && (
-                <Badge className="bg-red-100 text-red-800 border-red-200 text-sm py-1 px-3">
+                <Badge className="bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border-0 px-2 py-1">
                   <Flame className="h-3 w-3 mr-1" />
-                  Heat: {heatDisplay}
+                  {heatDisplay}
                 </Badge>
               )}
               {tempDisplay && (
-                <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-sm py-1 px-3">
+                <Badge className="bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-400 border-0 px-2 py-1">
                   <Thermometer className="h-3 w-3 mr-1" />
                   {tempDisplay}
                 </Badge>
               )}
             </div>
+          </div>
+          
+          {/* Decorative line */}
+          <div className="absolute bottom-0 left-5 right-5 h-px bg-gradient-to-r from-transparent via-gray-200 dark:via-gray-700 to-transparent" />
+        </div>
 
-            {/* Description */}
-            <div className="mb-4">
-              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-inner">
-                <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-base">
-                  {step.description}
+        {/* Main Content */}
+        <div className="p-5">
+          {/* Description */}
+          <div className="mb-4">
+            <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-base">
+              {step.description}
+            </p>
+          </div>
+
+          {/* Ingredients Section - Modern Chip Design */}
+          {(hasIngredients || singleIngredient) && (
+            <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
+              <div className="flex items-center gap-2 mb-2">
+                <ShoppingCart className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Ingredients</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {hasIngredients ? (
+                  step.ingredients.map((ing: any, idx: number) => (
+                    <Badge key={idx} variant="secondary" className="text-xs py-1 px-2 bg-white dark:bg-gray-800 shadow-sm">
+                      {ing.name} <span className="text-gray-400 ml-1">{ing.quantity} {ing.unit}</span>
+                    </Badge>
+                  ))
+                ) : (
+                  <Badge variant="secondary" className="text-xs py-1 px-2 bg-white dark:bg-gray-800 shadow-sm">
+                    {singleIngredient}
+                    {step.stockDetails && (
+                      <span className="text-gray-400 ml-1">({step.stockDetails.currentStock} {step.stockDetails.unit})</span>
+                    )}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Notes Section - Subtle */}
+          {step.notes && (
+            <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-950/20 rounded-xl border-l-3 border-amber-400">
+              <div className="flex items-start gap-2">
+                <Sparkles className="h-3.5 w-3.5 text-amber-500 mt-0.5" />
+                <p className="text-xs text-gray-600 dark:text-gray-400 italic">
+                  {step.notes}
                 </p>
               </div>
             </div>
+          )}
+        </div>
 
-            {/* Ingredients Information - Support multiple ingredients */}
-            {(hasIngredients || singleIngredient) && (
-              <div className="mb-4 p-3 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200 dark:border-green-800">
-                <div className="flex items-center gap-2 mb-2">
-                  <ShoppingCart className="h-4 w-4 text-green-600" />
-                  <span className="font-semibold text-green-700 dark:text-green-400">Ingredients Needed:</span>
-                </div>
-                {hasIngredients ? (
-                  <div className="space-y-2">
-                    {step.ingredients.map((ing: any, idx: number) => (
-                      <div key={idx} className="flex items-center justify-between">
-                        <span className="text-gray-700 dark:text-gray-300">
-                          • {ing.name}
-                        </span>
-                        <Badge variant="outline" className="text-xs">
-                          {ing.quantity} {ing.unit}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-700 dark:text-gray-300">• {singleIngredient}</span>
-                    {step.stockDetails && (
-                      <Badge variant="outline" className="text-xs">
-                        Stock: {step.stockDetails.currentStock} {step.stockDetails.unit}
-                      </Badge>
-                    )}
-                  </div>
-                )}
-              </div>
+        {/* Step Footer with Completion Indicator */}
+        <div className="px-5 py-3 bg-gray-50/50 dark:bg-gray-800/30 border-t border-gray-100 dark:border-gray-800">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-400">
+              {stepNumber === totalSteps ? (
+                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-3 w-3" /> Final step
+                </span>
+              ) : (
+                <span className="flex items-center gap-1">
+                  <Play className="h-3 w-3" /> Next: Step {stepNumber + 1}
+                </span>
+              )}
+            </span>
+            {timeDisplay && (
+              <span className="text-gray-400 flex items-center gap-1">
+                <Clock className="h-3 w-3" /> ~{extractFirstNumber(timeDisplay)} min
+              </span>
             )}
-
-            {/* Notes Section */}
-            {step.notes && (
-              <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border-l-4 border-amber-500">
-                <div className="flex items-start gap-2">
-                  <Info className="h-4 w-4 text-amber-600 mt-0.5" />
-                  <div>
-                    <span className="font-semibold text-amber-700 dark:text-amber-400 text-sm">Chef's Note:</span>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 italic">
-                      {step.notes}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Book Page Footer */}
-          <div className="bg-gradient-to-r from-amber-100 to-orange-100 dark:from-gray-800 dark:to-gray-900 p-3 text-center border-t border-amber-200 dark:border-amber-800">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {stepNumber === totalSteps ? "✓ Recipe Complete!" : "→ Continue to next step"}
-            </p>
           </div>
         </div>
       </motion.div>
     );
   };
 
+  // Modern Recipe Card - Minimal Layout
   const RecipeCard = ({ recipe }: { recipe: ExtendedRecipe }) => {
     const itemImage = recipe.itemDetails?.imageUrl || "/placeholder-food.jpg";
     const difficulty = getDifficultyLevel(recipe.steps.length, recipe.totalTime || 0);
     const currentStep = currentStepIndex[recipe._id!] || 0;
     const currentStepData = recipe.steps[currentStep];
+    const isCompact = compactMode[recipe._id!] || false;
     
-    // Calculate recipe stats
     const totalIngredients = recipe.steps.reduce((acc: number, step: PreparationStep) => {
       if (step.ingredients) return acc + step.ingredients.length;
       if (step.ingredientName) return acc + 1;
       return acc;
     }, 0);
     
-    const averageTimePerStep = Math.floor((recipe.totalTime || 0) / recipe.steps.length);
+    const progressPercent = ((currentStep + 1) / recipe.steps.length) * 100;
 
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="mb-8"
+        transition={{ duration: 0.4 }}
+        className="group"
       >
-        <Card className="overflow-hidden hover:shadow-2xl transition-all duration-300 bg-white dark:bg-gray-900 border-0 shadow-xl">
-          {/* Recipe Header */}
-          <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 p-6 text-white">
-            <div className="flex justify-between items-start">
-              <div className="flex-1">
-                <h2 className="text-3xl md:text-4xl font-bold mb-3">{recipe.itemName}</h2>
-                <div className="flex flex-wrap gap-2">
-                  <Badge className="bg-white/20 text-white border-0">
-                    <ChefHat className="h-3 w-3 mr-1" />
-                    {recipe.steps.length} Total Steps
-                  </Badge>
-                  <Badge className="bg-white/20 text-white border-0">
-                    <Clock className="h-3 w-3 mr-1" />
-                    {getTotalTimeDisplay(recipe.totalTime || 0)}
-                  </Badge>
-                  <Badge className="bg-white/20 text-white border-0">
-                    <Package className="h-3 w-3 mr-1" />
-                    {totalIngredients} Ingredients
-                  </Badge>
-                  <Badge className={`${difficulty.color} border-0`}>
-                    {difficulty.icon} {difficulty.label}
-                  </Badge>
-                  {recipe.version && recipe.version > 1 && (
-                    <Badge className="bg-purple-500/80 text-white border-0">
-                      Version {recipe.version}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              {recipe.isAdminCreated && (
-                <Star className="h-8 w-8 fill-yellow-400 text-yellow-400 animate-pulse" />
-              )}
+        <Card className="overflow-hidden border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-gray-900 rounded-2xl">
+          {/* Compact Header with Image Thumbnail */}
+          <div className="flex items-center gap-4 p-4 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800/50 dark:to-gray-900 border-b border-gray-100 dark:border-gray-800">
+            {/* Thumbnail */}
+            <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800 flex-shrink-0">
+              <img
+                src={itemImage}
+                alt={recipe.itemName}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = "/placeholder-food.jpg";
+                }}
+              />
             </div>
             
-            <div className="flex flex-wrap gap-4 mt-4 text-sm text-white/80">
-              <div className="flex items-center gap-1">
-                <User className="h-4 w-4" />
-                <span>{recipe.createdBy}</span>
+            {/* Title & Meta */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100 truncate">
+                  {recipe.itemName}
+                </h2>
+                {recipe.isAdminCreated && (
+                  <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                )}
+                {recipe.version && recipe.version > 1 && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                    v{recipe.version}
+                  </Badge>
+                )}
               </div>
-              <div className="flex items-center gap-1">
-                <Calendar className="h-4 w-4" />
-                <span>{new Date(recipe.createdAt).toLocaleDateString()}</span>
+              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
+                  <ListChecks className="h-2.5 w-2.5 mr-0.5" />
+                  {recipe.steps.length} steps
+                </Badge>
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
+                  <Clock className="h-2.5 w-2.5 mr-0.5" />
+                  {getTotalTimeDisplay(recipe.totalTime || 0)}
+                </Badge>
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
+                  <Package className="h-2.5 w-2.5 mr-0.5" />
+                  {totalIngredients} ing.
+                </Badge>
+                <Badge className={`${difficulty.color} text-[10px] px-1.5 py-0 h-5 border-0`}>
+                  {difficulty.icon} {difficulty.label}
+                </Badge>
               </div>
-              <div className="flex items-center gap-1">
-                <Hash className="h-4 w-4" />
-                <span>~{averageTimePerStep} min avg per step</span>
-              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => toggleCompactMode(recipe._id!)}
+                className="h-8 w-8 p-0 text-gray-500 hover:text-gray-700"
+              >
+                {isCompact ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+              </Button>
             </div>
           </div>
 
-          <CardContent className="p-6">
-            {/* Progress Indicator */}
-            <div className="mb-6">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                  Recipe Progress
-                </span>
-                <span className="text-sm font-bold text-amber-600">
-                  Step {currentStep + 1} of {recipe.steps.length}
+          <CardContent className="p-4">
+            {/* Progress Bar - Minimal */}
+            <div className="mb-4">
+              <div className="flex justify-between items-center text-xs mb-1.5">
+                <span className="text-gray-500">Progress</span>
+                <span className="font-medium text-amber-600 dark:text-amber-400">
+                  Step {currentStep + 1}/{recipe.steps.length}
                 </span>
               </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                <div 
-                  className="bg-gradient-to-r from-amber-500 to-red-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${((currentStep + 1) / recipe.steps.length) * 100}%` }}
+              <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                <motion.div 
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 h-full rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progressPercent}%` }}
+                  transition={{ duration: 0.3 }}
                 />
               </div>
             </div>
 
-            {/* Book-Style Step Card */}
-            <div className="relative min-h-[500px]">
+            {/* Current Step Display */}
+            <div className="relative min-h-[280px]">
               <AnimatePresence mode="wait">
-                <StepBookCard
-                  key={currentStep}
+                <ModernStepCard
+                  key={`${recipe._id}-${currentStep}`}
                   step={currentStepData}
                   stepNumber={currentStep + 1}
                   totalSteps={recipe.steps.length}
                   isActive={true}
+                  compact={isCompact}
                 />
               </AnimatePresence>
 
-              {/* Navigation Buttons */}
-              <div className="flex justify-between gap-4 mt-6">
+              {/* Navigation Buttons - Minimal */}
+              <div className="flex gap-2 mt-4">
                 <Button
                   onClick={() => prevStep(recipe._id!)}
                   disabled={currentStep === 0 || isFlipping[recipe._id!]}
-                  className="flex-1 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 h-9 text-sm border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Previous Step
+                  <ArrowLeft className="h-3.5 w-3.5 mr-1" />
+                  Back
                 </Button>
                 <Button
                   onClick={() => nextStep(recipe._id!, recipe.steps.length)}
                   disabled={currentStep === recipe.steps.length - 1 || isFlipping[recipe._id!]}
-                  className="flex-1 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 text-white shadow-lg"
+                  size="sm"
+                  className="flex-1 h-9 text-sm bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-none"
                 >
-                  {currentStep === recipe.steps.length - 1 ? "Complete Recipe" : "Next Step"}
-                  <ArrowRight className="h-4 w-4 ml-2" />
+                  {currentStep === recipe.steps.length - 1 ? (
+                    <>Complete <CheckCircle2 className="h-3.5 w-3.5 ml-1" /></>
+                  ) : (
+                    <>Next <ArrowRight className="h-3.5 w-3.5 ml-1" /></>
+                  )}
                 </Button>
               </div>
             </div>
 
-            {/* Step Navigation Dots */}
-            <div className="flex justify-center gap-2 mt-6 flex-wrap">
+            {/* Step Dots - Minimal */}
+            <div className="flex justify-center gap-1.5 mt-4">
               {recipe.steps.map((_: any, idx: number) => (
                 <button
                   key={idx}
                   onClick={() => {
-                    if (!isFlipping[recipe._id!]) {
+                    if (!isFlipping[recipe._id!] && idx !== currentStep) {
                       setIsFlipping(prev => ({ ...prev, [recipe._id!]: true }));
                       setTimeout(() => {
                         setCurrentStepIndex(prev => ({ ...prev, [recipe._id!]: idx }));
@@ -482,65 +580,26 @@ export default function PreparationDisplayPage() {
                       }, 300);
                     }
                   }}
-                  className={`h-2 rounded-full transition-all duration-300 ${
+                  className={`transition-all duration-200 rounded-full ${
                     idx === currentStep
-                      ? "w-8 bg-gradient-to-r from-amber-500 to-red-500"
-                      : "w-2 bg-gray-300 dark:bg-gray-600 hover:bg-gray-400"
+                      ? "w-5 h-1.5 bg-amber-500"
+                      : "w-1.5 h-1.5 bg-gray-300 dark:bg-gray-600 hover:bg-gray-400"
                   }`}
                 />
               ))}
             </div>
 
-            {/* Recipe Summary Stats */}
-            <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
-              <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-amber-600" />
-                Recipe Summary
-              </h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                <div>
-                  <p className="text-muted-foreground text-xs">Total Time</p>
-                  <p className="font-semibold">{getTotalTimeDisplay(recipe.totalTime || 0)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Total Steps</p>
-                  <p className="font-semibold">{recipe.steps.length}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Ingredients Used</p>
-                  <p className="font-semibold">{totalIngredients}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Avg Time/Step</p>
-                  <p className="font-semibold">{averageTimePerStep} min</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Food Image Gallery */}
-            <div className="mt-6 pt-4 border-t-2 border-dashed border-amber-200 dark:border-amber-800">
-              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <ChefHat className="h-5 w-5 text-amber-600" />
-                Final Dish Preview
-              </h3>
-              <div className="relative rounded-xl overflow-hidden bg-gradient-to-br from-amber-100 to-orange-100 dark:from-gray-800 dark:to-gray-900 shadow-inner">
-                <img
-                  src={itemImage}
-                  alt={recipe.itemName}
-                  className="w-full h-80 object-cover hover:scale-105 transition-transform duration-500"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = "/placeholder-food.jpg";
-                  }}
-                />
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4">
-                  <p className="text-white text-lg font-bold">{recipe.itemName}</p>
-                  {recipe.itemDetails?.price && (
-                    <p className="text-white/90 text-sm">
-                      {recipe.itemDetails.price.toLocaleString()} ETB
-                    </p>
-                  )}
-                </div>
-              </div>
+            {/* Quick Stats Row */}
+            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex justify-between text-xs text-gray-400">
+              <span className="flex items-center gap-1">
+                <User className="h-3 w-3" /> {recipe.createdBy}
+              </span>
+              <span className="flex items-center gap-1">
+                <Calendar className="h-3 w-3" /> {new Date(recipe.createdAt).toLocaleDateString()}
+              </span>
+              <span className="flex items-center gap-1">
+                <Gauge className="h-3 w-3" /> ~{Math.floor((recipe.totalTime || 0) / recipe.steps.length)} min/step
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -550,141 +609,130 @@ export default function PreparationDisplayPage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto p-8 flex items-center justify-center min-h-screen">
-        <Card className="p-8 text-center">
+      <div className="container mx-auto p-4 flex items-center justify-center min-h-screen">
+        <div className="text-center">
           <motion.div
             animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+            className="inline-block"
           >
-            <ChefHat className="h-12 w-12 mx-auto mb-4 text-purple-600" />
+            <ChefHat className="h-8 w-8 text-amber-500" />
           </motion.div>
-          <p className="text-lg">Loading delicious recipes...</p>
-        </Card>
+          <p className="text-sm text-gray-500 mt-2">Loading recipes...</p>
+        </div>
       </div>
     );
   }
 
-  // Get unique items for filter
   const uniqueItems = Array.from(new Map(recipes.map(r => [r.itemId, r.itemName])).entries())
     .map(([id, name]) => ({ id, name }));
 
+  const totalSteps = recipes.reduce((acc, r) => acc + r.steps.length, 0);
+  const totalIngredients = recipes.reduce((acc: number, r: ExtendedRecipe) => {
+    return acc + r.steps.reduce((stepAcc: number, step: PreparationStep) => {
+      if (step.ingredients) return stepAcc + step.ingredients.length;
+      if (step.ingredientName) return stepAcc + 1;
+      return stepAcc;
+    }, 0);
+  }, 0);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-red-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
-      <div className="container mx-auto p-4 md:p-6">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <div className="container mx-auto p-4 max-w-5xl">
         <Toaster position="top-right" />
 
-        {/* Hero Section with Book Theme */}
-        <motion.div 
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-8"
-        >
-          <div className="inline-flex items-center justify-center p-4 bg-gradient-to-br from-amber-500 to-red-600 rounded-2xl mb-4 shadow-xl">
-            <BookOpen className="h-10 w-10 text-white" />
-          </div>
-          <h1 className="text-5xl md:text-6xl font-bold bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 bg-clip-text text-transparent mb-3">
-            Recipe Book
-          </h1>
-          <p className="text-muted-foreground max-w-2xl mx-auto text-lg">
-            Flip through our beautifully crafted recipe collection with step-by-step instructions
-          </p>
-        </motion.div>
-
-        {/* Search and Filter Section */}
-        <Card className="mb-8 shadow-lg border-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
-          <CardContent className="p-4">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search recipes by name, steps, time, heat, temperature..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
-                />
+        {/* Header - Minimal Hero */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-gradient-to-br from-amber-500 to-orange-500 rounded-xl">
+                <BookOpen className="h-4 w-4 text-white" />
               </div>
-              <Select value={selectedItem} onValueChange={setSelectedItem}>
-                <SelectTrigger className="md:w-[250px]">
-                  <SelectValue placeholder="Filter by menu item" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Items ({recipes.length})</SelectItem>
-                  {uniqueItems.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.name} ({recipes.filter(r => r.itemId === item.id).length})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button variant="outline" onClick={fetchRecipes}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
+                Recipe Guide
+              </h1>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Stats Overview */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {[
-            { icon: BookOpen, label: "Total Recipes", value: recipes.length, color: "amber" },
-            { icon: Layers, label: "Total Steps", value: recipes.reduce((acc, r) => acc + r.steps.length, 0), color: "orange" },
-            { icon: Clock, label: "Total Time", value: getTotalTimeDisplay(recipes.reduce((acc: number, r: ExtendedRecipe) => acc + (r.totalTime || 0), 0)), color: "red" },
-            { icon: Package, label: "Total Ingredients", value: recipes.reduce((acc: number, r: ExtendedRecipe) => {
-              return acc + r.steps.reduce((stepAcc: number, step: PreparationStep) => {
-                if (step.ingredients) return stepAcc + step.ingredients.length;
-                if (step.ingredientName) return stepAcc + 1;
-                return stepAcc;
-              }, 0);
-            }, 0), color: "green" },
-          ].map((stat, idx) => (
-            <motion.div
-              key={idx}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: idx * 0.1 }}
-            >
-              <Card className="text-center shadow-md border-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm hover:shadow-xl transition-shadow">
-                <CardContent className="p-4">
-                  <stat.icon className={`h-8 w-8 mx-auto mb-2 text-${stat.color}-600`} />
-                  <p className="text-2xl font-bold">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground">{stat.label}</p>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
+            <p className="text-xs text-gray-400">{filteredRecipes.length} recipes</p>
+          </div>
+          <p className="text-xs text-gray-500 max-w-md">
+            Step-by-step instructions for food preparation
+          </p>
         </div>
 
-        {/* Recipes Grid */}
-        {filteredRecipes.length === 0 ? (
-          <Card className="p-12 text-center border-0 shadow-md">
-            <BookOpen className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-xl font-semibold mb-2">No recipes found</h3>
-            <p className="text-muted-foreground">
-              {searchTerm || selectedItem !== "all" 
-                ? "Try adjusting your search or filter criteria" 
-                : "Start by creating your first recipe in the recipe book"}
-            </p>
-          </Card>
-        ) : (
-          <>
-            <div className="space-y-8">
-              {filteredRecipes.map((recipe) => (
-                <RecipeCard key={recipe._id} recipe={recipe} />
-              ))}
+        {/* Search & Filter - Minimal */}
+        <div className="mb-6">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+              <Input
+                placeholder="Search recipes..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 h-9 text-sm bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 rounded-xl"
+              />
             </div>
+            <Select value={selectedItem} onValueChange={setSelectedItem}>
+              <SelectTrigger className="w-full sm:w-[180px] h-9 text-sm rounded-xl">
+                <SelectValue placeholder="Filter by item" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All items ({recipes.length})</SelectItem>
+                {uniqueItems.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name} ({recipes.filter(r => r.itemId === item.id).length})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={fetchRecipes}
+              className="h-9 w-9 p-0 rounded-xl"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Quick Stats - Minimal */}
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-2 text-center shadow-sm border border-gray-100 dark:border-gray-800">
+            <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{recipes.length}</p>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Recipes</p>
+          </div>
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-2 text-center shadow-sm border border-gray-100 dark:border-gray-800">
+            <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{totalSteps}</p>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Steps</p>
+          </div>
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-2 text-center shadow-sm border border-gray-100 dark:border-gray-800">
+            <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{totalIngredients}</p>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Ingredients</p>
+          </div>
+        </div>
+
+        {/* Recipes List */}
+        {filteredRecipes.length === 0 ? (
+          <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 text-center border border-gray-100 dark:border-gray-800">
+            <BookOpen className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+            <h3 className="text-sm font-medium text-gray-600 mb-1">No recipes found</h3>
+            <p className="text-xs text-gray-400">
+              {searchTerm || selectedItem !== "all" 
+                ? "Try adjusting your search" 
+                : "Create your first recipe"}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {filteredRecipes.map((recipe) => (
+              <RecipeCard key={recipe._id} recipe={recipe} />
+            ))}
             
             {/* Footer */}
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="mt-8 text-center text-sm text-muted-foreground border-t pt-6"
-            >
-              <p>Showing {filteredRecipes.length} of {recipes.length} recipes</p>
-              <p className="mt-2 text-xs">📖 Flip through pages to follow each recipe step by step</p>
-              <p className="mt-1 text-xs">✨ Time, heat, and temperature descriptions are shown exactly as entered by the chef</p>
-            </motion.div>
-          </>
+            <div className="text-center text-[10px] text-gray-400 py-4 border-t border-gray-100 dark:border-gray-800 mt-2">
+              Showing {filteredRecipes.length} of {recipes.length} recipes
+            </div>
+          </div>
         )}
       </div>
     </div>

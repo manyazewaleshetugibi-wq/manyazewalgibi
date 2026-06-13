@@ -5,7 +5,7 @@ import clientPromise from '@/lib/mongodb';
 import mongoose from 'mongoose';
 import { syncTablesWithPendingOrders, syncAllFloorsWithPendingOrders } from '@/lib/tableOrderSync';
 
-// In-memory store for real-time selections (use Redis in production)
+// In-memory store for real-time selections
 const activeSelections = new Map<string, {
   tableId: string;
   tableNumber: number;
@@ -14,19 +14,41 @@ const activeSelections = new Map<string, {
   selectedAt: Date;
   expiresAt: Date;
   orderId?: string;
+  isGuest?: boolean;
+  guestInfo?: {
+    name: string;
+    phone?: string;
+    email?: string;
+  };
 }>();
 
-// Cleanup expired selections every minute
+// Guest session store
+const guestSessions = new Map<string, {
+  guestId: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  createdAt: Date;
+  expiresAt: Date;
+}>();
+
+// Cleanup expired selections every 30 seconds
 setInterval(() => {
   const now = new Date();
+  
   for (const [key, selection] of activeSelections.entries()) {
     if (selection.expiresAt < now) {
       activeSelections.delete(key);
     }
   }
-}, 60000);
+  
+  for (const [key, session] of guestSessions.entries()) {
+    if (session.expiresAt < now) {
+      guestSessions.delete(key);
+    }
+  }
+}, 30000);
 
-// Helper to ensure mongoose connection
 async function ensureConnection() {
   if (mongoose.connection.readyState === 0) {
     const client = await clientPromise;
@@ -35,9 +57,66 @@ async function ensureConnection() {
   return mongoose.connection;
 }
 
-// Helper to get selection key
 function getSelectionKey(restaurantId: string, floor: string): string {
   return `${restaurantId}:${floor}`;
+}
+
+function generateGuestId(): string {
+  return `guest_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+function getOrCreateGuestSession(guestInfo?: { name?: string; phone?: string; email?: string }) {
+  const guestName = guestInfo?.name || `Guest_${Math.floor(Math.random() * 10000)}`;
+  const guestId = generateGuestId();
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + 24);
+  
+  const session = {
+    guestId,
+    name: guestName,
+    phone: guestInfo?.phone,
+    email: guestInfo?.email,
+    createdAt: new Date(),
+    expiresAt
+  };
+  
+  guestSessions.set(guestId, session);
+  return session;
+}
+
+function validateGuestSession(guestId?: string): { valid: boolean; session?: any } {
+  if (!guestId) return { valid: false };
+  
+  const session = guestSessions.get(guestId);
+  if (!session) return { valid: false };
+  
+  if (session.expiresAt < new Date()) {
+    guestSessions.delete(guestId);
+    return { valid: false };
+  }
+  
+  return { valid: true, session };
+}
+
+async function saveWithRetry(document: any, maxRetries = 3): Promise<any> {
+  let lastError;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await document.save({ validateBeforeSave: false });
+    } catch (error: any) {
+      lastError = error;
+      
+      if (error.name === 'VersionError' && attempt < maxRetries) {
+        console.log(`Version conflict on attempt ${attempt}, retrying...`);
+        await document.refresh();
+        continue;
+      }
+      throw error;
+    }
+  }
+  
+  throw lastError;
 }
 
 // GET - Fetch table arrangement(s)
@@ -45,83 +124,65 @@ export async function GET(req: NextRequest) {
   try {
     await ensureConnection();
     
-    const session = await auth();
     const { searchParams } = new URL(req.url);
-    const pathname = req.nextUrl.pathname;
-    
-    // Check if this is the SSE endpoint
-    if (pathname.includes('/selection-status')) {
-      return handleSelectionStatusSSE(req);
-    }
-    
     const restaurantId = searchParams.get('restaurantId');
     const floor = searchParams.get('floor');
     const fetchAll = searchParams.get('fetchAll') === 'true';
     const includeSelections = searchParams.get('includeSelections') === 'true';
     const skipSync = searchParams.get('skipSync') === 'true';
 
-    // For viewing tables, we don't require authentication
-    // Anyone can view available tables
-    const query: any = { isActive: true };
-    
     if (!fetchAll) {
-      if (restaurantId) query.restaurantId = restaurantId;
-      if (floor) query.floor = floor;
+      if (!restaurantId || !floor) {
+        return NextResponse.json(
+          { success: false, error: 'restaurantId and floor are required' },
+          { status: 400 }
+        );
+      }
 
-      // Don't filter by createdBy for viewing - show all active arrangements
-      let arrangement = await TableArrangement.findOne(query)
-        .sort({ updatedAt: -1 });
+      const query: any = { restaurantId, floor, isActive: true };
+      let arrangement = await TableArrangement.findOne(query).sort({ updatedAt: -1 });
 
-      // AUTO-SYNC: Sync tables with pending orders before returning
-      if (arrangement && !skipSync && restaurantId && floor) {
+      if (arrangement && !skipSync) {
         const syncResult = await syncTablesWithPendingOrders(restaurantId, floor);
         if (syncResult.success && syncResult.data?.arrangement) {
           arrangement = syncResult.data.arrangement;
-          // Log sync but don't show to user unless requested
-          if (syncResult.data.updatedCount > 0) {
-            console.log(`[Auto-Sync] ${syncResult.message}`);
-          }
-        } else if (syncResult.success && arrangement) {
-          // Re-fetch to get latest data if sync didn't return arrangement
-          arrangement = await TableArrangement.findOne(query).sort({ updatedAt: -1 });
         }
       }
 
-      // If no arrangement found, return empty data instead of error
       if (!arrangement) {
         return NextResponse.json({ 
           success: true, 
           data: null,
-          message: 'No arrangement found for this restaurant and floor'
+          message: 'No arrangement found'
         });
       }
 
-      const response: any = { 
-        success: true, 
-        data: arrangement 
-      };
+      const response: any = { success: true, data: arrangement };
 
-      // Include active selections if requested
-      if (includeSelections && arrangement) {
+      if (includeSelections) {
         const selectionKey = getSelectionKey(arrangement.restaurantId, arrangement.floor);
         const activeSelection = activeSelections.get(selectionKey);
         if (activeSelection && activeSelection.expiresAt > new Date()) {
-          response.activeSelection = activeSelection;
+          response.activeSelection = {
+            tableId: activeSelection.tableId,
+            tableNumber: activeSelection.tableNumber,
+            selectedBy: activeSelection.isGuest ? 'guest' : activeSelection.selectedBy,
+            selectedByName: activeSelection.isGuest ? 'Guest' : activeSelection.selectedByName,
+            selectedAt: activeSelection.selectedAt.toISOString(),
+            expiresAt: activeSelection.expiresAt.toISOString(),
+            isGuest: activeSelection.isGuest
+          };
+        } else if (activeSelection && activeSelection.expiresAt <= new Date()) {
+          activeSelections.delete(selectionKey);
         }
       }
 
       return NextResponse.json(response);
     } else {
-      // For fetchAll, we need authentication to see all arrangements
-      // But we can still return public arrangements
       const arrangements = await TableArrangement.find({ isActive: true })
         .select('_id restaurantId restaurantName floor name layoutType totalTables availableTables occupiedTables totalCapacity updatedAt')
         .sort({ restaurantName: 1, floor: 1 });
-
-      return NextResponse.json({ 
-        success: true, 
-        data: arrangements 
-      });
+      return NextResponse.json({ success: true, data: arrangements });
     }
   } catch (error) {
     console.error('Error fetching table arrangement:', error);
@@ -132,241 +193,25 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// SSE Handler for real-time selection status
-function handleSelectionStatusSSE(req: NextRequest): NextResponse {
-  const { searchParams } = new URL(req.url);
-  const restaurantId = searchParams.get('restaurantId');
-  const floor = searchParams.get('floor');
-  
-  if (!restaurantId || !floor) {
-    return NextResponse.json(
-      { success: false, error: 'Missing parameters: restaurantId and floor are required' },
-      { status: 400 }
-    );
-  }
-
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    start(controller) {
-      let lastSelection = null;
-      const selectionKey = getSelectionKey(restaurantId, floor);
-      
-      // Send initial data
-      const currentSelection = activeSelections.get(selectionKey);
-      if (currentSelection && currentSelection.expiresAt > new Date()) {
-        const selectionData = {
-          ...currentSelection,
-          selectedAt: currentSelection.selectedAt.toISOString(),
-          expiresAt: currentSelection.expiresAt.toISOString()
-        };
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'selection', data: selectionData })}\n\n`));
-        lastSelection = selectionData;
-      }
-
-      // Set up interval to check for changes
-      const interval = setInterval(() => {
-        const selection = activeSelections.get(selectionKey);
-        let validSelection = null;
-        
-        if (selection && selection.expiresAt > new Date()) {
-          validSelection = {
-            ...selection,
-            selectedAt: selection.selectedAt.toISOString(),
-            expiresAt: selection.expiresAt.toISOString()
-          };
-        }
-        
-        if (JSON.stringify(validSelection) !== JSON.stringify(lastSelection)) {
-          lastSelection = validSelection;
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'selection', data: validSelection })}\n\n`));
-        }
-        
-        // Send heartbeat every 30 seconds
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: new Date().toISOString() })}\n\n`));
-      }, 5000);
-
-      // Clean up on close
-      req.signal.addEventListener('abort', () => {
-        clearInterval(interval);
-        controller.close();
-      });
-    }
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no'
-    },
-  });
-}
-
-// POST - Save/Create table arrangement (requires authentication)
-export async function POST(req: NextRequest) {
-  try {
-    await ensureConnection();
-    
-    const session = await auth();
-    
-    if (!session?.user?.email) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized - Please login first' },
-        { status: 401 }
-      );
-    }
-
-    const body = await req.json();
-    const { 
-      restaurantId, 
-      restaurantName,
-      name, 
-      floor, 
-      tables, 
-      layoutType, 
-      totalTables,
-      dimensions, 
-      sections,
-      totalCapacity,
-      availableTables,
-      occupiedTables,
-      reservedTables,
-      cleaningTables,
-      maintenanceTables,
-      updatedAt 
-    } = body;
-
-    if (!restaurantId || !floor || !tables) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields: restaurantId, floor, and tables are required' },
-        { status: 400 }
-      );
-    }
-
-    // Process tables with proper formatting
-    const processedTables = tables.map((table: any) => ({
-      id: table.id,
-      number: table.number,
-      capacity: table.capacity || 4,
-      shape: table.shape || 'circle',
-      x: table.x || 0,
-      y: table.y || 0,
-      width: table.width || 80,
-      height: table.height || 80,
-      status: table.status || 'available',
-      rotation: table.rotation || 0,
-      location: table.location || '',
-      description: table.description || '',
-      tags: table.tags || [],
-      features: table.features || [],
-      lastUpdated: table.lastUpdated || new Date(),
-      section: table.section || '',
-      merged: table.merged || false,
-      mergedWith: table.mergedWith || [],
-      currentOrder: table.currentOrder || null,
-      waiterId: table.waiterId || null,
-      reservationInfo: table.reservationInfo || null,
-    }));
-
-    // Calculate statistics
-    const calculatedTotalCapacity = totalCapacity || processedTables.reduce((sum: number, t: any) => sum + (t.capacity || 0), 0);
-    const calculatedAvailableTables = availableTables || processedTables.filter((t: any) => t.status === 'available').length;
-    const calculatedOccupiedTables = occupiedTables || processedTables.filter((t: any) => t.status === 'occupied').length;
-    const calculatedReservedTables = reservedTables || processedTables.filter((t: any) => t.status === 'reserved').length;
-    const calculatedCleaningTables = cleaningTables || processedTables.filter((t: any) => t.status === 'cleaning').length;
-    const calculatedMaintenanceTables = maintenanceTables || processedTables.filter((t: any) => t.status === 'maintenance').length;
-
-    // Find existing arrangement for this restaurant and floor
-    const existingArrangement = await TableArrangement.findOne({
-      restaurantId,
-      floor,
-      isActive: true
-    });
-
-    // If arrangement exists, update it; otherwise create new
-    const arrangement = await TableArrangement.findOneAndUpdate(
-      { 
-        restaurantId, 
-        floor, 
-        isActive: true 
-      },
-      {
-        restaurantId,
-        restaurantName: restaurantName || restaurantId,
-        name: name || `${restaurantName || restaurantId} - ${floor} Layout`,
-        floor,
-        layoutType: layoutType || 'custom',
-        totalTables: totalTables || processedTables.length,
-        tables: processedTables,
-        totalCapacity: calculatedTotalCapacity,
-        availableTables: calculatedAvailableTables,
-        occupiedTables: calculatedOccupiedTables,
-        reservedTables: calculatedReservedTables,
-        cleaningTables: calculatedCleaningTables,
-        maintenanceTables: calculatedMaintenanceTables,
-        dimensions: dimensions || { width: 1200, height: 800 },
-        sections: sections || [],
-        createdBy: session.user.email,
-        updatedAt: updatedAt || new Date(),
-        isActive: true
-      },
-      { 
-        upsert: true, 
-        new: true,
-        setDefaultsOnInsert: true 
-      }
-    );
-
-    // After saving, sync with orders to ensure consistency
-    await syncTablesWithPendingOrders(restaurantId, floor);
-
-    return NextResponse.json({ 
-      success: true,
-      data: arrangement,
-      message: existingArrangement 
-        ? `Table arrangement for ${restaurantName} - ${floor} updated successfully` 
-        : `Table arrangement for ${restaurantName} - ${floor} created successfully`
-    });
-  } catch (error) {
-    console.error('Error saving table arrangement:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to save table arrangement' },
-      { status: 500 }
-    );
-  }
-}
-
-// PATCH - Update table status based on order or selection
+// PATCH - Update table status (FIXED for auto-switch)
 export async function PATCH(req: NextRequest) {
   try {
     await ensureConnection();
     
-    const session = await auth();
-    
     const body = await req.json();
     const { 
-      arrangementId, 
       restaurantId,
       floor,
       tableId, 
       updates,
-      status, 
-      capacity,
-      location,
-      description,
-      tags,
-      features,
-      currentOrder, 
-      waiterId, 
-      reservationInfo,
-      updateFromOrder,
       selectTable,
       unselectTable,
-      duration = 30
+      switchTable, // New flag for auto-switch
+      duration = 3,
+      guestInfo,
+      guestId
     } = body;
 
-    // Validate required fields
     if (!restaurantId || !floor) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields: restaurantId and floor are required' },
@@ -374,72 +219,271 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Find arrangement (don't filter by createdBy for viewing)
-    let arrangement;
-    if (arrangementId) {
-      arrangement = await TableArrangement.findById(arrangementId);
-    } else {
-      arrangement = await TableArrangement.findOne({
-        restaurantId,
-        floor,
-        isActive: true
-      });
-    }
-
-    if (!arrangement) {
-      return NextResponse.json(
-        { success: false, error: 'Arrangement not found for this restaurant and floor' }, 
-        { status: 404 }
-      );
-    }
-
     const selectionKey = getSelectionKey(restaurantId, floor);
-    const existingSelection = activeSelections.get(selectionKey);
+    let existingSelection = activeSelections.get(selectionKey);
+    
+    if (existingSelection && existingSelection.expiresAt < new Date()) {
+      activeSelections.delete(selectionKey);
+      existingSelection = null;
+    }
 
-    // Handle table unselection (requires authentication)
-    if (unselectTable && tableId) {
-      if (!session?.user?.email) {
+    // Handle auto-switch table - atomic operation to switch tables
+    if (switchTable && tableId) {
+      const session = await auth();
+      const anonymousId = req.headers.get('X-Anonymous-Id') || guestId;
+      const userEmail = session?.user?.email;
+      
+      // Get user info
+      let selectedBy = '';
+      let selectedByName = '';
+      let isGuest = false;
+      let guestSessionData = null;
+      
+      if (userEmail) {
+        selectedBy = userEmail;
+        selectedByName = session?.user?.name || userEmail.split('@')[0];
+      } else if (anonymousId) {
+        let existingGuestSession = guestSessions.get(anonymousId);
+        
+        if (!existingGuestSession) {
+          const guestName = guestInfo?.name || `Guest_${Math.floor(Math.random() * 10000)}`;
+          guestSessionData = getOrCreateGuestSession({
+            name: guestName,
+            phone: guestInfo?.phone,
+            email: guestInfo?.email
+          });
+          selectedBy = guestSessionData.guestId;
+          selectedByName = guestSessionData.name;
+          isGuest = true;
+        } else {
+          selectedBy = existingGuestSession.guestId;
+          selectedByName = existingGuestSession.name;
+          isGuest = true;
+          guestSessionData = existingGuestSession;
+        }
+      } else {
         return NextResponse.json(
-          { success: false, error: 'Unauthorized - Please login first' },
+          { success: false, error: 'Please login or provide guest information' },
           { status: 401 }
         );
       }
       
-      if (existingSelection && existingSelection.tableId === tableId && existingSelection.selectedBy === session.user.email) {
-        // Clear the selection
+      // Fetch arrangement
+      const arrangement = await TableArrangement.findOne({
+        restaurantId,
+        floor,
+        isActive: true
+      });
+      
+      if (!arrangement) {
+        return NextResponse.json(
+          { success: false, error: 'Arrangement not found' }, 
+          { status: 404 }
+        );
+      }
+      
+      const newTableIndex = arrangement.tables.findIndex((t: ITable) => t.id === tableId);
+      if (newTableIndex === -1) {
+        return NextResponse.json(
+          { success: false, error: 'Table not found' }, 
+          { status: 404 }
+        );
+      }
+      
+      const newTable = arrangement.tables[newTableIndex];
+      
+      if (newTable.status !== 'available') {
+        return NextResponse.json(
+          { success: false, error: `Table ${newTable.number} is currently ${newTable.status}` },
+          { status: 400 }
+        );
+      }
+      
+      // If there's an existing selection, clear it first
+      if (existingSelection) {
+        const oldTableIndex = arrangement.tables.findIndex((t: ITable) => t.id === existingSelection.tableId);
+        if (oldTableIndex !== -1) {
+          arrangement.tables[oldTableIndex].status = 'available';
+          arrangement.tables[oldTableIndex].reservationInfo = null;
+          arrangement.tables[oldTableIndex].lastUpdated = new Date();
+        }
         activeSelections.delete(selectionKey);
-        
-        // Update table status back to available if it was temporarily reserved
+      }
+      
+      // Create new selection
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + duration);
+      
+      const newSelection = {
+        tableId: newTable.id,
+        tableNumber: newTable.number,
+        selectedBy: selectedBy,
+        selectedByName: selectedByName,
+        selectedAt: new Date(),
+        expiresAt,
+        isGuest: isGuest,
+        guestInfo: isGuest ? {
+          name: selectedByName,
+          phone: guestInfo?.phone,
+          email: guestInfo?.email
+        } : undefined
+      };
+      
+      activeSelections.set(selectionKey, newSelection);
+      
+      // Update new table status
+      arrangement.tables[newTableIndex].status = 'reserved';
+      arrangement.tables[newTableIndex].reservationInfo = {
+        reservedBy: selectedBy,
+        reservedByName: selectedByName,
+        reservedAt: new Date(),
+        expiresAt
+      };
+      arrangement.tables[newTableIndex].lastUpdated = new Date();
+      
+      // Update statistics
+      arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
+      arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
+      
+      await saveWithRetry(arrangement);
+      
+      const responseData: any = {
+        success: true,
+        data: {
+          selection: {
+            ...newSelection,
+            selectedAt: newSelection.selectedAt.toISOString(),
+            expiresAt: newSelection.expiresAt.toISOString()
+          },
+          table: arrangement.tables[newTableIndex],
+          previousTableId: existingSelection?.tableId,
+          previousTableNumber: existingSelection?.tableNumber
+        },
+        message: `Switched to Table ${newTable.number} successfully!`
+      };
+      
+      if (isGuest && guestSessionData) {
+        responseData.guestId = guestSessionData.guestId;
+        responseData.guestName = guestSessionData.name;
+        responseData.isGuest = true;
+      }
+      
+      return NextResponse.json(responseData);
+    }
+
+    // Handle table unselection
+    if (unselectTable && tableId) {
+      const session = await auth();
+      const anonymousId = req.headers.get('X-Anonymous-Id') || guestId;
+      const userEmail = session?.user?.email;
+      
+      // If no existing selection, just return success
+      if (!existingSelection) {
+        return NextResponse.json({ 
+          success: true,
+          message: 'No active selection to clear'
+        });
+      }
+      
+      let isAuthorized = false;
+      if (userEmail && existingSelection.selectedBy === userEmail) {
+        isAuthorized = true;
+      } else if (anonymousId && existingSelection.selectedBy === anonymousId) {
+        isAuthorized = true;
+      } else if (existingSelection.isGuest && anonymousId) {
+        const guestCheck = validateGuestSession(anonymousId);
+        if (guestCheck.valid && existingSelection.selectedBy === anonymousId) {
+          isAuthorized = true;
+        }
+      }
+      
+      if (!isAuthorized) {
+        return NextResponse.json(
+          { success: false, error: 'Unauthorized - You did not select this table' },
+          { status: 401 }
+        );
+      }
+      
+      // Clear selection from memory
+      activeSelections.delete(selectionKey);
+      
+      // Update database
+      const arrangement = await TableArrangement.findOne({
+        restaurantId,
+        floor,
+        isActive: true
+      });
+      
+      if (arrangement) {
         const tableIndex = arrangement.tables.findIndex((t: ITable) => t.id === tableId);
         if (tableIndex !== -1 && arrangement.tables[tableIndex].status === 'reserved') {
           arrangement.tables[tableIndex].status = 'available';
           arrangement.tables[tableIndex].reservationInfo = null;
           arrangement.tables[tableIndex].lastUpdated = new Date();
           
-          // Update statistics
           arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
           arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
-          await arrangement.save({ validateBeforeSave: false });
+          
+          await saveWithRetry(arrangement);
         }
-        
-        return NextResponse.json({ 
-          success: true,
-          message: 'Table unselected successfully'
-        });
-      } else {
-        return NextResponse.json(
-          { success: false, error: 'Cannot unselect: You did not select this table or selection has expired' },
-          { status: 400 }
-        );
       }
+      
+      return NextResponse.json({ 
+        success: true,
+        message: 'Table unselected successfully'
+      });
     }
 
-    // Handle table selection (requires authentication)
+    // Handle single table selection (without auto-switch)
     if (selectTable && tableId) {
-      if (!session?.user?.email) {
+      let selectedBy = '';
+      let selectedByName = '';
+      let isGuest = false;
+      let guestSessionData = null;
+      
+      const session = await auth();
+      const anonymousId = req.headers.get('X-Anonymous-Id') || guestId;
+      
+      if (session?.user?.email) {
+        selectedBy = session.user.email;
+        selectedByName = session.user.name || session.user.email.split('@')[0];
+      } else if (anonymousId) {
+        let existingGuestSession = guestSessions.get(anonymousId);
+        
+        if (!existingGuestSession) {
+          const guestName = guestInfo?.name || `Guest_${Math.floor(Math.random() * 10000)}`;
+          guestSessionData = getOrCreateGuestSession({
+            name: guestName,
+            phone: guestInfo?.phone,
+            email: guestInfo?.email
+          });
+          selectedBy = guestSessionData.guestId;
+          selectedByName = guestSessionData.name;
+          isGuest = true;
+        } else {
+          selectedBy = existingGuestSession.guestId;
+          selectedByName = existingGuestSession.name;
+          isGuest = true;
+          guestSessionData = existingGuestSession;
+        }
+      } else {
         return NextResponse.json(
-          { success: false, error: 'Unauthorized - Please login to select a table' },
+          { success: false, error: 'Please login or provide guest information' },
           { status: 401 }
+        );
+      }
+      
+      // Fetch fresh arrangement
+      const arrangement = await TableArrangement.findOne({
+        restaurantId,
+        floor,
+        isActive: true
+      });
+      
+      if (!arrangement) {
+        return NextResponse.json(
+          { success: false, error: 'Arrangement not found' }, 
+          { status: 404 }
         );
       }
       
@@ -452,85 +496,109 @@ export async function PATCH(req: NextRequest) {
       }
 
       const table = arrangement.tables[tableIndex];
-      const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + duration);
-
-      // Check if table is already selected by someone else
-      if (existingSelection && 
-          existingSelection.tableId !== tableId && 
-          existingSelection.expiresAt > new Date()) {
+      
+      if (table.status !== 'available') {
+        return NextResponse.json(
+          { success: false, error: `Table ${table.number} is currently ${table.status}` },
+          { status: 400 }
+        );
+      }
+      
+      // Check if user already has a different table selected
+      if (existingSelection && existingSelection.tableId !== tableId) {
         return NextResponse.json(
           { 
             success: false, 
-            error: `Table ${existingSelection.tableNumber} is already selected by ${existingSelection.selectedByName}`,
-            conflict: true,
+            error: `You already have Table ${existingSelection.tableNumber} selected. Please unselect it first.`,
             currentSelection: {
-              ...existingSelection,
-              selectedAt: existingSelection.selectedAt.toISOString(),
+              tableId: existingSelection.tableId,
+              tableNumber: existingSelection.tableNumber,
+              tableName: `Table ${existingSelection.tableNumber}`,
               expiresAt: existingSelection.expiresAt.toISOString()
             }
           },
           { status: 409 }
         );
       }
-
-      // Check if table is already selected by the same user (allow re-selection)
-      if (existingSelection && existingSelection.tableId === tableId && existingSelection.selectedBy === session.user.email) {
+      
+      // Check if table is selected by another user
+      if (existingSelection && existingSelection.tableId === tableId && existingSelection.selectedBy !== selectedBy) {
         return NextResponse.json(
           { 
-            success: true,
-            data: {
-              selection: {
-                ...existingSelection,
-                selectedAt: existingSelection.selectedAt.toISOString(),
-                expiresAt: existingSelection.expiresAt.toISOString()
-              },
-              table
+            success: false, 
+            error: `Table ${table.number} is being selected by another customer`,
+            conflict: true
+          },
+          { status: 409 }
+        );
+      }
+      
+      // If same user re-selecting, just refresh the timer
+      if (existingSelection && existingSelection.tableId === tableId && existingSelection.selectedBy === selectedBy) {
+        const newExpiresAt = new Date();
+        newExpiresAt.setMinutes(newExpiresAt.getMinutes() + duration);
+        
+        existingSelection.expiresAt = newExpiresAt;
+        existingSelection.selectedAt = new Date();
+        activeSelections.set(selectionKey, existingSelection);
+        
+        if (arrangement.tables[tableIndex].reservationInfo) {
+          arrangement.tables[tableIndex].reservationInfo!.expiresAt = newExpiresAt;
+          arrangement.tables[tableIndex].reservationInfo!.reservedAt = new Date();
+          await saveWithRetry(arrangement);
+        }
+        
+        return NextResponse.json({ 
+          success: true,
+          data: {
+            selection: {
+              ...existingSelection,
+              selectedAt: existingSelection.selectedAt.toISOString(),
+              expiresAt: existingSelection.expiresAt.toISOString()
             },
-            message: `Table ${table.number} is already selected by you`
-          }
-        );
+            table: arrangement.tables[tableIndex]
+          },
+          message: `Table ${table.number} selection renewed`
+        });
       }
-
-      // Check if trying to select an occupied table
-      if (table.status !== 'available') {
-        return NextResponse.json(
-          { success: false, error: `Table ${table.number} is currently ${table.status} and cannot be selected` },
-          { status: 400 }
-        );
-      }
-
-      // Store the selection
+      
+      // Create new selection
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + duration);
+      
       const newSelection = {
         tableId: table.id,
         tableNumber: table.number,
-        selectedBy: session.user.email,
-        selectedByName: session.user.name || session.user.email.split('@')[0],
+        selectedBy: selectedBy,
+        selectedByName: selectedByName,
         selectedAt: new Date(),
         expiresAt,
-        orderId: currentOrder
+        isGuest: isGuest,
+        guestInfo: isGuest ? {
+          name: selectedByName,
+          phone: guestInfo?.phone,
+          email: guestInfo?.email
+        } : undefined
       };
       
       activeSelections.set(selectionKey, newSelection);
-
-      // Optionally update table status to 'reserved' temporarily
-      if (updates?.temporaryReserve) {
-        arrangement.tables[tableIndex].status = 'reserved';
-        arrangement.tables[tableIndex].reservationInfo = {
-          reservedBy: session.user.email,
-          reservedByName: session.user.name || session.user.email.split('@')[0],
-          reservedAt: new Date(),
-          expiresAt
-        };
-        arrangement.tables[tableIndex].lastUpdated = new Date();
-        
-        // Update statistics
-        arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
-        arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
-        await arrangement.save({ validateBeforeSave: false });
-      }
-
-      return NextResponse.json({ 
+      
+      // Update table status
+      arrangement.tables[tableIndex].status = 'reserved';
+      arrangement.tables[tableIndex].reservationInfo = {
+        reservedBy: selectedBy,
+        reservedByName: selectedByName,
+        reservedAt: new Date(),
+        expiresAt
+      };
+      arrangement.tables[tableIndex].lastUpdated = new Date();
+      
+      arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
+      arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
+      
+      await saveWithRetry(arrangement);
+      
+      const responseData: any = {
         success: true,
         data: {
           selection: {
@@ -540,134 +608,22 @@ export async function PATCH(req: NextRequest) {
           },
           table: arrangement.tables[tableIndex]
         },
-        message: `Table ${table.number} selected successfully`
-      });
-    }
-
-    // For other updates (status changes, etc.), require authentication
-    if (!session?.user?.email) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized - Please login first' },
-        { status: 401 }
-      );
-    }
-
-    // Handle order completion - free the table
-    if (updateFromOrder && currentOrder === 'completed') {
-      const tableIndex = arrangement.tables.findIndex((t: ITable) => t.id === tableId);
-      if (tableIndex !== -1) {
-        // Free the table
-        arrangement.tables[tableIndex].status = 'available';
-        arrangement.tables[tableIndex].currentOrder = null;
-        arrangement.tables[tableIndex].waiterId = null;
-        arrangement.tables[tableIndex].reservationInfo = null;
-        arrangement.tables[tableIndex].lastUpdated = new Date();
-        
-        // Clear any active selection
-        if (existingSelection && existingSelection.tableId === tableId) {
-          activeSelections.delete(selectionKey);
-        }
-        
-        // Update statistics
-        arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
-        arrangement.occupiedTables = arrangement.tables.filter((t: ITable) => t.status === 'occupied').length;
-        await arrangement.save({ validateBeforeSave: false });
-        
-        return NextResponse.json({ 
-          success: true,
-          data: arrangement.tables[tableIndex],
-          message: `Table ${arrangement.tables[tableIndex].number} is now available`
-        });
+        message: `Table ${table.number} selected successfully!`
+      };
+      
+      if (isGuest && guestSessionData) {
+        responseData.guestId = guestSessionData.guestId;
+        responseData.guestName = guestSessionData.name;
+        responseData.isGuest = true;
       }
+      
+      return NextResponse.json(responseData);
     }
 
-    // If tableId is provided, update specific table
-    if (tableId) {
-      const tableIndex = arrangement.tables.findIndex((t: ITable) => t.id === tableId);
-      if (tableIndex === -1) {
-        return NextResponse.json(
-          { success: false, error: 'Table not found' }, 
-          { status: 404 }
-        );
-      }
-
-      // Update table with all possible fields
-      if (updates) {
-        arrangement.tables[tableIndex] = {
-          ...arrangement.tables[tableIndex],
-          ...updates,
-          lastUpdated: new Date()
-        };
-      } else {
-        // Handle order-based updates
-        if (updateFromOrder) {
-          // If an order is placed, mark table as occupied
-          if (currentOrder) {
-            arrangement.tables[tableIndex].status = 'occupied';
-            arrangement.tables[tableIndex].currentOrder = currentOrder;
-            arrangement.tables[tableIndex].waiterId = waiterId;
-            arrangement.tables[tableIndex].lastUpdated = new Date();
-            
-            // Clear selection when table becomes occupied
-            if (existingSelection && existingSelection.tableId === tableId) {
-              activeSelections.delete(selectionKey);
-            }
-          } 
-          // If order is completed/cancelled, mark table as available
-          else if (status === 'available') {
-            arrangement.tables[tableIndex].status = 'available';
-            arrangement.tables[tableIndex].currentOrder = null;
-            arrangement.tables[tableIndex].waiterId = null;
-            arrangement.tables[tableIndex].lastUpdated = new Date();
-          }
-        }
-        
-        // Regular status updates
-        if (status !== undefined) arrangement.tables[tableIndex].status = status;
-        if (capacity !== undefined) arrangement.tables[tableIndex].capacity = capacity;
-        if (location !== undefined) arrangement.tables[tableIndex].location = location;
-        if (description !== undefined) arrangement.tables[tableIndex].description = description;
-        if (tags !== undefined) arrangement.tables[tableIndex].tags = tags;
-        if (features !== undefined) arrangement.tables[tableIndex].features = features;
-        if (currentOrder !== undefined && !updateFromOrder) arrangement.tables[tableIndex].currentOrder = currentOrder;
-        if (waiterId !== undefined && !updateFromOrder) arrangement.tables[tableIndex].waiterId = waiterId;
-        if (reservationInfo !== undefined) arrangement.tables[tableIndex].reservationInfo = reservationInfo;
-        
-        arrangement.tables[tableIndex].lastUpdated = new Date();
-      }
-    }
-
-    // Recalculate all statistics
-    arrangement.totalCapacity = arrangement.tables.reduce((sum: number, t: ITable) => 
-      sum + (t.capacity || 0), 0);
-    arrangement.availableTables = arrangement.tables.filter(
-      (t: ITable) => t.status === 'available'
-    ).length;
-    arrangement.occupiedTables = arrangement.tables.filter(
-      (t: ITable) => t.status === 'occupied'
-    ).length;
-    arrangement.reservedTables = arrangement.tables.filter(
-      (t: ITable) => t.status === 'reserved'
-    ).length;
-    arrangement.cleaningTables = arrangement.tables.filter(
-      (t: ITable) => t.status === 'cleaning'
-    ).length;
-    arrangement.maintenanceTables = arrangement.tables.filter(
-      (t: ITable) => t.status === 'maintenance'
-    ).length;
-
-    arrangement.updatedAt = new Date();
-
-    await arrangement.save({ validateBeforeSave: false });
-
-    // After updating, sync with orders to ensure consistency
-    await syncTablesWithPendingOrders(restaurantId, floor);
-
-    return NextResponse.json({ 
-      success: true,
-      data: arrangement,
-      message: tableId ? 'Table updated successfully' : 'Arrangement statistics updated successfully'
-    });
+    return NextResponse.json(
+      { success: false, error: 'Invalid operation' },
+      { status: 400 }
+    );
   } catch (error) {
     console.error('Error updating table:', error);
     return NextResponse.json(
@@ -677,7 +633,76 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// DELETE - Delete a specific floor arrangement or entire restaurant arrangement (requires authentication)
+// POST - Save/Create table arrangement
+export async function POST(req: NextRequest) {
+  try {
+    await ensureConnection();
+    
+    const session = await auth();
+    if (!session?.user?.email) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const body = await req.json();
+    const { restaurantId, restaurantName, floor, tables, dimensions } = body;
+
+    if (!restaurantId || !floor || !tables) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    const processedTables = tables.map((table: any) => ({
+      id: table.id,
+      number: table.number,
+      capacity: table.capacity || 4,
+      shape: table.shape || 'circle',
+      x: table.x || 0,
+      y: table.y || 0,
+      width: table.width || 80,
+      height: table.height || 80,
+      status: table.status || 'available',
+      location: table.location || '',
+      description: table.description || '',
+      features: table.features || [],
+      lastUpdated: new Date(),
+    }));
+
+    const arrangement = await TableArrangement.findOneAndUpdate(
+      { restaurantId, floor, isActive: true },
+      {
+        restaurantId,
+        restaurantName: restaurantName || restaurantId,
+        floor,
+        tables: processedTables,
+        totalTables: processedTables.length,
+        totalCapacity: processedTables.reduce((sum: number, t: any) => sum + (t.capacity || 0), 0),
+        availableTables: processedTables.filter((t: any) => t.status === 'available').length,
+        occupiedTables: processedTables.filter((t: any) => t.status === 'occupied').length,
+        reservedTables: processedTables.filter((t: any) => t.status === 'reserved').length,
+        dimensions: dimensions || { width: 1200, height: 800 },
+        createdBy: session.user.email,
+        updatedAt: new Date(),
+        isActive: true
+      },
+      { upsert: true, new: true }
+    );
+
+    return NextResponse.json({ success: true, data: arrangement });
+  } catch (error) {
+    console.error('Error saving table arrangement:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to save table arrangement' },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE - Delete arrangement
 export async function DELETE(req: NextRequest) {
   try {
     await ensureConnection();
@@ -685,110 +710,48 @@ export async function DELETE(req: NextRequest) {
     const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json(
-        { success: false, error: 'Unauthorized' }, 
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
     const { searchParams } = new URL(req.url);
-    const arrangementId = searchParams.get('id');
     const restaurantId = searchParams.get('restaurantId');
     const floor = searchParams.get('floor');
-    const deleteAllFloors = searchParams.get('deleteAllFloors') === 'true';
 
-    // Delete specific arrangement by ID
-    if (arrangementId) {
-      const arrangement = await TableArrangement.findById(arrangementId);
-      if (!arrangement) {
-        return NextResponse.json(
-          { success: false, error: 'Arrangement not found' }, 
-          { status: 404 }
-        );
-      }
-
-      arrangement.isActive = false;
-      arrangement.updatedAt = new Date();
-      await arrangement.save({ validateBeforeSave: false });
-
-      // Clear active selections for this arrangement
-      const selectionKey = getSelectionKey(arrangement.restaurantId, arrangement.floor);
-      activeSelections.delete(selectionKey);
-
-      return NextResponse.json({ 
-        success: true,
-        message: `Table arrangement for ${arrangement.restaurantName} - ${arrangement.floor} deleted successfully`
-      });
-    }
-
-    // Delete specific floor arrangement for a restaurant
-    if (restaurantId && floor) {
-      const arrangement = await TableArrangement.findOne({
-        restaurantId,
-        floor,
-        isActive: true
-      });
-
-      if (!arrangement) {
-        return NextResponse.json(
-          { success: false, error: 'Arrangement not found for this floor' }, 
-          { status: 404 }
-        );
-      }
-
-      arrangement.isActive = false;
-      arrangement.updatedAt = new Date();
-      await arrangement.save({ validateBeforeSave: false });
-
-      // Clear active selections for this arrangement
-      const selectionKey = getSelectionKey(restaurantId, floor);
-      activeSelections.delete(selectionKey);
-
-      return NextResponse.json({ 
-        success: true,
-        message: `Table arrangement for floor ${floor} deleted successfully`
-      });
-    }
-
-    // Delete all floors for a restaurant
-    if (restaurantId && deleteAllFloors) {
-      const result = await TableArrangement.updateMany(
-        {
-          restaurantId,
-          isActive: true
-        },
-        {
-          isActive: false,
-          updatedAt: new Date()
-        }
+    if (!restaurantId || !floor) {
+      return NextResponse.json(
+        { success: false, error: 'restaurantId and floor are required' },
+        { status: 400 }
       );
-
-      // Clear all active selections for this restaurant
-      for (const [key] of activeSelections) {
-        if (key.startsWith(restaurantId)) {
-          activeSelections.delete(key);
-        }
-      }
-
-      return NextResponse.json({ 
-        success: true,
-        message: `${result.modifiedCount} floor arrangements deleted successfully`
-      });
     }
 
-    return NextResponse.json(
-      { success: false, error: 'Missing required parameters: id, restaurantId+floor, or restaurantId+deleteAllFloors' },
-      { status: 400 }
-    );
+    const arrangement = await TableArrangement.findOne({ restaurantId, floor, isActive: true });
+    if (!arrangement) {
+      return NextResponse.json(
+        { success: false, error: 'Arrangement not found' },
+        { status: 404 }
+      );
+    }
+
+    arrangement.isActive = false;
+    arrangement.updatedAt = new Date();
+    await arrangement.save();
+
+    const selectionKey = getSelectionKey(restaurantId, floor);
+    activeSelections.delete(selectionKey);
+
+    return NextResponse.json({ success: true, message: 'Arrangement deleted successfully' });
   } catch (error) {
-    console.error('Error deleting table arrangement:', error);
+    console.error('Error deleting arrangement:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to delete table arrangement' },
+      { success: false, error: 'Failed to delete arrangement' },
       { status: 500 }
     );
   }
 }
 
-// PUT - Replace entire table arrangement or update bulk tables or sync with orders
+// PUT - Sync with orders
 export async function PUT(req: NextRequest) {
   try {
     await ensureConnection();
@@ -796,23 +759,14 @@ export async function PUT(req: NextRequest) {
     const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json(
-        { success: false, error: 'Unauthorized' }, 
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
     const body = await req.json();
-    const { 
-      arrangementId,
-      restaurantId,
-      floor,
-      tables,
-      updateTableStatuses,
-      syncWithOrders,
-      syncAllFloors
-    } = body;
+    const { restaurantId, floor, syncWithOrders, syncAllFloors } = body;
 
-    // Handle manual sync with orders
     if (syncWithOrders && restaurantId) {
       if (syncAllFloors) {
         const result = await syncAllFloorsWithPendingOrders(restaurantId);
@@ -820,95 +774,17 @@ export async function PUT(req: NextRequest) {
       } else if (floor) {
         const result = await syncTablesWithPendingOrders(restaurantId, floor);
         return NextResponse.json(result);
-      } else {
-        return NextResponse.json(
-          { success: false, error: 'Floor is required when syncing a single floor' },
-          { status: 400 }
-        );
       }
     }
 
-    let arrangement;
-
-    // Find arrangement either by ID or by restaurantId and floor
-    if (arrangementId) {
-      arrangement = await TableArrangement.findById(arrangementId);
-    } else if (restaurantId && floor) {
-      arrangement = await TableArrangement.findOne({
-        restaurantId,
-        floor,
-        isActive: true
-      });
-    }
-
-    if (!arrangement) {
-      return NextResponse.json(
-        { success: false, error: 'Arrangement not found' }, 
-        { status: 404 }
-      );
-    }
-
-    // Handle bulk table status updates (e.g., from order system)
-    if (updateTableStatuses && tables) {
-      for (const update of tables) {
-        const { tableId, status, currentOrder, waiterId } = update;
-        const tableIndex = arrangement.tables.findIndex((t: ITable) => t.id === tableId);
-        
-        if (tableIndex !== -1) {
-          arrangement.tables[tableIndex].status = status;
-          if (currentOrder !== undefined) arrangement.tables[tableIndex].currentOrder = currentOrder;
-          if (waiterId !== undefined) arrangement.tables[tableIndex].waiterId = waiterId;
-          arrangement.tables[tableIndex].lastUpdated = new Date();
-          
-          // Clear selection if table becomes occupied
-          if (status === 'occupied') {
-            const selectionKey = getSelectionKey(arrangement.restaurantId, arrangement.floor);
-            const selection = activeSelections.get(selectionKey);
-            if (selection && selection.tableId === tableId) {
-              activeSelections.delete(selectionKey);
-            }
-          }
-        }
-      }
-    } 
-    // Handle full table replacement
-    else if (tables) {
-      const processedTables = tables.map((table: any) => ({
-        ...table,
-        lastUpdated: new Date()
-      }));
-
-      arrangement.tables = processedTables;
-      arrangement.totalTables = processedTables.length;
-    }
-
-    // Recalculate all statistics
-    arrangement.totalCapacity = arrangement.tables.reduce((sum: number, t: ITable) => 
-      sum + (t.capacity || 0), 0);
-    arrangement.availableTables = arrangement.tables.filter((t: ITable) => 
-      t.status === 'available').length;
-    arrangement.occupiedTables = arrangement.tables.filter((t: ITable) => 
-      t.status === 'occupied').length;
-    arrangement.reservedTables = arrangement.tables.filter((t: ITable) => 
-      t.status === 'reserved').length;
-    arrangement.cleaningTables = arrangement.tables.filter((t: ITable) => 
-      t.status === 'cleaning').length;
-    arrangement.maintenanceTables = arrangement.tables.filter((t: ITable) => 
-      t.status === 'maintenance').length;
-    
-    arrangement.updatedAt = new Date();
-
-    await arrangement.save({ validateBeforeSave: false });
-
-    return NextResponse.json({ 
-      success: true,
-      data: arrangement,
-      message: updateTableStatuses ? 'Table statuses updated successfully' : 'Table arrangement replaced successfully'
-    });
-  } catch (error) {
-    console.error('Error updating table arrangement:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to update table arrangement' },
+      { success: false, error: 'Invalid request' },
+      { status: 400 }
+    );
+  } catch (error) {
+    console.error('Error syncing:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to sync' },
       { status: 500 }
     );
   }
