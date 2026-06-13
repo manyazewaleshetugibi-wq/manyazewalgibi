@@ -64,6 +64,7 @@ interface CartPanelProps {
   onOrderTypeChange: (type: 'table' | 'delivery' | '') => void;
   tableNumber: string;
   onTableNumberChange: (num: string) => void;
+  
   selectedTableData?: TableData | null;
   onTableSelect?: (table: TableData | null) => void;
   waiters: Waiter[];
