@@ -2,7 +2,7 @@
 import axios from 'axios'
 import { Category, Waiter } from '@/types'
 
-export const API_TIMEOUT = 15000
+export const API_TIMEOUT = 30000 // Increased from 15000 to 30000 (30 seconds)
 
 export const api = axios.create({
   baseURL: '/api',
@@ -20,15 +20,42 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 )
 
-// Add response interceptor for better error handling
+// Add response interceptor with retry logic for timeouts
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const { config, code } = error
+    
+    // Retry failed requests up to 2 times on timeout
+    const shouldRetry = code === 'ECONNABORTED' && 
+                        config?.retryCount !== undefined && 
+                        config.retryCount < 2
+    
+    if (shouldRetry) {
+      config.retryCount = (config.retryCount || 0) + 1
+      console.log(`Retrying request (${config.retryCount}/2): ${config.url}`)
+      
+      // Wait 1 second before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      return api(config)
+    }
+    
     if (error.code === 'ECONNABORTED') {
-      console.error('Request timeout:', error.message)
+      console.error('Request timeout after', API_TIMEOUT, 'ms:', error.message)
     }
     return Promise.reject(error)
   }
+)
+
+// Initialize retry counter for requests
+api.interceptors.request.use(
+  (config) => {
+    if (config.retryCount === undefined) {
+      config.retryCount = 0
+    }
+    return config
+  },
+  (error) => Promise.reject(error)
 )
 
 export const getImageSrc = (imageUrl?: string): string => {
