@@ -202,30 +202,30 @@ const roleBasedNavigation = {
           { title: "Pending Delivery", url: "/delivery" },
         ],
       },
-      {
-        title: "stockReport",
-        url: "#",
-        icon: Package,
-        items: [
-          { title: "stockReport", url: "/stockReport" },
-        ],
-      },
-      {
-        title: "Sales",
-        url: "#",
-        icon: FileText,
-        items: [
-          { title: "Sales", url: "/sales" },
-        ],
-      },
-      {
-        title: "Table Management",
-        url: "#",
-        icon: FileText,
-        items: [
-          { title: "Table Management", url: "/table-arrangement" },
-        ],
-      },
+      // {
+      //   title: "stockReport",
+      //   url: "#",
+      //   icon: Package,
+      //   items: [
+      //     { title: "stockReport", url: "/stockReport" },
+      //   ],
+      // },
+      // {
+      //   title: "Sales",
+      //   url: "#",
+      //   icon: FileText,
+      //   items: [
+      //     { title: "Sales", url: "/sales" },
+      //   ],
+      // },
+      // {
+      //   title: "Table Management",
+      //   url: "#",
+      //   icon: FileText,
+      //   items: [
+      //     { title: "Table Management", url: "/table-arrangement" },
+      //   ],
+      // },
     ],
     projects: [
       { name: "Training", url: "/training", icon: BookCheckIcon },

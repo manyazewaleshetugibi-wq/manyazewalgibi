@@ -28,7 +28,7 @@ export async function GET(request: Request) {
         } : null 
       });
     } else {
-      // Get all entries (no limit by default, or use provided limit)
+      // Get all entries
       const entries = await db
         .collection('dailyCash')
         .find({})
@@ -60,10 +60,10 @@ export async function POST(request: Request) {
     const db = client.db(DB_NAME);
     const body = await request.json();
 
-    // Validate required fields
-    if (!body.date || body.cashAmount === undefined || body.transferAmount === undefined) {
+    // Validate required fields - Updated to match frontend
+    if (!body.date) {
       return NextResponse.json(
-        { success: false, error: 'Missing required fields: date, cashAmount, and transferAmount are required' },
+        { success: false, error: 'Missing required field: date' },
         { status: 400 }
       );
     }
@@ -80,16 +80,27 @@ export async function POST(request: Request) {
       );
     }
 
-    const cashValue = parseFloat(body.cashAmount) || 0;
-    const transferValue = parseFloat(body.transferAmount) || 0;
-    const totalValue = cashValue + transferValue;
+    // Parse amounts - Supporting both field naming conventions
+    const cashAmount = parseFloat(body.cashAmount) || 0;
+    const bankAmount = parseFloat(body.bankAmount) || 0;
+    const transferAmount = parseFloat(body.transferAmount) || 0;
+    const zedAmount = parseFloat(body.zedAmount) || 0;
+    
+    // Calculate total - use bankAmount or transferAmount whichever is provided
+    const totalAmount = cashAmount + (bankAmount || transferAmount);
+    
+    // Generate Z-Report number if not provided
+    const zReportNumber = body.zReportNumber || `ZR-${body.date.replace(/-/g, '')}-${Date.now()}`;
 
     const newEntry = {
       date: body.date,
-      cashAmount: cashValue,
-      transferAmount: transferValue,
-      totalAmount: totalValue,
-      zReportNumber: body.zReportNumber || undefined,
+      // Store all amount fields
+      cashAmount: cashAmount,
+      bankAmount: bankAmount || transferAmount, // Support both field names
+      transferAmount: transferAmount || bankAmount,
+      zedAmount: zedAmount,
+      totalAmount: totalAmount,
+      zReportNumber: zReportNumber,
       notes: body.notes || '',
       createdBy: body.createdBy || 'admin',
       createdAt: new Date(),
@@ -137,29 +148,26 @@ export async function PUT(request: Request) {
       );
     }
 
-    // Validate required fields for update
-    if (body.cashAmount === undefined || body.transferAmount === undefined) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields: cashAmount and transferAmount are required' },
-        { status: 400 }
-      );
-    }
-
-    const cashValue = parseFloat(body.cashAmount) || 0;
-    const transferValue = parseFloat(body.transferAmount) || 0;
-    const totalValue = cashValue + transferValue;
+    // Parse amounts
+    const cashAmount = parseFloat(body.cashAmount) || 0;
+    const bankAmount = parseFloat(body.bankAmount) || 0;
+    const transferAmount = parseFloat(body.transferAmount) || 0;
+    const zedAmount = parseFloat(body.zedAmount) || 0;
+    
+    const totalAmount = cashAmount + (bankAmount || transferAmount);
 
     const updateData: any = {
-      cashAmount: cashValue,
-      transferAmount: transferValue,
-      totalAmount: totalValue,
+      cashAmount: cashAmount,
+      bankAmount: bankAmount || transferAmount,
+      transferAmount: transferAmount || bankAmount,
+      zedAmount: zedAmount,
+      totalAmount: totalAmount,
       notes: body.notes || '',
       updatedAt: new Date(),
     };
 
-    // Only update zReportNumber if provided
     if (body.zReportNumber !== undefined) {
-      updateData.zReportNumber = body.zReportNumber || undefined;
+      updateData.zReportNumber = body.zReportNumber;
     }
 
     const result = await db

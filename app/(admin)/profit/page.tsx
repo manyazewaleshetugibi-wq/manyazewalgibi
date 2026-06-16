@@ -125,7 +125,7 @@ interface DailyProfit {
   orderCount: number
   regularExpenseCount: number
   commonExpenseCount: number
-  commonExpensesList: CommonExpense[] // Added to track which common expenses belong to this day
+  commonExpensesList: CommonExpense[]
 }
 
 interface ProfitMetrics {
@@ -180,7 +180,6 @@ async function fetchRegularExpenses(): Promise<Expense[]> {
   return data.data || []
 }
 
-// Fetch ALL common expenses - no date filtering (this is your "static data")
 async function fetchCommonExpenses(): Promise<CommonExpense[]> {
   const response = await fetch("/api/common-expense")
   if (!response.ok) {
@@ -217,7 +216,6 @@ async function deleteCommonExpense(id: string): Promise<boolean> {
   return response.ok
 }
 
-// Utility Functions
 function exportToExcel(data: any[], filename: string) {
   const worksheet = XLSX.utils.json_to_sheet(data)
   const workbook = XLSX.utils.book_new()
@@ -256,9 +254,7 @@ function getDateRange(type: DateFilterType, customStart?: Date, customEnd?: Date
       break
     case 'dayOfWeek':
       if (selectedDayOfWeek !== undefined) {
-        // Get the most recent occurrence of the selected day of week
         const targetDate = setDay(now, selectedDayOfWeek)
-        // If the target date is in the future, go back 7 days
         if (targetDate > now) {
           targetDate.setDate(targetDate.getDate() - 7)
         }
@@ -287,12 +283,14 @@ function getDateRange(type: DateFilterType, customStart?: Date, customEnd?: Date
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D"]
 
+type NavigationCard = 'overview' | 'daily-sales' | 'expenses' | 'menu-balance'
+
 export default function ProfitPage() {
   const [salesData, setSalesData] = useState<SalesData | null>(null)
   const [regularExpenses, setRegularExpenses] = useState<Expense[]>([])
   const [commonExpenses, setCommonExpenses] = useState<CommonExpense[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [dateFilterType, setDateFilterType] = useState<DateFilterType>('month')
+  const [dateFilterType, setDateFilterType] = useState<DateFilterType>('today') // Default to daily
   const [selectedDayOfWeek, setSelectedDayOfWeek] = useState<string>('')
   const [customStartDate, setCustomStartDate] = useState<Date | null>(null)
   const [customEndDate, setCustomEndDate] = useState<Date | null>(null)
@@ -300,7 +298,7 @@ export default function ProfitPage() {
   const [activeTab, setActiveTab] = useState("overview")
   const [showExpenseManager, setShowExpenseManager] = useState(false)
   const [showMenuProfitability, setShowMenuProfitability] = useState(false)
-
+  const [activeNavigation, setActiveNavigation] = useState<NavigationCard>('overview')
 
   // Fetch data on component mount
   useEffect(() => {
@@ -310,7 +308,7 @@ export default function ProfitPage() {
         const [sales, regular, common] = await Promise.all([
           fetchSalesData(),
           fetchRegularExpenses(),
-          fetchCommonExpenses() // This fetches ALL common expenses (static data)
+          fetchCommonExpenses()
         ])
         setSalesData(sales)
         setRegularExpenses(regular)
@@ -361,7 +359,7 @@ export default function ProfitPage() {
       const [sales, regular, common] = await Promise.all([
         fetchSalesData(),
         fetchRegularExpenses(),
-        fetchCommonExpenses() // Fetch ALL common expenses again (static data)
+        fetchCommonExpenses()
       ])
       setSalesData(sales)
       setRegularExpenses(regular)
@@ -376,39 +374,27 @@ export default function ProfitPage() {
   const handleDayOfWeekChange = (dayOfWeek: string) => {
     setSelectedDayOfWeek(dayOfWeek)
     setDateFilterType('dayOfWeek')
-    // Reset custom dates when using day of week filter
     setCustomStartDate(null)
     setCustomEndDate(null)
   }
 
-  // Helper to calculate daily amount for a common expense - FIXED with safety check
   const getDailyAmount = (expense: CommonExpense | undefined, date: Date) => {
-    // Add safety check for undefined expense
     if (!expense) return 0
     if (!expense.isActive) return 0
-    
-    // Use common expenses as constant data for all dates as requested
-    // We ignore start/end dates for recurring expenses to apply them retroactively/proactively
-    // const start = new Date(expense.startDate)
-    // const end = expense.endDate ? new Date(expense.endDate) : null
-    // if (date < start) return 0
-    // if (end && date > end) return 0
 
     switch (expense.frequency) {
       case 'daily': return expense.amount
       case 'weekly': return expense.amount / 7
       case 'monthly': return expense.amount / 30
-      case 'quarterly': return expense.amount / 91.25 // Approx 365/4
+      case 'quarterly': return expense.amount / 91.25
       case 'yearly': return expense.amount / 365
       case 'one-time': 
-        // For one-time, we still need to respect the specific date
         const start = new Date(expense.startDate)
         return isSameDay(date, start) ? expense.amount : 0
       default: return 0
     }
   }
 
-  // Calculate daily profit based on filtered date range
   const filteredData = useMemo(() => {
     if (!salesData) {
       return { 
@@ -437,19 +423,16 @@ export default function ProfitPage() {
       end = range.end
     }
     
-    // Filter orders by date
     const filteredOrders = salesData.orders.filter(order => {
       const orderDate = new Date(order.createdAt)
       return orderDate >= start && orderDate <= end
     })
 
-    // Filter regular expenses by date
     const filteredRegularExpenses = regularExpenses.filter(expense => {
       const expenseDate = new Date(expense.date)
       return expenseDate >= start && expenseDate <= end
     })
 
-    // Group sales by date
     const salesByDate: Record<string, { total: number; count: number }> = {}
     filteredOrders.forEach(order => {
       const date = format(new Date(order.createdAt), 'yyyy-MM-dd')
@@ -460,7 +443,6 @@ export default function ProfitPage() {
       salesByDate[date].count++
     })
 
-    // Group regular expenses by date
     const regularExpensesByDate: Record<string, { total: number; count: number }> = {}
     filteredRegularExpenses.forEach(expense => {
       const date = format(new Date(expense.date), 'yyyy-MM-dd')
@@ -471,30 +453,24 @@ export default function ProfitPage() {
       regularExpensesByDate[date].count++
     })
 
-    // Determine dates to process
     let datesToProcess: Date[] = []
     if (dateFilterType === 'all') {
-      // For 'all', use only dates with actual data to avoid infinite range
       const allDataDates = new Set([
         ...Object.keys(salesByDate), 
         ...Object.keys(regularExpensesByDate)
       ])
       datesToProcess = Array.from(allDataDates).sort().map(d => new Date(d))
     } else if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
-      // For day of week, only process that specific day
       datesToProcess = [start]
     } else {
-      // For specific ranges, generate all days in the interval
       datesToProcess = eachDayOfInterval({ start, end })
     }
     
-    // Create daily profit array
     const dailyProfit: DailyProfit[] = datesToProcess.map(dateObj => {
         const date = format(dateObj, 'yyyy-MM-dd')
         const sales = salesByDate[date]?.total || 0
         const regularExpenses = regularExpensesByDate[date]?.total || 0
         
-        // Calculate common expenses for this day
         let dailyCommonTotal = 0
         const activeCommonExpenses: CommonExpense[] = []
         
@@ -522,11 +498,10 @@ export default function ProfitPage() {
           orderCount: salesByDate[date]?.count || 0,
           regularExpenseCount: regularExpensesByDate[date]?.count || 0,
           commonExpenseCount: activeCommonExpenses.length,
-          commonExpensesList: activeCommonExpenses // Store the actual expenses for this day
+          commonExpensesList: activeCommonExpenses
         }
       })
 
-    // Calculate metrics
     const totalSales = dailyProfit.reduce((sum, day) => sum + day.sales, 0)
     const totalRegularExpenses = dailyProfit.reduce((sum, day) => sum + day.regularExpenses, 0)
     const totalCommonExpenses = dailyProfit.reduce((sum, day) => sum + day.commonExpenses, 0)
@@ -558,15 +533,11 @@ export default function ProfitPage() {
       lossDays
     }
 
-    // Calculate category data for pie chart - FIXED with safety checks
-    // For regular expenses, use the filtered list
     const regularExpensesForChart = filteredRegularExpenses.map(e => ({ category: e.category, amount: e.amount }))
     
-    // For common expenses, sum up the daily amortized amounts across the period
     const commonExpensesForChart = dailyProfit.flatMap(day => 
-      // Filter out any undefined expenses and ensure we have valid objects
       (day.commonExpensesList || [])
-        .filter(expense => expense && expense._id) // Ensure expense exists and has an ID
+        .filter(expense => expense && expense._id)
         .map(expense => ({
           category: expense.category,
           amount: getDailyAmount(expense, new Date(day.date))
@@ -615,7 +586,6 @@ export default function ProfitPage() {
     }).format(value)
   }
 
-  // Get display text for date range
   const getDateRangeDisplayText = () => {
     if (dateFilterType === 'dayOfWeek' && selectedDayOfWeek) {
       const dayConfig = DAYS_OF_WEEK.find(d => d.value === selectedDayOfWeek)
@@ -634,6 +604,55 @@ export default function ProfitPage() {
     return `${filteredData.dailyProfit.length} days`
   }
 
+  // Navigation cards configuration
+  const navigationCards = [
+    {
+      id: 'overview' as NavigationCard,
+      title: 'Overview Dashboard',
+      description: 'Complete profit and loss view',
+      icon: <PieChart className="h-8 w-8" />,
+      color: 'from-blue-500 to-blue-600',
+      onClick: () => {
+        setActiveNavigation('overview')
+        setActiveTab('overview')
+      }
+    },
+    {
+      id: 'daily-sales' as NavigationCard,
+      title: 'Daily Sales',
+      description: 'Track daily revenue and trends',
+      icon: <DollarSign className="h-8 w-8" />,
+      color: 'from-green-500 to-green-600',
+      onClick: () => {
+        setActiveNavigation('daily-sales')
+        setDateFilterType('today')
+        setActiveTab('overview')
+      }
+    },
+    {
+      id: 'expenses' as NavigationCard,
+      title: 'Expense Manager',
+      description: 'Manage common expenses',
+      icon: <Wallet className="h-8 w-8" />,
+      color: 'from-orange-500 to-orange-600',
+      onClick: () => {
+        setActiveNavigation('expenses')
+        setShowExpenseManager(true)
+      }
+    },
+    {
+      id: 'menu-balance' as NavigationCard,
+      title: 'Menu Balance',
+      description: 'Menu profitability analysis',
+      icon: <TrendingUp className="h-8 w-8" />,
+      color: 'from-purple-500 to-purple-600',
+      onClick: () => {
+        setActiveNavigation('menu-balance')
+        setShowMenuProfitability(true)
+      }
+    }
+  ]
+
   if (isLoading) {
     return (
       <div className="flex-col md:flex">
@@ -645,9 +664,9 @@ export default function ProfitPage() {
               <Skeleton className="h-10 w-32" />
             </div>
           </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {[...Array(6)].map((_, i) => (
-              <Skeleton key={i} className="h-[125px] w-full" />
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-[140px] w-full rounded-xl" />
             ))}
           </div>
           <Skeleton className="h-[350px] w-full" />
@@ -658,63 +677,68 @@ export default function ProfitPage() {
 
   return (
     <div className="flex-col md:flex">
-      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+      <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Profit Dashboard</h2>
-          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <Button 
-              variant="outline" 
-              onClick={() => setShowExpenseManager(true)}
-              className="flex-1 sm:flex-none"
-            >
-              <Wallet className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Manage Common Expenses</span>
-              <span className="inline sm:hidden">Expenses</span>
-            </Button>
-  
-
-
-  <Button 
-  variant="outline" 
-  onClick={() => setShowMenuProfitability(true)}
-  className="flex-1 sm:flex-none"
->
-  <DollarSign className="mr-2 h-4 w-4" />
-  <span className="hidden sm:inline">Menu Balance</span>
-  <span className="inline sm:hidden">Menu</span>
-</Button>
-
-    
-
-
-
-
+          <div>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Profit Dashboard</h2>
+            <p className="text-muted-foreground mt-1">Monitor your restaurant's financial performance</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <Button onClick={handleRefresh} variant="outline" size="icon">
               <RefreshCcw className="h-4 w-4" />
             </Button>
-            <Button onClick={handleExport} variant="outline" className="flex-1 sm:flex-none">
+            <Button onClick={handleExport} variant="outline">
               <Download className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Export Report</span>
-              <span className="inline sm:hidden">Export</span>
+              Export Report
             </Button>
           </div>
         </div>
 
-        {/* Date Filter */}
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="h-5 w-5" />
-                Date Range
-              </CardTitle>
+        {/* Navigation Cards - Replacing old buttons */}
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          {navigationCards.map((card) => (
+            <div
+              key={card.id}
+              onClick={card.onClick}
+              className={`
+                relative overflow-hidden rounded-xl cursor-pointer transition-all duration-300
+                bg-gradient-to-br ${card.color}
+                hover:scale-105 hover:shadow-xl active:scale-95
+                ${activeNavigation === card.id ? 'ring-2 ring-offset-2 ring-primary shadow-lg' : ''}
+              `}
+            >
+              <div className="p-6 text-white">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium opacity-90">Quick Access</div>
+                    <div className="text-xl font-bold">{card.title}</div>
+                    <div className="text-xs opacity-80">{card.description}</div>
+                  </div>
+                  <div className="opacity-90">
+                    {card.icon}
+                  </div>
+                </div>
+                <div className="absolute bottom-2 right-2 text-white/20">
+                  <div className="text-4xl font-bold">→</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Date Filter Section - Only visible when not in Expense Manager or Menu Balance */}
+        {!showExpenseManager && !showMenuProfitability && (
+          <div className="bg-card rounded-lg border shadow-sm p-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <Filter className="h-5 w-5 text-muted-foreground" />
+                <h3 className="font-semibold">Date Filter</h3>
+              </div>
               <div className="text-sm text-muted-foreground">
                 {getDateRangeDisplayText()} • {filteredData.dailyProfit.length} days of data
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -790,7 +814,6 @@ export default function ProfitPage() {
                   All Time
                 </Button>
                 
-                {/* Day of Week Dropdown */}
                 <Select value={selectedDayOfWeek} onValueChange={handleDayOfWeekChange}>
                   <SelectTrigger className="w-[140px]">
                     <Calendar className="h-4 w-4 mr-2" />
@@ -860,117 +883,111 @@ export default function ProfitPage() {
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        )}
 
-        <Tabs defaultValue="overview" onValueChange={setActiveTab}>
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="details">Daily Details</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="space-y-4">
-            {/* Key Metrics - Now with 6 cards */}
-            {filteredData.metrics && (
-              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
-                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-green-600">
-                      {formatCurrency(filteredData.metrics.totalSales)}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {filteredData.dailyProfit.reduce((sum, day) => sum + day.orderCount, 0)} orders
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Regular Expenses</CardTitle>
-                    <TrendingDown className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-orange-600">
-                      {formatCurrency(filteredData.metrics.totalRegularExpenses)}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {filteredData.dailyProfit.reduce((sum, day) => sum + day.regularExpenseCount, 0)} expenses
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Common Expenses</CardTitle>
-                    <TrendingDown className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-purple-600">
-                      {formatCurrency(filteredData.metrics.totalCommonExpenses)}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {filteredData.dailyProfit.reduce((sum, day) => sum + day.commonExpenseCount, 0)} expenses
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-                    <TrendingDown className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-red-600">
-                      {formatCurrency(filteredData.metrics.totalExpenses)}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Combined total
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
-                    <DollarSign className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className={`text-2xl font-bold ${filteredData.metrics.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {formatCurrency(filteredData.metrics.totalProfit)}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Margin: {filteredData.metrics.averageMargin.toFixed(1)}%
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Performance</CardTitle>
-                    <PieChart className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {filteredData.metrics.profitableDays}/{filteredData.dailyProfit.length}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {filteredData.metrics.lossDays} loss days
-                    </p>
-                  </CardContent>
-                </Card>
+        {/* Main Content - Tabs or Dialogs */}
+        {showExpenseManager ? (
+          <Dialog open={showExpenseManager} onOpenChange={setShowExpenseManager}>
+            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Manage Common Expenses</DialogTitle>
+              </DialogHeader>
+              <ExpenseList
+                expenses={commonExpenses}
+                isLoading={isLoading}
+                onAdd={handleAddExpense}
+                onEdit={handleEditExpense}
+                onDelete={handleDeleteExpense}
+                onRefresh={handleRefresh}
+              />
+            </DialogContent>
+          </Dialog>
+        ) : showMenuProfitability ? (
+          <Dialog open={showMenuProfitability} onOpenChange={setShowMenuProfitability}>
+            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Menu Balance & Profitability</DialogTitle>
+              </DialogHeader>
+              <div className="p-6 text-center text-muted-foreground">
+                Menu profitability analysis will be displayed here.
               </div>
-            )}
+            </DialogContent>
+          </Dialog>
+        ) : (
+          <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab}>
+            <TabsList>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="details">Daily Details</TabsTrigger>
+            </TabsList>
 
-            {/* Charts */}
-            <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
-              <Card className="col-span-1 lg:col-span-4">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>Daily Profit Trend</CardTitle>
+            <TabsContent value="overview" className="space-y-4 mt-4">
+              {/* Key Metrics */}
+              {filteredData.metrics && (
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                  <div className="bg-card rounded-lg border p-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-muted-foreground">Total Sales</p>
+                      <TrendingUp className="h-4 w-4 text-green-500" />
+                    </div>
+                    <p className="text-2xl font-bold text-green-600 mt-2">{formatCurrency(filteredData.metrics.totalSales)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{filteredData.dailyProfit.reduce((sum, day) => sum + day.orderCount, 0)} orders</p>
+                  </div>
+
+                  <div className="bg-card rounded-lg border p-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-muted-foreground">Regular Expenses</p>
+                      <TrendingDown className="h-4 w-4 text-orange-500" />
+                    </div>
+                    <p className="text-2xl font-bold text-orange-600 mt-2">{formatCurrency(filteredData.metrics.totalRegularExpenses)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{filteredData.dailyProfit.reduce((sum, day) => sum + day.regularExpenseCount, 0)} expenses</p>
+                  </div>
+
+                  <div className="bg-card rounded-lg border p-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-muted-foreground">Common Expenses</p>
+                      <TrendingDown className="h-4 w-4 text-purple-500" />
+                    </div>
+                    <p className="text-2xl font-bold text-purple-600 mt-2">{formatCurrency(filteredData.metrics.totalCommonExpenses)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{filteredData.dailyProfit.reduce((sum, day) => sum + day.commonExpenseCount, 0)} expenses</p>
+                  </div>
+
+                  <div className="bg-card rounded-lg border p-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-muted-foreground">Total Expenses</p>
+                      <TrendingDown className="h-4 w-4 text-red-500" />
+                    </div>
+                    <p className="text-2xl font-bold text-red-600 mt-2">{formatCurrency(filteredData.metrics.totalExpenses)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Combined total</p>
+                  </div>
+
+                  <div className="bg-card rounded-lg border p-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-muted-foreground">Net Profit</p>
+                      <DollarSign className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <p className={`text-2xl font-bold mt-2 ${filteredData.metrics.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(filteredData.metrics.totalProfit)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Margin: {filteredData.metrics.averageMargin.toFixed(1)}%</p>
+                  </div>
+
+                  <div className="bg-card rounded-lg border p-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-muted-foreground">Performance</p>
+                      <PieChart className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <p className="text-2xl font-bold mt-2">{filteredData.metrics.profitableDays}/{filteredData.dailyProfit.length}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{filteredData.metrics.lossDays} loss days</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Charts */}
+              <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
+                <div className="col-span-1 lg:col-span-4 bg-card rounded-lg border shadow-sm p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold">Daily Profit Trend</h3>
                     <div className="flex items-center gap-2">
                       <Button
                         variant={chartType === "line" ? "default" : "outline"}
@@ -988,8 +1005,6 @@ export default function ProfitPage() {
                       </Button>
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent className="pl-2">
                   <ResponsiveContainer width="100%" height={350}>
                     {chartType === "line" ? (
                       <LineChart data={filteredData.dailyProfit}>
@@ -1033,14 +1048,10 @@ export default function ProfitPage() {
                       </BarChart>
                     )}
                   </ResponsiveContainer>
-                </CardContent>
-              </Card>
+                </div>
 
-              <Card className="col-span-1 lg:col-span-3">
-                <CardHeader>
-                  <CardTitle>Expense Categories</CardTitle>
-                </CardHeader>
-                <CardContent>
+                <div className="col-span-1 lg:col-span-3 bg-card rounded-lg border shadow-sm p-4">
+                  <h3 className="font-semibold mb-4">Expense Categories</h3>
                   <ResponsiveContainer width="100%" height={350}>
                     <RechartsPieChart>
                       <Pie
@@ -1062,74 +1073,56 @@ export default function ProfitPage() {
                       />
                     </RechartsPieChart>
                   </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </div>
+                </div>
+              </div>
 
-            {/* Best and Worst Days */}
-            {filteredData.metrics && (
-              <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
-                {filteredData.metrics.bestDay && (
-                  <Card className="border-green-200">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium text-green-600 flex items-center gap-2">
+              {/* Best and Worst Days */}
+              {filteredData.metrics && (
+                <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+                  {filteredData.metrics.bestDay && (
+                    <div className="rounded-lg border border-green-200 bg-green-50/30 p-4">
+                      <div className="flex items-center gap-2 text-green-600 mb-2">
                         <TrendingUp className="h-4 w-4" />
-                        Best Performing Day
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold text-green-600">
-                        {formatCurrency(filteredData.metrics.bestDay.profit)}
+                        <h3 className="font-semibold text-sm">Best Performing Day</h3>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {filteredData.metrics.bestDay.formattedDate}
-                      </p>
+                      <p className="text-2xl font-bold text-green-600">{formatCurrency(filteredData.metrics.bestDay.profit)}</p>
+                      <p className="text-sm text-muted-foreground">{filteredData.metrics.bestDay.formattedDate}</p>
                       <div className="mt-2 text-sm">
                         <span className="text-muted-foreground">Sales: </span>
                         <span className="text-green-600">{formatCurrency(filteredData.metrics.bestDay.sales)}</span>
                         <span className="text-muted-foreground ml-2">Expenses: </span>
                         <span className="text-red-600">{formatCurrency(filteredData.metrics.bestDay.totalExpenses)}</span>
                       </div>
-                    </CardContent>
-                  </Card>
-                )}
+                    </div>
+                  )}
 
-                {filteredData.metrics.worstDay && (
-                  <Card className="border-red-200">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium text-red-600 flex items-center gap-2">
+                  {filteredData.metrics.worstDay && (
+                    <div className="rounded-lg border border-red-200 bg-red-50/30 p-4">
+                      <div className="flex items-center gap-2 text-red-600 mb-2">
                         <TrendingDown className="h-4 w-4" />
-                        Worst Performing Day
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold text-red-600">
-                        {formatCurrency(filteredData.metrics.worstDay.profit)}
+                        <h3 className="font-semibold text-sm">Worst Performing Day</h3>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {filteredData.metrics.worstDay.formattedDate}
-                      </p>
+                      <p className="text-2xl font-bold text-red-600">{formatCurrency(filteredData.metrics.worstDay.profit)}</p>
+                      <p className="text-sm text-muted-foreground">{filteredData.metrics.worstDay.formattedDate}</p>
                       <div className="mt-2 text-sm">
                         <span className="text-muted-foreground">Sales: </span>
                         <span className="text-green-600">{formatCurrency(filteredData.metrics.worstDay.sales)}</span>
                         <span className="text-muted-foreground ml-2">Expenses: </span>
                         <span className="text-red-600">{formatCurrency(filteredData.metrics.worstDay.totalExpenses)}</span>
                       </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            )}
-          </TabsContent>
+                    </div>
+                  )}
+                </div>
+              )}
+            </TabsContent>
 
-          <TabsContent value="details" className="space-y-4">
-            {/* Daily Profit Table */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Daily Profit Breakdown</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md border overflow-x-auto">
+            <TabsContent value="details" className="space-y-4 mt-4">
+              {/* Daily Profit Table */}
+              <div className="bg-card rounded-lg border shadow-sm">
+                <div className="p-4 border-b">
+                  <h3 className="font-semibold">Daily Profit Breakdown</h3>
+                </div>
+                <div className="p-4 overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1146,29 +1139,15 @@ export default function ProfitPage() {
                     <TableBody>
                       {filteredData.dailyProfit.map((day) => (
                         <TableRow key={day.date}>
-                          <TableCell className="font-medium">
-                            {day.formattedDate}
-                          </TableCell>
-                          <TableCell className="text-right text-green-600">
-                            {formatCurrency(day.sales)}
-                          </TableCell>
-                          <TableCell className="text-right text-orange-600">
-                            {formatCurrency(day.regularExpenses)}
-                          </TableCell>
-                          <TableCell className="text-right text-purple-600">
-                            {formatCurrency(day.commonExpenses)}
-                          </TableCell>
-                          <TableCell className="text-right text-red-600">
-                            {formatCurrency(day.totalExpenses)}
-                          </TableCell>
-                          <TableCell className={`text-right font-bold ${
-                            day.profit >= 0 ? 'text-green-600' : 'text-red-600'
-                          }`}>
+                          <TableCell className="font-medium">{day.formattedDate}</TableCell>
+                          <TableCell className="text-right text-green-600">{formatCurrency(day.sales)}</TableCell>
+                          <TableCell className="text-right text-orange-600">{formatCurrency(day.regularExpenses)}</TableCell>
+                          <TableCell className="text-right text-purple-600">{formatCurrency(day.commonExpenses)}</TableCell>
+                          <TableCell className="text-right text-red-600">{formatCurrency(day.totalExpenses)}</TableCell>
+                          <TableCell className={`text-right font-bold ${day.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {formatCurrency(day.profit)}
                           </TableCell>
-                          <TableCell className="text-right">
-                            {day.margin.toFixed(1)}%
-                          </TableCell>
+                          <TableCell className="text-right">{day.margin.toFixed(1)}%</TableCell>
                           <TableCell>
                             <Badge variant={day.profit >= 0 ? "default" : "destructive"}>
                               {day.profit >= 0 ? 'Profitable' : 'Loss'}
@@ -1186,78 +1165,50 @@ export default function ProfitPage() {
                       )}
                     </TableBody>
                   </Table>
-                </div>
 
-                {/* Summary Row */}
-                {filteredData.dailyProfit.length > 0 && filteredData.metrics && (
-                  <div className="mt-4 p-4 bg-muted rounded-lg">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Days</p>
-                        <p className="text-2xl font-bold">{filteredData.dailyProfit.length}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Sales</p>
-                        <p className="text-2xl font-bold text-green-600">
-                          {formatCurrency(filteredData.metrics.totalSales)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Regular Expenses</p>
-                        <p className="text-2xl font-bold text-orange-600">
-                          {formatCurrency(filteredData.metrics.totalRegularExpenses)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Common Expenses</p>
-                        <p className="text-2xl font-bold text-purple-600">
-                          {formatCurrency(filteredData.metrics.totalCommonExpenses)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Expenses</p>
-                        <p className="text-2xl font-bold text-red-600">
-                          {formatCurrency(filteredData.metrics.totalExpenses)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Net Profit</p>
-                        <p className={`text-2xl font-bold ${filteredData.metrics.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(filteredData.metrics.totalProfit)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Avg Margin</p>
-                        <p className="text-2xl font-bold">
-                          {filteredData.metrics.averageMargin.toFixed(1)}%
-                        </p>
+                  {/* Summary Row */}
+                  {filteredData.dailyProfit.length > 0 && filteredData.metrics && (
+                    <div className="mt-4 p-4 bg-muted rounded-lg">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Days</p>
+                          <p className="text-2xl font-bold">{filteredData.dailyProfit.length}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Sales</p>
+                          <p className="text-2xl font-bold text-green-600">{formatCurrency(filteredData.metrics.totalSales)}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Regular Expenses</p>
+                          <p className="text-2xl font-bold text-orange-600">{formatCurrency(filteredData.metrics.totalRegularExpenses)}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Common Expenses</p>
+                          <p className="text-2xl font-bold text-purple-600">{formatCurrency(filteredData.metrics.totalCommonExpenses)}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Expenses</p>
+                          <p className="text-2xl font-bold text-red-600">{formatCurrency(filteredData.metrics.totalExpenses)}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Net Profit</p>
+                          <p className={`text-2xl font-bold ${filteredData.metrics.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {formatCurrency(filteredData.metrics.totalProfit)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Avg Margin</p>
+                          <p className="text-2xl font-bold">{filteredData.metrics.averageMargin.toFixed(1)}%</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        )}
       </div>
-
-      {/* Expense Manager Dialog */}
-      <Dialog open={showExpenseManager} onOpenChange={setShowExpenseManager}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Manage Common Expenses</DialogTitle>
-          </DialogHeader>
-          <ExpenseList
-            expenses={commonExpenses}
-            isLoading={isLoading}
-            onAdd={handleAddExpense}
-            onEdit={handleEditExpense}
-            onDelete={handleDeleteExpense}
-            onRefresh={handleRefresh}
-          />
-        </DialogContent>
-      </Dialog>
-
     </div>
   )
 }
