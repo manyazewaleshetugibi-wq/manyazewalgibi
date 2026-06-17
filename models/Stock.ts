@@ -43,3 +43,36 @@ export const PurchaseSchema = z.object({
   unitPrice: z.number().min(0, "Unit price must be non-negative"),
   supplier: z.string().optional(),
 });
+
+// ✅ NEW: Wastage Schema
+export const WastageSchema = z.object({
+  stockId: z.string().min(1, "Stock ID is required"),
+  quantity: z.number()
+    .min(0.01, "Quantity must be greater than 0")
+    .positive("Quantity must be positive"),
+  reason: z.string()
+    .min(1, "Reason is required")
+    .max(500, "Reason must be less than 500 characters"),
+  date: z.string().optional(),
+  createdAt: z.date().default(() => new Date()),
+  updatedAt: z.date().default(() => new Date()),
+});
+
+// ✅ NEW: Wastage Schema for API (without auto fields)
+export const WastageCreateSchema = z.object({
+  stockId: z.string().min(1, "Stock ID is required"),
+  quantity: z.number()
+    .min(0.01, "Quantity must be greater than 0")
+    .positive("Quantity must be positive"),
+  reason: z.string()
+    .min(1, "Reason is required")
+    .max(500, "Reason must be less than 500 characters"),
+  date: z.string().optional(),
+});
+
+// Export types
+export type StockCategory = z.infer<typeof StockCategorySubschema>;
+export type Stock = z.infer<typeof StockSchema>;
+export type Purchase = z.infer<typeof PurchaseSchema>;
+export type Wastage = z.infer<typeof WastageSchema>;
+export type WastageCreate = z.infer<typeof WastageCreateSchema>;

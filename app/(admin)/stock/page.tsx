@@ -10,12 +10,14 @@ import {
   LayoutGrid,
   Table as TableIcon,
   Lock,
+  AlertOctagon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { StockCalculations } from "../../../components/stock/stock-calculations"
 import { StockManagementUI } from "../../../components/stock/stock-management-ui"
+import { WastageDisplay } from "../../../components/stock/WastageDisplay"
 
 // Types
 export type Stock = {
@@ -49,6 +51,16 @@ export type Purchase = {
 
 export type StockStatus = 'critical' | 'low' | 'good' | 'overstock'
 
+export type Wastage = {
+  _id: string
+  stockId: string
+  quantity: number
+  reason: string
+  date: string
+  createdAt: string
+  updatedAt: string
+}
+
 export const hasEditPermission = (role: string | undefined): boolean => {
   if (!role) return false
   const normalizedRole = role.toUpperCase().trim()
@@ -69,6 +81,9 @@ export default function StockManagementPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [isAddStockOpen, setIsAddStockOpen] = useState(false)
+  
+  // New state for wastage display
+  const [isWastageDisplayOpen, setIsWastageDisplayOpen] = useState(false)
 
   useEffect(() => {
     fetchStocks()
@@ -211,11 +226,24 @@ export default function StockManagementPage() {
 
       <Card className="mb-8">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold flex items-center">
-            <Package className="mr-2 h-6 w-6" />
-            Stock Management
-          </CardTitle>
-          <CardDescription>Stock value calculated using current stock quantity × last purchase price</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-2xl font-bold flex items-center">
+                <Package className="mr-2 h-6 w-6" />
+                Stock Management
+              </CardTitle>
+              <CardDescription>Stock value calculated using current stock quantity × last purchase price</CardDescription>
+            </div>
+            {/* Show Wastages Button */}
+            <Button 
+              variant="outline" 
+              onClick={() => setIsWastageDisplayOpen(true)}
+              className="bg-amber-50 border-amber-200 hover:bg-amber-100 hover:border-amber-300 text-amber-700"
+            >
+              <AlertOctagon className="mr-2 h-4 w-4" />
+              Show Wastages
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="flex justify-end mb-4">
@@ -279,6 +307,16 @@ export default function StockManagementPage() {
           />
         </CardContent>
       </Card>
+
+      {/* Wastage Display Dialog */}
+      <WastageDisplay
+        open={isWastageDisplayOpen}
+        onOpenChange={setIsWastageDisplayOpen}
+        stocks={stocks}
+        categories={categories}
+        purchases={purchases}
+        fetchStocks={fetchStocks}
+      />
     </div>
   )
 }

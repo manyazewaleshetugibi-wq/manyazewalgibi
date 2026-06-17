@@ -41,6 +41,7 @@ import {
   Search,
   XCircle,
   RefreshCw,
+  AlertOctagon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -70,6 +71,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import type { Stock, Category, Purchase, StockStatus } from "../../app/(admin)/stock/page"
+import { RegisterWastageModal } from "./RegisterWastageModal"
 
 // Schemas
 const stockSchema = z.object({
@@ -196,6 +198,10 @@ export function StockManagementUI({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery)
+  
+  // Wastage state - only for registering
+  const [isRegisterWastageOpen, setIsRegisterWastageOpen] = useState(false)
+  const [selectedStockForWastage, setSelectedStockForWastage] = useState<Stock | null>(null)
 
   useEffect(() => {
     setLocalSearchQuery(searchQuery)
@@ -442,6 +448,18 @@ export function StockManagementUI({
     onSearchChange("")
   }
 
+  // Wastage handler - only for registering
+  const handleOpenRegisterWastage = (stock: Stock) => {
+    console.log("Opening register wastage for:", stock.name)
+    setSelectedStockForWastage(stock)
+    setIsRegisterWastageOpen(true)
+  }
+
+  const handleWastageSuccess = () => {
+    console.log("Wastage registered, refreshing stocks...")
+    fetchStocks()
+  }
+
   const columns: ColumnDef<Stock>[] = [
     {
       id: "select",
@@ -546,6 +564,7 @@ export function StockManagementUI({
               </DropdownMenuItem>
               {canEdit && (
                 <>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => handleEditStock(stock)}>
                     <PenSquare className="mr-2 h-4 w-4" />
                     Edit
@@ -555,6 +574,10 @@ export function StockManagementUI({
                     Delete
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleOpenRegisterWastage(stock)}>
+                    <AlertOctagon className="mr-2 h-4 w-4" />
+                    Register Wastage
+                  </DropdownMenuItem>
                 </>
               )}
               <DropdownMenuItem onClick={() => handleAddPurchase(stock._id)}>
@@ -779,8 +802,18 @@ export function StockManagementUI({
                     onClick={() => handleAddPurchase(stock._id)} 
                     className="w-full"
                   >
-                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    <ShoppingCart className="h-3.5 w-3.5 mr-1" />
                     Buy
+                  </Button>
+                  <Button 
+                    variant="default" 
+                    size="sm" 
+                    onClick={() => handleOpenRegisterWastage(stock)} 
+                    className="w-full bg-amber-500 hover:bg-amber-600 text-white"
+                    disabled={!canEdit}
+                  >
+                    <AlertOctagon className="h-3.5 w-3.5 mr-1" />
+                    Wastage
                   </Button>
                 </CardFooter>
               </Card>
@@ -1292,6 +1325,14 @@ export function StockManagementUI({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Register Wastage Modal - Only this remains */}
+      <RegisterWastageModal
+        open={isRegisterWastageOpen}
+        onOpenChange={setIsRegisterWastageOpen}
+        stock={selectedStockForWastage}
+        onSuccess={handleWastageSuccess}
+      />
     </>
   )
 }
