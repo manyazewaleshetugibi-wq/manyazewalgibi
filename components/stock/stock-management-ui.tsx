@@ -163,6 +163,7 @@ interface StockManagementUIProps {
   onCategoryChange: (category: string | null) => void
   onStatusChange: (status: StockStatus | 'all') => void
   onSearchChange: (query: string) => void
+  userRole?: string // Add user role prop
 }
 
 export function StockManagementUI({
@@ -185,6 +186,7 @@ export function StockManagementUI({
   onCategoryChange,
   onStatusChange,
   onSearchChange,
+  userRole = 'user', // Default to 'user' if not provided
 }: StockManagementUIProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -202,6 +204,9 @@ export function StockManagementUI({
   // Wastage state - only for registering
   const [isRegisterWastageOpen, setIsRegisterWastageOpen] = useState(false)
   const [selectedStockForWastage, setSelectedStockForWastage] = useState<Stock | null>(null)
+
+  // Check if user is admin
+  const isAdmin = userRole === 'admin'
 
   useEffect(() => {
     setLocalSearchQuery(searchQuery)
@@ -346,7 +351,7 @@ export function StockManagementUI({
   }
 
   const handleDeleteStock = async (id: string) => {
-    if (!canEdit) {
+    if (!canEdit || !isAdmin) {
       toast.error("You don't have permission to delete stock")
       return
     }
@@ -414,6 +419,10 @@ export function StockManagementUI({
   }
 
   const handleDeletePurchase = (purchaseId: string) => {
+    if (!isAdmin) {
+      toast.error("Only admins can delete purchase records")
+      return
+    }
     setPurchaseToDelete(purchaseId)
     setIsDeleteWarningOpen(true)
   }
@@ -569,10 +578,13 @@ export function StockManagementUI({
                     <PenSquare className="mr-2 h-4 w-4" />
                     Edit
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleDeleteStock(stock._id)}>
-                    <Trash className="mr-2 h-4 w-4" />
-                    Delete
-                  </DropdownMenuItem>
+                  {/* Only show Delete option for admin users */}
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={() => handleDeleteStock(stock._id)}>
+                      <Trash className="mr-2 h-4 w-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => handleOpenRegisterWastage(stock)}>
                     <AlertOctagon className="mr-2 h-4 w-4" />
@@ -786,16 +798,19 @@ export function StockManagementUI({
                     <PenSquare className="h-3.5 w-3.5 mr-1" />
                     Edit
                   </Button>
-                  <Button 
-                    variant="destructive" 
-                    size="sm" 
-                    onClick={() => handleDeleteStock(stock._id)} 
-                    disabled={deletingId === stock._id || !canEdit}
-                    className="w-full"
-                  >
-                    {deletingId === stock._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5 mr-1" />}
-                    Delete
-                  </Button>
+                  {/* Only show Delete button for admin users */}
+                  {isAdmin && (
+                    <Button 
+                      variant="destructive" 
+                      size="sm" 
+                      onClick={() => handleDeleteStock(stock._id)} 
+                      disabled={deletingId === stock._id || !canEdit}
+                      className="w-full"
+                    >
+                      {deletingId === stock._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5 mr-1" />}
+                      Delete
+                    </Button>
+                  )}
                   <Button 
                     variant="outline" 
                     size="sm" 
@@ -910,8 +925,17 @@ export function StockManagementUI({
                   <FormItem>
                     <FormLabel>Name</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input 
+                        {...field} 
+                        // Disable name field for non-admin users when editing
+                        disabled={!isAdmin && !!selectedStock}
+                      />
                     </FormControl>
+                    {!isAdmin && selectedStock && (
+                      <FormDescription className="text-amber-500">
+                        ⚠️ Only admins can edit stock names
+                      </FormDescription>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1277,13 +1301,20 @@ export function StockManagementUI({
                                 })}
                               </TableCell>
                               <TableCell>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => handleDeletePurchase(purchase._id)}
-                                >
-                                  <Trash className="h-4 w-4" />
-                                </Button>
+                                {/* Only show delete button for admin users */}
+                                {isAdmin ? (
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleDeletePurchase(purchase._id)}
+                                  >
+                                    <Trash className="h-4 w-4" />
+                                  </Button>
+                                ) : (
+                                  <Badge variant="secondary" className="text-xs">
+                                    View only
+                                  </Badge>
+                                )}
                               </TableCell>
                             </TableRow>
                           ))}

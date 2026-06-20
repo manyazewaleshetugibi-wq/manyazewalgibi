@@ -7,7 +7,8 @@
     "build": "next build",
     "seed": "ts-node prisma/seed.ts",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "setup-indexes": "tsx scripts/setup-indexes.ts"
   },
   "dependencies": {
     "@auth/mongodb-adapter": "^3.11.2",
@@ -67,7 +68,7 @@
     "lodash.debounce": "^4.0.8",
     "lucide-react": "^0.475.0",
     "mongodb": "5.9.2",
-    "mongoose": "^8.9.5",
+    "mongoose": "^8.24.0",
     "next": "^16.2.6",
     "next-auth": "^5.0.0-beta.31",
     "next-themes": "^0.4.4",
@@ -99,6 +100,7 @@
     "use-debounce": "^10.0.4",
     "uuid": "^13.0.0",
     "vaul": "^1.1.2",
+    "web-push": "^3.6.7",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.24.1"
   },
@@ -110,6 +112,7 @@
     "@types/pdfkit": "^0.17.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.1.7",
     "tsx": "^4.7.1",
