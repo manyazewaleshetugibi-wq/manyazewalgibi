@@ -7,7 +7,6 @@ import { toast, Toaster } from "react-hot-toast"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -26,7 +25,10 @@ import {
   AlertCircle,
   CheckCircle,
   Eye,
-  EyeOff
+  EyeOff,
+  Calendar,
+  BadgeCheck,
+  Sparkles
 } from "lucide-react"
 
 type UserProfile = {
@@ -300,10 +302,10 @@ export default function EditProfilePage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto py-10 flex justify-center items-center min-h-[60vh]">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Loading profile...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+          <p className="mt-4 text-muted-foreground">Loading your profile...</p>
         </div>
       </div>
     )
@@ -311,8 +313,8 @@ export default function EditProfilePage() {
 
   if (!profile) {
     return (
-      <div className="container mx-auto py-10">
-        <Alert variant="destructive">
+      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+        <Alert variant="destructive" className="max-w-md">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Profile Not Found</AlertTitle>
           <AlertDescription>
@@ -324,56 +326,41 @@ export default function EditProfilePage() {
   }
 
   return (
-    <div className="container mx-auto py-6 max-w-4xl">
-      <Toaster />
+    <div className="min-h-screen bg-white">
+      <Toaster position="top-center" />
       
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold">Edit Profile</h1>
-        <p className="text-muted-foreground mt-2">
-          Update your personal information and account settings
-        </p>
-      </div>
+      <div className="container max-w-6xl mx-auto px-4 py-8">
+        {/* Header Section */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-slate-900">Account Settings</h1>
+          <p className="text-muted-foreground mt-1">
+            Manage your profile and security preferences
+          </p>
+        </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="profile" className="flex items-center gap-2">
-            <User className="h-4 w-4" />
-            Profile
-          </TabsTrigger>
-          <TabsTrigger value="security" className="flex items-center gap-2">
-            <Shield className="h-4 w-4" />
-            Security
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="profile" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile Information</CardTitle>
-              <CardDescription>
-                Update your personal information and how it appears to others
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Avatar Upload */}
-              <div className="flex flex-col items-center space-y-4">
-                <div className="relative">
-                  <Avatar className="h-32 w-32 border-4 border-background shadow-lg">
+        {/* Main Content - No Card Background */}
+        <div className="flex flex-col lg:flex-row gap-8">
+          {/* Sidebar - Profile Summary */}
+          <div className="lg:w-80">
+            <div className="sticky top-8">
+              <div className="flex flex-col items-center text-center p-6 border border-slate-200 rounded-xl bg-white">
+                <div className="relative group">
+                  <Avatar className="h-28 w-28 ring-4 ring-slate-100 shadow-sm transition-all duration-300 group-hover:scale-105">
                     {profile.avatar ? (
-                      <AvatarImage src={profile.avatar} alt={profile.name} />
+                      <AvatarImage src={profile.avatar} alt={profile.name} className="object-cover" />
                     ) : (
-                      <AvatarFallback className="text-2xl bg-primary/10 text-primary">
+                      <AvatarFallback className="text-2xl bg-primary text-white">
                         {getInitials(profile.name)}
                       </AvatarFallback>
                     )}
                   </Avatar>
                   <label
-                    htmlFor="avatar-upload"
-                    className="absolute bottom-0 right-0 p-2 bg-primary text-primary-foreground rounded-full cursor-pointer hover:bg-primary/90 transition-colors"
+                    htmlFor="avatar-upload-sidebar"
+                    className="absolute -bottom-1 -right-1 p-1.5 bg-white rounded-full shadow-md cursor-pointer hover:bg-slate-50 transition-all duration-200 border border-slate-200"
                   >
-                    <Camera className="h-4 w-4" />
+                    <Camera className="h-3.5 w-3.5 text-primary" />
                     <input
-                      id="avatar-upload"
+                      id="avatar-upload-sidebar"
                       type="file"
                       accept="image/*"
                       className="hidden"
@@ -381,302 +368,270 @@ export default function EditProfilePage() {
                     />
                   </label>
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  Click the camera icon to upload a new profile picture
-                </p>
-              </div>
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Name */}
-                  <div className="space-y-2">
-                    <Label htmlFor="name" className="flex items-center gap-2">
-                      <User className="h-4 w-4" />
-                      Full Name *
-                    </Label>
-                    <Input
-                      id="name"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleInputChange}
-                      placeholder="Enter your full name"
-                      className={errors.name ? "border-destructive" : ""}
-                    />
-                    {errors.name && (
-                      <p className="text-sm text-destructive">{errors.name}</p>
-                    )}
-                  </div>
-
-                  {/* Email */}
-                  <div className="space-y-2">
-                    <Label htmlFor="email" className="flex items-center gap-2">
-                      <Mail className="h-4 w-4" />
-                      Email Address *
-                    </Label>
-                    <Input
-                      id="email"
-                      name="email"
-                      type="email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      placeholder="Enter your email"
-                      className={errors.email ? "border-destructive" : ""}
-                    />
-                    {errors.email && (
-                      <p className="text-sm text-destructive">{errors.email}</p>
-                    )}
-                  </div>
-
-                  {/* Phone */}
-                  <div className="space-y-2">
-                    <Label htmlFor="phone" className="flex items-center gap-2">
-                      <Phone className="h-4 w-4" />
-                      Phone Number
-                    </Label>
-                    <Input
-                      id="phone"
-                      name="phone"
-                      type="tel"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      placeholder="Enter your phone number"
-                    />
-                  </div>
-
-                  {/* Address */}
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="address" className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4" />
-                      Address
-                    </Label>
-                    <Textarea
-                      id="address"
-                      name="address"
-                      value={formData.address}
-                      onChange={handleInputChange}
-                      placeholder="Enter your address"
-                      rows={3}
-                    />
-                  </div>
+                
+                <h2 className="mt-4 text-xl font-semibold text-slate-800">{profile.name}</h2>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <BadgeCheck className="h-4 w-4 text-primary" />
+                  <span className="text-sm text-muted-foreground capitalize">{profile.role}</span>
                 </div>
-
-                <div className="pt-4">
-                  <Button type="submit" disabled={updating} className="w-full md:w-auto">
-                    {updating ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Updating...
-                      </>
-                    ) : (
-                      <>
-                        <Save className="mr-2 h-4 w-4" />
-                        Save Changes
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          {/* Account Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Account Information</CardTitle>
-              <CardDescription>
-                Your account details and membership information
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Role</p>
-                  <p className="text-lg font-semibold capitalize">{profile.role}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Member Since</p>
-                  <p className="text-lg font-semibold">
-                    {new Date(profile.createdAt).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric"
-                    })}
-                  </p>
+                
+                <div className="mt-6 w-full space-y-3">
+                  <div className="flex items-center justify-between text-sm py-2 border-t border-slate-100">
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Mail className="h-4 w-4" /> Email
+                    </span>
+                    <span className="font-mono text-slate-700 truncate max-w-[160px]">{profile.email}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm py-2 border-t border-slate-100">
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Calendar className="h-4 w-4" /> Joined
+                    </span>
+                    <span className="text-slate-700">
+                      {new Date(profile.createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+          </div>
 
-        <TabsContent value="security" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Lock className="h-5 w-5" />
-                Change Password
-              </CardTitle>
-              <CardDescription>
-                Update your password to keep your account secure
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-4">
-                  {/* Current Password */}
-                  <div className="space-y-2">
-                    <Label htmlFor="currentPassword">Current Password *</Label>
-                    <div className="relative">
-                      <Input
-                        id="currentPassword"
-                        name="currentPassword"
-                        type={showCurrentPassword ? "text" : "password"}
-                        value={formData.currentPassword}
-                        onChange={handleInputChange}
-                        placeholder="Enter your current password"
-                        className={`pr-10 ${errors.currentPassword ? "border-destructive" : ""}`}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+          {/* Main Content Area */}
+          <div className="flex-1">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+              <TabsList className="grid w-full max-w-md grid-cols-2 bg-slate-100 p-1 rounded-lg">
+                <TabsTrigger value="profile" className="rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm gap-2">
+                  <User className="h-4 w-4" />
+                  Profile Information
+                </TabsTrigger>
+                <TabsTrigger value="security" className="rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm gap-2">
+                  <Shield className="h-4 w-4" />
+                  Security Settings
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="profile" className="space-y-6 mt-0">
+                <div className="border border-slate-200 rounded-xl p-6 bg-white">
+                  <form onSubmit={handleSubmit} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <Label htmlFor="name" className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                          <User className="h-4 w-4" /> Full Name
+                        </Label>
+                        <Input
+                          id="name"
+                          name="name"
+                          value={formData.name}
+                          onChange={handleInputChange}
+                          placeholder="Enter your full name"
+                          className={`${errors.name ? "border-red-500" : "border-slate-200"}`}
+                        />
+                        {errors.name && <p className="text-sm text-red-500">{errors.name}</p>}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="email" className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                          <Mail className="h-4 w-4" /> Email Address
+                        </Label>
+                        <Input
+                          id="email"
+                          name="email"
+                          type="email"
+                          value={formData.email}
+                          onChange={handleInputChange}
+                          placeholder="Enter your email"
+                          className={`${errors.email ? "border-red-500" : "border-slate-200"}`}
+                        />
+                        {errors.email && <p className="text-sm text-red-500">{errors.email}</p>}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="phone" className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                          <Phone className="h-4 w-4" /> Phone Number
+                        </Label>
+                        <Input
+                          id="phone"
+                          name="phone"
+                          type="tel"
+                          value={formData.phone}
+                          onChange={handleInputChange}
+                          placeholder="Enter your phone number"
+                          className="border-slate-200"
+                        />
+                      </div>
+
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="address" className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                          <MapPin className="h-4 w-4" /> Address
+                        </Label>
+                        <Textarea
+                          id="address"
+                          name="address"
+                          value={formData.address}
+                          onChange={handleInputChange}
+                          placeholder="Enter your address"
+                          rows={3}
+                          className="border-slate-200 resize-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-4">
+                      <Button 
+                        type="submit" 
+                        disabled={updating} 
+                        className="bg-primary hover:bg-primary/90"
                       >
-                        {showCurrentPassword ? (
-                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        {updating ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Saving Changes...
+                          </>
                         ) : (
-                          <Eye className="h-4 w-4 text-muted-foreground" />
+                          <>
+                            <Save className="mr-2 h-4 w-4" />
+                            Save Changes
+                          </>
                         )}
                       </Button>
                     </div>
-                    {errors.currentPassword && (
-                      <p className="text-sm text-destructive">{errors.currentPassword}</p>
-                    )}
-                  </div>
+                  </form>
+                </div>
+              </TabsContent>
 
-                  {/* New Password */}
-                  <div className="space-y-2">
-                    <Label htmlFor="newPassword">New Password *</Label>
-                    <div className="relative">
-                      <Input
-                        id="newPassword"
-                        name="newPassword"
-                        type={showNewPassword ? "text" : "password"}
-                        value={formData.newPassword}
-                        onChange={handleInputChange}
-                        placeholder="Enter your new password"
-                        className={`pr-10 ${errors.newPassword ? "border-destructive" : ""}`}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                        onClick={() => setShowNewPassword(!showNewPassword)}
+              <TabsContent value="security" className="space-y-6 mt-0">
+                <div className="border border-slate-200 rounded-xl p-6 bg-white">
+                  <form onSubmit={handleSubmit} className="space-y-6">
+                    <div className="space-y-5">
+                      <div className="space-y-2">
+                        <Label htmlFor="currentPassword" className="text-sm font-medium text-slate-700">
+                          Current Password
+                        </Label>
+                        <div className="relative">
+                          <Input
+                            id="currentPassword"
+                            name="currentPassword"
+                            type={showCurrentPassword ? "text" : "password"}
+                            value={formData.currentPassword}
+                            onChange={handleInputChange}
+                            placeholder="Enter current password"
+                            className={`pr-10 ${errors.currentPassword ? "border-red-500" : "border-slate-200"}`}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0 hover:bg-transparent"
+                            onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                          >
+                            {showCurrentPassword ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                          </Button>
+                        </div>
+                        {errors.currentPassword && <p className="text-sm text-red-500">{errors.currentPassword}</p>}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="newPassword" className="text-sm font-medium text-slate-700">
+                          New Password
+                        </Label>
+                        <div className="relative">
+                          <Input
+                            id="newPassword"
+                            name="newPassword"
+                            type={showNewPassword ? "text" : "password"}
+                            value={formData.newPassword}
+                            onChange={handleInputChange}
+                            placeholder="Enter new password"
+                            className={`pr-10 ${errors.newPassword ? "border-red-500" : "border-slate-200"}`}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0 hover:bg-transparent"
+                            onClick={() => setShowNewPassword(!showNewPassword)}
+                          >
+                            {showNewPassword ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                          </Button>
+                        </div>
+                        {errors.newPassword && <p className="text-sm text-red-500">{errors.newPassword}</p>}
+                        <p className="text-sm text-muted-foreground">Password must be at least 6 characters long</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="confirmPassword" className="text-sm font-medium text-slate-700">
+                          Confirm New Password
+                        </Label>
+                        <div className="relative">
+                          <Input
+                            id="confirmPassword"
+                            name="confirmPassword"
+                            type={showConfirmPassword ? "text" : "password"}
+                            value={formData.confirmPassword}
+                            onChange={handleInputChange}
+                            placeholder="Confirm new password"
+                            className={`pr-10 ${errors.confirmPassword ? "border-red-500" : "border-slate-200"}`}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0 hover:bg-transparent"
+                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          >
+                            {showConfirmPassword ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                          </Button>
+                        </div>
+                        {errors.confirmPassword && <p className="text-sm text-red-500">{errors.confirmPassword}</p>}
+                      </div>
+                    </div>
+
+                    <div className="pt-4">
+                      <Button 
+                        type="submit" 
+                        disabled={updating} 
+                        className="bg-primary hover:bg-primary/90"
                       >
-                        {showNewPassword ? (
-                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        {updating ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Updating Password...
+                          </>
                         ) : (
-                          <Eye className="h-4 w-4 text-muted-foreground" />
+                          <>
+                            <Lock className="mr-2 h-4 w-4" />
+                            Update Password
+                          </>
                         )}
                       </Button>
                     </div>
-                    {errors.newPassword && (
-                      <p className="text-sm text-destructive">{errors.newPassword}</p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Password must be at least 6 characters long
-                    </p>
-                  </div>
-
-                  {/* Confirm Password */}
-                  <div className="space-y-2">
-                    <Label htmlFor="confirmPassword">Confirm New Password *</Label>
-                    <div className="relative">
-                      <Input
-                        id="confirmPassword"
-                        name="confirmPassword"
-                        type={showConfirmPassword ? "text" : "password"}
-                        value={formData.confirmPassword}
-                        onChange={handleInputChange}
-                        placeholder="Confirm your new password"
-                        className={`pr-10 ${errors.confirmPassword ? "border-destructive" : ""}`}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      >
-                        {showConfirmPassword ? (
-                          <EyeOff className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <Eye className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </Button>
-                    </div>
-                    {errors.confirmPassword && (
-                      <p className="text-sm text-destructive">{errors.confirmPassword}</p>
-                    )}
-                  </div>
+                  </form>
                 </div>
 
-                <div className="pt-4">
-                  <Button type="submit" disabled={updating} className="w-full md:w-auto">
-                    {updating ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Updating Password...
-                      </>
-                    ) : (
-                      <>
-                        <Shield className="mr-2 h-4 w-4" />
-                        Update Password
-                      </>
-                    )}
-                  </Button>
+                {/* Security Tips */}
+                <div className="border border-slate-200 rounded-xl p-6 bg-white">
+                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                    <Shield className="h-4 w-4" /> Security Tips
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg">
+                      <CheckCircle className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <p className="text-sm text-blue-700">Use strong passwords with mixed characters</p>
+                    </div>
+                    <div className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
+                      <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                      <p className="text-sm text-green-700">Change your password regularly</p>
+                    </div>
+                    <div className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg">
+                      <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+                      <p className="text-sm text-amber-700">Never share your credentials with anyone</p>
+                    </div>
+                  </div>
                 </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          {/* Security Tips */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
-                Security Tips
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Alert className="bg-blue-50 border-blue-200">
-                <CheckCircle className="h-4 w-4 text-blue-600" />
-                <AlertTitle className="text-blue-800">Strong Passwords</AlertTitle>
-                <AlertDescription className="text-blue-700">
-                  Use a combination of letters, numbers, and special characters for a stronger password.
-                </AlertDescription>
-              </Alert>
-              
-              <Alert className="bg-green-50 border-green-200">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <AlertTitle className="text-green-800">Regular Updates</AlertTitle>
-                <AlertDescription className="text-green-700">
-                  Change your password regularly to maintain account security.
-                </AlertDescription>
-              </Alert>
-              
-              <Alert className="bg-amber-50 border-amber-200">
-                <AlertCircle className="h-4 w-4 text-amber-600" />
-                <AlertTitle className="text-amber-800">Never Share Credentials</AlertTitle>
-                <AlertDescription className="text-amber-700">
-                  Never share your password with anyone, including support staff.
-                </AlertDescription>
-              </Alert>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              </TabsContent>
+            </Tabs>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

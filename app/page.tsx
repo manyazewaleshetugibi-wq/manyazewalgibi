@@ -1,4 +1,4 @@
-// app/menu/page.tsx - COMPLETE VERSION WITH GUEST ORDER SUPPORT
+// app/menu/page.tsx - COMPLETE VERSION WITH LOCALSTORAGE PERSISTENCE
 
 'use client'
 
@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Eye, Clock, Sparkles, Layers, ShoppingCart, RefreshCw,
   ChevronUp, ChevronDown, Grid, List, Star, Search,
-  Filter, ArrowUpDown, X
+  Filter, ArrowUpDown, X, TrendingUp, Flame, Crown
 } from 'lucide-react'
 
 import { Button } from "@/components/ui/button"
@@ -86,6 +86,135 @@ const CACHE_KEYS = {
 
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
+// ========== MIXED RATIO DISPLAY CONFIGURATION ==========
+// Ratio: 4 Food items : 2 Juice items (then repeat)
+const FOOD_PER_BATCH = 4
+const JUICE_PER_BATCH = 2
+
+// Category type detection
+const isFoodCategory = (categoryName: string): boolean => {
+  const foodKeywords = [
+    'pizza', 'burger', 'sandwich', 'pasta', 'salad', 'appetizer', 
+    'main course', 'seafood', 'grill', 'chicken', 'beef', 'vegetarian',
+    'vegan', 'breakfast', 'lunch', 'dinner', 'side dish', 'soup',
+    'food', 'meal', 'dish', 'plate', 'entree', 'starter'
+  ]
+  const lowerName = categoryName.toLowerCase()
+  return foodKeywords.some(keyword => lowerName.includes(keyword))
+}
+
+const isJuiceCategory = (categoryName: string): boolean => {
+  const juiceKeywords = [
+    'juice', 'smoothie', 'milkshake', 'fruit juice', 'vegetable juice',
+    'detox juice', 'green juice', 'orange juice', 'apple juice', 
+    'mango juice', 'mixed juice', 'cold pressed', 'fresh juice', 'shake'
+  ]
+  const lowerName = categoryName.toLowerCase()
+  return juiceKeywords.some(keyword => lowerName.includes(keyword))
+}
+
+// Get high-priced juice items (top 2 by price from juice categories)
+const getTopPricedJuices = (items: Item[], categories: Category[]): Item[] => {
+  const juiceCategoryIds = categories
+    .filter(cat => isJuiceCategory(cat.name))
+    .map(cat => cat._id)
+  
+  const juiceItems = items.filter(item => 
+    juiceCategoryIds.includes(item.categoryId) && item.isActive !== false
+  )
+  
+  return [...juiceItems].sort((a, b) => b.price - a.price)
+}
+
+// Get food items (all active food items)
+const getFoodItems = (items: Item[], categories: Category[]): Item[] => {
+  const foodCategoryIds = categories
+    .filter(cat => isFoodCategory(cat.name))
+    .map(cat => cat._id)
+  
+  return items.filter(item => 
+    foodCategoryIds.includes(item.categoryId) && item.isActive !== false
+  )
+}
+
+// Get other items (desserts, beverages, etc.)
+const getOtherItems = (items: Item[], categories: Category[]): Item[] => {
+  const otherCategoryIds = categories
+    .filter(cat => !isFoodCategory(cat.name) && !isJuiceCategory(cat.name))
+    .map(cat => cat._id)
+  
+  return items.filter(item => 
+    otherCategoryIds.includes(item.categoryId) && item.isActive !== false
+  )
+}
+
+// Create mixed display array: 4 food : 2 high-price juice (repeat)
+const createMixedDisplayArray = (
+  foodItems: Item[], 
+  juiceItems: Item[], 
+  otherItems: Item[]
+): Item[] => {
+  const result: Item[] = []
+  let foodIndex = 0
+  let juiceIndex = 0
+  const featuredAdded: string[] = []
+  
+  // First, add featured items at the top (up to 3)
+  const featuredItems = [...foodItems, ...juiceItems].filter(item => item.isFeatured)
+  
+  featuredItems.slice(0, 3).forEach(item => {
+    if (!featuredAdded.includes(item._id)) {
+      result.push(item)
+      featuredAdded.push(item._id)
+      if (foodItems.find(f => f._id === item._id)) foodIndex++
+      if (juiceItems.find(j => j._id === item._id)) juiceIndex++
+    }
+  })
+  
+  // Create batches: FOOD_PER_BATCH food items, then JUICE_PER_BATCH juice items
+  while (foodIndex < foodItems.length || juiceIndex < juiceItems.length) {
+    // Add FOOD_PER_BATCH food items
+    for (let i = 0; i < FOOD_PER_BATCH && foodIndex < foodItems.length; i++) {
+      const foodItem = foodItems[foodIndex]
+      if (!featuredAdded.includes(foodItem._id)) {
+        result.push(foodItem)
+      }
+      foodIndex++
+    }
+    
+    // Add JUICE_PER_BATCH high-price juice items
+    for (let i = 0; i < JUICE_PER_BATCH && juiceIndex < juiceItems.length; i++) {
+      const juiceItem = juiceItems[juiceIndex]
+      if (!featuredAdded.includes(juiceItem._id)) {
+        result.push(juiceItem)
+      }
+      juiceIndex++
+    }
+  }
+  
+  // Add other items at the end
+  if (otherItems.length > 0) {
+    otherItems.forEach(item => {
+      if (!featuredAdded.includes(item._id)) {
+        result.push(item)
+      }
+    })
+  }
+  
+  return result
+}
+
+// Sort categories for filter dropdown
+const sortCategoriesByPriority = (categories: Category[]): Category[] => {
+  return [...categories].sort((a, b) => {
+    if (isFoodCategory(a.name) && !isFoodCategory(b.name)) return -1
+    if (!isFoodCategory(a.name) && isFoodCategory(b.name)) return 1
+    if (isJuiceCategory(a.name) && !isJuiceCategory(b.name)) return -1
+    if (!isJuiceCategory(a.name) && isJuiceCategory(b.name)) return 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
 export default function MenuPage() {
   const router = useRouter()
   const { userData, isLoggedIn } = useUserData()
@@ -96,17 +225,19 @@ export default function MenuPage() {
     updateQuantity,
     clearCart,
     subtotal: baseSubtotal,
-    totalItems
+    totalItems,
+    isLoaded: cartLoaded,
+    checkLocalStorage
   } = useCart()
 
   const [categories, setCategories] = useState<Category[]>([])
+  const [sortedCategories, setSortedCategories] = useState<Category[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [filteredItems, setFilteredItems] = useState<Item[]>([])
+  const [mixedDisplayItems, setMixedDisplayItems] = useState<Item[]>([])
   const [waiters, setWaiters] = useState<Waiter[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [sortField, setSortField] = useState<'name' | 'price' | 'preparationTime'>('name')
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [loading, setLoading] = useState(true)
   const [loadingTimeout, setLoadingTimeout] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -139,7 +270,6 @@ export default function MenuPage() {
   const [deliveryFee, setDeliveryFee] = useState<DeliveryFeeDetails | null>(null)
   const [isCalculatingDelivery, setIsCalculatingDelivery] = useState(false)
   
-  // Guest user data state
   const [guestUserData, setGuestUserData] = useState<GuestUserData | null>(null)
 
   const deliveryCalculator = useMemo(() => new EnhancedDeliveryCalculator(), [])
@@ -168,6 +298,20 @@ export default function MenuPage() {
     return adjustedSubtotal * 0.15
   }, [adjustedSubtotal])
 
+  // Debug: Log cart state and localStorage
+  useEffect(() => {
+    if (cartLoaded) {
+      console.log('📊 Current cart state:', cart)
+      console.log('📊 Cart loaded:', cartLoaded)
+      console.log('📊 Total items:', totalItems)
+      console.log('📊 Subtotal:', baseSubtotal)
+      
+      // Check localStorage directly
+      const stored = localStorage.getItem('cart_items')
+      console.log('📊 localStorage cart_items:', stored)
+    }
+  }, [cart, cartLoaded, totalItems, baseSubtotal])
+
   // Load cached data
   const loadFromCache = useCallback(() => {
     try {
@@ -178,7 +322,9 @@ export default function MenuPage() {
         const cachedWaiters = localStorage.getItem(CACHE_KEYS.WAITERS)
 
         if (cachedCategories && cachedItems) {
-          setCategories(JSON.parse(cachedCategories))
+          const parsedCategories = JSON.parse(cachedCategories)
+          setCategories(parsedCategories)
+          setSortedCategories(sortCategoriesByPriority(parsedCategories))
           setItems(JSON.parse(cachedItems))
           setFilteredItems(JSON.parse(cachedItems))
           if (cachedWaiters) setWaiters(JSON.parse(cachedWaiters))
@@ -242,6 +388,7 @@ export default function MenuPage() {
         
         categoriesData = categoriesData.filter(cat => !shouldHideCategory(cat))
         setCategories(categoriesData)
+        setSortedCategories(sortCategoriesByPriority(categoriesData))
       }
 
       if (itemsRes.status === 'fulfilled') {
@@ -301,7 +448,19 @@ export default function MenuPage() {
     }
   }, [loadFromCache, saveToCache])
 
-  // Load guest data from session storage on mount
+  // Generate mixed display array when items change
+  useEffect(() => {
+    if (items.length > 0 && categories.length > 0 && !selectedCategory && !searchTerm) {
+      const foodItems = getFoodItems(items, categories)
+      const juiceItems = getTopPricedJuices(items, categories)
+      const otherItems = getOtherItems(items, categories)
+      
+      const mixed = createMixedDisplayArray(foodItems, juiceItems, otherItems)
+      setMixedDisplayItems(mixed)
+    }
+  }, [items, categories, selectedCategory, searchTerm])
+
+  // Load guest data
   useEffect(() => {
     const savedGuestData = sessionStorage.getItem('guestOrderData')
     if (savedGuestData) {
@@ -342,7 +501,7 @@ export default function MenuPage() {
     }
   }, [items, imagesPreloaded])
 
-  // Filter and sort items
+  // Filter items
   useEffect(() => {
     if (items.length === 0) return
 
@@ -363,20 +522,8 @@ export default function MenuPage() {
       )
     }
 
-    result.sort((a, b) => {
-      if (sortField === 'name') {
-        return sortDirection === 'asc'
-          ? a.name.localeCompare(b.name)
-          : b.name.localeCompare(a.name)
-      } else {
-        const aVal = Number(a[sortField]) || 0
-        const bVal = Number(b[sortField]) || 0
-        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal
-      }
-    })
-
     setFilteredItems(result)
-  }, [items, categories, selectedCategory, searchTerm, sortField, sortDirection])
+  }, [items, categories, selectedCategory, searchTerm])
 
   // Fetch arrangement ID
   useEffect(() => {
@@ -421,21 +568,19 @@ export default function MenuPage() {
     setTableNumber(table.number.toString())
     setOrderType('table')
     
-    toast.success(`Table ${table.number} selected! Capacity: ${table.capacity} seats`)
+    toast.success(`Table ${table.number} selected!`)
     
     if (table.capacity && table.capacity < numberOfGuests) {
       setNumberOfGuests(table.capacity)
     }
   }, [numberOfGuests])
 
-  // Handle guest order data from CartPanel
   const handleGuestOrder = (guestData: GuestUserData) => {
     setGuestUserData(guestData)
-    // Store guest data in sessionStorage for order processing
     sessionStorage.setItem('guestOrderData', JSON.stringify(guestData))
   }
 
-  // Delivery fee calculation - ONLY for logged-in users
+  // Delivery fee calculation
   useEffect(() => {
     const timer = setTimeout(() => {
       const calculateDeliveryFee = async () => {
@@ -483,16 +628,6 @@ export default function MenuPage() {
     return adjustedSubtotal + calculatedTax + deliveryFeeAmount + packagingFeeAmount
   }, [adjustedSubtotal, calculatedTax, deliveryFee, packagingCharge, orderType, isLoggedIn])
 
-  const handleSort = (field: 'name' | 'price' | 'preparationTime') => {
-    if (field === sortField) {
-      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortDirection('asc')
-    }
-  }
-
-  // Handle login required - direct navigation to login
   const handleLoginRequired = (message: string) => {
     toast.error(message || 'Please login to continue')
     router.push('/login')
@@ -510,7 +645,6 @@ export default function MenuPage() {
     return ''
   }, [orderType, tableNumber, waiters])
 
-  // Handle order type selection - Prevent delivery for non-logged-in users
   const handleOrderTypeChange = (type: 'table' | 'delivery') => {
     if (type === 'delivery' && !isLoggedIn) {
       toast.error('Please login to use delivery service')
@@ -536,15 +670,9 @@ export default function MenuPage() {
       toast.error('Please select a table')
       return
     }
-    // For delivery orders, ensure user is logged in
     if (orderType === 'delivery' && !isLoggedIn) {
       toast.error('Please login to place delivery order')
       router.push('/login')
-      return
-    }
-    // For table orders without login, guest data will be collected in CartPanel
-    if (orderType === 'table' && !isLoggedIn && !guestUserData) {
-      // Guest data will be collected via the dialog in CartPanel
       return
     }
     setShowPaymentUpload(true)
@@ -614,7 +742,6 @@ export default function MenuPage() {
         }
       })
 
-      // Determine customer information based on login status and guest data
       const isGuest = !isLoggedIn && orderType === 'table'
       const customerId = isLoggedIn 
         ? (userData?.id || userData?._id || 'walk-in')
@@ -671,7 +798,6 @@ export default function MenuPage() {
         })
       }
 
-      // Add guest info if applicable
       if (isGuest && guestUserData) {
         ;(orderData as any).guestInfo = guestUserData
       }
@@ -707,8 +833,10 @@ export default function MenuPage() {
 
       if (!response.ok) throw new Error(result.error || result.message || 'Failed to place order')
       
-      // Clear cart and reset states
+      // ✅ ONLY CLEAR CART AFTER SUCCESSFUL ORDER
       clearCart()
+      
+      // Reset order form
       setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`)
       setOrderType('')
       setTableNumber('')
@@ -719,7 +847,6 @@ export default function MenuPage() {
       setShowPaymentUpload(false)
       setIsCartOpen(false)
       
-      // Clear guest data after successful order
       if (isGuest) {
         sessionStorage.removeItem('guestOrderData')
         setGuestUserData(null)
@@ -751,12 +878,6 @@ export default function MenuPage() {
     fetchMenuData()
   }
 
-  const getSortLabel = () => {
-    const field = sortField === 'preparationTime' ? 'Prep Time' : sortField.charAt(0).toUpperCase() + sortField.slice(1)
-    const direction = sortDirection === 'asc' ? '↑' : '↓'
-    return `${field} ${direction}`
-  }
-
   const categoryCounts = useMemo(() => {
     return items.reduce((acc, item) => {
       acc[item.categoryId] = (acc[item.categoryId] || 0) + 1
@@ -767,12 +888,21 @@ export default function MenuPage() {
   const clearFilters = () => {
     setSearchTerm('')
     setSelectedCategory(null)
-    setSortField('name')
-    setSortDirection('asc')
     toast.success('All filters cleared')
   }
 
   const hasActiveFilters = searchTerm !== '' || selectedCategory !== null
+
+  // Get display items - ALWAYS use mixed display when no filters
+  const getDisplayItems = (): Item[] => {
+    if (selectedCategory || searchTerm) {
+      return filteredItems
+    }
+    if (mixedDisplayItems.length > 0) {
+      return mixedDisplayItems
+    }
+    return filteredItems
+  }
 
   // Loading skeleton
   if (loading && !dataLoaded) {
@@ -820,29 +950,7 @@ export default function MenuPage() {
         <div className="hidden md:block sticky top-0 z-50 w-full bg-white/95 backdrop-blur-xl shadow-lg border-b border-purple-100">
           <div className="container mx-auto px-4 py-3">
             <div className="flex items-center gap-3 flex-wrap">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9 gap-1.5 border-purple-200 bg-white rounded-xl text-sm shadow-sm">
-                    <ArrowUpDown size={14} />
-                    {getSortLabel()}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="rounded-xl border-purple-200 shadow-lg">
-                  <DropdownMenuItem onClick={() => handleSort('name')} className="gap-2 text-sm cursor-pointer">
-                    Name
-                    {sortField === 'name' && (sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleSort('price')} className="gap-2 text-sm cursor-pointer">
-                    Price
-                    {sortField === 'price' && (sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleSort('preparationTime')} className="gap-2 text-sm cursor-pointer">
-                    Prep Time
-                    {sortField === 'preparationTime' && (sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
+              {/* Search Bar */}
               <div className="relative flex-1 max-w-[320px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-500" size={15} />
                 <Input
@@ -859,6 +967,7 @@ export default function MenuPage() {
                 )}
               </div>
 
+              {/* Category Filter */}
               <div className="w-[220px]">
                 <Select value={selectedCategory || 'all'} onValueChange={(value) => setSelectedCategory(value === 'all' ? null : value)}>
                   <SelectTrigger className="h-9 text-sm bg-white border border-purple-200 rounded-xl shadow-sm">
@@ -876,7 +985,7 @@ export default function MenuPage() {
                         All Categories
                       </div>
                     </SelectItem>
-                    {categories.map((category) => (
+                    {sortedCategories.map((category) => (
                       <SelectItem key={category._id} value={category._id} className="text-sm py-2">
                         <div className="flex items-center gap-2">
                           <div className="p-1 bg-purple-100 rounded-md">
@@ -900,6 +1009,7 @@ export default function MenuPage() {
                 </Button>
               )}
 
+              {/* View Mode Toggle */}
               <div className="flex gap-1 bg-white p-1 rounded-xl border border-purple-200 shadow-sm">
                 <Button variant={viewMode === 'grid' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('grid')} className={`rounded-lg h-8 w-8 transition-all ${viewMode === 'grid' ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-md' : 'hover:bg-purple-50 text-gray-600'}`}>
                   <Grid size={16} />
@@ -909,6 +1019,7 @@ export default function MenuPage() {
                 </Button>
               </div>
 
+              {/* Cart Button */}
               <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
                 <SheetTrigger asChild>
                   <Button variant="default" className="relative shadow-md bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white rounded-xl px-4 py-2 h-9 text-sm gap-2">
@@ -948,26 +1059,6 @@ export default function MenuPage() {
         <div className="md:hidden sticky top-0 z-50 w-full bg-white/95 backdrop-blur-xl shadow-sm border-b border-purple-100">
           <div className="px-3 py-2">
             <div className="flex items-center gap-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8 gap-1 border-purple-200 bg-white rounded-lg text-xs shrink-0 px-2.5">
-                    <ArrowUpDown size={12} />
-                    <span className="text-xs">Sort</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="rounded-xl border-purple-200 shadow-lg">
-                  <DropdownMenuItem onClick={() => handleSort('name')} className="gap-2 text-sm cursor-pointer">
-                    Name {sortField === 'name' && (sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleSort('price')} className="gap-2 text-sm cursor-pointer">
-                    Price {sortField === 'price' && (sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleSort('preparationTime')} className="gap-2 text-sm cursor-pointer">
-                    Prep Time {sortField === 'preparationTime' && (sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-500" size={13} />
                 <Input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-8 pr-6 py-1.5 h-8 text-xs bg-white border border-purple-200 rounded-lg focus:border-purple-900 focus:ring-2 focus:ring-purple-200 transition-all w-full" />
@@ -995,7 +1086,7 @@ export default function MenuPage() {
                         <span className="flex-1 text-sm">All Categories</span>
                       </div>
                     </DropdownMenuItem>
-                    {categories.map((category) => (
+                    {sortedCategories.map((category) => (
                       <DropdownMenuItem key={category._id} onClick={() => setSelectedCategory(category._id)} className={`cursor-pointer ${selectedCategory === category._id ? 'bg-purple-50 text-purple-900' : ''}`}>
                         <div className="flex items-center gap-2 w-full">
                           <div className="p-0.5 bg-purple-100 rounded">{getCategoryIcon(category.type, "h-3 w-3 text-purple-900")}</div>
@@ -1029,9 +1120,11 @@ export default function MenuPage() {
 
         {/* Main Content */}
         <main className="container mx-auto px-3 md:px-4 py-4 md:py-6">
-          {filteredItems.length > 0 && (
+          {getDisplayItems().length > 0 && (
             <div className="flex justify-between items-center mb-3 md:mb-4 px-1">
-              <p className="text-[11px] md:text-sm text-gray-500">Found <span className="font-semibold text-purple-900">{filteredItems.length}</span> items</p>
+              <p className="text-[11px] md:text-sm text-gray-500">
+                Found <span className="font-semibold text-purple-900">{getDisplayItems().length}</span> items
+              </p>
               <div className="flex items-center gap-1.5 md:gap-2">
                 <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-500 animate-pulse" />
                 <span className="text-[9px] md:text-xs text-gray-400">Ready to order</span>
@@ -1040,32 +1133,50 @@ export default function MenuPage() {
           )}
 
           <AnimatePresence mode="wait">
-            {filteredItems.length === 0 ? (
+            {getDisplayItems().length === 0 ? (
               <EmptyMenuState searchTerm={searchTerm} selectedCategory={selectedCategory} itemsLength={items.length} onClearFilters={clearFilters} onRefresh={handleRefresh} />
             ) : (
-              <>
-                <motion.div key="menu-items" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`grid gap-3 md:gap-5 ${viewMode === 'grid' ? 'grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
-                  {filteredItems.map((item, index) => {
-                    const category = categories.find(c => c._id === item.categoryId)
-                    const categoryName = category?.name || 'Uncategorized'
-                    return viewMode === 'grid' ? (
-                      <ItemCard key={item._id} item={item} categoryName={categoryName} onAddToCart={addToCart} onViewDetails={handleViewDetails} isUserLoggedIn={isLoggedIn} onLoginRequired={handleLoginRequired} index={index} />
-                    ) : (
-                      <ListViewItem key={item._id} item={item} categoryName={categoryName} onAddToCart={addToCart} onViewDetails={handleViewDetails} isUserLoggedIn={isLoggedIn} onLoginRequired={handleLoginRequired} index={index} />
-                    )
-                  })}
-                </motion.div>
-                {filteredItems.length > 0 && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="text-center mt-6 md:mt-8 pb-8">
-                    <Badge variant="outline" className="bg-white/80 backdrop-blur-sm px-2.5 py-1 md:px-4 md:py-2 rounded-full text-[9px] md:text-xs border border-purple-200 shadow-sm">
-                      <Eye className="h-2 w-2 md:h-3 md:w-3 mr-1 md:mr-1.5 text-purple-900" />
-                      Showing {filteredItems.length} of {items.length} items
-                    </Badge>
-                  </motion.div>
-                )}
-              </>
+              <motion.div key="menu-items" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`grid gap-3 md:gap-5 ${viewMode === 'grid' ? 'grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
+                {getDisplayItems().map((item, index) => {
+                  const category = categories.find(c => c._id === item.categoryId)
+                  const categoryName = category?.name || 'Uncategorized'
+                  
+                  return viewMode === 'grid' ? (
+                    <ItemCard 
+                      key={item._id}
+                      item={item} 
+                      categoryName={categoryName} 
+                      onAddToCart={addToCart} 
+                      onViewDetails={handleViewDetails} 
+                      isUserLoggedIn={isLoggedIn} 
+                      onLoginRequired={handleLoginRequired} 
+                      index={index} 
+                    />
+                  ) : (
+                    <ListViewItem 
+                      key={item._id}
+                      item={item} 
+                      categoryName={categoryName} 
+                      onAddToCart={addToCart} 
+                      onViewDetails={handleViewDetails} 
+                      isUserLoggedIn={isLoggedIn} 
+                      onLoginRequired={handleLoginRequired} 
+                      index={index} 
+                    />
+                  )
+                })}
+              </motion.div>
             )}
           </AnimatePresence>
+
+          {getDisplayItems().length > 0 && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="text-center mt-6 md:mt-8 pb-8">
+              <Badge variant="outline" className="bg-white/80 backdrop-blur-sm px-2.5 py-1 md:px-4 md:py-2 rounded-full text-[9px] md:text-xs border border-purple-200 shadow-sm">
+                <Eye className="h-2 w-2 md:h-3 md:w-3 mr-1 md:mr-1.5 text-purple-900" />
+                Showing {getDisplayItems().length} of {items.length} items
+              </Badge>
+            </motion.div>
+          )}
         </main>
       </div>
 
