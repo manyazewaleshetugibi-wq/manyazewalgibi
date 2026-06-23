@@ -69,7 +69,6 @@ const roleBasedNavigation = {
           { title: "purchase-request", url: "/purchase-request" }
         ],
       },
-     
       {
         title: "Menu Management",
         url: "#",
@@ -98,7 +97,6 @@ const roleBasedNavigation = {
           { title: "Blogs", url: "/blog" },
           { title: "Contents", url: "/contents" },
           { title: "Applications", url: "/applications" },
-          
         ],
       },
       {
@@ -111,7 +109,6 @@ const roleBasedNavigation = {
           { title: "profit", url: "/profit" }
         ],
       },
-      // Updated HR Training and Culture section with 3-level nesting
       {
         title: "HR Training and Culture",
         url: "#",
@@ -127,55 +124,27 @@ const roleBasedNavigation = {
             url: "#",
             icon: ListChecks,
             items: [
-              { 
-                title: "Steps-Register", 
-                url: "/Pregister",
-                icon: ListChecks
-              },
-              { 
-                title: "Steps-Card", 
-                url: "/preparation",
-                icon: ListChecks
-              },
-              { 
-                title: "Standards-Register", 
-                url: "/Sregister",
-                icon: ClipboardCheck
-              },
-              { 
-                title: "Standards-Cards", 
-                url: "/standards",
-                icon: ClipboardCheck
-              },
+              { title: "Steps-Register", url: "/Pregister", icon: ListChecks },
+              { title: "Steps-Card", url: "/preparation", icon: ListChecks },
+              { title: "Standards-Register", url: "/Sregister", icon: ClipboardCheck },
+              { title: "Standards-Cards", url: "/standards", icon: ClipboardCheck },
             ],
           },
         ],
       },
       {
-        title: "Restaurant and Staff ",
+        title: "Restaurant and Staff",
         url: "#",
         icon: ChefHat,
         items: [
-          { 
-            title: "Staff Management", 
-            url: "/staffregister",
-            icon: ListChecks
-          },
-          { 
-            title: "Waitress", 
-            url: "/waitress", 
-            icon: UserSquare2Icon 
-          },
-          { 
-            title: "Restaurant-Management", 
-            url: "/restaurants",
-            icon: ListChecks
-          },
+          { title: "Staff Management", url: "/staffregister", icon: ListChecks },
+          { title: "Waitress", url: "/waitress", icon: UserSquare2Icon },
+          { title: "Restaurant-Management", url: "/restaurants", icon: ListChecks },
         ],
       },
       {
         title: "BirthDate",
-        url: "/birthdate",
+        url: "#",
         icon: Cake,
         items: [
           { title: "BirthDate", url: "/BirthDate" },
@@ -202,30 +171,6 @@ const roleBasedNavigation = {
           { title: "Pending Delivery", url: "/delivery" },
         ],
       },
-      // {
-      //   title: "stockReport",
-      //   url: "#",
-      //   icon: Package,
-      //   items: [
-      //     { title: "stockReport", url: "/stockReport" },
-      //   ],
-      // },
-      // {
-      //   title: "Sales",
-      //   url: "#",
-      //   icon: FileText,
-      //   items: [
-      //     { title: "Sales", url: "/sales" },
-      //   ],
-      // },
-      // {
-      //   title: "Table Management",
-      //   url: "#",
-      //   icon: FileText,
-      //   items: [
-      //     { title: "Table Management", url: "/table-arrangement" },
-      //   ],
-      // },
     ],
     projects: [
       { name: "Training", url: "/training", icon: BookCheckIcon },
@@ -252,16 +197,8 @@ const roleBasedNavigation = {
         url: "#",
         icon: ChefHat,
         items: [
-          { 
-            title: "steps-register", 
-            url: "/Pregister",
-            icon: ListChecks
-          },
-          { 
-            title: "standards-register", 
-            url: "/Sregister",
-            icon: ClipboardCheck
-          },
+          { title: "steps-register", url: "/Pregister", icon: ListChecks },
+          { title: "standards-register", url: "/Sregister", icon: ClipboardCheck },
         ],
       },
     ],
@@ -474,7 +411,7 @@ const data = {
   ],
 };
 
-// Helper function to normalize role (remove case sensitivity)
+// Helper function to normalize role
 const normalizeRole = (role: string | undefined): string => {
   if (!role) return 'DEFAULT';
   return role.toUpperCase().trim();
@@ -484,21 +421,17 @@ const normalizeRole = (role: string | undefined): string => {
 const getNavigationForRole = (role: string | undefined) => {
   const normalizedRole = normalizeRole(role);
   
-  // Check if the role exists in our configuration
   if (roleBasedNavigation[normalizedRole as keyof typeof roleBasedNavigation]) {
     return roleBasedNavigation[normalizedRole as keyof typeof roleBasedNavigation];
   }
   
-  // Fall back to DEFAULT if role not found
   return roleBasedNavigation.DEFAULT;
 };
 
 // Function to add Edit Profile for all roles
 const addEditProfileForAllRoles = (projects: Array<{ name: string; url: string; icon: any }>) => {
   return [
-    // Add Edit Profile at the top for easy access for ALL roles
     { name: "Edit Profile", url: "/profile", icon: Settings },
-    // Then the existing projects
     ...projects,
   ];
 };
@@ -508,7 +441,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const userRole = session?.user?.role;
   const navigation = getNavigationForRole(userRole);
   
-  // Add Edit Profile to projects for ALL roles
   const enhancedProjects = addEditProfileForAllRoles(navigation.projects || []);
 
   return (
