@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import {
   Users, MapPin, Armchair, Store,
   CheckCircle, Coffee, Clock, AlertCircle, XCircle,
   Filter, Layers, Eye, UserCheck, Timer,
-  Lock, X, Undo2, ClipboardList, User, RefreshCw, SwitchCamera
+  Lock, X, Undo2, ClipboardList, User, RefreshCw, SwitchCamera,
+  ChevronDown, ChevronUp, Grid3x3, List,
+  Building2, Wifi, Plug, Tv, Wind, ShieldCheck
 } from 'lucide-react';
 import axios from 'axios';
 import { useSession } from 'next-auth/react';
@@ -41,6 +43,15 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 
 export interface TableData {
   id: string;
@@ -123,35 +134,35 @@ const STATUS_CONFIG: Record<TableData['status'], {
     bgGradient: 'from-green-400 to-green-500',
     label: 'Available',
     badgeColor: 'bg-green-500 text-white',
-    icon: <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
+    icon: <CheckCircle className="w-2.5 h-2.5" />
   },
   occupied: {
     color: 'text-red-600',
     bgGradient: 'from-red-400 to-red-500',
     label: 'Occupied',
     badgeColor: 'bg-red-500 text-white',
-    icon: <Coffee className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
+    icon: <Coffee className="w-2.5 h-2.5" />
   },
   reserved: {
     color: 'text-yellow-600',
     bgGradient: 'from-yellow-400 to-yellow-500',
     label: 'Reserved',
     badgeColor: 'bg-yellow-500 text-white',
-    icon: <Clock className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
+    icon: <Clock className="w-2.5 h-2.5" />
   },
   cleaning: {
     color: 'text-blue-600',
     bgGradient: 'from-blue-400 to-blue-500',
     label: 'Cleaning',
     badgeColor: 'bg-blue-500 text-white',
-    icon: <AlertCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
+    icon: <AlertCircle className="w-2.5 h-2.5" />
   },
   maintenance: {
     color: 'text-gray-600',
     bgGradient: 'from-gray-400 to-gray-500',
     label: 'Maintenance',
     badgeColor: 'bg-gray-500 text-white',
-    icon: <XCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
+    icon: <XCircle className="w-2.5 h-2.5" />
   }
 };
 
@@ -174,7 +185,7 @@ const getAnonymousId = (): string => {
   return anonymousId;
 };
 
-const SelectionTimer = ({ expiresAt, onExpire }: { expiresAt: string; onExpire?: () => void }) => {
+const SelectionTimer = ({ expiresAt, onExpire, compact = false }: { expiresAt: string; onExpire?: () => void; compact?: boolean }) => {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   
   useEffect(() => {
@@ -199,9 +210,18 @@ const SelectionTimer = ({ expiresAt, onExpire }: { expiresAt: string; onExpire?:
   
   if (timeLeft <= 0) return null;
   
+  if (compact) {
+    return (
+      <div className="flex items-center gap-0.5 text-[8px] font-mono bg-black/50 px-1 py-0.5 rounded-full text-white">
+        <Timer className="w-2 h-2" />
+        <span>{minutes}:{seconds.toString().padStart(2, '0')}</span>
+      </div>
+    );
+  }
+  
   return (
-    <div className="flex items-center gap-1 text-xs font-mono">
-      <Timer className="w-3 h-3" />
+    <div className="flex items-center gap-1 text-xs font-mono bg-black/50 px-1.5 py-0.5 rounded-full text-white">
+      <Timer className="w-2.5 h-2.5" />
       <span>{minutes}:{seconds.toString().padStart(2, '0')}</span>
     </div>
   );
@@ -216,6 +236,7 @@ const TableIcon = ({
   onUnselect,
   onClick,
   allowUnselect = true,
+  isMobile = false,
 }: { 
   table: TableData; 
   isSelected: boolean;
@@ -225,6 +246,7 @@ const TableIcon = ({
   onUnselect?: (tableId: string) => void;
   onClick: (table: TableData) => void;
   allowUnselect?: boolean;
+  isMobile?: boolean;
 }) => {
   const config = STATUS_CONFIG[table.status];
   const isAvailable = table.status === 'available';
@@ -242,11 +264,11 @@ const TableIcon = ({
       border-2 shadow-md hover:shadow-lg transition-all duration-200`;
     
     if (isSelected) {
-      base += ' ring-4 ring-purple-400 ring-opacity-50 scale-105 z-20';
+      base += ' ring-2 ring-purple-400 ring-opacity-50 scale-105 z-20';
     } else if (isSelectedByMe) {
-      base += ' ring-4 ring-green-400 ring-opacity-50 z-10';
+      base += ' ring-2 ring-green-400 ring-opacity-50 z-10';
     } else if (isSelectedByOther) {
-      base += ' ring-4 ring-yellow-400 ring-opacity-50 opacity-75';
+      base += ' ring-2 ring-yellow-400 ring-opacity-50 opacity-75';
     } else if (isReservedByOrder) {
       base += ' ring-2 ring-orange-400 ring-opacity-50';
     }
@@ -288,16 +310,15 @@ const TableIcon = ({
     }
   };
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
-  const tableWidth = isMobile ? Math.min((table.width || 75) * 0.7, 60) : (table.width || 75);
-  const tableHeight = isMobile ? Math.min((table.height || 75) * 0.7, 60) : (table.height || 75);
+  const tableWidth = isMobile ? Math.min((table.width || 75) * 0.5, 55) : (table.width || 75);
+  const tableHeight = isMobile ? Math.min((table.height || 75) * 0.5, 55) : (table.height || 75);
 
   return (
     <motion.div
       className={getShapeStyle()}
       style={{
-        left: isMobile ? (table.x || 50) * 0.7 : table.x,
-        top: isMobile ? (table.y || 50) * 0.7 : table.y,
+        left: isMobile ? (table.x || 50) * 0.55 : table.x,
+        top: isMobile ? (table.y || 50) * 0.55 : table.y,
         width: tableWidth,
         height: tableHeight,
       }}
@@ -307,35 +328,36 @@ const TableIcon = ({
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.2 }}
     >
-      <div className="relative w-full h-full flex flex-col items-center justify-center p-1">
-        <div className="font-bold text-white text-[8px] sm:text-xs">T{table.number}</div>
-        <div className="flex items-center gap-0.5 text-white text-[7px] sm:text-[10px]">
-          <Users className="w-2 h-2 sm:w-2.5 sm:h-2.5" />
+      <div className="relative w-full h-full flex flex-col items-center justify-center p-0.5">
+        <div className="font-bold text-white text-[9px] drop-shadow-md">T{table.number}</div>
+        <div className="flex items-center gap-0.5 text-white text-[7px] drop-shadow">
+          <Users className="w-1.5 h-1.5" />
           {table.capacity}
         </div>
-        <div className="absolute -bottom-1 -right-1">
+        <div className="absolute -bottom-0.5 -right-0.5 drop-shadow">
           {config.icon}
         </div>
         
         {isSelectedByOther && (
           <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center">
-            <Lock className="w-4 h-4 text-white" />
+            <Lock className="w-2.5 h-2.5 text-white" />
           </div>
         )}
         
         {isSelectedByMe && (
           <div className="absolute inset-0 bg-green-500/20 rounded-full flex items-center justify-center">
-            <span className="text-[8px] font-bold text-green-700 bg-white/80 px-1 rounded">
+            <span className="text-[6px] font-bold text-green-700 bg-white/80 px-0.5 rounded">
               YOU
             </span>
           </div>
         )}
         
         {isSelectedByMe && activeSelection && (
-          <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap z-30">
+          <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap z-30">
             <SelectionTimer 
               expiresAt={activeSelection.expiresAt} 
-              onExpire={() => onUnselect && onUnselect(table.id)} 
+              onExpire={() => onUnselect && onUnselect(table.id)}
+              compact={true}
             />
           </div>
         )}
@@ -343,9 +365,9 @@ const TableIcon = ({
         {isSelectedByMe && allowUnselect && (
           <button
             onClick={handleUnselectClick}
-            className="absolute -top-2 -right-2 z-20 bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-lg transition-all duration-200"
+            className="absolute -top-1 -right-1 z-20 bg-red-500 hover:bg-red-600 text-white rounded-full w-3 h-3 flex items-center justify-center shadow-lg transition-all duration-200 text-[6px]"
           >
-            <X className="w-3 h-3" />
+            <X className="w-1.5 h-1.5" />
           </button>
         )}
       </div>
@@ -357,35 +379,26 @@ const SelectedTableBanner = ({
   selectedTable, 
   activeSelection, 
   onUnselect, 
-  isSelecting 
+  isSelecting,
+  compact = false,
 }: { 
   selectedTable: TableData | null;
   activeSelection: ActiveSelection | null;
   onUnselect: () => void;
   isSelecting: boolean;
+  compact?: boolean;
 }) => {
   if (!selectedTable || !activeSelection) return null;
   
-  return (
-    <Alert className="bg-green-50 border-green-200">
-      <UserCheck className="h-4 w-4 text-green-600" />
-      <AlertTitle className="text-green-800 text-sm font-medium">
-        Currently Selected Table
-      </AlertTitle>
-      <AlertDescription className="text-green-700">
-        <div className="flex items-center justify-between flex-wrap gap-2 mt-1">
-          <div>
-            <span className="font-bold">Table {selectedTable.number}</span>
-            <span className="text-xs ml-2 text-green-600">
-              ({selectedTable.capacity} seats)
-            </span>
+  if (compact) {
+    return (
+      <div className="bg-green-50 border border-green-200 rounded-lg px-2 py-1.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <UserCheck className="w-3 h-3 text-green-600" />
+            <span className="text-[10px] font-semibold text-green-800">Table {selectedTable.number}</span>
             {activeSelection.expiresAt && (
-              <div className="text-xs mt-1">
-                <SelectionTimer 
-                  expiresAt={activeSelection.expiresAt} 
-                  onExpire={onUnselect}
-                />
-              </div>
+              <SelectionTimer expiresAt={activeSelection.expiresAt} onExpire={onUnselect} compact={true} />
             )}
           </div>
           <Button
@@ -393,7 +406,39 @@ const SelectedTableBanner = ({
             size="sm"
             onClick={onUnselect}
             disabled={isSelecting}
-            className="border-red-300 text-red-600 hover:bg-red-50"
+            className="border-red-300 text-red-600 hover:bg-red-50 h-5 px-1.5 text-[8px] rounded-full"
+          >
+            <Undo2 className="w-2 h-2 mr-0.5" />
+            Unselect
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <Alert className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 py-2 rounded-xl">
+      <UserCheck className="h-3 w-3 text-green-600" />
+      <AlertTitle className="text-green-800 text-xs font-semibold">
+        Selected: Table {selectedTable.number}
+      </AlertTitle>
+      <AlertDescription className="text-green-700 text-xs">
+        <div className="flex items-center justify-between flex-wrap gap-1 mt-0.5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs bg-green-100 px-1.5 py-0.5 rounded-full">{selectedTable.capacity} seats</span>
+            {activeSelection.expiresAt && (
+              <SelectionTimer 
+                expiresAt={activeSelection.expiresAt} 
+                onExpire={onUnselect}
+              />
+            )}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onUnselect}
+            disabled={isSelecting}
+            className="border-red-300 text-red-600 hover:bg-red-50 h-7 text-xs px-2 rounded-full"
           >
             <Undo2 className="w-3 h-3 mr-1" />
             Unselect
@@ -416,6 +461,7 @@ const TableDetailDialog = ({
   isUserLoggedIn,
   onLoginRequired,
   allowUnselect = true,
+  isMobile = false,
 }: {
   table: TableData | null;
   activeSelection: ActiveSelection | null;
@@ -428,6 +474,7 @@ const TableDetailDialog = ({
   isUserLoggedIn: boolean;
   onLoginRequired?: () => void;
   allowUnselect?: boolean;
+  isMobile?: boolean;
 }) => {
   const [isActionLoading, setIsActionLoading] = useState(false);
   
@@ -478,232 +525,338 @@ const TableDetailDialog = ({
     }
   };
 
+  const getFeatureIcon = (feature: string) => {
+    const f = feature.toLowerCase();
+    if (f.includes('wifi')) return <Wifi className="w-2.5 h-2.5" />;
+    if (f.includes('outlet') || f.includes('plug')) return <Plug className="w-2.5 h-2.5" />;
+    if (f.includes('tv') || f.includes('screen')) return <Tv className="w-2.5 h-2.5" />;
+    if (f.includes('ac') || f.includes('cooling')) return <Wind className="w-2.5 h-2.5" />;
+    return <ShieldCheck className="w-2.5 h-2.5" />;
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[400px] max-w-[95vw] bg-gradient-to-br from-white to-purple-50/30 rounded-xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
-            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br ${config.bgGradient} flex items-center justify-center`}>
-              <Armchair className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+      <DialogContent className={`${isMobile ? 'max-w-[92vw]' : 'sm:max-w-[420px]'} bg-gradient-to-br from-white to-purple-50/40 rounded-2xl p-0 overflow-hidden`}>
+        <div className={`h-1 w-full bg-gradient-to-r ${config.bgGradient}`} />
+        <div className={`${isMobile ? 'p-3' : 'p-5'}`}>
+          <DialogHeader className={`${isMobile ? 'pb-1' : 'pb-2'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`${isMobile ? 'w-7 h-7' : 'w-10 h-10'} rounded-xl bg-gradient-to-br ${config.bgGradient} flex items-center justify-center shadow-md`}>
+                  <Armchair className={`${isMobile ? 'w-3.5 h-3.5' : 'w-5 h-5'} text-white`} />
+                </div>
+                <div>
+                  <DialogTitle className={`${isMobile ? 'text-base' : 'text-xl'} font-bold`}>Table {table.number}</DialogTitle>
+                  <DialogDescription className="text-[10px] flex items-center gap-1 mt-0.5">
+                    <MapPin className="w-2.5 h-2.5" />
+                    {table.location || table.section || 'Main Area'}
+                  </DialogDescription>
+                </div>
+              </div>
+              <Badge className={`${config.badgeColor} text-[8px] px-1.5 py-0 rounded-full`}>
+                {isReservedByOrder ? 'Reserved (Order)' : config.label}
+              </Badge>
             </div>
-            Table {table.number}
-          </DialogTitle>
-          <DialogDescription>
-            Table details and information
-          </DialogDescription>
-        </DialogHeader>
+          </DialogHeader>
 
-        <div className="space-y-3 py-2">
-          {isSelectedByMe && activeSelection && (
-            <div className="p-3 rounded-lg border bg-green-50 border-green-200">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <UserCheck className="w-4 h-4 text-green-600" />
-                  <span className="text-sm font-medium text-green-800">
-                    You have selected this table
+          <div className={`space-y-2 ${isMobile ? 'py-1' : 'py-2'}`}>
+            {isSelectedByMe && activeSelection && (
+              <div className="p-2 rounded-xl border bg-green-50 border-green-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <UserCheck className="w-2.5 h-2.5 text-green-600" />
+                    <span className="text-[10px] font-medium text-green-800">
+                      You have selected this table
+                    </span>
+                  </div>
+                  <div className="bg-green-100 rounded-full px-1.5 py-0.5">
+                    <SelectionTimer expiresAt={activeSelection.expiresAt} onExpire={handleUnselect} compact={true} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {isSelectedByOther && (
+              <div className="p-2 rounded-xl border bg-yellow-50 border-yellow-200">
+                <div className="flex items-center gap-1.5">
+                  <Eye className="w-2.5 h-2.5 text-yellow-600" />
+                  <span className="text-[10px] font-medium text-yellow-800">
+                    Selected by another customer
                   </span>
                 </div>
-                <SelectionTimer 
-                  expiresAt={activeSelection.expiresAt} 
-                  onExpire={handleUnselect}
-                />
               </div>
-            </div>
-          )}
+            )}
 
-          {isSelectedByOther && (
-            <div className="p-3 rounded-lg border bg-yellow-50 border-yellow-200">
-              <div className="flex items-center gap-2">
-                <Eye className="w-4 h-4 text-yellow-600" />
-                <span className="text-sm font-medium text-yellow-800">
-                  Selected by another customer
-                </span>
-              </div>
-            </div>
-          )}
-
-          {isReservedByOrder && table.reservationInfo && (
-            <div className="p-3 rounded-lg border bg-orange-50 border-orange-200">
-              <div className="flex items-center gap-2 mb-2">
-                <ClipboardList className="w-4 h-4 text-orange-600" />
-                <span className="text-sm font-medium text-orange-800">Active Order</span>
-              </div>
-              {table.reservationInfo.orderNumber && (
-                <p className="text-xs text-orange-700">Order #{table.reservationInfo.orderNumber}</p>
-              )}
-              {table.reservationInfo.customerName && (
-                <p className="text-xs text-orange-700">Customer: {table.reservationInfo.customerName}</p>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between p-2 sm:p-3 bg-gray-50 rounded-lg">
-            <span className="text-xs sm:text-sm text-gray-600">Status</span>
-            <Badge className={`${config.badgeColor} text-xs`}>
-              {isReservedByOrder ? 'Reserved (Order)' : config.label}
-            </Badge>
-          </div>
-
-          <div className="flex items-center justify-between p-2 sm:p-3 bg-gray-50 rounded-lg">
-            <span className="text-xs sm:text-sm text-gray-600 flex items-center gap-1">
-              <Users className="w-3 h-3 sm:w-4 sm:h-4" /> Capacity
-            </span>
-            <span className="font-semibold text-sm sm:text-base">{table.capacity} seats</span>
-          </div>
-
-          {table.floor && (
-            <div className="flex items-center justify-between p-2 sm:p-3 bg-gray-50 rounded-lg">
-              <span className="text-xs sm:text-sm text-gray-600 flex items-center gap-1">
-                <Layers className="w-3 h-3 sm:w-4 sm:h-4" /> Floor
-              </span>
-              <span className="font-semibold text-sm">{table.floor}</span>
-            </div>
-          )}
-
-          {table.restaurantName && (
-            <div className="flex items-center justify-between p-2 sm:p-3 bg-gray-50 rounded-lg">
-              <span className="text-xs sm:text-sm text-gray-600 flex items-center gap-1">
-                <Store className="w-3 h-3 sm:w-4 sm:h-4" /> Restaurant
-              </span>
-              <span className="font-semibold text-sm">{table.restaurantName}</span>
-            </div>
-          )}
-
-          {table.location && (
-            <div className="flex items-center justify-between p-2 sm:p-3 bg-gray-50 rounded-lg">
-              <span className="text-xs sm:text-sm text-gray-600 flex items-center gap-1">
-                <MapPin className="w-3 h-3 sm:w-4 sm:h-4" /> Location
-              </span>
-              <span className="font-semibold text-sm">{table.location}</span>
-            </div>
-          )}
-
-          {table.description && (
-            <div className="p-2 sm:p-3 bg-gray-50 rounded-lg">
-              <span className="text-xs sm:text-sm text-gray-600 block mb-1">Description</span>
-              <p className="text-xs sm:text-sm">{table.description}</p>
-            </div>
-          )}
-
-          {table.features && table.features.length > 0 && (
-            <div className="p-2 sm:p-3 bg-gray-50 rounded-lg">
-              <span className="text-xs sm:text-sm text-gray-600 block mb-2">Features</span>
-              <div className="flex flex-wrap gap-1">
-                {table.features.slice(0, 3).map((feature, i) => (
-                  <Badge key={i} variant="outline" className="text-[10px] sm:text-xs bg-purple-50">
-                    {feature}
-                  </Badge>
-                ))}
-                {table.features.length > 3 && (
-                  <Badge variant="outline" className="text-[10px] sm:text-xs">
-                    +{table.features.length - 3}
-                  </Badge>
+            {isReservedByOrder && table.reservationInfo && (
+              <div className="p-2 rounded-xl border bg-orange-50 border-orange-200">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <ClipboardList className="w-2.5 h-2.5 text-orange-600" />
+                  <span className="text-[10px] font-medium text-orange-800">Active Order</span>
+                </div>
+                {table.reservationInfo.orderNumber && (
+                  <p className="text-[9px] text-orange-700">Order #{table.reservationInfo.orderNumber}</p>
+                )}
+                {table.reservationInfo.customerName && (
+                  <p className="text-[9px] text-orange-700">Customer: {table.reservationInfo.customerName}</p>
                 )}
               </div>
-            </div>
-          )}
-        </div>
+            )}
 
-        <div className="flex gap-2 mt-2">
-          <Button variant="outline" className="flex-1 text-sm" onClick={() => onOpenChange(false)} disabled={isActionLoading}>
-            Cancel
-          </Button>
-          {canUnselect ? (
-            <Button
-              className="flex-1 text-sm bg-red-600 hover:bg-red-700 text-white"
-              onClick={handleUnselect}
-              disabled={isActionLoading}
-            >
-              <Undo2 className="w-4 h-4 mr-2" />
-              Unselect Table
+            <div className="grid grid-cols-2 gap-1.5">
+              <div className="flex items-center justify-between p-1.5 bg-gray-50 rounded-lg">
+                <span className="text-[9px] text-gray-600 flex items-center gap-0.5">
+                  <Users className="w-2.5 h-2.5" /> Capacity
+                </span>
+                <span className="font-semibold text-[10px]">{table.capacity} seats</span>
+              </div>
+
+              {table.floor && (
+                <div className="flex items-center justify-between p-1.5 bg-gray-50 rounded-lg">
+                  <span className="text-[9px] text-gray-600 flex items-center gap-0.5">
+                    <Layers className="w-2.5 h-2.5" /> Floor
+                  </span>
+                  <span className="font-semibold text-[10px]">{table.floor}</span>
+                </div>
+              )}
+
+              {table.restaurantName && (
+                <div className="flex items-center justify-between p-1.5 bg-gray-50 rounded-lg col-span-2">
+                  <span className="text-[9px] text-gray-600 flex items-center gap-0.5">
+                    <Store className="w-2.5 h-2.5" /> Restaurant
+                  </span>
+                  <span className="font-semibold text-[10px] truncate max-w-[180px]">{table.restaurantName}</span>
+                </div>
+              )}
+            </div>
+
+            {table.description && (
+              <div className="p-1.5 bg-gray-50 rounded-lg">
+                <span className="text-[9px] text-gray-600 block mb-0.5">Description</span>
+                <p className="text-[10px]">{table.description}</p>
+              </div>
+            )}
+
+            {table.features && table.features.length > 0 && (
+              <div className="p-1.5 bg-gray-50 rounded-lg">
+                <span className="text-[9px] text-gray-600 block mb-1">Features & Amenities</span>
+                <div className="flex flex-wrap gap-1">
+                  {table.features.slice(0, 3).map((feature, i) => (
+                    <Badge key={i} variant="secondary" className="text-[7px] py-0 gap-0.5 bg-purple-100 text-purple-700">
+                      {getFeatureIcon(feature)}
+                      {feature.length > 10 ? feature.slice(0, 8)+'...' : feature}
+                    </Badge>
+                  ))}
+                  {table.features.length > 3 && (
+                    <Badge variant="secondary" className="text-[7px] py-0 bg-gray-100">+{table.features.length-3}</Badge>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 mt-3">
+            <Button variant="outline" className="flex-1 rounded-lg h-8 text-xs" onClick={() => onOpenChange(false)} disabled={isActionLoading}>
+              Cancel
             </Button>
-          ) : (
-            <Button
-              className={`flex-1 text-sm ${canSelect ? 'bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950' : 'bg-gray-400 cursor-not-allowed'}`}
-              onClick={handleSelect}
-              disabled={!canSelect || isActionLoading}
-            >
-              {isActionLoading ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : isSelectedByMe ? 'Already Selected' : 
-               isSelectedByOther ? 'Selected by Another' : 
-               isReservedByOrder ? 'Has Active Order' : 
-               !isAvailable ? `Not Available` : 
-               'Select Table'}
-            </Button>
-          )}
+            {canUnselect ? (
+              <Button
+                className="flex-1 rounded-lg h-8 bg-red-600 hover:bg-red-700 text-white text-xs"
+                onClick={handleUnselect}
+                disabled={isActionLoading}
+              >
+                <Undo2 className="w-3 h-3 mr-1" />
+                Unselect
+              </Button>
+            ) : (
+              <Button
+                className={`flex-1 rounded-lg h-8 text-xs ${canSelect ? 'bg-gradient-to-r from-purple-700 to-purple-900 hover:from-purple-800 hover:to-purple-950 shadow-md' : 'bg-gray-400 cursor-not-allowed'}`}
+                onClick={handleSelect}
+                disabled={!canSelect || isActionLoading}
+              >
+                {isActionLoading ? (
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                ) : isSelectedByMe ? 'Already Selected' : 
+                 isSelectedByOther ? 'Selected by Another' : 
+                 isReservedByOrder ? 'Has Active Order' : 
+                 !isAvailable ? `Not Available` : 
+                 'Select Table'}
+              </Button>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
   );
 };
 
-const FloorCard = ({ 
-  floor, 
-  restaurants, 
-  onRestaurantSelect,
+// Modern Floor & Restaurant Selector Component (Mobile Optimized)
+const ModernFloorSelector = ({
+  floors,
+  restaurants,
+  selectedFloor,
   selectedRestaurantId,
-  selectedFloor
-}: { 
-  floor: string;
+  onSelect,
+  isMobile = false,
+}: {
+  floors: string[];
   restaurants: RestaurantData[];
-  onRestaurantSelect: (restaurantId: string, floor: string) => void;
-  selectedRestaurantId: string;
   selectedFloor: string;
+  selectedRestaurantId: string;
+  onSelect: (restaurantId: string, floor: string) => void;
+  isMobile?: boolean;
 }) => {
-  const floorRestaurants = restaurants.filter(r => r.floor === floor);
-  const totalTables = floorRestaurants.reduce((sum, r) => sum + (r.totalTables || 0), 0);
-  const totalAvailable = floorRestaurants.reduce((sum, r) => sum + (r.availableTables || 0), 0);
-  const isActive = selectedFloor === floor;
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const restaurantsByFloor = useMemo(() => {
+    const map = new Map<string, RestaurantData[]>();
+    floors.forEach(floor => {
+      map.set(floor, restaurants.filter(r => r.floor === floor));
+    });
+    return map;
+  }, [floors, restaurants]);
+
+  const currentRestaurant = restaurants.find(r => r.restaurantId === selectedRestaurantId);
+  const currentFloorRestaurants = restaurantsByFloor.get(selectedFloor) || [];
+
+  if (isMobile) {
+    return (
+      <div className="space-y-1.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="w-full justify-between rounded-lg bg-white/80 backdrop-blur-sm border-purple-100 h-8 text-xs">
+              <div className="flex items-center gap-1.5">
+                <Building2 className="w-3 h-3 text-purple-600" />
+                <span className="font-medium text-xs">{currentRestaurant?.restaurantName || 'Select Restaurant'}</span>
+              </div>
+              <ChevronDown className="w-3 h-3 text-gray-400" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-[calc(100vw-2rem)] max-w-sm rounded-xl">
+            {floors.map(floor => {
+              const floorRestaurants = restaurantsByFloor.get(floor) || [];
+              if (floorRestaurants.length === 0) return null;
+              return (
+                <div key={floor} className="px-2 py-1">
+                  <div className="text-[10px] font-semibold text-purple-600 px-2 py-0.5">{floor}</div>
+                  {floorRestaurants.map(r => (
+                    <DropdownMenuItem
+                      key={r.restaurantId}
+                      onClick={() => onSelect(r.restaurantId, floor)}
+                      className={`cursor-pointer rounded-lg text-xs ${selectedRestaurantId === r.restaurantId ? 'bg-purple-50 text-purple-700' : ''}`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span>{r.restaurantName}</span>
+                        <Badge variant="outline" className="text-[7px] bg-gray-50 px-1">
+                          {r.availableTables || 0} free
+                        </Badge>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                  <Separator className="my-1" />
+                </div>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        
+        <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-hide">
+          {floors.map(floor => (
+            <button
+              key={floor}
+              onClick={() => {
+                const firstRestaurant = restaurantsByFloor.get(floor)?.[0];
+                if (firstRestaurant) onSelect(firstRestaurant.restaurantId, floor);
+              }}
+              className={`px-2 py-1 rounded-full text-[9px] font-medium whitespace-nowrap transition-all ${
+                selectedFloor === floor
+                  ? 'bg-purple-600 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {floor.length > 12 ? floor.slice(0, 10)+'…' : floor}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <Card 
-      className={`cursor-pointer transition-all ${isActive ? 'ring-2 ring-purple-500 shadow-lg' : 'hover:shadow-md'}`}
-      onClick={() => {
-        if (floorRestaurants.length === 1) {
-          onRestaurantSelect(floorRestaurants[0].restaurantId, floor);
-        }
-      }}
-    >
-      <CardContent className="p-3 sm:p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Layers className={`w-4 h-4 ${isActive ? 'text-purple-600' : 'text-gray-400'}`} />
-            <span className="font-medium text-sm">{floor}</span>
-          </div>
-          <div className="flex gap-2 text-xs">
-            <span className="text-green-600">{totalAvailable} free</span>
-            <span className="text-gray-400">|</span>
-            <span>{totalTables} total</span>
-          </div>
-        </div>
-        {floorRestaurants.length > 1 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {floorRestaurants.map(r => (
-              <Badge 
-                key={r.restaurantId}
-                variant={selectedRestaurantId === r.restaurantId && isActive ? 'default' : 'outline'}
-                className={`text-xs cursor-pointer ${selectedRestaurantId === r.restaurantId && isActive ? 'bg-purple-600' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRestaurantSelect(r.restaurantId, floor);
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <Building2 className="w-4 h-4 text-purple-600" />
+          Select Your Floor & Restaurant
+        </h3>
+        <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)} className="text-xs text-purple-600 h-7">
+          {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          {isExpanded ? 'Collapse' : 'Expand'}
+        </Button>
+      </div>
+      
+      <div className={`grid gap-3 transition-all duration-300 ${isExpanded ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'}`}>
+        {floors.map(floor => {
+          const floorRestaurants = restaurantsByFloor.get(floor) || [];
+          const isActiveFloor = selectedFloor === floor;
+          const totalAvailable = floorRestaurants.reduce((sum, r) => sum + (r.availableTables || 0), 0);
+          
+          return (
+            <div
+              key={floor}
+              className={`rounded-xl border-2 transition-all overflow-hidden ${
+                isActiveFloor ? 'border-purple-300 bg-purple-50/30 shadow-md' : 'border-gray-100 bg-white hover:border-purple-200'
+              }`}
+            >
+              <div
+                className={`px-3 py-2 cursor-pointer ${isActiveFloor ? 'bg-purple-100/50' : 'bg-gray-50'}`}
+                onClick={() => {
+                  const firstRestaurant = floorRestaurants[0];
+                  if (firstRestaurant) onSelect(firstRestaurant.restaurantId, floor);
                 }}
               >
-                {r.restaurantName}
-              </Badge>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Layers className={`w-4 h-4 ${isActiveFloor ? 'text-purple-600' : 'text-gray-400'}`} />
+                    <span className="font-semibold text-sm">{floor}</span>
+                  </div>
+                  <Badge variant={isActiveFloor ? 'default' : 'secondary'} className="text-[10px]">
+                    {totalAvailable} available
+                  </Badge>
+                </div>
+              </div>
+              
+              <div className="p-2 space-y-1.5">
+                {floorRestaurants.map(r => (
+                  <div
+                    key={r.restaurantId}
+                    onClick={() => onSelect(r.restaurantId, floor)}
+                    className={`px-2 py-1.5 rounded-lg cursor-pointer transition-all flex items-center justify-between ${
+                      selectedRestaurantId === r.restaurantId && isActiveFloor
+                        ? 'bg-purple-100 border border-purple-200'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="text-sm font-medium">{r.restaurantName}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-green-600">{r.availableTables || 0}</span>
+                      <span className="text-xs text-gray-400">/ {r.totalTables || 0}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 };
 
-// Main Component - COMPLETE WITH GUEST SUPPORT
+// Main Component - Fully Responsive & Mobile Optimized
 export function TableSelector({
   onTableSelect,
   selectedTable = null,
-  isUserLoggedIn = false, // Default to false for guest access
+  isUserLoggedIn = false,
   onLoginRequired,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
@@ -724,10 +877,9 @@ export function TableSelector({
   const [selectedTableForDetail, setSelectedTableForDetail] = useState<TableData | null>(null);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [currentRestaurantName, setCurrentRestaurantName] = useState<string>('');
-  const [zoom, setZoom] = useState(100);
-  const [viewMode, setViewMode] = useState<'layout' | 'list'>('layout');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   
   const [activeSelection, setActiveSelection] = useState<ActiveSelection | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
@@ -747,14 +899,15 @@ export function TableSelector({
   const open = controlledOpen ?? internalOpen;
   const setOpen = controlledOnOpenChange ?? setInternalOpen;
 
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const isDesktop = !isMobile;
+
   const isAuthenticated = useCallback(() => {
-    // Guest users are always "authenticated" for table selection
     if (!isUserLoggedIn) return true;
     return sessionStatus === 'authenticated' && session?.user?.email;
   }, [isUserLoggedIn, sessionStatus, session]);
 
   const handleSessionExpired = useCallback(() => {
-    // Don't expire for guests
     if (!isUserLoggedIn) return;
     
     if (isSessionExpired) return;
@@ -986,7 +1139,6 @@ export function TableSelector({
     }
   };
 
-  // Atomic switch table function - works for both guests and logged-in users
   const handleSwitchTableAtomic = async (newTable: TableData) => {
     if (isSwitchingTable) return;
     if (selectionLockRef.current) return;
@@ -1058,7 +1210,6 @@ export function TableSelector({
   const handleSelectTable = async (table: TableData) => {
     const now = Date.now();
     
-    // Rate limiting for manual mode only
     if (!autoSwitchTables && now - lastSelectionAttemptRef.current < 2000) {
       toast.loading('Please wait before selecting again...', { duration: 1000 });
       return;
@@ -1080,13 +1231,11 @@ export function TableSelector({
       return;
     }
     
-    // If auto-switch is enabled, use atomic switch operation
     if (autoSwitchTables) {
       await handleSwitchTableAtomic(table);
       return;
     }
     
-    // Manual mode - original logic (works for guests)
     lastSelectionAttemptRef.current = now;
     
     if (activeSelection && activeSelection.tableId === table.id) {
@@ -1184,28 +1333,117 @@ export function TableSelector({
     reserved: tables.filter(t => t.status === 'reserved').length,
   };
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
-  const scaledWidth = isMobile ? Math.min(dimensions.width * 0.7, 500) : dimensions.width;
-  const scaledHeight = isMobile ? Math.min(dimensions.height * 0.7, 400) : dimensions.height;
+  const scaledWidth = isMobile ? dimensions.width * 0.45 : dimensions.width;
+  const scaledHeight = isMobile ? dimensions.height * 0.45 : dimensions.height;
 
   const isTableSelectedByMe = activeSelection && (
     (isUserLoggedIn && activeSelection.selectedBy === session?.user?.email) ||
     (!isUserLoggedIn && activeSelection.anonymousId === anonymousId)
   );
 
+  // Table List View for Mobile (Compact)
+  const TableListView = () => (
+    <ScrollArea className="h-[320px] pr-1">
+      <div className="space-y-1.5">
+        {filteredTables.map(table => {
+          const config = STATUS_CONFIG[table.status];
+          const isAvailable = table.status === 'available';
+          const isSelectedByAny = activeSelection && activeSelection.tableId === table.id;
+          const isSelectedByMe = isSelectedByAny && (
+            (isUserLoggedIn && activeSelection?.selectedBy === session?.user?.email) ||
+            (!isUserLoggedIn && activeSelection?.anonymousId === anonymousId)
+          );
+          
+          return (
+            <div
+              key={table.id}
+              onClick={() => isAvailable && !isSelectedByAny && handleTableClick(table)}
+              className={`flex items-center justify-between p-2 rounded-lg border transition-all ${
+                isAvailable && !isSelectedByAny
+                  ? 'cursor-pointer hover:border-purple-300 hover:bg-purple-50/30'
+                  : 'opacity-70 cursor-not-allowed'
+              } ${isSelectedByMe ? 'border-green-300 bg-green-50/50' : 'border-gray-100 bg-white'}`}
+            >
+              <div className="flex items-center gap-2">
+                <div className={`w-7 h-7 rounded-lg bg-gradient-to-br ${config.bgGradient} flex items-center justify-center shadow-sm`}>
+                  <Armchair className="w-3.5 h-3.5 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-xs">Table {table.number}</span>
+                    <Badge className={`${config.badgeColor} text-[7px] px-1 py-0`}>
+                      {config.label}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[8px] text-gray-500 flex items-center gap-0.5">
+                      <Users className="w-2 h-2" /> {table.capacity} seats
+                    </span>
+                    {table.location && (
+                      <span className="text-[8px] text-gray-400">• {table.location.length > 12 ? table.location.slice(0, 10)+'…' : table.location}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {isSelectedByMe && (
+                <div className="flex items-center gap-1">
+                  <div className="bg-green-100 rounded-full px-1.5 py-0.5">
+                    <span className="text-[7px] font-medium text-green-700">Selected</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-5 w-5 p-0 text-red-500"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleUnselectTable(table.id);
+                    }}
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </Button>
+                </div>
+              )}
+              
+              {!isSelectedByMe && isAvailable && !isSelectedByAny && (
+                <Button
+                  size="sm"
+                  className="rounded-full bg-purple-600 hover:bg-purple-700 text-white h-6 px-2 text-[9px]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSelectTable(table);
+                  }}
+                >
+                  Select
+                </Button>
+              )}
+              
+              {!isAvailable && !isSelectedByAny && (
+                <div className="text-[8px] text-gray-400 flex items-center gap-0.5">
+                  <Lock className="w-2 h-2" />
+                  Unavailable
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </ScrollArea>
+  );
+
   if (isSessionExpired) {
     return (
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-[400px] text-center">
+        <DialogContent className="sm:max-w-[400px] text-center rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="text-red-600 flex items-center justify-center gap-2">
-              <AlertCircle className="w-5 h-5" />
+            <DialogTitle className="text-red-600 flex items-center justify-center gap-2 text-base">
+              <AlertCircle className="w-4 h-4" />
               Session Expired
             </DialogTitle>
           </DialogHeader>
-          <div className="py-6">
-            <p className="text-gray-600 mb-4">Your session has expired. Please log in again to continue.</p>
-            <Button onClick={() => { if (onLoginRequired) onLoginRequired(); else window.location.reload(); }} className="bg-purple-600 hover:bg-purple-700">
+          <div className="py-4">
+            <p className="text-xs text-gray-600 mb-3">Your session has expired. Please log in again to continue.</p>
+            <Button onClick={() => { if (onLoginRequired) onLoginRequired(); else window.location.reload(); }} className="bg-purple-600 hover:bg-purple-700 rounded-lg h-8 text-xs">
               Log In Again
             </Button>
           </div>
@@ -1214,241 +1452,193 @@ export function TableSelector({
     );
   }
 
-  const content = (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-gradient-to-r from-purple-800 to-purple-900 rounded-xl">
-            <Armchair className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h3 className="text-lg font-bold text-gray-800">Select a Table</h3>
-            {currentRestaurantName && (
-              <p className="text-xs text-gray-500 flex items-center gap-1">
-                <Store className="w-3 h-3" />
-                {currentRestaurantName} • {selectedFloor}
+  // Mobile optimized main content - fits on one screen
+  const mainContent = (
+    <div className="flex flex-col h-full bg-white">
+      {/* Header - Compact */}
+      <div className="px-3 pt-2 pb-1 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-gradient-to-br from-purple-700 to-purple-900 rounded-lg shadow-sm">
+              <Armchair className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <h2 className="font-bold text-sm text-gray-800">Select Table</h2>
+              <p className="text-[9px] text-gray-500 flex items-center gap-1">
+                <span>{currentRestaurantName?.slice(0, 15) || 'Restaurant'}</span>
+                <span className="w-0.5 h-0.5 rounded-full bg-gray-300" />
+                <span>{selectedFloor?.slice(0, 12)}</span>
               </p>
-            )}
+            </div>
           </div>
-        </div>
-        
-        {!isUserLoggedIn && (
-          <div className="bg-purple-100 rounded-full px-2 py-1 text-xs text-purple-700">
-            <User className="w-3 h-3 inline mr-1" />
-            Guest Mode
-          </div>
-        )}
-
-        {autoSwitchTables && (
-          <div className="bg-blue-100 rounded-full px-2 py-1 text-xs text-blue-700 flex items-center gap-1">
-            <SwitchCamera className="w-3 h-3" />
-            Auto-Switch ON
-          </div>
-        )}
-      </div>
-
-      {selectedTable && isTableSelectedByMe && (
-        <SelectedTableBanner 
-          selectedTable={selectedTable}
-          activeSelection={activeSelection}
-          onUnselect={() => handleUnselectTable()}
-          isSelecting={isSelecting}
-        />
-      )}
-
-      {uniqueFloors.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-xs text-gray-500 flex items-center gap-1">
-            <Layers className="w-3 h-3" /> Select Floor
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {uniqueFloors.map((floor) => (
-              <FloorCard
-                key={floor}
-                floor={floor}
-                restaurants={restaurants}
-                onRestaurantSelect={handleRestaurantSelect}
-                selectedRestaurantId={selectedRestaurantId}
-                selectedFloor={selectedFloor}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Button variant={viewMode === 'layout' ? 'default' : 'outline'} size="sm" className="h-8 text-xs" onClick={() => setViewMode('layout')}>Layout</Button>
-          <Button variant={viewMode === 'list' ? 'default' : 'outline'} size="sm" className="h-8 text-xs" onClick={() => setViewMode('list')}>List</Button>
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-32 h-8 text-xs"><Filter className="w-3 h-3 mr-1" /><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Tables</SelectItem>
-            <SelectItem value="available">Available Only</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid grid-cols-4 gap-1">
-        <div className="bg-green-50 rounded-lg px-2 py-1 text-center"><div className="text-sm font-bold text-green-600">{stats.available}</div><div className="text-[8px] text-gray-500">Free</div></div>
-        <div className="bg-red-50 rounded-lg px-2 py-1 text-center"><div className="text-sm font-bold text-red-600">{stats.occupied}</div><div className="text-[8px] text-gray-500">Used</div></div>
-        <div className="bg-yellow-50 rounded-lg px-2 py-1 text-center"><div className="text-sm font-bold text-yellow-600">{stats.reserved}</div><div className="text-[8px] text-gray-500">Reserved</div></div>
-        <div className="bg-gray-50 rounded-lg px-2 py-1 text-center"><div className="text-sm font-bold">{stats.total}</div><div className="text-[8px] text-gray-500">Total</div></div>
-      </div>
-
-      {autoSwitchTables && (
-        <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded-lg text-center">
-          💡 Auto-switch is enabled. Click any available table to automatically switch your selection.
-        </div>
-      )}
-
-      {!isUserLoggedIn && (
-        <div className="text-xs text-purple-600 bg-purple-50 p-2 rounded-lg text-center">
-          🍽️ Guest Mode: You can select a table without logging in. Your selection will be held for 3 minutes.
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="flex items-center justify-center h-[300px]"><RefreshCw className="w-8 h-8 text-purple-600 animate-spin" /></div>
-      ) : filteredTables.length === 0 ? (
-        <Card><CardContent className="py-12 text-center"><Armchair className="w-16 h-16 text-gray-300 mx-auto mb-4" /><p className="text-gray-500">No tables found</p></CardContent></Card>
-      ) : viewMode === 'layout' ? (
-        <div className="relative bg-gradient-to-br from-purple-50/30 to-white rounded-xl border border-purple-100 overflow-auto" style={{ height: '400px', maxHeight: '60vh' }}>
-          <div className="relative" style={{ width: scaledWidth * (zoom / 100), height: scaledHeight * (zoom / 100), transform: `scale(${zoom / 100})`, transformOrigin: 'top left' }}>
-            {filteredTables.map((table) => (
-              <TableIcon
-                key={table.id}
-                table={table}
-                isSelected={selectedTable?.id === table.id}
-                activeSelection={activeSelection}
-                currentUserEmail={session?.user?.email}
-                anonymousId={anonymousId}
-                onUnselect={handleUnselectTable}
-                onClick={handleTableClick}
-                allowUnselect={allowUnselect}
-              />
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-2 max-h-[400px] overflow-y-auto">
-          {filteredTables.map((table) => {
-            const isSelectedByMe = activeSelection?.tableId === table.id && 
-              ((session?.user?.email && activeSelection?.selectedBy === session?.user?.email) ||
-               (anonymousId && activeSelection?.anonymousId === anonymousId));
+          
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 bg-green-50 px-1.5 py-0.5 rounded-full">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-[9px] font-medium text-green-700">{stats.available}</span>
+            </div>
             
-            return (
-              <div
-                key={table.id}
-                className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                  selectedTable?.id === table.id 
-                    ? 'border-purple-500 bg-purple-50' 
-                    : isSelectedByMe
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50/50'
-                }`}
-                onClick={() => handleTableClick(table)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${STATUS_CONFIG[table.status].bgGradient} flex items-center justify-center`}>
-                      <Armchair className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <div className="font-medium">Table {table.number}</div>
-                      <div className="text-xs text-gray-500">{table.capacity} seats</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isSelectedByMe && (
-                      <Badge className="bg-green-500 text-white text-xs">Selected</Badge>
-                    )}
-                    <Badge className={STATUS_CONFIG[table.status].badgeColor}>{STATUS_CONFIG[table.status].label}</Badge>
-                    {isSelectedByMe && allowUnselect && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleUnselectTable(table.id);
-                        }}
-                        className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        <X className="w-3 h-3" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                {isSelectedByMe && activeSelection && (
-                  <div className="mt-2 text-xs text-green-600">
-                    <SelectionTimer expiresAt={activeSelection.expiresAt} onExpire={() => handleUnselectTable(table.id)} />
-                  </div>
-                )}
+            {!isUserLoggedIn && (
+              <div className="bg-purple-100 rounded-full px-1.5 py-0.5">
+                <span className="text-[8px] font-medium text-purple-700">Guest</span>
               </div>
-            );
-          })}
+            )}
+            
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[90px] h-7 text-[10px] rounded-full border-gray-200 bg-white/80">
+                <Filter className="w-2.5 h-2.5 mr-0.5" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-lg">
+                <SelectItem value="all" className="text-xs">All ({stats.total})</SelectItem>
+                <SelectItem value="available" className="text-xs">Free ({stats.available})</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      {/* Selected Table Banner - Compact */}
+      {selectedTable && isTableSelectedByMe && (
+        <div className="px-3 pt-1.5">
+          <SelectedTableBanner 
+            selectedTable={selectedTable}
+            activeSelection={activeSelection}
+            onUnselect={() => handleUnselectTable()}
+            isSelecting={isSelecting}
+            compact={true}
+          />
         </div>
       )}
-      
-      <div className="text-xs text-gray-400 text-center">
-        {autoSwitchTables 
-          ? "💡 Click any available table to automatically switch your selection"
-          : "💡 Click on a green available table to select it • Selected tables are held for 3 minutes"}
+
+      {/* Floor Selector - Compact */}
+      <div className="px-3 py-1.5">
+        <ModernFloorSelector
+          floors={uniqueFloors}
+          restaurants={restaurants}
+          selectedFloor={selectedFloor}
+          selectedRestaurantId={selectedRestaurantId}
+          onSelect={handleRestaurantSelect}
+          isMobile={true}
+        />
+      </div>
+
+      {/* View Mode Toggle */}
+      {filteredTables.length > 0 && (
+        <div className="px-3 pb-1">
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'map' | 'list')} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 rounded-lg bg-gray-100 p-0.5 h-8">
+              <TabsTrigger value="map" className="rounded-md text-[10px] data-[state=active]:bg-white data-[state=active]:shadow-sm py-1">
+                <Grid3x3 className="w-2.5 h-2.5 mr-1" />
+                Map
+              </TabsTrigger>
+              <TabsTrigger value="list" className="rounded-md text-[10px] data-[state=active]:bg-white data-[state=active]:shadow-sm py-1">
+                <List className="w-2.5 h-2.5 mr-1" />
+                List
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
+
+      {/* Main Content Area - Compact */}
+      <div className="flex-1 px-2 pb-2 min-h-0">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-40">
+            <RefreshCw className="w-6 h-6 text-purple-600 animate-spin" />
+          </div>
+        ) : filteredTables.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-40">
+            <Armchair className="w-10 h-10 text-gray-200 mb-1" />
+            <p className="text-[10px] text-gray-500">No tables available</p>
+          </div>
+        ) : viewMode === 'list' ? (
+          <TableListView />
+        ) : (
+          <div className="overflow-x-auto pb-1">
+            <div 
+              className="relative mx-auto"
+              style={{ 
+                width: scaledWidth + 20,
+                height: scaledHeight + 20,
+              }}
+            >
+              <div 
+                className="relative"
+                style={{ 
+                  width: scaledWidth, 
+                  height: scaledHeight,
+                  margin: '10px auto',
+                }}
+              >
+                {filteredTables.map((table) => (
+                  <TableIcon
+                    key={table.id}
+                    table={table}
+                    isSelected={selectedTable?.id === table.id}
+                    activeSelection={activeSelection}
+                    currentUserEmail={session?.user?.email}
+                    anonymousId={anonymousId}
+                    onUnselect={handleUnselectTable}
+                    onClick={handleTableClick}
+                    allowUnselect={allowUnselect}
+                    isMobile={true}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer Hint - Compact */}
+      <div className="px-3 py-1.5 border-t border-gray-100 bg-gray-50/50">
+        <p className="text-[7px] text-gray-400 text-center flex items-center justify-center gap-1">
+          <Clock className="w-2 h-2" />
+          {autoSwitchTables ? "Tap green table to switch • 3 min hold" : "Select green table • 3 min hold"}
+        </p>
       </div>
     </div>
   );
   
+  // Responsive Dialog/Sheet based on device
   return (
     <>
-      {controlledOpen !== undefined ? (
-        <>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogContent className="sm:max-w-[800px] max-w-[95vw] max-h-[90vh] bg-gradient-to-br from-white to-purple-50/30 rounded-xl overflow-y-auto">
-              <DialogHeader><DialogTitle className="flex items-center gap-2 text-xl"><Armchair className="w-5 h-5 text-purple-600" />Select a Table</DialogTitle><DialogDescription>Browse tables by floor and restaurant</DialogDescription></DialogHeader>
-              {content}
-            </DialogContent>
-          </Dialog>
-          <TableDetailDialog
-            table={selectedTableForDetail}
-            activeSelection={activeSelection}
-            currentUserEmail={session?.user?.email}
-            anonymousId={anonymousId}
-            open={showDetailDialog}
-            onOpenChange={setShowDetailDialog}
-            onSelect={handleSelectTable}
-            onUnselect={() => handleUnselectTable(selectedTableForDetail?.id)}
-            isUserLoggedIn={isUserLoggedIn}
-            onLoginRequired={onLoginRequired}
-            allowUnselect={allowUnselect}
-          />
-        </>
+      {controlledOpen !== undefined || !isMobile ? (
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent className="sm:max-w-[900px] max-w-[95vw] max-h-[90vh] bg-white rounded-2xl overflow-hidden p-0 shadow-2xl">
+            <div className="h-full overflow-y-auto">
+              {mainContent}
+            </div>
+          </DialogContent>
+        </Dialog>
       ) : (
-        <>
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetContent side="bottom" className="h-[90vh] rounded-t-xl p-0">
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1 bg-gray-300 rounded-full z-50" />
-              <SheetHeader className="pt-4 px-4"><SheetTitle className="flex items-center gap-2 text-base"><Armchair className="w-4 h-4 text-purple-600" />Select a Table</SheetTitle></SheetHeader>
-              <div className="pt-2 px-4 pb-4 h-full overflow-y-auto">{content}</div>
-            </SheetContent>
-          </Sheet>
-          <TableDetailDialog
-            table={selectedTableForDetail}
-            activeSelection={activeSelection}
-            currentUserEmail={session?.user?.email}
-            anonymousId={anonymousId}
-            open={showDetailDialog}
-            onOpenChange={setShowDetailDialog}
-            onSelect={handleSelectTable}
-            onUnselect={() => handleUnselectTable(selectedTableForDetail?.id)}
-            isUserLoggedIn={isUserLoggedIn}
-            onLoginRequired={onLoginRequired}
-            allowUnselect={allowUnselect}
-          />
-        </>
+        <Sheet open={open} onOpenChange={setOpen}>
+          <SheetContent side="bottom" className="h-[85vh] rounded-t-xl p-0 bg-white">
+            <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-10 h-1 bg-gray-300 rounded-full z-50" />
+            <div className="pt-3 h-full overflow-y-auto">
+              {mainContent}
+            </div>
+          </SheetContent>
+        </Sheet>
       )}
+      
+      <TableDetailDialog
+        table={selectedTableForDetail}
+        activeSelection={activeSelection}
+        currentUserEmail={session?.user?.email}
+        anonymousId={anonymousId}
+        open={showDetailDialog}
+        onOpenChange={setShowDetailDialog}
+        onSelect={handleSelectTable}
+        onUnselect={() => handleUnselectTable(selectedTableForDetail?.id)}
+        isUserLoggedIn={isUserLoggedIn}
+        onLoginRequired={onLoginRequired}
+        allowUnselect={allowUnselect}
+        isMobile={isMobile}
+      />
     </>
   );
 }
-
+ 
 export default TableSelector;
