@@ -8,96 +8,112 @@ function getClientIP(req: NextRequest): string {
          'unknown';
 }
 
-// In-memory fallback store (used when MongoDB is unavailable)
+// In-memory fallback store
 const logStore: any[] = [];
-const MAX_STORED_LOGS = 1000;
+const MAX_STORED_LOGS = 5000;
+
+export interface SecurityLog {
+  timestamp: string;
+  type: string;
+  severity: 'info' | 'warning' | 'error' | 'critical';
+  path: string;
+  method: string;
+  ip: string;
+  userAgent: string;
+  userId?: string;
+  userEmail?: string;
+  userRole?: string;
+  sessionId?: string;
+  details: Record<string, any>;
+}
 
 export async function logSecurityIncident(
-  req: NextRequest, 
-  type: string, 
-  details: Record<string, any>
+  req: NextRequest,
+  type: string,
+  details: Record<string, any>,
+  severity: 'info' | 'warning' | 'error' | 'critical' = 'warning'
 ): Promise<void> {
-  const logEntry = {
+  const logEntry: SecurityLog = {
     timestamp: new Date().toISOString(),
     type,
+    severity,
     path: req.nextUrl.pathname,
     method: req.method,
     ip: getClientIP(req),
     userAgent: req.headers.get('user-agent') || 'unknown',
-    ...details,
+    sessionId: req.headers.get('x-session-id') || undefined,
+    details,
   };
   
-  // Always log to console (visible in terminal/Vercel logs)
-  console.error('🔒 SECURITY INCIDENT:', JSON.stringify(logEntry, null, 2));
+  // Always log to console with appropriate level
+  const logMethod = severity === 'critical' ? console.error : 
+                    severity === 'error' ? console.error :
+                    severity === 'warning' ? console.warn : console.log;
   
-  // Store in memory fallback
+  logMethod(`🔒 ${severity.toUpperCase()}:`, JSON.stringify(logEntry, null, 2));
+  
+  // Store in memory
   logStore.push(logEntry);
   if (logStore.length > MAX_STORED_LOGS) {
-    logStore.shift();
+    logStore.splice(0, logStore.length - MAX_STORED_LOGS);
   }
   
-  // Try to store in MongoDB (fire and forget)
+  // Store in MongoDB (fire and forget)
   try {
     await storeInMongoDB(logEntry);
   } catch (error) {
-    // Silently fail - don't break the main request
-    // The log is already in console and memory
+    // Silently fail
   }
 }
 
-// MongoDB storage with your client
-async function storeInMongoDB(logEntry: any): Promise<void> {
+async function storeInMongoDB(logEntry: SecurityLog): Promise<void> {
   try {
     const client = await clientPromise;
-    
-    // Check if we have a real MongoDB connection (not mock)
     if (!client || !client.db) {
       console.warn('⚠️ MongoDB not available, log stored in memory only');
       return;
     }
     
-    const db = client.db(process.env.MONGODB_DB || 'eresto-beta');
-    
-    // Create collection if it doesn't exist (optional)
-    const collections = await db.listCollections({ name: 'security_logs' }).toArray();
-    if (collections.length === 0) {
-      // Collection doesn't exist, it will be created on insert
-      console.log('📝 Creating security_logs collection');
-    }
-    
-    // Insert the log
+    const db = client.db(process.env.MONGODB_DB || 'gold');
     await db.collection('security_logs').insertOne({
       ...logEntry,
-      _id: undefined, // Let MongoDB generate _id
+      _id: undefined,
       storedAt: new Date(),
     });
   } catch (error) {
-    // Log to console but don't throw
     console.error('Failed to store security log in MongoDB:', error instanceof Error ? error.message : 'Unknown error');
-    throw error; // Re-throw to be caught by caller
+    throw error;
   }
 }
 
-// ============================================
-// OPTIONAL: Helper functions for admin dashboard
-// ============================================
-
-// Get logs from MongoDB
 export async function getSecurityLogs(
   limit: number = 100,
-  type?: string
-): Promise<any[]> {
+  type?: string,
+  severity?: string,
+  ip?: string,
+  startDate?: Date,
+  endDate?: Date
+): Promise<SecurityLog[]> {
   try {
     const client = await clientPromise;
     
-    // Check for mock client
     if (!client || !client.db) {
       // Return in-memory logs
-      return type ? logStore.filter(log => log.type === type).slice(-limit) : logStore.slice(-limit);
+      let logs = [...logStore];
+      if (type) logs = logs.filter(log => log.type === type);
+      if (severity) logs = logs.filter(log => log.severity === severity);
+      if (ip) logs = logs.filter(log => log.ip === ip);
+      return logs.slice(-limit);
     }
     
-    const db = client.db(process.env.MONGODB_DB || 'eresto-beta');
-    const query = type ? { type } : {};
+    const db = client.db(process.env.MONGODB_DB || 'gold');
+    const query: any = {};
+    
+    if (type) query.type = type;
+    if (severity) query.severity = severity;
+    if (ip) query.ip = ip;
+    if (startDate) query.timestamp = { $gte: startDate.toISOString() };
+    if (endDate) query.timestamp = { ...query.timestamp, $lte: endDate.toISOString() };
     
     const logs = await db.collection('security_logs')
       .find(query)
@@ -105,41 +121,27 @@ export async function getSecurityLogs(
       .limit(limit)
       .toArray();
     
-    return logs;
+    return logs as SecurityLog[];
   } catch (error) {
     console.error('Error fetching security logs:', error);
-    // Return in-memory logs as fallback
-    return type ? logStore.filter(log => log.type === type).slice(-limit) : logStore.slice(-limit);
+    return logStore.slice(-limit);
   }
 }
 
-// Get logs from memory (fast, no DB call)
-export function getMemoryLogs(limit: number = 100): any[] {
+export function getMemoryLogs(limit: number = 100): SecurityLog[] {
   return logStore.slice(-limit);
 }
 
-// Clear memory logs
 export function clearMemoryLogs(): void {
   logStore.length = 0;
 }
 
-// Get logs by type from memory
-export function getMemoryLogsByType(type: string, limit: number = 50): any[] {
-  return logStore
-    .filter(log => log.type === type)
-    .slice(-limit);
-}
-
-// Clean old logs (optional maintenance)
 export async function cleanOldLogs(daysToKeep: number = 30): Promise<number> {
   try {
     const client = await clientPromise;
+    if (!client || !client.db) return 0;
     
-    if (!client || !client.db) {
-      return 0;
-    }
-    
-    const db = client.db(process.env.MONGODB_DB || 'eresto-beta');
+    const db = client.db(process.env.MONGODB_DB || 'gold');
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
     
@@ -150,5 +152,87 @@ export async function cleanOldLogs(daysToKeep: number = 30): Promise<number> {
   } catch (error) {
     console.error('Error cleaning old logs:', error);
     return 0;
+  }
+}
+
+export async function getSecurityStats(): Promise<any> {
+  try {
+    const client = await clientPromise;
+    if (!client || !client.db) {
+      return {
+        total: logStore.length,
+        types: {},
+        severities: {},
+        last24h: logStore.filter(log => 
+          new Date(log.timestamp) > new Date(Date.now() - 24 * 60 * 60 * 1000)
+        ).length,
+        topIPs: [],
+      };
+    }
+    
+    const db = client.db(process.env.MONGODB_DB || 'gold');
+    
+    // Get total count
+    const total = await db.collection('security_logs').countDocuments();
+    
+    // Get counts by type
+    const typeAggregation = await db.collection('security_logs')
+      .aggregate([
+        { $group: { _id: '$type', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+      ])
+      .toArray();
+    
+    const types: Record<string, number> = {};
+    typeAggregation.forEach((item: any) => {
+      types[item._id] = item.count;
+    });
+    
+    // Get counts by severity
+    const severityAggregation = await db.collection('security_logs')
+      .aggregate([
+        { $group: { _id: '$severity', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+      ])
+      .toArray();
+    
+    const severities: Record<string, number> = {};
+    severityAggregation.forEach((item: any) => {
+      severities[item._id] = item.count;
+    });
+    
+    // Last 24 hours
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const last24h = await db.collection('security_logs').countDocuments({
+      timestamp: { $gte: yesterday.toISOString() }
+    });
+    
+    // Top IPs
+    const topIPs = await db.collection('security_logs')
+      .aggregate([
+        { $group: { _id: '$ip', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 }
+      ])
+      .toArray();
+    
+    return {
+      total,
+      types,
+      severities,
+      last24h,
+      topIPs: topIPs.map((item: any) => ({ ip: item._id, count: item.count })),
+    };
+  } catch (error) {
+    console.error('Error getting security stats:', error);
+    return {
+      total: logStore.length,
+      types: {},
+      severities: {},
+      last24h: logStore.filter(log => 
+        new Date(log.timestamp) > new Date(Date.now() - 24 * 60 * 60 * 1000)
+      ).length,
+      topIPs: [],
+    };
   }
 }
