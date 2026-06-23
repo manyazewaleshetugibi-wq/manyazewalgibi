@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
       data: {
         user: staffWithoutPassword,
         token,
-        requiresPasswordChange: requiresPasswordChange // Use the same calculated value
+        requiresPasswordChange: requiresPasswordChange 
       }
     });
     
@@ -126,3 +126,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

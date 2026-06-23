@@ -1,237 +1,324 @@
+// middleware.ts
 import { NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { auth } from "@/auth";
 import type { NextRequest } from "next/server";
+import { rateLimit } from "@/lib/ratelimit";
+import { checkIPBlocklist, recordFailedAttempt } from "@/lib/ip-blocklist";
+import { validateRequest } from "@/lib/validate-request";
+import { getSecurityHeaders } from "@/lib/security-headers";
+import { logSecurityIncident } from "@/lib/security-logger";
 
-// Security configuration
-const SECURITY_CONFIG = {
-  blockedDomains: [
-    'bedpage.com',
-    'bedpage.',
-    'malicious.',
-    '.xyz',
-    '.top',
-    '.club',
-    '.click',
-    '.stream',
-    '.download',
-  ],
-  allowedRedirectProtocols: ['http:', 'https:'],
-  maxCallbackUrlLength: 500,
-};
+// ============================================
+// 1. ALL ROLES FROM SIDEBAR
+// ============================================
+type UserRole = 
+  | 'ADMIN' 
+  | 'SUPER_ADMIN' 
+  | 'KITCHEN' 
+  | 'FB' 
+  | 'MARKETING' 
+  | 'FINANCE' 
+  | 'STOCK_MANAGER' 
+  | 'PURCHASING' 
+  | 'DELIVERY' 
+  | 'POS' 
+  | 'WAITRESS' 
+  | 'DEFAULT';
 
-// Security helper functions
-function validateRedirectUrl(urlString: string, baseOrigin: string): { 
-  valid: boolean; 
-  reason?: string; 
-} {
-  try {
-    const url = new URL(urlString);
-    
-    // 1. Check length
-    if (urlString.length > SECURITY_CONFIG.maxCallbackUrlLength) {
-      return { valid: false, reason: 'URL too long' };
-    }
-    
-    // 2. Check protocol
-    if (!SECURITY_CONFIG.allowedRedirectProtocols.includes(url.protocol)) {
-      return { valid: false, reason: 'Invalid protocol' };
-    }
-    
-    // 3. Check against blocked domains
-    const hostname = url.hostname.toLowerCase();
-    const isBlocked = SECURITY_CONFIG.blockedDomains.some(domain => {
-      if (domain.startsWith('.')) {
-        return hostname.endsWith(domain);
-      } else if (domain.endsWith('.')) {
-        return hostname.startsWith(domain);
-      } else {
-        return hostname === domain || hostname.includes(domain);
-      }
-    });
-    
-    if (isBlocked) {
-      return { valid: false, reason: 'Blocked domain' };
-    }
-    
-    // 4. Ensure it's same-origin or relative
-    if (url.origin !== baseOrigin && !urlString.startsWith('/')) {
-      return { valid: false, reason: 'External redirect not allowed' };
-    }
-    
-    return { valid: true };
-  } catch (error) {
-    return { valid: false, reason: 'Invalid URL format' };
-  }
-}
-
-function logSecurityIncident(
-  req: NextRequest, 
-  type: string, 
-  details: Record<string, any>
-) {
-  const logEntry = {
-    timestamp: new Date().toISOString(),
-    type,
-    path: req.nextUrl.pathname,
-    method: req.method,
-    ...details,
-  };
+// ============================================
+// 2. PROTECTED SIDEBAR PAGES ONLY
+// ============================================
+const PROTECTED_PAGES = new Map<string, UserRole[]>([
+  // Dashboard
+  ['/dashboard', ['ADMIN']],
   
-  console.error('🔒 SECURITY INCIDENT:', logEntry);
-}
+  // Stock Management
+  ['/stock', ['ADMIN', 'FINANCE', 'STOCK_MANAGER', 'PURCHASING']],
+  ['/scategory', ['ADMIN', 'FINANCE', 'STOCK_MANAGER']],
+  ['/stockReport', ['ADMIN', 'FINANCE', 'STOCK_MANAGER', 'PURCHASING']],
+  ['/purchase-request', ['ADMIN', 'FINANCE', 'STOCK_MANAGER', 'PURCHASING']],
+  
+  // Menu Management
+  ['/items', ['ADMIN', 'FB']],
+  ['/catagory', ['ADMIN', 'FB']],
+  ['/healthy-menu', ['ADMIN']],
+  ['/menu-profitability', ['ADMIN', 'FB']],
+  
+  // Orders
+  ['/orders', ['ADMIN', 'KITCHEN']],
+  ['/delivery', ['ADMIN', 'KITCHEN', 'DELIVERY']],
+  
+  // Marketing
+  ['/blog', ['ADMIN', 'MARKETING']],
+  ['/contents', ['ADMIN', 'MARKETING']],
+  ['/applications', ['ADMIN', 'MARKETING']],
+  
+  // Finance
+  ['/sales', ['ADMIN', 'FINANCE']],
+  ['/expe', ['ADMIN', 'FINANCE']],
+  ['/profit', ['ADMIN', 'FINANCE']],
+  ['/expenses', ['FINANCE']],
+  
+  // HR & Training
+  ['/training', ['ADMIN', 'KITCHEN', 'FB', 'MARKETING', 'FINANCE', 'STOCK_MANAGER', 'PURCHASING', 'DELIVERY', 'POS', 'WAITRESS']],
+  ['/Pregister', ['ADMIN', 'FB']],
+  ['/preparation', ['ADMIN', 'KITCHEN', 'FB']],
+  ['/Sregister', ['ADMIN', 'FB']],
+  ['/standards', ['ADMIN', 'KITCHEN', 'FB', 'MARKETING', 'FINANCE', 'STOCK_MANAGER', 'PURCHASING', 'DELIVERY', 'POS']],
+  ['/staffregister', ['ADMIN']],
+  ['/waitress', ['ADMIN']],
+  ['/restaurants', ['ADMIN']],
+  
+  // POS & Tables
+  ['/pos', ['ADMIN', 'POS', 'WAITRESS']],
+  ['/edit', ['POS']],
+  ['/myorders', ['POS', 'WAITRESS']],
+  ['/table-arrangement', ['ADMIN', 'POS', 'WAITRESS']],
+  
+  // User
+  ['/profile', ['ADMIN', 'KITCHEN', 'FB', 'MARKETING', 'FINANCE', 'STOCK_MANAGER', 'PURCHASING', 'DELIVERY', 'POS', 'WAITRESS']],
+  
+  // Tasks
+  ['/daily-tasks', ['ADMIN', 'KITCHEN', 'FB', 'MARKETING', 'FINANCE', 'STOCK_MANAGER', 'PURCHASING', 'DELIVERY', 'POS', 'WAITRESS']],
+  ['/feedback', ['MARKETING']],
+  ['/search', ['ADMIN']],
+  
+  // Birthday
+  ['/BirthDate', ['ADMIN']],
+  ['/prizes', ['ADMIN']],
+]);
 
-// Main function - use 'proxy' as function name for Next.js 16
-// If you want to keep 'middleware' name, just rename the file back to middleware.ts
-export async function proxy(req: NextRequest) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  const url = req.nextUrl.clone();
-  
-  // === SECURITY: VALIDATE ALL REDIRECTS ===
-  const callbackUrl = url.searchParams.get('callbackUrl');
-  if (callbackUrl) {
-    const validation = validateRedirectUrl(callbackUrl, req.nextUrl.origin);
-    if (!validation.valid) {
-      console.error(`🚨 SECURITY: ${validation.reason}`, callbackUrl);
-      url.searchParams.delete('callbackUrl');
-      
-      logSecurityIncident(req, 'malicious_redirect', {
-        attemptedUrl: callbackUrl,
-        reason: validation.reason,
-        userAgent: req.headers.get('user-agent'),
-        ip: req.headers.get('x-forwarded-for') || req.ip,
-      });
-      
-      return NextResponse.redirect(new URL('/dashboard', req.url));
-    }
-  }
-  
-  // Public routes that don't require authentication
-  const publicRoutes = [
-    "/",
-    "/about", 
-    "/blogs", 
-    "/contact",
-    "/login",
-    "/auth/error",
-    "/api/auth",
-    "/api/auth/change-password-first",
-    "/_next/",
-    "/favicon.ico"
+// ============================================
+// 3. PUBLIC PAGES - NO PERMISSION NEEDED
+// ============================================
+const PUBLIC_PAGES = [
+  '/',
+  '/about',
+  '/blogs',
+  '/contact',
+  '/login',
+  '/auth/signin',
+  '/auth/error',
+  '/auth/signout',
+  '/unauthorized',
+  '/menu',
+  '/menu-items',
+  '/gallery',
+];
+
+// ============================================
+// 4. API ROUTES - EXCLUDED FROM PERMISSIONS
+// ============================================
+const API_ROUTES = [
+  '/api/auth',
+  '/api/auth/session',
+  '/api/auth/csrf',
+  '/api/auth/providers',
+  '/api/auth/callback',
+  '/api/auth/user-permissions',
+  '/api/health',
+  '/api/users/current',
+  '/api/users',
+  '/api/items',
+  '/api/item-category',
+  '/api/waitress',
+  '/api/tables',
+];
+
+// ============================================
+// 5. HELPER FUNCTIONS
+// ============================================
+
+// Helper to normalize role
+function normalizeRole(role: string | undefined): UserRole {
+  if (!role) return 'DEFAULT';
+  const upperRole = role.toUpperCase();
+  const validRoles: UserRole[] = [
+    'ADMIN', 'SUPER_ADMIN', 'KITCHEN', 'FB', 'MARKETING', 
+    'FINANCE', 'STOCK_MANAGER', 'PURCHASING', 'DELIVERY', 
+    'POS', 'WAITRESS', 'DEFAULT'
   ];
+  return validRoles.includes(upperRole as UserRole) ? (upperRole as UserRole) : 'DEFAULT';
+}
 
-  // Check if current path is public
-  const isPublicPath = publicRoutes.some(route => 
-    url.pathname.startsWith(route)
-  );
+// Get client IP address
+function getClientIP(req: NextRequest): string {
+  return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
+         req.headers.get('x-real-ip') || 
+         'unknown';
+}
 
-  // No token - redirect to login for protected routes
-  if (!token) {
-    if (!isPublicPath && !url.pathname.startsWith("/auth/")) {
-      url.pathname = "/auth/signin";
-      url.searchParams.set("callbackUrl", req.url);
-      return NextResponse.redirect(url);
+// Check if page is public
+function isPublicPage(pathname: string): boolean {
+  if (PUBLIC_PAGES.includes(pathname)) return true;
+  for (const page of PUBLIC_PAGES) {
+    if (page !== '/' && pathname.startsWith(page)) return true;
+  }
+  return false;
+}
+
+// Check if path is an API route
+function isApiRoute(pathname: string): boolean {
+  if (!pathname.startsWith('/api/')) return false;
+  for (const route of API_ROUTES) {
+    if (pathname.startsWith(route)) return true;
+  }
+  return true; // All other API routes are allowed
+}
+
+// Get required roles for a path
+function getRequiredRoles(pathname: string): UserRole[] | null {
+  // Exact match
+  if (PROTECTED_PAGES.has(pathname)) {
+    return PROTECTED_PAGES.get(pathname)!;
+  }
+  
+  // Prefix match for nested routes
+  for (const [route, roles] of PROTECTED_PAGES) {
+    if (pathname.startsWith(route + '/')) {
+      return roles;
     }
+  }
+  
+  return null;
+}
+
+// ============================================
+// 6. MAIN PROXY FUNCTION
+// ============================================
+export async function proxy(req: NextRequest) {
+  const clientIP = getClientIP(req);
+  const url = req.nextUrl.clone();
+  const pathname = url.pathname;
+
+  // --- LAYER 1: IP BLOCKLIST ---
+  const blockResponse = await checkIPBlocklist(req);
+  if (blockResponse) {
+    await logSecurityIncident(req, 'blocked_ip_access', {
+      ip: clientIP,
+      path: pathname,
+    });
+    return blockResponse;
+  }
+
+  // --- LAYER 2: RATE LIMITING ---
+  const rateLimitResponse = await rateLimit(req);
+  if (rateLimitResponse) {
+    await logSecurityIncident(req, 'rate_limit_exceeded', {
+      ip: clientIP,
+      path: pathname,
+    });
+    return rateLimitResponse;
+  }
+
+  // --- LAYER 3: REQUEST VALIDATION ---
+  const validation = validateRequest(req);
+  if (!validation.valid) {
+    await logSecurityIncident(req, 'suspicious_request', {
+      ip: clientIP,
+      reason: validation.reason,
+      url: req.nextUrl.toString(),
+    });
+    await recordFailedAttempt(req);
+    return NextResponse.json(
+      { error: 'Invalid request', reason: validation.reason },
+      { status: 400 }
+    );
+  }
+
+  // --- LAYER 4: CHECK IF PAGE NEEDS PROTECTION ---
+  // Skip protection for public pages and API routes
+  if (isPublicPage(pathname) || isApiRoute(pathname)) {
+    // For API routes, we don't need authentication
+    // For public pages, just proceed
     return NextResponse.next();
   }
 
-  // If already logged in and trying to access login page
-  if (url.pathname === "/auth/signin" || url.pathname === "/auth/error") {
-    url.pathname = "/dashboard";
+  // --- LAYER 5: AUTHENTICATION FOR PROTECTED PAGES ---
+  const session = await auth();
+
+  // If not authenticated, redirect to login
+  if (!session?.user) {
+    url.pathname = "/auth/signin";
+    url.searchParams.set("callbackUrl", req.url);
     return NextResponse.redirect(url);
   }
 
-  // 🔴 CRITICAL: Handle password change completion
-  // Check if password was just changed (via cookie or query param)
-  const passwordChanged = url.searchParams.get('passwordChanged') === 'true' || 
-                         req.cookies.get('password-changed')?.value === 'true';
-  
-  if (passwordChanged && token) {
-    console.log('🔄 Password change detected, refreshing session...');
-    
-    // Clear the cookie if it exists
-    const response = NextResponse.next();
-    response.cookies.delete('password-changed');
-    
-    // Remove query param
-    url.searchParams.delete('passwordChanged');
-    
-    // Force a session refresh by calling updateSession
-    // This will trigger the JWT callback with trigger: "update"
-    const headers = new Headers(req.headers);
-    headers.set('x-force-session-refresh', 'true');
-    
-    return NextResponse.next({
-      request: {
-        headers,
-      },
+  // --- LAYER 6: AUTHORIZATION FOR PROTECTED PAGES ---
+  const userRole = normalizeRole(session.user.role);
+  const userId = session.user.id;
+
+  // Admin and Super Admin can access everything
+  if (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') {
+    // Add user headers
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set("x-user-id", session.user.id || "");
+    requestHeaders.set("x-user-email", session.user.email || "");
+    requestHeaders.set("x-user-name", session.user.name ? encodeURIComponent(session.user.name) : "");
+    requestHeaders.set("x-user-role", session.user.role || "DEFAULT");
+    requestHeaders.set("x-employee-id", session.user.employeeId || "");
+
+    const response = NextResponse.next({
+      request: { headers: requestHeaders },
     });
+
+    // Add security headers
+    const securityHeaders = getSecurityHeaders();
+    Object.entries(securityHeaders).forEach(([key, value]) => {
+      response.headers.set(key, value);
+    });
+
+    return response;
   }
 
-  // Check if password change is required
-  const requiresPasswordChange = token.requiresPasswordChange === true;
-
-  // If password change is required, redirect to change-password page
-  if (requiresPasswordChange && url.pathname !== "/change-password") {
-    // Allow access to change-password API
-    if (url.pathname.startsWith("/api/auth/change-password-first")) {
-      return NextResponse.next();
-    }
-    
-    // Allow access to logout
-    if (url.pathname.startsWith("/api/auth/signout")) {
-      return NextResponse.next();
-    }
-
-    // Allow access to session endpoint so client can detect the flag without error
-    if (url.pathname.startsWith("/api/auth/session")) {
-      return NextResponse.next();
-    }
-    
-    // Block access to other pages/APIs (except static files)
-    if (url.pathname.startsWith("/api/") || 
-        (!url.pathname.startsWith("/_next/") && !url.pathname.startsWith("/favicon.ico"))) {
+  // Check if the route requires specific roles
+  const requiredRoles = getRequiredRoles(pathname);
+  
+  if (requiredRoles) {
+    // Check if user's role is in the allowed roles
+    if (!requiredRoles.includes(userRole)) {
+      // Log unauthorized access
+      await logSecurityIncident(req, 'unauthorized_access', {
+        userRole,
+        userId,
+        attemptedPath: pathname,
+        userEmail: session.user.email,
+        reason: `Role ${userRole} not allowed for ${pathname}. Required: ${requiredRoles.join(', ')}`,
+      });
       
-      if (url.pathname.startsWith("/api/")) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            message: "Password change required before accessing this resource",
-            requiresPasswordChange: true
-          },
-          { status: 403 }
-        );
-      }
+      await recordFailedAttempt(req);
       
-      // Redirect to change-password page for non-API routes
-      url.pathname = "/change-password";
+      url.pathname = "/unauthorized";
       return NextResponse.redirect(url);
     }
   }
 
-  // ⭐ FIX: Add user info to headers with proper encoding for Ethiopian characters
+  // --- LAYER 7: ADD USER HEADERS ---
   const requestHeaders = new Headers(req.headers);
-  requestHeaders.set("x-user-id", token.id || "");
-  requestHeaders.set("x-user-email", token.email || "");
-  
-  // Encode name to handle non-ASCII characters (ሀሁ, አማርኛ, ትግርኛ, etc.)
-  // This prevents the "Cannot convert argument to a ByteString" error
-  const encodedName = token.name ? encodeURIComponent(token.name) : "";
-  requestHeaders.set("x-user-name", encodedName);
-  
-  requestHeaders.set("x-user-role", token.role || "");
-  requestHeaders.set("x-employee-id", token.employeeId || "");
-  requestHeaders.set("x-requires-password-change", requiresPasswordChange.toString());
+  requestHeaders.set("x-user-id", session.user.id || "");
+  requestHeaders.set("x-user-email", session.user.email || "");
+  requestHeaders.set("x-user-name", session.user.name ? encodeURIComponent(session.user.name) : "");
+  requestHeaders.set("x-user-role", session.user.role || "DEFAULT");
+  requestHeaders.set("x-employee-id", session.user.employeeId || "");
 
-  return NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    },
+  // --- LAYER 8: SECURITY HEADERS ---
+  const response = NextResponse.next({
+    request: { headers: requestHeaders },
   });
+
+  const securityHeaders = getSecurityHeaders();
+  Object.entries(securityHeaders).forEach(([key, value]) => {
+    response.headers.set(key, value);
+  });
+
+  return response;
 }
 
-// For App Router, use route segment config instead of export config
+// ============================================
+// 7. CONFIGURATION
+// ============================================
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!_next/static|_next/image|favicon.ico|public).*)",
   ],
 };

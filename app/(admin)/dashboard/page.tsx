@@ -1,4 +1,4 @@
-// app/dashboard/page.tsx (UPDATED)
+// app/dashboard/page.tsx (FULLY FUNCTIONAL - MOBILE + DESKTOP)
 "use client"
 
 import type React from "react"
@@ -11,7 +11,7 @@ import { useTheme } from "next-themes"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowDownIcon, DollarSign, ShoppingCart, Package, TrendingUp, Calendar, Users, Clock, ArrowUp, ArrowDown, Loader2, Building2, UserCog, TrendingDown, PieChart as PieChartIcon, Percent, LayoutGrid, Home, Briefcase, Coffee, Utensils, CreditCard } from "lucide-react"
+import { ArrowDownIcon, DollarSign, ShoppingCart, Package, TrendingUp, Calendar, Users, Clock, ArrowUp, ArrowDown, Loader2, Building2, UserCog, TrendingDown, PieChart as PieChartIcon, Percent, LayoutGrid, Home, Briefcase, Coffee, Utensils, CreditCard, Eye, ThumbsUp, MessageCircle, BarChart3, Menu, X, ChevronRight } from "lucide-react"
 import { ChartContainer } from "@/components/ui/chart"
 import { DateRangePicker } from "./date-range-picker"
 import { Progress } from "@/components/ui/progress"
@@ -144,22 +144,19 @@ const calculateCurrentStockValue = (stock: StockItem, purchases: StockPurchase[]
   return stock.currentStock * lastPurchasePrice
 }
 
-// Calculate transfer amounts for today (ONLY using casual expenses + stock purchases)
+// Calculate transfer amounts for today
 const calculateTodayTransfers = (
   cashEntries: DailyCashEntry[],
   expenses: Expense[],
   stockPurchases: StockPurchase[],
   todayStr: string
 ): { cafetTransfer: number; personnelTransfer: number; zReport: number; totalExpense: number; totalCash: number } => {
-  // Find today's cash entry
   const todayCashEntry = cashEntries.find(e => e.date.startsWith(todayStr))
   const zReport = todayCashEntry?.zedAmount || 0
   const totalCash = todayCashEntry?.cashAmount || 0
   
-  // Calculate today's total expenses (ONLY casual + stock purchases, NO common expenses)
   let totalExpense = 0
   
-  // Casual expenses
   if (expenses) {
     totalExpense += expenses
       .filter((expense) => {
@@ -169,14 +166,12 @@ const calculateTodayTransfers = (
       .reduce((sum, expense) => sum + expense.amount, 0)
   }
   
-  // Stock purchases (ONLY stock purchases, NO common expenses)
   if (stockPurchases) {
     totalExpense += stockPurchases
       .filter((purchase) => purchase.purchaseDate?.startsWith(todayStr))
       .reduce((sum, purchase) => sum + (purchase.quantity * purchase.unitPrice), 0)
   }
   
-  // Calculate transfers
   const cafetTransfer = zReport / 2
   const personnelTransfer = (zReport / 2) + totalExpense - totalCash
   
@@ -189,14 +184,183 @@ const calculateTodayTransfers = (
   }
 }
 
-// Combined Transfer Card Component - Navigates to /expe
-const TransferCard = ({
+// ============================================
+// MOBILE COMPONENTS (YouTube Studio Style)
+// ============================================
+
+// Mobile Top Header
+const MobileHeader = ({ 
+  onNavigate
+}: { 
+  onNavigate: (path: string) => void
+}) => {
+  const [menuOpen, setMenuOpen] = useState(false)
+  
+  const menuItems = [
+    { icon: Home, label: "Dashboard", path: "/" },
+    { icon: DollarSign, label: "Sales", path: "/sales" },
+    { icon: ArrowDownIcon, label: "Expenses", path: "/expenses" },
+    { icon: Package, label: "Stock", path: "/stock" },
+    { icon: ShoppingCart, label: "Orders", path: "/orders" },
+    { icon: TrendingUp, label: "Profit", path: "/profit" },
+    { icon: Building2, label: "Transfers", path: "/expe" },
+    { icon: BarChart3, label: "Analytics", path: "/analytics" },
+  ]
+
+  return (
+    <>
+      <div className="sticky top-0 z-40 bg-white/95 dark:bg-gray-950/95 backdrop-blur-md border-b border-purple-100/30 dark:border-purple-900/30">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center text-white font-bold text-sm shadow-md flex-shrink-0">
+              RD
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-sm font-bold text-purple-900 dark:text-purple-100 leading-tight truncate">
+                Restaurant Dashboard
+              </h1>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Admin Panel
+              </p>
+            </div>
+          </div>
+          
+          <button 
+            onClick={() => setMenuOpen(true)}
+            className="p-2 rounded-full hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors flex-shrink-0"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5 text-purple-700" />
+          </button>
+        </div>
+      </div>
+      
+      <AnimatePresence>
+        {menuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="fixed inset-0 bg-black/50 z-50"
+              onClick={() => setMenuOpen(false)}
+            />
+            <motion.div
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              className="fixed top-0 left-0 bottom-0 w-4/5 max-w-xs bg-white dark:bg-gray-900 z-50 shadow-2xl"
+            >
+              <div className="flex items-center justify-between p-4 border-b dark:border-gray-800">
+                <h2 className="font-bold text-purple-800 dark:text-purple-200">Navigation</h2>
+                <button onClick={() => setMenuOpen(false)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+                  <X className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                </button>
+              </div>
+              <div className="p-3 space-y-1">
+                {menuItems.map((item) => (
+                  <button
+                    key={item.path}
+                    onClick={() => { setMenuOpen(false); onNavigate(item.path); }}
+                    className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl hover:bg-purple-100/50 dark:hover:bg-purple-900/20 transition-colors active:bg-purple-200/50"
+                  >
+                    <span className="text-sm font-medium text-purple-900 dark:text-purple-300">{item.label}</span>
+                    <ChevronRight className="h-4 w-4 text-gray-400 ml-auto" />
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
+  )
+}
+
+// Mobile Stat Card
+const MobileStatCard = ({ 
+  label, 
+  value, 
+  change, 
+  icon: Icon, 
+  color = "purple",
+  onClick,
+  subtitle,
+  isLoading
+}: { 
+  label: string
+  value: string
+  change?: number
+  icon: any
+  color?: "purple" | "green" | "red" | "blue" | "orange"
+  onClick?: () => void
+  subtitle?: string
+  isLoading?: boolean
+}) => {
+  const colorMap = {
+    purple: "bg-purple-50 dark:bg-purple-950/30 border-purple-200/50 dark:border-purple-800/30",
+    green: "bg-green-50 dark:bg-green-950/30 border-green-200/50 dark:border-green-800/30",
+    red: "bg-red-50 dark:bg-red-950/30 border-red-200/50 dark:border-red-800/30",
+    blue: "bg-blue-50 dark:bg-blue-950/30 border-blue-200/50 dark:border-blue-800/30",
+    orange: "bg-orange-50 dark:bg-orange-950/30 border-orange-200/50 dark:border-orange-800/30",
+  }
+  
+  const iconColorMap = {
+    purple: "text-purple-600",
+    green: "text-green-600",
+    red: "text-red-600",
+    blue: "text-blue-600",
+    orange: "text-orange-600",
+  }
+
+  if (isLoading) {
+    return (
+      <div className={`rounded-xl border ${colorMap[color]} p-4`}>
+        <Skeleton className="h-4 w-20 mb-2" />
+        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-3 w-16 mt-1" />
+      </div>
+    )
+  }
+
+  return (
+    <motion.div
+      whileTap={{ scale: 0.97 }}
+      onClick={onClick}
+      className="cursor-pointer"
+    >
+      <div className={`rounded-xl border ${colorMap[color]} p-4 transition-all hover:shadow-md active:bg-purple-100/20`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className={`p-1.5 rounded-lg bg-white/50 dark:bg-gray-800/50`}>
+              <Icon className={`h-4 w-4 ${iconColorMap[color]}`} />
+            </div>
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{label}</span>
+          </div>
+          {change !== undefined && (
+            <Badge variant="outline" className={`text-[10px] ${change >= 0 ? 'text-green-600 border-green-200 dark:border-green-800' : 'text-red-600 border-red-200 dark:border-red-800'}`}>
+              {change >= 0 ? '↑' : '↓'} {Math.abs(change).toFixed(1)}%
+            </Badge>
+          )}
+        </div>
+        <p className="text-lg font-bold text-purple-900 dark:text-purple-100 mt-1">{value}</p>
+        {subtitle && <p className="text-[10px] text-gray-400 dark:text-gray-500">{subtitle}</p>}
+      </div>
+    </motion.div>
+  )
+}
+
+// Mobile Transfer Card
+const MobileTransferCard = ({
   cafetTransfer,
   personnelTransfer,
   zReport,
   totalExpense,
   totalCash,
   isLoading,
+  onClick
 }: {
   cafetTransfer: number
   personnelTransfer: number
@@ -204,20 +368,18 @@ const TransferCard = ({
   totalExpense: number
   totalCash: number
   isLoading: boolean
+  onClick?: () => void
 }) => {
-  const router = useRouter()
-
   if (isLoading) {
     return (
-      <Card className="h-full border dark:border-gray-800">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-8 w-8 rounded-full" />
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-4">
-            <Skeleton className="h-20 rounded-xl" />
-            <Skeleton className="h-20 rounded-xl" />
+      <Card className="border-purple-200/50 dark:border-purple-800/30">
+        <CardContent className="p-4">
+          <div className="space-y-3">
+            <Skeleton className="h-4 w-24" />
+            <div className="grid grid-cols-2 gap-3">
+              <Skeleton className="h-16 rounded-xl" />
+              <Skeleton className="h-16 rounded-xl" />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -225,62 +387,52 @@ const TransferCard = ({
   }
 
   return (
-    <motion.div 
-      whileHover={{ y: -5, boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)" }}
-      transition={{ duration: 0.2 }}
-      onClick={() => router.push('/expe')}
+    <motion.div
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
       className="cursor-pointer"
     >
-      <Card className="bg-gradient-to-br from-purple-50/80 via-purple-100/50 to-purple-200/30 border-purple-200 dark:from-purple-950/30 dark:via-purple-900/20 dark:to-purple-800/10 dark:border-purple-800/30 hover:shadow-lg transition-all duration-300 h-full overflow-hidden group">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base font-bold flex items-center gap-2 text-purple-900 dark:text-purple-300">
-            <LayoutGrid className="h-5 w-5 text-purple-700" />
-            Transfers
-          </CardTitle>
-          <Badge variant="secondary" className="bg-purple-200 text-purple-800 dark:bg-purple-800/50 dark:text-purple-300 border-0 text-xs">
-            Today
-          </Badge>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-3">
-            {/* Cafet Transfer */}
-            <div className="bg-white/70 dark:bg-gray-800/50 rounded-xl p-4 border border-purple-200/50 dark:border-purple-800/30 shadow-sm">
-              <div className="flex items-center gap-2 mb-1">
-                <Building2 className="h-4 w-4 text-purple-700" />
-                <p className="text-xs font-semibold text-purple-800 dark:text-purple-300">Cafet</p>
-              </div>
-              <p className="text-xl font-bold text-purple-700 dark:text-purple-400">
-                {formatCurrency(cafetTransfer)}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-1">Z Report / 2</p>
+      <Card className="border-purple-200/50 dark:border-purple-800/30 bg-gradient-to-br from-purple-50/80 to-purple-100/30 dark:from-purple-950/30 dark:to-purple-900/10 hover:shadow-lg transition-all">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <LayoutGrid className="h-4 w-4 text-purple-600" />
+              <span className="text-sm font-bold text-purple-900 dark:text-purple-300">Transfers</span>
             </div>
-            
-            {/* Personnel Transfer */}
-            <div className="bg-white/70 dark:bg-gray-800/50 rounded-xl p-4 border border-purple-200/50 dark:border-purple-800/30 shadow-sm">
-              <div className="flex items-center gap-2 mb-1">
-                <UserCog className="h-4 w-4 text-purple-700" />
-                <p className="text-xs font-semibold text-purple-800 dark:text-purple-300">Personnel</p>
+            <Badge variant="secondary" className="bg-purple-200 text-purple-800 dark:bg-purple-800/50 dark:text-purple-300 text-[10px] border-0">
+              Today
+            </Badge>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-white/70 dark:bg-gray-800/50 rounded-xl p-3 text-center border border-purple-200/50 dark:border-purple-800/30">
+              <div className="flex items-center justify-center gap-1 mb-0.5">
+                <Building2 className="h-3.5 w-3.5 text-purple-600" />
+                <p className="text-[10px] font-medium text-purple-800 dark:text-purple-300">Cafet</p>
               </div>
-              <p className="text-xl font-bold text-purple-700 dark:text-purple-400">
-                {formatCurrency(personnelTransfer)}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-1">(Z/2) + Expense - Cash</p>
+              <p className="text-base font-bold text-purple-700 dark:text-purple-400">{formatCurrency(cafetTransfer)}</p>
+            </div>
+            <div className="bg-white/70 dark:bg-gray-800/50 rounded-xl p-3 text-center border border-purple-200/50 dark:border-purple-800/30">
+              <div className="flex items-center justify-center gap-1 mb-0.5">
+                <UserCog className="h-3.5 w-3.5 text-purple-600" />
+                <p className="text-[10px] font-medium text-purple-800 dark:text-purple-300">Personnel</p>
+              </div>
+              <p className="text-base font-bold text-purple-700 dark:text-purple-400">{formatCurrency(personnelTransfer)}</p>
             </div>
           </div>
           
-          {/* Details Row */}
-          <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-purple-200/30 dark:border-purple-700/30">
+          <div className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-purple-200/30 dark:border-purple-700/30">
             <div className="text-center">
-              <p className="text-[8px] text-muted-foreground">Z Report</p>
-              <p className="text-sm font-bold text-purple-600 dark:text-purple-400">{formatCurrency(zReport)}</p>
+              <p className="text-[8px] text-gray-500 dark:text-gray-400">Expense</p>
+              <p className="text-xs font-bold text-red-600">{formatCurrency(totalExpense)}</p>
             </div>
             <div className="text-center">
-              <p className="text-[8px] text-muted-foreground">Expense</p>
-              <p className="text-sm font-bold text-red-500">{formatCurrency(totalExpense)}</p>
+              <p className="text-[8px] text-gray-500 dark:text-gray-400">Cash</p>
+              <p className="text-xs font-bold text-emerald-600">{formatCurrency(totalCash)}</p>
             </div>
             <div className="text-center">
-              <p className="text-[8px] text-muted-foreground">Cash</p>
-              <p className="text-sm font-bold text-emerald-600">{formatCurrency(totalCash)}</p>
+              <p className="text-[8px] text-gray-500 dark:text-gray-400">Z Report</p>
+              <p className="text-xs font-bold text-purple-600">{formatCurrency(zReport)}</p>
             </div>
           </div>
         </CardContent>
@@ -289,31 +441,31 @@ const TransferCard = ({
   )
 }
 
-// Daily Profit Card Component - Navigates to /profit
-const DailyProfitCard = ({
+// Mobile Profit Card
+const MobileProfitCard = ({
   grossProfit,
   netProfit,
   profitMargin,
   isLoading,
+  onClick
 }: {
   grossProfit: number
   netProfit: number
   profitMargin: number
   isLoading: boolean
+  onClick?: () => void
 }) => {
-  const router = useRouter()
-
   if (isLoading) {
     return (
-      <Card className="h-full border dark:border-gray-800">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-8 w-8 rounded-full" />
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <Skeleton className="h-14 rounded-xl" />
-            <Skeleton className="h-14 rounded-xl" />
+      <Card className="border-purple-200/50 dark:border-purple-800/30">
+        <CardContent className="p-4">
+          <div className="space-y-3">
+            <Skeleton className="h-4 w-24" />
+            <div className="grid grid-cols-3 gap-2">
+              <Skeleton className="h-16 rounded-xl" />
+              <Skeleton className="h-16 rounded-xl" />
+              <Skeleton className="h-16 rounded-xl" />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -323,57 +475,40 @@ const DailyProfitCard = ({
   const isProfitable = netProfit >= 0
 
   return (
-    <motion.div 
-      whileHover={{ y: -5, boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)" }}
-      transition={{ duration: 0.2 }}
-      onClick={() => router.push('/profit')}
+    <motion.div
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
       className="cursor-pointer"
     >
-      <Card className={`bg-gradient-to-br ${isProfitable ? 'from-purple-50/80 via-emerald-100/50 to-emerald-200/30 border-purple-200 dark:from-purple-950/30 dark:via-emerald-900/20 dark:to-emerald-800/10 dark:border-purple-800/30' : 'from-purple-50/80 via-red-100/50 to-red-200/30 border-purple-200 dark:from-purple-950/30 dark:via-red-900/20 dark:to-red-800/10 dark:border-purple-800/30'} hover:shadow-lg transition-all duration-300 h-full overflow-hidden group`}>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base font-bold flex items-center gap-2 text-purple-900 dark:text-purple-300">
-            <TrendingUp className={`h-5 w-5 ${isProfitable ? 'text-emerald-600' : 'text-red-600'}`} />
-            Daily Profit
-          </CardTitle>
-          <Badge variant="secondary" className={`${isProfitable ? 'bg-emerald-200 text-emerald-800 dark:bg-emerald-800/50 dark:text-emerald-300' : 'bg-red-200 text-red-800 dark:bg-red-800/50 dark:text-red-300'} border-0 text-xs`}>
-            {isProfitable ? '💰 Profitable' : '📉 Loss'}
-          </Badge>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-3">
-            {/* Gross Profit */}
-            <div className="bg-white/70 dark:bg-gray-800/50 rounded-xl p-3 text-center border border-purple-200/50 dark:border-purple-800/30 shadow-sm">
-              <p className="text-[10px] text-muted-foreground font-medium">Gross</p>
-              <p className="text-lg font-bold text-purple-700 dark:text-purple-400">
-                {formatCurrency(grossProfit)}
-              </p>
-              <p className="text-[8px] text-muted-foreground">Revenue - Stock</p>
+      <Card className={`border-purple-200/50 dark:border-purple-800/30 bg-gradient-to-br ${isProfitable ? 'from-emerald-50/80 to-emerald-100/30 dark:from-emerald-950/30 dark:to-emerald-900/10' : 'from-red-50/80 to-red-100/30 dark:from-red-950/30 dark:to-red-900/10'} hover:shadow-lg transition-all`}>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <TrendingUp className={`h-4 w-4 ${isProfitable ? 'text-emerald-600' : 'text-red-600'}`} />
+              <span className="text-sm font-bold text-purple-900 dark:text-purple-300">Profit</span>
             </div>
-            
-            {/* Net Profit */}
-            <div className={`bg-white/70 dark:bg-gray-800/50 rounded-xl p-3 text-center border ${isProfitable ? 'border-emerald-200/50 dark:border-emerald-800/30' : 'border-red-200/50 dark:border-red-800/30'} shadow-sm`}>
-              <p className="text-[10px] text-muted-foreground font-medium">Net</p>
-              <p className={`text-lg font-bold ${isProfitable ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                {formatCurrency(netProfit)}
-              </p>
-              <p className="text-[8px] text-muted-foreground">Revenue - All</p>
-            </div>
-            
-            {/* Profit Margin */}
-            <div className={`bg-white/70 dark:bg-gray-800/50 rounded-xl p-3 text-center border ${profitMargin >= 20 ? 'border-emerald-200/50 dark:border-emerald-800/30' : profitMargin >= 0 ? 'border-yellow-200/50 dark:border-yellow-800/30' : 'border-red-200/50 dark:border-red-800/30'} shadow-sm`}>
-              <p className="text-[10px] text-muted-foreground font-medium">Margin</p>
-              <p className={`text-lg font-bold ${profitMargin >= 20 ? 'text-emerald-600 dark:text-emerald-400' : profitMargin >= 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
-                {profitMargin.toFixed(1)}%
-              </p>
-              <p className="text-[8px] text-muted-foreground">Net / Revenue</p>
-            </div>
+            <Badge className={`text-[10px] border-0 ${isProfitable ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+              {isProfitable ? 'Profitable' : 'Loss'}
+            </Badge>
           </div>
           
-          {/* Summary Row */}
-          <div className="mt-3 pt-3 border-t border-purple-200/30 dark:border-purple-700/30">
-            <p className="text-[9px] text-center text-muted-foreground">
-              📊 Gross = Revenue - Stock Cost • Net = Revenue - All Expenses
-            </p>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-white/70 dark:bg-gray-800/50 rounded-xl p-2.5 text-center border border-purple-200/50 dark:border-purple-800/30">
+              <p className="text-[8px] text-gray-500 dark:text-gray-400">Gross</p>
+              <p className="text-sm font-bold text-purple-700 dark:text-purple-400">{formatCurrency(grossProfit)}</p>
+            </div>
+            <div className={`bg-white/70 dark:bg-gray-800/50 rounded-xl p-2.5 text-center border ${isProfitable ? 'border-emerald-200/50 dark:border-emerald-800/30' : 'border-red-200/50 dark:border-red-800/30'}`}>
+              <p className="text-[8px] text-gray-500 dark:text-gray-400">Net</p>
+              <p className={`text-sm font-bold ${isProfitable ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                {formatCurrency(netProfit)}
+              </p>
+            </div>
+            <div className={`bg-white/70 dark:bg-gray-800/50 rounded-xl p-2.5 text-center border ${profitMargin >= 20 ? 'border-emerald-200/50 dark:border-emerald-800/30' : profitMargin >= 0 ? 'border-yellow-200/50 dark:border-yellow-800/30' : 'border-red-200/50 dark:border-red-800/30'}`}>
+              <p className="text-[8px] text-gray-500 dark:text-gray-400">Margin</p>
+              <p className={`text-sm font-bold ${profitMargin >= 20 ? 'text-emerald-600 dark:text-emerald-400' : profitMargin >= 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+                {profitMargin.toFixed(1)}%
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -381,12 +516,9 @@ const DailyProfitCard = ({
   )
 }
 
-// Loading Spinner Component
-const LoadingSpinner = () => (
-  <div className="flex justify-center items-center h-40">
-    <Loader2 className="h-8 w-8 animate-spin text-purple-900" />
-  </div>
-)
+// ============================================
+// DESKTOP COMPONENTS
+// ============================================
 
 // Skeleton Stat Card
 const SkeletonStatCard = () => (
@@ -402,7 +534,7 @@ const SkeletonStatCard = () => (
   </Card>
 )
 
-// Stat Card Component with Click Navigation
+// Desktop Stat Card
 const StatCard = ({
   title,
   value,
@@ -487,49 +619,230 @@ const StatCard = ({
   )
 }
 
-// Stock Status Helper
-type StockStatus = 'critical' | 'low' | 'good';
+// Desktop Transfer Card
+const TransferCard = ({
+  cafetTransfer,
+  personnelTransfer,
+  zReport,
+  totalExpense,
+  totalCash,
+  isLoading,
+}: {
+  cafetTransfer: number
+  personnelTransfer: number
+  zReport: number
+  totalExpense: number
+  totalCash: number
+  isLoading: boolean
+}) => {
+  const router = useRouter()
 
-const getStockStatus = (item: StockItem): StockStatus => {
-  if (item.minimumStock === 0) return 'good'
-  const ratio = item.currentStock / item.minimumStock
-  if (ratio <= 0.5) return 'critical'
-  if (ratio <= 1) return 'low'
-  return 'good'
+  if (isLoading) {
+    return (
+      <Card className="h-full border dark:border-gray-800">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-8 w-8 rounded-full" />
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-4">
+            <Skeleton className="h-20 rounded-xl" />
+            <Skeleton className="h-20 rounded-xl" />
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <motion.div 
+      whileHover={{ y: -5, boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)" }}
+      transition={{ duration: 0.2 }}
+      onClick={() => router.push('/expe')}
+      className="cursor-pointer"
+    >
+      <Card className="bg-gradient-to-br from-purple-50/80 via-purple-100/50 to-purple-200/30 border-purple-200 dark:from-purple-950/30 dark:via-purple-900/20 dark:to-purple-800/10 dark:border-purple-800/30 hover:shadow-lg transition-all duration-300 h-full overflow-hidden group">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-base font-bold flex items-center gap-2 text-purple-900 dark:text-purple-300">
+            <LayoutGrid className="h-5 w-5 text-purple-700" />
+            Transfers
+          </CardTitle>
+          <Badge variant="secondary" className="bg-purple-200 text-purple-800 dark:bg-purple-800/50 dark:text-purple-300 border-0 text-xs">
+            Today
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/70 dark:bg-gray-800/50 rounded-xl p-4 border border-purple-200/50 dark:border-purple-800/30 shadow-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <Building2 className="h-4 w-4 text-purple-700" />
+                <p className="text-xs font-semibold text-purple-800 dark:text-purple-300">Cafet</p>
+              </div>
+              <p className="text-xl font-bold text-purple-700 dark:text-purple-400">
+                {formatCurrency(cafetTransfer)}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-1">Z Report / 2</p>
+            </div>
+            
+            <div className="bg-white/70 dark:bg-gray-800/50 rounded-xl p-4 border border-purple-200/50 dark:border-purple-800/30 shadow-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <UserCog className="h-4 w-4 text-purple-700" />
+                <p className="text-xs font-semibold text-purple-800 dark:text-purple-300">Personnel</p>
+              </div>
+              <p className="text-xl font-bold text-purple-700 dark:text-purple-400">
+                {formatCurrency(personnelTransfer)}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-1">(Z/2) + Expense - Cash</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-purple-200/30 dark:border-purple-700/30">
+            <div className="text-center">
+              <p className="text-[8px] text-muted-foreground">Z Report</p>
+              <p className="text-sm font-bold text-purple-600 dark:text-purple-400">{formatCurrency(zReport)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[8px] text-muted-foreground">Expense</p>
+              <p className="text-sm font-bold text-red-500">{formatCurrency(totalExpense)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[8px] text-muted-foreground">Cash</p>
+              <p className="text-sm font-bold text-emerald-600">{formatCurrency(totalCash)}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  )
 }
 
-// Main Dashboard Component
+// Desktop Profit Card
+const DailyProfitCard = ({
+  grossProfit,
+  netProfit,
+  profitMargin,
+  isLoading,
+}: {
+  grossProfit: number
+  netProfit: number
+  profitMargin: number
+  isLoading: boolean
+}) => {
+  const router = useRouter()
+
+  if (isLoading) {
+    return (
+      <Card className="h-full border dark:border-gray-800">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-8 w-8 rounded-full" />
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <Skeleton className="h-14 rounded-xl" />
+            <Skeleton className="h-14 rounded-xl" />
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const isProfitable = netProfit >= 0
+
+  return (
+    <motion.div 
+      whileHover={{ y: -5, boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)" }}
+      transition={{ duration: 0.2 }}
+      onClick={() => router.push('/profit')}
+      className="cursor-pointer"
+    >
+      <Card className={`bg-gradient-to-br ${isProfitable ? 'from-purple-50/80 via-emerald-100/50 to-emerald-200/30 border-purple-200 dark:from-purple-950/30 dark:via-emerald-900/20 dark:to-emerald-800/10 dark:border-purple-800/30' : 'from-purple-50/80 via-red-100/50 to-red-200/30 border-purple-200 dark:from-purple-950/30 dark:via-red-900/20 dark:to-red-800/10 dark:border-purple-800/30'} hover:shadow-lg transition-all duration-300 h-full overflow-hidden group`}>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-base font-bold flex items-center gap-2 text-purple-900 dark:text-purple-300">
+            <TrendingUp className={`h-5 w-5 ${isProfitable ? 'text-emerald-600' : 'text-red-600'}`} />
+            Daily Profit
+          </CardTitle>
+          <Badge variant="secondary" className={`${isProfitable ? 'bg-emerald-200 text-emerald-800 dark:bg-emerald-800/50 dark:text-emerald-300' : 'bg-red-200 text-red-800 dark:bg-red-800/50 dark:text-red-300'} border-0 text-xs`}>
+            {isProfitable ? '💰 Profitable' : '📉 Loss'}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-white/70 dark:bg-gray-800/50 rounded-xl p-3 text-center border border-purple-200/50 dark:border-purple-800/30 shadow-sm">
+              <p className="text-[10px] text-muted-foreground font-medium">Gross</p>
+              <p className="text-lg font-bold text-purple-700 dark:text-purple-400">
+                {formatCurrency(grossProfit)}
+              </p>
+              <p className="text-[8px] text-muted-foreground">Revenue - Stock</p>
+            </div>
+            
+            <div className={`bg-white/70 dark:bg-gray-800/50 rounded-xl p-3 text-center border ${isProfitable ? 'border-emerald-200/50 dark:border-emerald-800/30' : 'border-red-200/50 dark:border-red-800/30'} shadow-sm`}>
+              <p className="text-[10px] text-muted-foreground font-medium">Net</p>
+              <p className={`text-lg font-bold ${isProfitable ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                {formatCurrency(netProfit)}
+              </p>
+              <p className="text-[8px] text-muted-foreground">Revenue - All</p>
+            </div>
+            
+            <div className={`bg-white/70 dark:bg-gray-800/50 rounded-xl p-3 text-center border ${profitMargin >= 20 ? 'border-emerald-200/50 dark:border-emerald-800/30' : profitMargin >= 0 ? 'border-yellow-200/50 dark:border-yellow-800/30' : 'border-red-200/50 dark:border-red-800/30'} shadow-sm`}>
+              <p className="text-[10px] text-muted-foreground font-medium">Margin</p>
+              <p className={`text-lg font-bold ${profitMargin >= 20 ? 'text-emerald-600 dark:text-emerald-400' : profitMargin >= 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+                {profitMargin.toFixed(1)}%
+              </p>
+              <p className="text-[8px] text-muted-foreground">Net / Revenue</p>
+            </div>
+          </div>
+          
+          <div className="mt-3 pt-3 border-t border-purple-200/30 dark:border-purple-700/30">
+            <p className="text-[9px] text-center text-muted-foreground">
+              📊 Gross = Revenue - Stock Cost • Net = Revenue - All Expenses
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  )
+}
+
+// ============================================
+// MAIN DASHBOARD COMPONENT
+// ============================================
+
 function Dashboard() {
   const router = useRouter()
   const { theme } = useTheme()
   const [isClient, setIsClient] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({ 
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), 
     to: new Date() 
   })
 
-  // Set client-side flag for hydration
   useEffect(() => {
     setIsClient(true)
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768)
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
-  // Use the Profit Hook for daily profit data
   const {
     summary: profitSummary,
     items: profitItems,
     isLoading: isLoadingProfit,
     refresh: refreshProfit
   } = useCachedProfitCalculations(
-    new Date(), // Today's date
+    new Date(),
     {
       sortBy: 'margin',
       sortOrder: 'desc'
     }
   )
 
-  // Query options with stale time for better performance
   const queryOptions = {
-    staleTime: 30000, // 30 seconds
+    staleTime: 30000,
     refetchOnWindowFocus: false,
     refetchOnMount: true,
   }
@@ -572,29 +885,24 @@ function Dashboard() {
 
   const isLoading = isLoadingExpenses || isLoadingCommon || isLoadingOrderReport || isLoadingStock || isLoadingStockPurchases || isLoadingDailyCash || isLoadingProfit
 
-  // Get today's date string
   const todayStr = new Date().toISOString().split("T")[0]
   const todayDate = new Date()
   
-  // Get yesterday's date string
   const yesterday = new Date()
   yesterday.setDate(yesterday.getDate() - 1)
   const yesterdayStr = yesterday.toISOString().split("T")[0]
   const yesterdayDate = yesterday
 
-  // Calculate Today's Revenue (from dailySales)
   const todaysRevenue = useMemo(() => {
     if (!orderReport) return 0
     return orderReport.dailySales[todayStr] || 0
   }, [orderReport, todayStr])
 
-  // Calculate Yesterday's Revenue
   const yesterdaysRevenue = useMemo(() => {
     if (!orderReport) return 0
     return orderReport.dailySales[yesterdayStr] || 0
   }, [orderReport, yesterdayStr])
 
-  // Calculate Today's Expenses (Common + Casual + Stock Purchases)
   const todaysExpenses = useMemo(() => {
     let total = 0
     
@@ -622,7 +930,6 @@ function Dashboard() {
     return total
   }, [expenses, commonExpenses, stockPurchases, todayStr, todayDate])
 
-  // Calculate Yesterday's Expenses
   const yesterdaysExpenses = useMemo(() => {
     let total = 0
     
@@ -650,7 +957,6 @@ function Dashboard() {
     return total
   }, [expenses, commonExpenses, stockPurchases, yesterdayStr, yesterdayDate])
 
-  // Calculate Today's Orders
   const todaysOrders = useMemo(() => {
     if (!orderReport) return 0
     if (orderReport.dailyOrders) {
@@ -661,7 +967,6 @@ function Dashboard() {
     return estimatedOrders
   }, [orderReport, todayStr, todaysRevenue])
 
-  // Calculate Yesterday's Orders
   const yesterdaysOrders = useMemo(() => {
     if (!orderReport) return 0
     if (orderReport.dailyOrders) {
@@ -671,7 +976,6 @@ function Dashboard() {
     return Math.round(yesterdaysRevenue / avgOrderValue)
   }, [orderReport, yesterdayStr, yesterdaysRevenue])
 
-  // Calculate Current Stock Value
   const currentStockValue = useMemo(() => {
     if (!stock || !stockPurchases) return 0
     
@@ -683,7 +987,6 @@ function Dashboard() {
     return totalValue
   }, [stock, stockPurchases])
 
-  // Calculate Yesterday's Stock Value (estimate)
   const yesterdayStockValue = useMemo(() => {
     if (!stock || !stockPurchases) return currentStockValue * 0.95
     
@@ -706,7 +1009,6 @@ function Dashboard() {
     return totalValue
   }, [stock, stockPurchases, currentStockValue, todayStr])
 
-  // Calculate Today's Transfers (ONLY using casual + stock purchases, NO common expenses)
   const todayTransfers = useMemo(() => {
     if (!dailyCashEntries) return { cafetTransfer: 0, personnelTransfer: 0, zReport: 0, totalExpense: 0, totalCash: 0 }
     
@@ -718,27 +1020,15 @@ function Dashboard() {
     )
   }, [dailyCashEntries, expenses, stockPurchases, todayStr])
 
-  // Calculate percentage changes
   const revenueChange = calculatePercentageChange(todaysRevenue, yesterdaysRevenue)
   const expensesChange = calculatePercentageChange(todaysExpenses, yesterdaysExpenses)
   const ordersChange = calculatePercentageChange(todaysOrders, yesterdaysOrders)
   const stockChange = calculatePercentageChange(currentStockValue, yesterdayStockValue)
 
-  // Get profit data from the hook
   const todaysNetProfit = profitSummary?.totalProfit || 0
   const profitMargin = profitSummary?.profitMargin || 0
   const todaysGrossProfit = (profitSummary?.totalRevenue || 0) - (profitSummary?.totalCost || 0)
-  const totalItemsSold = profitSummary?.totalItemsSold || 0
-  const totalOrders = profitSummary?.totalOrders || 0
-  const profitableItems = profitSummary?.profitableItems || 0
-  const lowMarginItems = profitSummary?.lowMarginItems || 0
-  const lossItems = profitSummary?.lossItems || 0
 
-  // Calculate yesterday's profit for comparison (approximate)
-  const yesterdayNetProfit = todaysNetProfit * 0.9
-  const profitChange = calculatePercentageChange(todaysNetProfit, yesterdayNetProfit)
-
-  // Filtered sales data for chart
   const filteredSalesData = useMemo(() => {
     if (!orderReport) return []
     return Object.entries(orderReport.dailySales)
@@ -753,13 +1043,21 @@ function Dashboard() {
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
   }, [orderReport, dateRange])
 
-  // Critical stock items
+  type StockStatus = 'critical' | 'low' | 'good';
+  
+  const getStockStatus = (item: StockItem): StockStatus => {
+    if (item.minimumStock === 0) return 'good'
+    const ratio = item.currentStock / item.minimumStock
+    if (ratio <= 0.5) return 'critical'
+    if (ratio <= 1) return 'low'
+    return 'good'
+  }
+
   const criticalStock = useMemo(() => {
     if (!stock) return []
     return stock.filter(item => getStockStatus(item) === 'critical')
   }, [stock])
 
-  // Stock status counts for pie chart
   const stockStatusCounts = useMemo(() => {
     if (!stock) return { critical: 0, low: 0, good: 0, total: 0 }
     return stock.reduce((acc, item) => {
@@ -789,13 +1087,6 @@ function Dashboard() {
     })
   }, [])
 
-  // Calculate total revenue all time
-  const totalRevenueAllTime = useMemo(() => {
-    if (!orderReport) return 0
-    return Object.values(orderReport.dailySales).reduce((a, b) => a + b, 0)
-  }, [orderReport])
-
-  // Calculate casual expenses breakdown for display
   const recentCasualExpenses = useMemo(() => {
     if (!expenses) return []
     return [...expenses]
@@ -803,7 +1094,6 @@ function Dashboard() {
       .slice(0, 5)
   }, [expenses])
 
-  // If not client-side yet, show skeleton
   if (!isClient) {
     return (
       <div className="container mx-auto p-4 min-h-screen">
@@ -826,6 +1116,194 @@ function Dashboard() {
     )
   }
 
+  // ============================================
+  // MOBILE VIEW
+  // ============================================
+  if (isMobile) {
+    return (
+      <div className="bg-gradient-to-b from-purple-50/30 via-white to-purple-50/20 dark:from-gray-950 dark:via-gray-900 dark:to-purple-950/20 min-h-screen">
+        <MobileHeader onNavigate={(path) => router.push(path)} />
+
+        <div className="p-4 space-y-4 pb-24">
+          {/* Stats Grid - 2x2 */}
+          <div className="grid grid-cols-2 gap-3">
+            <MobileStatCard
+              label="Revenue"
+              value={formatCurrency(todaysRevenue)}
+              change={revenueChange}
+              icon={DollarSign}
+              color="green"
+              subtitle="Today"
+              isLoading={isLoading}
+              onClick={() => router.push('/sales')}
+            />
+            <MobileStatCard
+              label="Expenses"
+              value={formatCurrency(todaysExpenses)}
+              change={expensesChange}
+              icon={ArrowDownIcon}
+              color="red"
+              subtitle="Today"
+              isLoading={isLoading}
+              onClick={() => router.push('/expenses')}
+            />
+            <MobileStatCard
+              label="Orders"
+              value={todaysOrders.toString()}
+              change={ordersChange}
+              icon={ShoppingCart}
+              color="orange"
+              subtitle={`${todaysOrders} today`}
+              isLoading={isLoading}
+              onClick={() => router.push('/orders')}
+            />
+            <MobileStatCard
+              label="Stock Value"
+              value={formatCurrency(currentStockValue)}
+              change={stockChange}
+              icon={Package}
+              color="blue"
+              subtitle="Current"
+              isLoading={isLoading}
+              onClick={() => router.push('/stock')}
+            />
+          </div>
+
+          {/* Transfer + Profit Cards */}
+          <div className="space-y-3">
+            <MobileTransferCard
+              cafetTransfer={todayTransfers.cafetTransfer}
+              personnelTransfer={todayTransfers.personnelTransfer}
+              zReport={todayTransfers.zReport}
+              totalExpense={todayTransfers.totalExpense}
+              totalCash={todayTransfers.totalCash}
+              isLoading={isLoading}
+              onClick={() => router.push('/expe')}
+            />
+            
+            <MobileProfitCard
+              grossProfit={todaysGrossProfit}
+              netProfit={todaysNetProfit}
+              profitMargin={profitMargin}
+              isLoading={isLoadingProfit}
+              onClick={() => router.push('/profit')}
+            />
+          </div>
+
+          {/* Sales Chart - Compact */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <h2 className="text-sm font-bold text-purple-900 dark:text-purple-300 flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-purple-600" />
+                Sales Overview
+              </h2>
+              <DateRangePicker
+                from={dateRange.from}
+                to={dateRange.to}
+                onSelect={handleDateRangeSelect}
+              />
+            </div>
+            
+            <Card className="border-purple-200/50 dark:border-purple-800/30 shadow-lg">
+              <CardContent className="p-3">
+                <div className="h-[200px]">
+                  {filteredSalesData.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full">
+                      <Calendar className="h-10 w-10 text-gray-300 dark:text-gray-600 mb-2" />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 text-center">No sales data available</p>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="mt-2 border-purple-300 text-purple-700 hover:bg-purple-50 text-xs" 
+                        onClick={handleResetDateRange}
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={filteredSalesData}>
+                        <defs>
+                          <linearGradient id="colorSalesMobile" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.8} />
+                            <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                        <XAxis 
+                          dataKey="date" 
+                          tickMargin={6}
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(value) => {
+                            const date = new Date(value);
+                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                          }}
+                        />
+                        <YAxis 
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(value) => {
+                            if (value >= 1000) return `${(value / 1000).toFixed(0)}k`;
+                            return value;
+                          }}
+                        />
+                        <RechartsTooltip
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="bg-white dark:bg-gray-800 p-2 border border-purple-200 dark:border-purple-800 shadow-lg rounded-lg text-xs">
+                                  <p className="text-gray-500">{new Date(payload[0].payload.date).toLocaleDateString()}</p>
+                                  <p className="text-sm font-bold text-purple-900">{formatCurrency(payload[0].value as number)}</p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="sales"
+                          stroke="#7c3aed"
+                          strokeWidth={2}
+                          fillOpacity={1}
+                          fill="url(#colorSalesMobile)"
+                          activeDot={{ r: 4 }}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Quick Actions - Bottom Navigation */}
+          <div className="fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm border-t border-purple-200/30 dark:border-purple-800/30 z-30">
+            <div className="grid grid-cols-4 gap-1 p-2">
+              {[
+                { icon: Home, label: "Home", path: "/" },
+                { icon: DollarSign, label: "Sales", path: "/sales" },
+                { icon: Package, label: "Stock", path: "/stock" },
+                { icon: TrendingUp, label: "Profit", path: "/profit" },
+              ].map((item) => (
+                <button
+                  key={item.path}
+                  onClick={() => router.push(item.path)}
+                  className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-purple-100/50 dark:hover:bg-purple-900/20 transition-all active:scale-95"
+                >
+                  <item.icon className="h-5 w-5 text-purple-600" />
+                  <span className="text-[10px] font-medium text-purple-900 dark:text-purple-300">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ============================================
+  // DESKTOP VIEW
+  // ============================================
   return (
     <div className="container mx-auto p-4 min-h-screen bg-gradient-to-b from-purple-50/30 via-white to-purple-50/20 dark:from-gray-950 dark:via-gray-900 dark:to-purple-950/20">
       <AnimatePresence mode="wait">
@@ -837,35 +1315,27 @@ function Dashboard() {
             exit={{ opacity: 0 }}
             className="space-y-8"
           >
-            {/* Header with Skeleton */}
             <div className="flex justify-between items-center">
               <Skeleton className="h-10 w-64" />
               <Skeleton className="h-8 w-32" />
             </div>
 
-            {/* 4 Main Metric Cards - Skeleton */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               {[1, 2, 3, 4].map(i => <SkeletonStatCard key={i} />)}
             </div>
 
-            {/* Transfer + Profit Cards Skeleton */}
             <div className="grid gap-4 md:grid-cols-2">
               {[1, 2].map(i => <Skeleton key={i} className="h-44 rounded-xl" />)}
             </div>
 
-            {/* Chart Skeleton */}
             <Skeleton className="h-[400px] w-full rounded-xl" />
 
-            {/* Two Column Skeleton */}
             <div className="grid gap-4 md:grid-cols-2">
               <Skeleton className="h-[300px] rounded-xl" />
               <Skeleton className="h-[300px] rounded-xl" />
             </div>
 
-            {/* Stock Management Skeleton */}
             <Skeleton className="h-[400px] w-full rounded-xl" />
-
-            {/* Quick Navigation Skeleton */}
             <Skeleton className="h-[120px] w-full rounded-xl" />
           </motion.div>
         ) : (
@@ -876,7 +1346,7 @@ function Dashboard() {
             exit={{ opacity: 0 }}
             className="space-y-6"
           >
-            {/* Header Section */}
+            {/* Desktop Header */}
             <motion.div 
               className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
               initial={{ y: -20, opacity: 0 }}
@@ -895,7 +1365,7 @@ function Dashboard() {
               </div>
             </motion.div>
 
-            {/* 4 Main Metric Cards - All Clickable */}
+            {/* 4 Main Metric Cards */}
             <motion.div 
               className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
               initial={{ y: 20, opacity: 0 }}
@@ -948,14 +1418,13 @@ function Dashboard() {
               />
             </motion.div>
 
-            {/* Combined Transfer Card + Daily Profit Card */}
+            {/* Transfer + Profit Cards */}
             <motion.div
               className="grid gap-4 md:grid-cols-2"
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ duration: 0.3, delay: 0.15 }}
             >
-              {/* Combined Transfers Card */}
               <TransferCard
                 cafetTransfer={todayTransfers.cafetTransfer}
                 personnelTransfer={todayTransfers.personnelTransfer}
@@ -965,7 +1434,6 @@ function Dashboard() {
                 isLoading={isLoading}
               />
 
-              {/* Daily Profit Card - Navigates to /profit */}
               <DailyProfitCard
                 grossProfit={todaysGrossProfit}
                 netProfit={todaysNetProfit}
@@ -1018,7 +1486,7 @@ function Dashboard() {
                       <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={filteredSalesData}>
                           <defs>
-                            <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                            <linearGradient id="colorSalesDesktop" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.8} />
                               <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
                             </linearGradient>
@@ -1064,7 +1532,7 @@ function Dashboard() {
                             stroke="#7c3aed"
                             strokeWidth={3}
                             fillOpacity={1}
-                            fill="url(#colorSales)"
+                            fill="url(#colorSalesDesktop)"
                             activeDot={{ r: 6, strokeWidth: 2, stroke: "white" }}
                           />
                         </AreaChart>
@@ -1075,14 +1543,13 @@ function Dashboard() {
               </Card>
             </motion.div>
 
-            {/* Second Row Charts - Expenses Breakdown */}
+            {/* Two Column - Expenses */}
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ duration: 0.3, delay: 0.3 }}
               className="grid gap-4 md:grid-cols-2"
             >
-              {/* Recent Casual Expenses Card */}
               <Card className="border-purple-200/50 dark:border-purple-800/30 shadow-lg">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="flex items-center text-purple-900 dark:text-purple-300">
@@ -1143,7 +1610,6 @@ function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* Common Expenses Summary Card */}
               <Card className="border-purple-200/50 dark:border-purple-800/30 shadow-lg">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="flex items-center text-purple-900 dark:text-purple-300">
@@ -1199,7 +1665,7 @@ function Dashboard() {
               </Card>
             </motion.div>
 
-            {/* Stock Management Section */}
+            {/* Stock Management */}
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -1215,7 +1681,6 @@ function Dashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-6 lg:grid-cols-2">
-                    {/* Stock Status Distribution */}
                     <div>
                       <h4 className="text-sm font-medium mb-4 text-purple-900 dark:text-purple-300">Stock Status Distribution</h4>
                       <div className="h-64">
@@ -1251,7 +1716,6 @@ function Dashboard() {
                       </div>
                     </div>
 
-                    {/* Critical Stock Items */}
                     <div>
                       <h4 className="text-sm font-medium mb-4 flex items-center text-purple-900 dark:text-purple-300">
                         <span className="h-2 w-2 rounded-full bg-red-500 mr-2"></span>
@@ -1303,7 +1767,6 @@ function Dashboard() {
                     </div>
                   </div>
 
-                  {/* Stock Level Indicators */}
                   <div className="grid grid-cols-3 gap-4 mt-6 pt-4 border-t border-purple-200/30 dark:border-purple-800/30">
                     <div className="text-center cursor-pointer hover:bg-purple-50/50 dark:hover:bg-purple-950/20 p-3 rounded-xl transition-colors" onClick={() => router.push('/stock?filter=critical')}>
                       <div className="flex items-center justify-center gap-2">
@@ -1331,7 +1794,7 @@ function Dashboard() {
               </Card>
             </motion.div>
 
-            {/* Quick Navigation Section */}
+            {/* Quick Navigation */}
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
