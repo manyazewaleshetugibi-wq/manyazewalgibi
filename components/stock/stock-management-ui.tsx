@@ -41,6 +41,7 @@ import {
   Search,
   XCircle,
   RefreshCw,
+  AlertOctagon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -70,6 +71,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import type { Stock, Category, Purchase, StockStatus } from "../../app/(admin)/stock/page"
+import { RegisterWastageModal } from "./RegisterWastageModal"
 
 // Schemas
 const stockSchema = z.object({
@@ -161,6 +163,7 @@ interface StockManagementUIProps {
   onCategoryChange: (category: string | null) => void
   onStatusChange: (status: StockStatus | 'all') => void
   onSearchChange: (query: string) => void
+  userRole?: string // Add user role prop
 }
 
 export function StockManagementUI({
@@ -183,6 +186,7 @@ export function StockManagementUI({
   onCategoryChange,
   onStatusChange,
   onSearchChange,
+  userRole = 'user', // Default to 'user' if not provided
 }: StockManagementUIProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -196,6 +200,13 @@ export function StockManagementUI({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery)
+  
+  // Wastage state - only for registering
+  const [isRegisterWastageOpen, setIsRegisterWastageOpen] = useState(false)
+  const [selectedStockForWastage, setSelectedStockForWastage] = useState<Stock | null>(null)
+
+  // Check if user is admin
+  const isAdmin = userRole === 'admin'
 
   useEffect(() => {
     setLocalSearchQuery(searchQuery)
@@ -340,7 +351,7 @@ export function StockManagementUI({
   }
 
   const handleDeleteStock = async (id: string) => {
-    if (!canEdit) {
+    if (!canEdit || !isAdmin) {
       toast.error("You don't have permission to delete stock")
       return
     }
@@ -408,6 +419,10 @@ export function StockManagementUI({
   }
 
   const handleDeletePurchase = (purchaseId: string) => {
+    if (!isAdmin) {
+      toast.error("Only admins can delete purchase records")
+      return
+    }
     setPurchaseToDelete(purchaseId)
     setIsDeleteWarningOpen(true)
   }
@@ -440,6 +455,18 @@ export function StockManagementUI({
   const clearSearch = () => {
     setLocalSearchQuery("")
     onSearchChange("")
+  }
+
+  // Wastage handler - only for registering
+  const handleOpenRegisterWastage = (stock: Stock) => {
+    console.log("Opening register wastage for:", stock.name)
+    setSelectedStockForWastage(stock)
+    setIsRegisterWastageOpen(true)
+  }
+
+  const handleWastageSuccess = () => {
+    console.log("Wastage registered, refreshing stocks...")
+    fetchStocks()
   }
 
   const columns: ColumnDef<Stock>[] = [
@@ -546,15 +573,23 @@ export function StockManagementUI({
               </DropdownMenuItem>
               {canEdit && (
                 <>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => handleEditStock(stock)}>
                     <PenSquare className="mr-2 h-4 w-4" />
                     Edit
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleDeleteStock(stock._id)}>
-                    <Trash className="mr-2 h-4 w-4" />
-                    Delete
-                  </DropdownMenuItem>
+                  {/* Only show Delete option for admin users */}
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={() => handleDeleteStock(stock._id)}>
+                      <Trash className="mr-2 h-4 w-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleOpenRegisterWastage(stock)}>
+                    <AlertOctagon className="mr-2 h-4 w-4" />
+                    Register Wastage
+                  </DropdownMenuItem>
                 </>
               )}
               <DropdownMenuItem onClick={() => handleAddPurchase(stock._id)}>
@@ -763,24 +798,37 @@ export function StockManagementUI({
                     <PenSquare className="h-3.5 w-3.5 mr-1" />
                     Edit
                   </Button>
-                  <Button 
-                    variant="destructive" 
-                    size="sm" 
-                    onClick={() => handleDeleteStock(stock._id)} 
-                    disabled={deletingId === stock._id || !canEdit}
-                    className="w-full"
-                  >
-                    {deletingId === stock._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5 mr-1" />}
-                    Delete
-                  </Button>
+                  {/* Only show Delete button for admin users */}
+                  {isAdmin && (
+                    <Button 
+                      variant="destructive" 
+                      size="sm" 
+                      onClick={() => handleDeleteStock(stock._id)} 
+                      disabled={deletingId === stock._id || !canEdit}
+                      className="w-full"
+                    >
+                      {deletingId === stock._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5 mr-1" />}
+                      Delete
+                    </Button>
+                  )}
                   <Button 
                     variant="outline" 
                     size="sm" 
                     onClick={() => handleAddPurchase(stock._id)} 
                     className="w-full"
                   >
-                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    <ShoppingCart className="h-3.5 w-3.5 mr-1" />
                     Buy
+                  </Button>
+                  <Button 
+                    variant="default" 
+                    size="sm" 
+                    onClick={() => handleOpenRegisterWastage(stock)} 
+                    className="w-full bg-amber-500 hover:bg-amber-600 text-white"
+                    disabled={!canEdit}
+                  >
+                    <AlertOctagon className="h-3.5 w-3.5 mr-1" />
+                    Wastage
                   </Button>
                 </CardFooter>
               </Card>
@@ -877,8 +925,17 @@ export function StockManagementUI({
                   <FormItem>
                     <FormLabel>Name</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input 
+                        {...field} 
+                        // Disable name field for non-admin users when editing
+                        disabled={!isAdmin && !!selectedStock}
+                      />
                     </FormControl>
+                    {!isAdmin && selectedStock && (
+                      <FormDescription className="text-amber-500">
+                        ⚠️ Only admins can edit stock names
+                      </FormDescription>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1244,13 +1301,20 @@ export function StockManagementUI({
                                 })}
                               </TableCell>
                               <TableCell>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => handleDeletePurchase(purchase._id)}
-                                >
-                                  <Trash className="h-4 w-4" />
-                                </Button>
+                                {/* Only show delete button for admin users */}
+                                {isAdmin ? (
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleDeletePurchase(purchase._id)}
+                                  >
+                                    <Trash className="h-4 w-4" />
+                                  </Button>
+                                ) : (
+                                  <Badge variant="secondary" className="text-xs">
+                                    View only
+                                  </Badge>
+                                )}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -1292,6 +1356,14 @@ export function StockManagementUI({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Register Wastage Modal - Only this remains */}
+      <RegisterWastageModal
+        open={isRegisterWastageOpen}
+        onOpenChange={setIsRegisterWastageOpen}
+        stock={selectedStockForWastage}
+        onSuccess={handleWastageSuccess}
+      />
     </>
   )
 }

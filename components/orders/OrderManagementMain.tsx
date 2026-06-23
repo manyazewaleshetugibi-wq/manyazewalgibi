@@ -1,4 +1,3 @@
-// components/orders/OrderManagementMain.tsx
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
@@ -57,6 +56,7 @@ import {
   AlertCircle,
   Truck,
   Lock,
+  Filter,
 } from "lucide-react"
 import type { Order, Waitress, Restaurant, OrderStatus } from "@/types/order"
 
@@ -72,7 +72,7 @@ import { AnimatePresence } from "framer-motion"
 // Configure axios instance - NO TIMEOUT LIMITS
 const api = axios.create({
   baseURL: '/api',
-  timeout: 0, // 0 means no timeout
+  timeout: 0,
   headers: { 'Content-Type': 'application/json' }
 })
 
@@ -169,6 +169,7 @@ export default function OrderManagementMain() {
     isAdmin: boolean
     timeFilterHours: number | null
     message: string
+    showCompletedLimit?: number
   } | null>(null)
   
   // Stock processing states
@@ -180,6 +181,7 @@ export default function OrderManagementMain() {
   const [stockError, setStockError] = useState<string | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState<boolean>(false)
   const [showFailedDetails, setShowFailedDetails] = useState<boolean>(false)
+  const [stockStatusFilter, setStockStatusFilter] = useState<string>("ALL") // ALL, PENDING, FAILED, PROCESSED
   
   // Sound states
   const [showNotification, setShowNotification] = useState(false)
@@ -205,11 +207,8 @@ export default function OrderManagementMain() {
   // Sound hook
   const {
     play: playNotificationSound,
-    stop: stopNotificationSound,
     isEnabled: soundEnabled,
     setIsEnabled: setSoundEnabled,
-    volume,
-    setVolume,
   } = useNotificationSound()
 
   // Enhanced sound play function with debouncing and queue handling
@@ -232,11 +231,9 @@ export default function OrderManagementMain() {
     }
     
     try {
-      const result = await playNotificationSound()
-      if (result !== false) {
-        setLastSoundPlayTime(now)
-      }
-      return result !== false
+      await playNotificationSound()
+      setLastSoundPlayTime(now)
+      return true
     } catch (error) {
       console.error("Sound play error:", error)
       return false
@@ -268,7 +265,7 @@ export default function OrderManagementMain() {
           setOrders(ordersWithFlags)
           setTotalPages(Math.ceil(ordersWithFlags.length / itemsPerPage))
           
-          const newOrderIds = new Set(ordersWithFlags.map((order: Order) => order._id))
+          const newOrderIds = new Set<string>(ordersWithFlags.map((order: Order) => order._id))
           lastOrderIdsRef.current = newOrderIds
           lastFetchTimeRef.current = new Date().toISOString()
         }
@@ -294,11 +291,26 @@ export default function OrderManagementMain() {
       const response = await api.get('/order?all=true&status=COMPLETED')
       
       const completedOrders = response.data.orders || []
+      
+      // Filter completed orders that need stock processing
       const pending = completedOrders.filter(
-        (order: Order) => order.status === "COMPLETED" && !order.stockProcessed && !order.stockProcessingError
+        (order: Order) => 
+          order.status === "COMPLETED" && 
+          !order.stockProcessed && 
+          !order.stockProcessingError
       )
+      
       const failed = completedOrders.filter(
-        (order: Order) => order.status === "COMPLETED" && !order.stockProcessed && order.stockProcessingError
+        (order: Order) => 
+          order.status === "COMPLETED" && 
+          !order.stockProcessed && 
+          order.stockProcessingError
+      )
+      
+      const processed = completedOrders.filter(
+        (order: Order) => 
+          order.status === "COMPLETED" && 
+          order.stockProcessed === true
       )
       
       if (isMountedRef.current) {
@@ -306,6 +318,14 @@ export default function OrderManagementMain() {
         setFailedStockCount(failed.length)
         setPendingOrdersList(pending)
         setFailedOrdersList(failed)
+        
+        // Log stock status for debugging
+        console.log('📊 Stock Status Summary:', {
+          totalCompleted: completedOrders.length,
+          pending: pending.length,
+          failed: failed.length,
+          processed: processed.length
+        })
         
         if (pending.length === 0 && failed.length === 0) {
           setStockError(null)
@@ -319,7 +339,7 @@ export default function OrderManagementMain() {
     }
   }, [])
 
-  // ========== HANDLE PROCESS STOCK ==========
+  // ========== HANDLE PROCESS STOCK - FIXED ==========
   const handleProcessStock = useCallback(async () => {
     setProcessingStock(true)
     setStockError(null)
@@ -335,21 +355,75 @@ export default function OrderManagementMain() {
       if (result.success) {
         const processed = result.processedOrders || 0
         const failed = result.failedOrders || 0
+        const lowStockItems = result.lowStockItems || []
+        const errors = result.errors || []
         
+        // Show success message
         if (processed > 0) {
           toast.success(`✅ Successfully processed ${processed} orders!`)
           await safePlaySound()
         }
+        
+        // Show failed orders - SAFELY HANDLED
         if (failed > 0) {
           toast.error(`⚠️ ${failed} orders failed to process`, { duration: 8000 })
-          if (result.errors && result.errors.length > 0) {
-            console.error('Failed orders:', result.errors)
+          
+          if (errors && errors.length > 0) {
+            // Safely log errors without breaking
+            try {
+              const errorDetails = errors.map((err: any) => ({
+                orderNumber: err.orderNumber || 'Unknown',
+                error: err.error || 'Unknown error'
+              }))
+              console.warn('Failed orders details:', errorDetails)
+            } catch (logError) {
+              console.warn('Failed orders details (raw):', errors)
+            }
+            
+            // Show detailed error in a separate toast - limit to 3 to avoid spam
+            const errorLimit = Math.min(errors.length, 3)
+            for (let i = 0; i < errorLimit; i++) {
+              try {
+                const err = errors[i]
+                const orderNumber = err.orderNumber || 'Unknown'
+                const errorMsg = err.error || 'Unknown error'
+                toast.error(`Order ${orderNumber}: ${errorMsg}`, { duration: 5000 })
+              } catch (toastError) {
+                // If individual toast fails, continue
+                console.warn('Failed to show toast for error:', toastError)
+              }
+            }
+            
+            // If there are more than 3 errors, show a summary
+            if (errors.length > 3) {
+              toast.error(`Plus ${errors.length - 3} more orders failed`, { 
+                duration: 5000,
+                icon: '⚠️'
+              })
+            }
+          }
+          
+          // Update failed orders list
+          if (result.failedOrdersList) {
+            setFailedOrdersList(result.failedOrdersList)
+            setFailedStockCount(result.failedOrdersList.length)
           }
         }
-        if (processed === 0 && failed === 0) {
-          toast('No pending orders to process', { icon: 'ℹ️' })
+        
+        // Show low stock warnings
+        if (lowStockItems && lowStockItems.length > 0) {
+          toast.error(`⚠️ Low stock detected for ${lowStockItems.length} items`, { 
+            duration: 8000,
+            icon: '⚠️'
+          })
+          console.warn('Low stock items:', lowStockItems)
         }
         
+        if (processed === 0 && failed === 0) {
+          toast.success('No pending orders to process', { icon: 'ℹ️' })
+        }
+        
+        // Refresh data after processing
         setTimeout(() => {
           checkPendingStockOrders()
           fetchOrders(false)
@@ -360,12 +434,19 @@ export default function OrderManagementMain() {
     } catch (error: any) {
       toast.dismiss(loadingToast)
       console.error('Error processing stock:', error)
+      
+      // Safe error message display
+      let errorMessage = 'Failed to process stock. Please try again.'
       if (error.response?.status === 500) {
-        toast.error('Server connection issue. Please try again in a moment.')
-      } else {
-        toast.error('Failed to process stock. Please try again.')
+        errorMessage = 'Server connection issue. Please try again in a moment.'
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error
+      } else if (error.message) {
+        errorMessage = error.message
       }
-      setStockError('Error')
+      
+      toast.error(errorMessage)
+      setStockError(errorMessage)
     } finally {
       setProcessingStock(false)
       setShowConfirmDialog(false)
@@ -522,7 +603,7 @@ export default function OrderManagementMain() {
           
           setOrders(prev => {
             const updatedOrders = [...trulyNewOrders, ...prev]
-            trulyNewOrders.forEach(order => {
+            trulyNewOrders.forEach((order: Order) => {
               lastOrderIdsRef.current.add(order._id)
             })
             return updatedOrders
@@ -689,7 +770,7 @@ export default function OrderManagementMain() {
           await checkPendingStockOrders()
           await safePlaySound()
         } else if (result.success && result.processedOrders === 0) {
-          toast.info(`No pending stock to process for this order`)
+          toast.success(`No pending stock to process for this order`, { icon: 'ℹ️' })
         } else {
           throw new Error(result.error || 'Retry failed')
         }
@@ -708,7 +789,12 @@ export default function OrderManagementMain() {
 
   // ========== STOCK STATUS BADGE ==========
   const StockStatusBadge = ({ order }: { order: Order }) => {
-    if (order.stockProcessed) {
+    // Only show stock status for COMPLETED orders
+    if (order.status !== "COMPLETED") {
+      return null
+    }
+    
+    if (order.stockProcessed === true) {
       return (
         <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
           <CheckCircle className="h-3 w-3 mr-1" />
@@ -722,7 +808,8 @@ export default function OrderManagementMain() {
           Stock Failed
         </Badge>
       )
-    } else if (order.status === "COMPLETED") {
+    } else {
+      // Pending stock (completed but not processed and no error)
       return (
         <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-200">
           <Clock className="h-3 w-3 mr-1" />
@@ -730,7 +817,6 @@ export default function OrderManagementMain() {
         </Badge>
       )
     }
-    return null
   }
 
   // ========== STOCK CONFIRM DIALOG ==========
@@ -773,7 +859,7 @@ export default function OrderManagementMain() {
                       </Badge>
                     </div>
                     <p className="text-sm text-red-700 mb-2">
-                      <span className="font-medium">Error:</span> {order.stockProcessingError}
+                      <span className="font-medium">Error:</span> {order.stockProcessingError || 'Unknown error'}
                     </p>
                     {order.stockProcessingFailedAt && (
                       <p className="text-xs text-red-500">
@@ -836,10 +922,50 @@ export default function OrderManagementMain() {
     </AlertDialog>
   )
 
-  // ========== FILTERED ORDERS (FIXED RESTAURANT FILTERING) ==========
+  // ========== FILTERED ORDERS ==========
   const filteredAndSortedOrders = useMemo(() => {
     let filtered = orders.filter((order) => {
+      // Skip deleted orders
       if (order.deletedAt) return false
+
+      // For non-admin users: Hide CANCELLED orders and limit completed orders to last 5
+      if (!isAdmin) {
+        // Hide cancelled orders
+        if (order.status === "CANCELLED") {
+          return false
+        }
+
+        // Limit completed orders to last 5
+        if (order.status === "COMPLETED") {
+          // Get all completed orders sorted by createdAt desc
+          const completedOrders = orders
+            .filter(o => o.status === "COMPLETED" && !o.deletedAt)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          
+          // Only keep the 5 most recent completed orders
+          const completedOrderIds = completedOrders.slice(0, 5).map(o => o._id)
+          if (!completedOrderIds.includes(order._id)) {
+            return false
+          }
+        }
+      }
+
+      // Stock status filter
+      if (stockStatusFilter !== "ALL") {
+        if (order.status !== "COMPLETED") {
+          // If not completed, only show if filter is ALL
+          if (stockStatusFilter !== "ALL") return false
+        } else {
+          // For completed orders, apply stock status filter
+          const isProcessed = order.stockProcessed === true
+          const isFailed = !!order.stockProcessingError
+          const isPending = !isProcessed && !isFailed
+          
+          if (stockStatusFilter === "PROCESSED" && !isProcessed) return false
+          if (stockStatusFilter === "FAILED" && !isFailed) return false
+          if (stockStatusFilter === "PENDING" && !isPending) return false
+        }
+      }
 
       const matchesSearch =
         order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -855,17 +981,14 @@ export default function OrderManagementMain() {
         (orderTypeFilter === "pos" && !order.inTable && !order.delivery)
       const matchesMarked = !showMarkedOnly || order.markedForDeletion === true
 
-      // FIXED: Restaurant filtering logic
+      // Restaurant filtering logic
       let matchesRestaurant = true
       if (restaurantFilter && restaurantFilter !== "all" && restaurantFilter !== "All") {
-        // Get the restaurant ID from the order using multiple possible sources
         let orderRestaurantId = null
         
-        // Check if order has direct restaurantId
         if (order.restaurantId) {
           orderRestaurantId = order.restaurantId
         } 
-        // Try to derive from restaurantName if it matches known restaurants
         else if (order.restaurantName && restaurants.length > 0) {
           const matchingRestaurant = restaurants.find(r => 
             r.name === order.restaurantName || 
@@ -876,7 +999,6 @@ export default function OrderManagementMain() {
             orderRestaurantId = matchingRestaurant._id
           }
         }
-        // Special case for Manyazewal restaurants
         else if (order.restaurantName?.includes("Manyazewal 1") || order.restaurantName === "Manyazewal Eshetu Gibi 1") {
           orderRestaurantId = "manyazewal1"
         }
@@ -884,10 +1006,8 @@ export default function OrderManagementMain() {
           orderRestaurantId = "manyazewal2"
         }
         
-        // Compare the restaurant filter (which is an _id) with the order's restaurant ID
         matchesRestaurant = orderRestaurantId === restaurantFilter
         
-        // If still no match, try to match by restaurant name directly
         if (!matchesRestaurant && order.restaurantName) {
           const restaurant = restaurants.find(r => r._id === restaurantFilter)
           if (restaurant && order.restaurantName === restaurant.name) {
@@ -913,7 +1033,7 @@ export default function OrderManagementMain() {
 
     return filtered
   }, [orders, searchTerm, statusFilter, waitressFilter, restaurantFilter, dateFilter, 
-      orderTypeFilter, sortField, sortDirection, showMarkedOnly, restaurants])
+      orderTypeFilter, sortField, sortDirection, showMarkedOnly, restaurants, isAdmin, stockStatusFilter])
 
   useEffect(() => {
     setTotalPages(Math.ceil(filteredAndSortedOrders.length / itemsPerPage))
@@ -935,6 +1055,7 @@ export default function OrderManagementMain() {
     setOrderTypeFilter(null)
     setDateFilter(null)
     setShowMarkedOnly(false)
+    setStockStatusFilter("ALL")
   }, [])
 
   // ========== INITIALIZE ==========
@@ -1093,7 +1214,8 @@ export default function OrderManagementMain() {
         <Alert className="bg-blue-50 border-blue-200">
           <Info className="h-4 w-4 text-blue-600" />
           <AlertDescription className="text-blue-800">
-            Admin Mode: Showing orders from the last 24 hours. {filterInfo.message}
+            Admin Mode: Showing all orders from the last 24 hours including canceled and flagged orders.
+            {filterInfo.message}
           </AlertDescription>
         </Alert>
       )}
@@ -1102,8 +1224,49 @@ export default function OrderManagementMain() {
         <Alert className="bg-gray-50 border-gray-200">
           <Clock className="h-4 w-4 text-gray-600" />
           <AlertDescription className="text-gray-800">
-            Showing active orders + completed orders from last 2 hours.
+            Showing active orders + last 5 completed orders. Cancelled orders are hidden.
           </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Stock Status Summary */}
+      {(pendingStockCount > 0 || failedStockCount > 0) && (
+        <Alert className="bg-yellow-50 border-yellow-200">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-3">
+              <Package className="h-4 w-4 text-yellow-600" />
+              <AlertDescription className="text-yellow-800">
+                <span className="font-semibold">Stock Status:</span>
+                {pendingStockCount > 0 && (
+                  <span className="ml-2">🟡 {pendingStockCount} pending</span>
+                )}
+                {failedStockCount > 0 && (
+                  <span className="ml-2 text-red-600">🔴 {failedStockCount} failed</span>
+                )}
+              </AlertDescription>
+            </div>
+            <div className="flex gap-2">
+              {pendingStockCount > 0 && (
+                <Button
+                  size="sm"
+                  onClick={() => setShowConfirmDialog(true)}
+                  className="bg-yellow-600 hover:bg-yellow-700 text-white"
+                >
+                  Process Pending
+                </Button>
+              )}
+              {failedStockCount > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setStockStatusFilter(failedStockCount > 0 ? "FAILED" : "ALL")}
+                  className="border-red-300 text-red-600 hover:bg-red-50"
+                >
+                  View Failed
+                </Button>
+              )}
+            </div>
+          </div>
         </Alert>
       )}
 
@@ -1113,13 +1276,6 @@ export default function OrderManagementMain() {
           <h1 className="text-3xl font-bold">Order Management</h1>
           <div className="flex items-center gap-1">
             <SoundToggleButton isEnabled={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
-            <SoundControlDialog
-              isEnabled={soundEnabled}
-              onToggle={() => setSoundEnabled(!soundEnabled)}
-              volume={volume}
-              onVolumeChange={setVolume}
-              onTestSound={safePlaySound}
-            />
           </div>
           <Badge variant="outline" className={isAdmin ? "bg-red-100 text-red-800" : "bg-blue-100 text-blue-800"}>
             {isAdmin ? <><ShieldAlert className="h-3 w-3 mr-1" />Admin</> : <><Shield className="h-3 w-3 mr-1" />{userRole || "Staff"}</>}
@@ -1169,8 +1325,8 @@ export default function OrderManagementMain() {
         onSearchChange={setSearchTerm}
         statusFilter={statusFilter}
         onStatusFilterChange={setStatusFilter}
-        stockStatusFilter={"ALL"}
-        onStockStatusFilterChange={() => {}}
+        stockStatusFilter={stockStatusFilter as "ALL" | "PENDING" | "FAILED" | "PROCESSED"}
+        onStockStatusFilterChange={setStockStatusFilter}
         restaurantFilter={restaurantFilter}
         onRestaurantFilterChange={setRestaurantFilter}
         orderTypeFilter={orderTypeFilter}
@@ -1275,7 +1431,6 @@ export default function OrderManagementMain() {
                           isAdmin={isAdmin}
                           onToggleItemUneditable={handleToggleItemUneditable}
                           StockStatusBadge={StockStatusBadge}
-                          onStopSound={stopNotificationSound}
                         />
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
@@ -1328,7 +1483,6 @@ export default function OrderManagementMain() {
               onToggleItemUneditable={handleToggleItemUneditable}
               onRetryStock={handleRetryStockForOrder}
               StockStatusBadge={StockStatusBadge}
-              onStopSound={stopNotificationSound}
             />
           ))}
         </div>

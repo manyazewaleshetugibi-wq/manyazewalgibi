@@ -10,12 +10,14 @@ import {
   LayoutGrid,
   Table as TableIcon,
   Lock,
+  AlertOctagon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { StockCalculations } from "../../../components/stock/stock-calculations"
 import { StockManagementUI } from "../../../components/stock/stock-management-ui"
+import { WastageDisplay } from "../../../components/stock/WastageDisplay"
 
 // Types
 export type Stock = {
@@ -49,16 +51,44 @@ export type Purchase = {
 
 export type StockStatus = 'critical' | 'low' | 'good' | 'overstock'
 
+export type Wastage = {
+  _id: string
+  stockId: string
+  quantity: number
+  reason: string
+  date: string
+  createdAt: string
+  updatedAt: string
+}
+
+// Helper function to check if user has edit permission
 export const hasEditPermission = (role: string | undefined): boolean => {
   if (!role) return false
   const normalizedRole = role.toUpperCase().trim()
   return normalizedRole === 'ADMIN' || normalizedRole === 'STOCK_MANAGER'
 }
 
+// Helper function to check if user is admin
+export const isAdmin = (role: string | undefined): boolean => {
+  if (!role) return false
+  const normalizedRole = role.toUpperCase().trim()
+  return normalizedRole === 'ADMIN'
+}
+
+// Helper function to get normalized role
+export const getNormalizedRole = (role: string | undefined): string => {
+  if (!role) return 'user'
+  return role.toLowerCase().trim()
+}
+
 export default function StockManagementPage() {
   const { data: session } = useSession()
   const userRole = session?.user?.role
+  
+  // Get normalized role and permissions
+  const normalizedRole = getNormalizedRole(userRole)
   const canEdit = hasEditPermission(userRole)
+  const isAdminUser = isAdmin(userRole)
   
   const [stocks, setStocks] = useState<Stock[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -69,6 +99,9 @@ export default function StockManagementPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [isAddStockOpen, setIsAddStockOpen] = useState(false)
+  
+  // New state for wastage display
+  const [isWastageDisplayOpen, setIsWastageDisplayOpen] = useState(false)
 
   useEffect(() => {
     fetchStocks()
@@ -179,17 +212,50 @@ export default function StockManagementPage() {
     setSearchQuery("")
   }
 
+  // Get role display name
+  const getRoleDisplayName = (role: string | undefined): string => {
+    if (!role) return 'User'
+    const normalized = role.toLowerCase().trim()
+    switch(normalized) {
+      case 'admin': return 'Administrator'
+      case 'stockmanager':
+      case 'stock_manager': return 'Stock Manager'
+      default: return 'User'
+    }
+  }
+
   return (
     <div className="container mx-auto py-10">
       <Toaster position="top-right" />
       
-      {!canEdit && (
+      {/* Role-based notification banner */}
+      {!canEdit ? (
         <div className="mb-6 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 flex items-center gap-3">
           <Lock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
           <div>
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">View-Only Mode</p>
             <p className="text-xs text-amber-700 dark:text-amber-400">
-              You have view-only access to stock management.
+              You are logged in as {getRoleDisplayName(userRole)}. You have view-only access to stock management.
+            </p>
+          </div>
+        </div>
+      ) : isAdminUser ? (
+        <div className="mb-6 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-4 flex items-center gap-3">
+          <div className="h-5 w-5 text-green-600 dark:text-green-400">✅</div>
+          <div>
+            <p className="text-sm font-medium text-green-800 dark:text-green-300">Administrator Access</p>
+            <p className="text-xs text-green-700 dark:text-green-400">
+              You are logged in as Administrator. You have full access including delete and name editing permissions.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-6 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex items-center gap-3">
+          <div className="h-5 w-5 text-blue-600 dark:text-blue-400">👤</div>
+          <div>
+            <p className="text-sm font-medium text-blue-800 dark:text-blue-300">Stock Manager Access</p>
+            <p className="text-xs text-blue-700 dark:text-blue-400">
+              You are logged in as Stock Manager. You can manage stock but cannot delete items or edit names.
             </p>
           </div>
         </div>
@@ -211,11 +277,42 @@ export default function StockManagementPage() {
 
       <Card className="mb-8">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold flex items-center">
-            <Package className="mr-2 h-6 w-6" />
-            Stock Management
-          </CardTitle>
-          <CardDescription>Stock value calculated using current stock quantity × last purchase price</CardDescription>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <CardTitle className="text-2xl font-bold flex items-center">
+                <Package className="mr-2 h-6 w-6" />
+                Stock Management
+              </CardTitle>
+              <CardDescription>
+                Stock value calculated using current stock quantity × last purchase price
+                {userRole && (
+                  <span className="ml-2 inline-flex items-center gap-1">
+                    <span className="text-xs bg-muted px-2 py-0.5 rounded-full">
+                      Role: {getRoleDisplayName(userRole)}
+                    </span>
+                  </span>
+                )}
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Show Wastages Button - Visible to everyone */}
+              <Button 
+                variant="outline" 
+                onClick={() => setIsWastageDisplayOpen(true)}
+                className="bg-amber-50 border-amber-200 hover:bg-amber-100 hover:border-amber-300 text-amber-700"
+              >
+                <AlertOctagon className="mr-2 h-4 w-4" />
+                Show Wastages
+              </Button>
+              
+              {/* Add Stock Button - Only for Admin and Stock Manager */}
+              {canEdit && (
+                <Button onClick={() => setIsAddStockOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" /> Add Stock
+                </Button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="flex justify-end mb-4">
@@ -247,12 +344,6 @@ export default function StockManagementPage() {
               }}>
                 <RefreshCw className="h-4 w-4" />
               </Button>
-              
-              {canEdit && (
-                <Button onClick={() => setIsAddStockOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" /> Add Stock
-                </Button>
-              )}
             </div>
           </div>
 
@@ -276,9 +367,20 @@ export default function StockManagementPage() {
             onCategoryChange={setSelectedCategory}
             onStatusChange={setStatusFilter}
             onSearchChange={setSearchQuery}
+            userRole={normalizedRole} // Pass the normalized role to the UI component
           />
         </CardContent>
       </Card>
+
+      {/* Wastage Display Dialog - Visible to everyone */}
+      <WastageDisplay
+        open={isWastageDisplayOpen}
+        onOpenChange={setIsWastageDisplayOpen}
+        stocks={stocks}
+        categories={categories}
+        purchases={purchases}
+        fetchStocks={fetchStocks}
+      />
     </div>
   )
 }
