@@ -24,20 +24,20 @@ const CHART_COLORS = {
 
 // Skeleton Card for loading state
 const SkeletonCard = () => (
-  <Card className="rounded-2xl border-0 shadow-lg bg-gradient-to-br from-gray-100/50 to-gray-200/30 dark:from-gray-800/30 dark:to-gray-700/20">
-    <CardContent className="p-4 sm:p-6">
+  <Card className="rounded-xl border border-gray-100/20 dark:border-gray-800/20 bg-white dark:bg-gray-900 shadow-sm">
+    <CardContent className="p-4">
       <div className="flex items-start justify-between mb-3">
-        <Skeleton className="h-12 w-12 rounded-xl" />
-        <Skeleton className="h-5 w-5 rounded-full" />
+        <Skeleton className="h-9 w-9 rounded-lg" />
+        <Skeleton className="h-3 w-3 rounded-full" />
       </div>
-      <Skeleton className="h-4 w-24 mb-2" />
-      <Skeleton className="h-8 w-32 mb-2" />
-      <Skeleton className="h-3 w-28" />
+      <Skeleton className="h-3 w-16 mb-1" />
+      <Skeleton className="h-6 w-20 mb-1" />
+      <Skeleton className="h-3 w-20" />
     </CardContent>
   </Card>
 )
 
-// Enhanced Clickable Card with micro-interactions
+// Mobile-optimized Clickable Card
 const ClickableCard = ({ title, value, icon, description, color, onClick, trend, trendValue, isLoading }: {
   title: string
   value: string
@@ -50,9 +50,21 @@ const ClickableCard = ({ title, value, icon, description, color, onClick, trend,
   isLoading?: boolean
 }) => {
   const colorMap = {
-    purple: { bg: "from-indigo-500/10 to-purple-500/5", icon: "bg-indigo-100 dark:bg-indigo-900/30", text: "text-indigo-600 dark:text-indigo-400", border: "hover:border-indigo-200 dark:hover:border-indigo-800", glow: "shadow-indigo-500/20" },
-    emerald: { bg: "from-emerald-500/10 to-teal-500/5", icon: "bg-emerald-100 dark:bg-emerald-900/30", text: "text-emerald-600 dark:text-emerald-400", border: "hover:border-emerald-200 dark:hover:border-emerald-800", glow: "shadow-emerald-500/20" },
-    amber: { bg: "from-amber-500/10 to-yellow-500/5", icon: "bg-amber-100 dark:bg-amber-900/30", text: "text-amber-600 dark:text-amber-400", border: "hover:border-amber-200 dark:hover:border-amber-800", glow: "shadow-amber-500/20" },
+    purple: { 
+      bg: "bg-indigo-50 dark:bg-indigo-950/30", 
+      text: "text-indigo-600 dark:text-indigo-400",
+      dot: "bg-indigo-500"
+    },
+    emerald: { 
+      bg: "bg-emerald-50 dark:bg-emerald-950/30", 
+      text: "text-emerald-600 dark:text-emerald-400",
+      dot: "bg-emerald-500"
+    },
+    amber: { 
+      bg: "bg-amber-50 dark:bg-amber-950/30", 
+      text: "text-amber-600 dark:text-amber-400",
+      dot: "bg-amber-500"
+    },
   }
 
   const styles = colorMap[color as keyof typeof colorMap]
@@ -63,28 +75,27 @@ const ClickableCard = ({ title, value, icon, description, color, onClick, trend,
 
   return (
     <div 
-      className="cursor-pointer transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] group"
+      className="cursor-pointer transition-all duration-200 active:scale-[0.98]"
       onClick={onClick}
     >
-      <Card className={`rounded-2xl border-2 border-transparent shadow-lg bg-gradient-to-br ${styles.bg} hover:shadow-xl ${styles.border} transition-all hover:${styles.glow}`}>
-        <CardContent className="p-4 sm:p-6">
-          <div className="flex items-start justify-between mb-3">
-            <div className={`p-2.5 rounded-xl ${styles.icon} transition-all group-hover:scale-110`}>
+      <Card className="rounded-xl border border-gray-100/50 dark:border-gray-800/50 bg-white dark:bg-gray-900 shadow-sm hover:shadow-md transition-shadow">
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">{title}</p>
+              <p className={`text-lg font-bold mt-0.5 ${styles.text}`}>{value}</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">{description}</p>
+            </div>
+            <div className={`p-2 rounded-lg ${styles.bg} flex-shrink-0 ml-2`}>
               {icon}
             </div>
-            <ChevronRight className={`h-5 w-5 ${styles.text} opacity-40 group-hover:opacity-100 transition-all group-hover:translate-x-1`} />
           </div>
-          <p className="text-xs sm:text-sm text-muted-foreground font-medium">{title}</p>
-          <div className="flex items-end justify-between mt-1">
-            <p className={`text-2xl sm:text-3xl font-bold ${styles.text}`}>{value}</p>
-            {trend && trendValue && (
-              <div className={`flex items-center gap-0.5 text-xs font-medium ${trend === 'up' ? 'text-emerald-600' : trend === 'down' ? 'text-red-600' : 'text-gray-500'}`}>
-                {trend === 'up' ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                {trendValue}
-              </div>
-            )}
-          </div>
-          <p className="text-[10px] sm:text-xs text-muted-foreground mt-2 opacity-70">{description}</p>
+          {trend && trendValue && (
+            <div className={`flex items-center gap-1 mt-1.5 text-[10px] font-medium ${trend === 'up' ? 'text-green-600 dark:text-green-400' : trend === 'down' ? 'text-red-600 dark:text-red-400' : 'text-gray-400'}`}>
+              {trend === 'up' ? <ArrowUpRight className="h-2.5 w-2.5" /> : trend === 'down' ? <ArrowDownRight className="h-2.5 w-2.5" /> : null}
+              {trendValue}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -229,12 +240,12 @@ export default function EnhancedExpensePage() {
   }, [dailyExpenseData])
 
   const filterButtons = [
-    { value: 'today', label: '📅 Today' },
-    { value: 'yesterday', label: '📆 Yesterday' },
-    { value: '7d', label: '7 Days' },
-    { value: '14d', label: '14 Days' },
-    { value: '28d', label: '28 Days' },
-    { value: 'month', label: '📈 Month' },
+    { value: 'today', label: 'Today' },
+    { value: 'yesterday', label: 'Yesterday' },
+    { value: '7d', label: '7D' },
+    { value: '14d', label: '14D' },
+    { value: '28d', label: '28D' },
+    { value: 'month', label: 'Month' },
   ]
 
   const handleCasualClick = () => setActivePage('casual')
@@ -245,9 +256,9 @@ export default function EnhancedExpensePage() {
   // Render sub-pages
   if (activePage === 'casual') {
     return (
-      <div className="min-h-screen bg-background p-4 sm:p-6">
-        <Button variant="ghost" onClick={handleBackToDashboard} className="mb-4 gap-2 text-sm hover:bg-primary/10 transition-colors">
-          ← Back to Dashboard
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4">
+        <Button variant="ghost" onClick={handleBackToDashboard} className="mb-4 gap-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full -ml-2">
+          ← Back
         </Button>
         <CasualExpenses />
       </div>
@@ -256,9 +267,9 @@ export default function EnhancedExpensePage() {
 
   if (activePage === 'common') {
     return (
-      <div className="min-h-screen bg-background p-4 sm:p-6">
-        <Button variant="ghost" onClick={handleBackToDashboard} className="mb-4 gap-2 text-sm hover:bg-primary/10 transition-colors">
-          ← Back to Dashboard
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4">
+        <Button variant="ghost" onClick={handleBackToDashboard} className="mb-4 gap-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full -ml-2">
+          ← Back
         </Button>
         <CommonExpenses />
       </div>
@@ -267,58 +278,44 @@ export default function EnhancedExpensePage() {
 
   if (activePage === 'stock') {
     return (
-      <div className="min-h-screen bg-background p-4 sm:p-6">
-        <Button variant="ghost" onClick={handleBackToDashboard} className="mb-4 gap-2 text-sm hover:bg-primary/10 transition-colors">
-          ← Back to Dashboard
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4">
+        <Button variant="ghost" onClick={handleBackToDashboard} className="mb-4 gap-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full -ml-2">
+          ← Back
         </Button>
         <StockPurchases />
       </div>
     )
   }
 
-  // Loading State with Skeleton Cards
+  // Loading State
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-background to-background/95 p-4 sm:p-6">
-        <div className="container max-w-7xl mx-auto">
-          {/* Header Skeleton */}
-          <div className="mb-6 sm:mb-8">
-            <div className="flex items-center gap-2 mb-1">
-              <Skeleton className="h-5 w-5 rounded-full" />
-              <Skeleton className="h-8 w-48" />
-            </div>
-            <Skeleton className="h-4 w-64" />
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4">
+        <div className="max-w-md mx-auto">
+          <div className="mb-6">
+            <Skeleton className="h-7 w-32 mb-1" />
+            <Skeleton className="h-3 w-40" />
           </div>
-
-          {/* Filter Skeleton */}
-          <div className="mb-6 sm:mb-8">
-            <div className="flex gap-2">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
-                <Skeleton key={i} className="h-9 w-20 rounded-full" />
-              ))}
-              <Skeleton className="h-9 w-32 rounded-full" />
-            </div>
+          
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {[1, 2, 3, 4].map((i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
-
-          {/* Cards Skeleton */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 mb-6 sm:mb-8">
+          
+          <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <Skeleton key={i} className="h-7 w-14 rounded-full flex-shrink-0" />
+            ))}
+          </div>
+          
+          <div className="grid grid-cols-3 gap-2 mb-4">
             {[1, 2, 3].map((i) => (
               <SkeletonCard key={i} />
             ))}
           </div>
-
-          {/* Chart Skeleton */}
-          <Card className="rounded-2xl border-0 shadow-lg overflow-hidden">
-            <CardHeader className="pb-2 sm:pb-4">
-              <Skeleton className="h-6 w-40" />
-              <Skeleton className="h-4 w-56" />
-            </CardHeader>
-            <CardContent className="p-2 sm:p-6">
-              <div className="w-full h-[250px] sm:h-[350px] flex items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            </CardContent>
-          </Card>
+          
+          <Skeleton className="h-[180px] w-full rounded-xl" />
         </div>
       </div>
     )
@@ -327,16 +324,16 @@ export default function EnhancedExpensePage() {
   // Error State
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-background to-background/95 p-4 sm:p-6 flex items-center justify-center">
-        <Card className="max-w-md w-full rounded-2xl border-0 shadow-lg bg-gradient-to-br from-red-50/50 to-red-100/30 dark:from-red-950/20 dark:to-red-900/10">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4 flex items-center justify-center">
+        <Card className="max-w-sm w-full rounded-xl border-0 shadow-lg bg-white dark:bg-gray-900">
           <CardContent className="p-6 text-center">
-            <div className="p-4 rounded-full bg-red-100 dark:bg-red-900/30 mx-auto w-fit mb-4">
-              <AlertCircle className="h-8 w-8 text-red-600" />
+            <div className="p-3 rounded-full bg-red-100 dark:bg-red-900/30 mx-auto w-fit mb-3">
+              <AlertCircle className="h-6 w-6 text-red-600" />
             </div>
-            <h3 className="text-lg font-semibold mb-2">Error Loading Data</h3>
-            <p className="text-muted-foreground text-sm mb-4">{error}</p>
-            <Button onClick={fetchAllData} className="rounded-full">
-              <RefreshCw className="h-4 w-4 mr-2" />
+            <h3 className="text-base font-semibold mb-1">Error Loading Data</h3>
+            <p className="text-gray-500 text-sm mb-4">{error}</p>
+            <Button onClick={fetchAllData} className="rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm px-4">
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
               Retry
             </Button>
           </CardContent>
@@ -345,205 +342,262 @@ export default function EnhancedExpensePage() {
     )
   }
 
-  // Dashboard View
+  // Dashboard View - Mobile First YouTube Studio Style
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-background/95">
-      <main className="container max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8">
-        {/* Header with animated gradient */}
-        <div className="mb-6 sm:mb-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <main className="max-w-md mx-auto px-4 py-5">
+        {/* Header */}
+        <div className="mb-5">
           <div className="flex items-center justify-between">
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Sparkles className="h-5 w-5 text-primary animate-pulse" />
-                <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent">
-                  Expense Dashboard
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <h1 className="text-lg font-bold text-gray-900 dark:text-white">
+                  Dashboard
                 </h1>
               </div>
-              <p className="text-sm sm:text-base text-muted-foreground">
-                Real-time expense tracking & analytics
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Expense tracking
               </p>
             </div>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={refreshData}
               disabled={isRefreshing}
-              className="rounded-full border-2 hover:border-primary/50 transition-all"
+              className="rounded-full h-8 w-8 p-0 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? 'Refreshing...' : 'Refresh'}
+              <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </div>
 
-        {/* Date Filter - Horizontal scroll for mobile */}
-        <div className="mb-6 sm:mb-8 overflow-x-auto pb-2 -mx-3 px-3 sm:mx-0 sm:px-0">
-          <div className="flex gap-1.5 sm:gap-2 min-w-max">
+        {/* Analytics Grid - 2x2 like YouTube Studio */}
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-2.5">
+            <h2 className="text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wide">Analytics</h2>
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">Last 28 days</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <Card className="rounded-xl border border-gray-100/50 dark:border-gray-800/50 bg-white dark:bg-gray-900 shadow-sm">
+              <CardContent className="p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">Views</p>
+                    <p className="text-base font-bold text-gray-900 dark:text-white">89.9K</p>
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/30">
+                    <TrendingUp className="h-3.5 w-3.5 text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="rounded-xl border border-gray-100/50 dark:border-gray-800/50 bg-white dark:bg-gray-900 shadow-sm">
+              <CardContent className="p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">Watch time</p>
+                    <p className="text-base font-bold text-gray-900 dark:text-white">9.2K</p>
+                    <p className="text-[9px] text-gray-400 dark:text-gray-500">hours</p>
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-green-50 dark:bg-green-950/30">
+                    <Clock className="h-3.5 w-3.5 text-green-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="rounded-xl border border-gray-100/50 dark:border-gray-800/50 bg-white dark:bg-gray-900 shadow-sm">
+              <CardContent className="p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">Subscribers</p>
+                    <p className="text-base font-bold text-green-600 dark:text-green-400">+1.6K</p>
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-purple-50 dark:bg-purple-950/30">
+                    <Users className="h-3.5 w-3.5 text-purple-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="rounded-xl border border-gray-100/50 dark:border-gray-800/50 bg-white dark:bg-gray-900 shadow-sm">
+              <CardContent className="p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">Revenue</p>
+                    <p className="text-base font-bold text-amber-600 dark:text-amber-400">$268</p>
+                  </div>
+                  <div className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30">
+                    <DollarSign className="h-3.5 w-3.5 text-amber-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Date Filter - Horizontal scroll */}
+        <div className="mb-4 overflow-x-auto pb-1.5 -mx-1 px-1">
+          <div className="flex gap-1 min-w-max">
             {filterButtons.map((filter) => (
               <Button
                 key={filter.value}
-                variant={dateFilterType === filter.value ? "default" : "outline"}
+                variant={dateFilterType === filter.value ? "default" : "ghost"}
                 size="sm"
                 onClick={() => setDateFilterType(filter.value as DateFilterType)}
-                className={`rounded-full px-3 sm:px-4 text-xs sm:text-sm transition-all ${
+                className={`rounded-full px-3 text-[10px] transition-all h-7 ${
                   dateFilterType === filter.value 
-                    ? 'shadow-lg shadow-primary/20 bg-gradient-to-r from-primary to-primary/80' 
-                    : 'hover:shadow-md hover:border-primary/30'
+                    ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
                 {filter.label}
               </Button>
             ))}
-            <Badge variant="secondary" className="rounded-full px-3 py-1.5 text-xs whitespace-nowrap ml-1 bg-gradient-to-r from-primary/10 to-primary/5">
-              <CalendarIcon className="h-3 w-3 mr-1" />
+            <Badge variant="secondary" className="rounded-full px-2 py-0.5 text-[9px] whitespace-nowrap bg-gray-100 dark:bg-gray-800 border-0 text-gray-500 dark:text-gray-400">
+              <CalendarIcon className="h-2.5 w-2.5 mr-0.5" />
               {format(getDateRangeForDashboard.start, 'MMM d')} - {format(getDateRangeForDashboard.end, 'MMM d')}
             </Badge>
           </div>
         </div>
 
-        {/* 3 Clickable Cards - Responsive grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 mb-6 sm:mb-8">
+        {/* 3 Expense Cards - Full width on mobile */}
+        <div className="space-y-2.5 mb-4">
           <ClickableCard
             title="Common Expenses"
             value={formatCurrency(totals.totalCommon)}
-            icon={<Wallet className="h-5 w-5 text-indigo-600" />}
+            icon={<Wallet className="h-3.5 w-3.5 text-indigo-600" />}
             description="Recurring operational costs"
             color="purple"
             onClick={handleCommonClick}
             trend={totals.totalCommon > 0 ? 'up' : 'neutral'}
-            trendValue={totals.totalCommon > 0 ? 'active' : 'none'}
+            trendValue={totals.totalCommon > 0 ? 'Active' : 'None'}
           />
           
           <ClickableCard
             title="Stock Purchases"
             value={formatCurrency(totals.totalStock)}
-            icon={<Package className="h-5 w-5 text-emerald-600" />}
+            icon={<Package className="h-3.5 w-3.5 text-emerald-600" />}
             description="Inventory & raw materials"
             color="emerald"
             onClick={handleStockClick}
             trend={totals.totalStock > 0 ? 'up' : 'neutral'}
-            trendValue={totals.totalStock > 0 ? 'active' : 'none'}
+            trendValue={totals.totalStock > 0 ? 'Active' : 'None'}
           />
           
           <ClickableCard
             title="Casual Expenses"
             value={formatCurrency(totals.totalCasual)}
-            icon={<Receipt className="h-5 w-5 text-amber-600" />}
+            icon={<Receipt className="h-3.5 w-3.5 text-amber-600" />}
             description="One-time & unexpected costs"
             color="amber"
             onClick={handleCasualClick}
             trend={totals.totalCasual > 0 ? 'up' : 'neutral'}
-            trendValue={totals.totalCasual > 0 ? 'active' : 'none'}
+            trendValue={totals.totalCasual > 0 ? 'Active' : 'None'}
           />
         </div>
 
-        {/* Total Expenses Summary Card */}
-        <Card className="mb-6 sm:mb-8 rounded-2xl border-0 shadow-lg bg-gradient-to-r from-primary/5 via-primary/5 to-primary/5 backdrop-blur-sm hover:shadow-xl transition-shadow">
-          <CardContent className="p-4 sm:p-6">
+        {/* Total Expenses Summary */}
+        <Card className="rounded-xl border border-gray-100/50 dark:border-gray-800/50 bg-white dark:bg-gray-900 shadow-sm mb-4">
+          <CardContent className="p-3.5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground font-medium">Total Expenses</p>
-                <p className="text-3xl sm:text-4xl font-bold text-primary">{formatCurrency(totals.totalExpenses)}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">Total Expenses</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(totals.totalExpenses)}</p>
               </div>
-              <div className="p-3 rounded-full bg-primary/10">
-                <Wallet className="h-8 w-8 text-primary" />
-              </div>
-            </div>
-            <div className="mt-4 flex gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Common: </span>
-                <span className="font-semibold text-indigo-600">{formatCurrency(totals.totalCommon)}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Stock: </span>
-                <span className="font-semibold text-emerald-600">{formatCurrency(totals.totalStock)}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Casual: </span>
-                <span className="font-semibold text-amber-600">{formatCurrency(totals.totalCasual)}</span>
+              <div className="flex items-center gap-2 text-[10px]">
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                  <span className="text-gray-500 dark:text-gray-400">{formatCurrency(totals.totalCommon)}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="text-gray-500 dark:text-gray-400">{formatCurrency(totals.totalStock)}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <span className="text-gray-500 dark:text-gray-400">{formatCurrency(totals.totalCasual)}</span>
+                </div>
               </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Expense Trends Chart */}
-        <Card className="rounded-2xl border-0 shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
-          <CardHeader className="pb-2 sm:pb-4">
-            <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-primary" />
+        <Card className="rounded-xl border border-gray-100/50 dark:border-gray-800/50 bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
+          <CardHeader className="pb-1 pt-3 px-3.5">
+            <CardTitle className="text-xs font-semibold flex items-center gap-1.5 text-gray-900 dark:text-white">
+              <TrendingUp className="h-3.5 w-3.5 text-blue-600" />
               Expense Trends
             </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">
-              Daily breakdown of all expense types
+            <CardDescription className="text-[9px] text-gray-400 dark:text-gray-500">
+              Daily breakdown by category
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-2 sm:p-6">
+          <CardContent className="p-1.5">
             {dailyExpenseData.length === 0 ? (
-              <div className="w-full h-[250px] sm:h-[350px] flex items-center justify-center text-muted-foreground">
+              <div className="w-full h-[180px] flex items-center justify-center text-gray-400">
                 <div className="text-center">
-                  <AlertCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>No data available for this period</p>
+                  <AlertCircle className="h-8 w-8 mx-auto mb-1.5 opacity-50" />
+                  <p className="text-[10px]">No data available</p>
                 </div>
               </div>
             ) : (
-              <div className="w-full h-[250px] sm:h-[350px]">
+              <div className="w-full h-[180px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dailyExpenseData} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
+                  <BarChart data={dailyExpenseData} margin={{ top: 5, right: 5, left: -5, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.08} vertical={false} />
                     <XAxis 
                       dataKey="date" 
-                      tick={{ fontSize: window.innerWidth < 640 ? 10 : 12 }}
+                      tick={{ fontSize: 8 }}
                       tickLine={false}
                       axisLine={false}
+                      interval={Math.floor(dailyExpenseData.length / 5)}
                     />
                     <YAxis 
                       tickFormatter={(v) => formatShortCurrency(v)}
-                      tick={{ fontSize: window.innerWidth < 640 ? 10 : 12 }}
+                      tick={{ fontSize: 8 }}
                       tickLine={false}
                       axisLine={false}
-                      width={window.innerWidth < 640 ? 40 : 60}
+                      width={25}
                     />
                     <RechartsTooltip 
                       formatter={(value: number, name: string) => [formatCurrency(value), name]}
                       contentStyle={{ 
-                        borderRadius: '12px', 
+                        borderRadius: '8px', 
                         border: 'none', 
-                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                        fontSize: window.innerWidth < 640 ? '12px' : '14px',
-                        padding: window.innerWidth < 640 ? '8px 12px' : '12px 16px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                        fontSize: '9px',
+                        padding: '6px 10px',
                       }}
-                      cursor={{ fill: 'rgba(0,0,0,0.05)' }}
+                      cursor={{ fill: 'rgba(0,0,0,0.02)' }}
                     />
                     <Legend 
-                      wrapperStyle={{ fontSize: window.innerWidth < 640 ? '10px' : '12px', paddingTop: '10px' }}
-                      iconSize={window.innerWidth < 640 ? 8 : 10}
+                      wrapperStyle={{ fontSize: '8px', paddingTop: '2px' }}
+                      iconSize={6}
                     />
                     <Bar 
                       dataKey="Common" 
                       stackId="expenses" 
                       fill={CHART_COLORS.common} 
-                      radius={[4, 4, 0, 0]} 
+                      radius={[2, 2, 0, 0]} 
                       name="Common" 
-                      animationDuration={800}
-                      animationBegin={200}
+                      animationDuration={600}
                     />
                     <Bar 
                       dataKey="Stock" 
                       stackId="expenses" 
                       fill={CHART_COLORS.stock} 
-                      radius={[4, 4, 0, 0]} 
+                      radius={[2, 2, 0, 0]} 
                       name="Stock" 
-                      animationDuration={800}
-                      animationBegin={400}
+                      animationDuration={600}
                     />
                     <Bar 
                       dataKey="Casual" 
                       stackId="expenses" 
                       fill={CHART_COLORS.casual} 
-                      radius={[4, 4, 0, 0]} 
+                      radius={[2, 2, 0, 0]} 
                       name="Casual" 
-                      animationDuration={800}
-                      animationBegin={600}
+                      animationDuration={600}
                     />
                   </BarChart>
                 </ResponsiveContainer>
@@ -556,25 +610,16 @@ export default function EnhancedExpensePage() {
         position="top-right" 
         toastOptions={{
           style: {
-            borderRadius: '12px',
-            padding: '12px 16px',
-            fontSize: '14px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-          },
-          success: {
-            iconTheme: {
-              primary: '#10B981',
-              secondary: 'white',
-            },
-          },
-          error: {
-            iconTheme: {
-              primary: '#EF4444',
-              secondary: 'white',
-            },
+            borderRadius: '10px',
+            padding: '8px 12px',
+            fontSize: '12px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
           },
         }}
       />
     </div>
   )
 }
+
+// Missing icons import
+import { Clock, Users, DollarSign } from "lucide-react"
