@@ -11,7 +11,7 @@ export default function RoleBasedContent() {
   }
 
   if (status === "unauthenticated") {
-    redirect("/api/auth/signin")
+    redirect("/login")
   }
 
   if (!session?.user?.role) {

@@ -195,7 +195,6 @@ const MobileHeader = ({
   onNavigate: (path: string) => void
 }) => {
   const [menuOpen, setMenuOpen] = useState(false)
-  
   const menuItems = [
     { icon: Home, label: "Dashboard", path: "/" },
     { icon: DollarSign, label: "Sales", path: "/sales" },
@@ -224,57 +223,8 @@ const MobileHeader = ({
               </p>
             </div>
           </div>
-          
-          <button 
-            onClick={() => setMenuOpen(true)}
-            className="p-2 rounded-full hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors flex-shrink-0"
-            aria-label="Open menu"
-          >
-            <Menu className="h-5 w-5 text-purple-700" />
-          </button>
         </div>
       </div>
-      
-      <AnimatePresence>
-        {menuOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="fixed inset-0 bg-black/50 z-50"
-              onClick={() => setMenuOpen(false)}
-            />
-            <motion.div
-              initial={{ x: "-100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="fixed top-0 left-0 bottom-0 w-4/5 max-w-xs bg-white dark:bg-gray-900 z-50 shadow-2xl"
-            >
-              <div className="flex items-center justify-between p-4 border-b dark:border-gray-800">
-                <h2 className="font-bold text-purple-800 dark:text-purple-200">Navigation</h2>
-                <button onClick={() => setMenuOpen(false)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
-                  <X className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                </button>
-              </div>
-              <div className="p-3 space-y-1">
-                {menuItems.map((item) => (
-                  <button
-                    key={item.path}
-                    onClick={() => { setMenuOpen(false); onNavigate(item.path); }}
-                    className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl hover:bg-purple-100/50 dark:hover:bg-purple-900/20 transition-colors active:bg-purple-200/50"
-                  >
-                    <span className="text-sm font-medium text-purple-900 dark:text-purple-300">{item.label}</span>
-                    <ChevronRight className="h-4 w-4 text-gray-400 ml-auto" />
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
     </>
   )
 }

@@ -541,18 +541,18 @@ function MetricsOverview({
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
       <Card className="overflow-hidden transition-all hover:shadow-lg">
         <CardContent className="p-6">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-muted-foreground">Total Sales</p>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <h3 className="text-2xl font-bold">{formatCurrency(totalSales)}</h3>
+          <div className="mt-1 flex items-baseline gap-2">
+            <h3 className="text-xl sm:text-2xl font-bold">{formatCurrency(totalSales)}</h3>
             {renderComparison(salesComparison)}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">vs previous period</p>
+          <p className="text-xs text-muted-foreground mt-1">vs previous period</p>
         </CardContent>
       </Card>
 
@@ -562,11 +562,11 @@ function MetricsOverview({
             <p className="text-sm font-medium text-muted-foreground">Total Orders</p>
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <h3 className="text-2xl font-bold">{totalOrders}</h3>
+          <div className="mt-1 flex items-baseline gap-2">
+            <h3 className="text-xl sm:text-2xl font-bold">{totalOrders}</h3>
             {renderComparison(ordersComparison)}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">vs previous period</p>
+          <p className="text-xs text-muted-foreground mt-1">vs previous period</p>
         </CardContent>
       </Card>
 
@@ -576,11 +576,11 @@ function MetricsOverview({
             <p className="text-sm font-medium text-muted-foreground">Average Order Value</p>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <h3 className="text-2xl font-bold">{formatCurrency(averageOrderValue)}</h3>
+          <div className="mt-1 flex items-baseline gap-2">
+            <h3 className="text-xl sm:text-2xl font-bold">{formatCurrency(averageOrderValue)}</h3>
             {renderComparison(aovComparison)}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">vs previous period</p>
+          <p className="text-xs text-muted-foreground mt-1">vs previous period</p>
         </CardContent>
       </Card>
 
@@ -590,12 +590,12 @@ function MetricsOverview({
             <p className="text-sm font-medium text-muted-foreground">Growth Rate</p>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </div>
-          <div className="mt-2">
-            <h3 className={`text-2xl font-bold ${salesComparison.isPositive ? 'text-green-600' : 'text-red-600'}`}>
+          <div className="mt-1">
+            <h3 className={`text-xl sm:text-2xl font-bold ${salesComparison.isPositive ? 'text-green-600' : 'text-red-600'}`}>
               {salesComparison.isPositive ? '+' : ''}{salesComparison.percentage.toFixed(1)}%
             </h3>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">sales vs previous period</p>
+          <p className="text-xs text-muted-foreground mt-1">sales vs previous period</p>
         </CardContent>
       </Card>
     </div>
@@ -972,7 +972,7 @@ interface DashboardHeaderProps {
   onCustomDateChange?: (start: Date | null, end: Date | null) => void
 }
 
-function DashboardHeader({
+function DashboardHeader({ // Mobile-first adjustments
   currentRestaurantName,
   currentWaiterName,
   orderCount,
@@ -1014,7 +1014,7 @@ function DashboardHeader({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
             Sales Analytics
@@ -1024,10 +1024,10 @@ function DashboardHeader({
           </p>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <Select value={selectedRestaurant} onValueChange={onRestaurantChange}>
-            <SelectTrigger className="w-[200px]">
-              <Store className="h-4 w-4 mr-2" />
+            <SelectTrigger className="w-full sm:w-[200px]">
+              <Store className="h-4 w-4 mr-2 text-gray-500" />
               <SelectValue placeholder="Restaurant" />
             </SelectTrigger>
             <SelectContent>
@@ -1042,8 +1042,8 @@ function DashboardHeader({
           </Select>
           
           <Select value={selectedWaiter} onValueChange={onWaiterChange}>
-            <SelectTrigger className="w-[180px]">
-              <Users className="h-4 w-4 mr-2" />
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <Users className="h-4 w-4 mr-2 text-gray-500" />
               <SelectValue placeholder="Waiter" />
             </SelectTrigger>
             <SelectContent>
@@ -1056,39 +1056,33 @@ function DashboardHeader({
             </SelectContent>
           </Select>
           
-          <Button variant="outline" size="icon" onClick={onRefresh} disabled={isRefreshing}>
+          <Button variant="outline" size="icon" onClick={onRefresh} disabled={isRefreshing} className="hidden sm:inline-flex">
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </Button>
         </div>
       </div>
 
-      {/* Date Filter Chips */}
-      <div className="flex flex-wrap gap-2">
-        {dateFilters.map((filter) => (
-          <button
-            key={filter.value}
-            onClick={() => {
-              if (filter.value === 'custom') {
-                setShowCustomPicker(!showCustomPicker)
-              } else {
-                onDateFilterChange(filter.value)
-                setShowCustomPicker(false)
-              }
-            }}
-            className={`
-              px-4 py-2 rounded-full text-sm font-medium transition-all duration-200
-              ${dateFilterType === filter.value && filter.value !== 'custom'
-                ? 'bg-blue-600 text-white shadow-md'
-                : filter.value === 'custom' && showCustomPicker
-                ? 'bg-gray-200 text-gray-900'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }
-            `}
-          >
-            {filter.label}
-            {filter.value === 'custom' && showCustomPicker && <ChevronDown className="inline ml-1 h-3 w-3" />}
-          </button>
-        ))}
+      {/* Date Filter Chips - now wrapping */}
+      <div className="pb-2">
+        <div className="grid grid-cols-4 gap-2">
+          {dateFilters.map((filter) => (
+            <button
+              key={filter.value}
+              onClick={() => {
+                if (filter.value === 'custom') {
+                  setShowCustomPicker(!showCustomPicker);
+                } else {
+                  onDateFilterChange(filter.value);
+                  setShowCustomPicker(false);
+                }
+              }}
+              className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all duration-200 ${dateFilterType === filter.value && filter.value !== 'custom' ? 'bg-blue-600 text-white shadow-md' : filter.value === 'custom' && showCustomPicker ? 'bg-gray-200 text-gray-900' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              {filter.label}
+              {filter.value === 'custom' && showCustomPicker && <ChevronDown className="inline ml-1 h-3 w-3" />}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Custom Date Picker */}
@@ -1849,8 +1843,8 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md border">
-              <Table>
+            <div className="rounded-md border overflow-hidden">
+              <Table className="hidden md:table">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Order #</TableHead>
@@ -1914,6 +1908,62 @@ export default function DashboardPage() {
                   )}
                 </TableBody>
               </Table>
+
+              {/* Mobile Card View */}
+              <div className="md:hidden space-y-3 p-2 bg-gray-50">
+                {filteredOverviewOrders.map((order) => {
+                  const restaurantName = getRestaurantDisplayName(order, waitresses, restaurants)
+                  const orderType = order.inTable === true 
+                    ? { icon: <Home className="h-3 w-3" />, label: "Dine In", color: "bg-green-100 text-green-800" }
+                    : order.delivery === true
+                    ? { icon: <Truck className="h-3 w-3" />, label: "Delivery", color: "bg-blue-100 text-blue-800" }
+                    : { icon: <Package2 className="h-3 w-3" />, label: "POS", color: "bg-purple-100 text-purple-800" }
+                  
+                  return (
+                    <div key={order._id} className="bg-white rounded-lg shadow-sm p-4" onClick={() => handleViewDetails(order)}>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-bold text-sm text-gray-800">#{order.orderNumber}</p>
+                          <p className="text-xs text-gray-500">{new Date(order.createdAt).toLocaleString()}</p>
+                        </div>
+                        <Badge className={STATUS_COLORS[order.status] || "bg-gray-100"}>{order.status}</Badge>
+                      </div>
+
+                      <div className="mt-3 space-y-2 text-sm text-gray-700">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Amount</span>
+                          <span className="font-semibold">{formatCurrency(order.finalAmount)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Waiter</span>
+                          <span>{order.waiterName || 'Unknown'}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Restaurant</span>
+                          <span>{restaurantName}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Type</span>
+                          <Badge className={`${orderType.color} font-normal`}>{orderType.label}</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {filteredOverviewOrders.length === 0 && (
+                <div className="md:hidden text-center py-12">
+                  <ShoppingCart className="mx-auto h-12 w-12 text-gray-300" />
+                  <p className="mt-4 text-sm text-gray-500">No orders found</p>
+                </div>
+              )}
+
+              {filteredOverviewOrders.length === 0 && (
+                <Table className="hidden md:table">
+                  <TableBody><TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No orders found for the selected criteria</TableCell></TableRow></TableBody>
+                </Table>
+              )}
             </div>
           </CardContent>
         </Card>

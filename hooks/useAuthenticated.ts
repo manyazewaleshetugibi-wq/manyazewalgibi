@@ -9,7 +9,7 @@ export const withAuthenticated = async (req: NextRequest, allowedRole: Role) => 
   const session = await auth();
 
   if (!session) {
-    return NextResponse.redirect("/auth/signin");
+    return NextResponse.redirect("/login");
   }
 
   const userRole = session.user?.role as Role;
