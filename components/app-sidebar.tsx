@@ -388,7 +388,6 @@ const roleBasedNavigation = {
   DEFAULT: {
     navMain: [],
     projects: [
-      { name: "Dashboard", url: "/dashboard", icon: Tag },
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "daily-tasks", url: "/daily-tasks", icon: ListOrderedIcon }
     ],

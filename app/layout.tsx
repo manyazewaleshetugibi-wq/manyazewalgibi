@@ -1,3 +1,5 @@
+
+import { useSecurityLogger } from '@/lib/useSecurityLogger';
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -5,6 +7,10 @@ import { Toaster } from "react-hot-toast"
 import { Providers } from "./Provider";
 import { UserDataProvider } from '@/providers/UserDataProvider'
 
+function SecurityLogger() {
+  useSecurityLogger();
+  return null;
+}
 
 
 
@@ -26,6 +32,8 @@ export const metadata: Metadata = {
   },
 };
 
+
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -39,6 +47,7 @@ export default function RootLayout({
        
        <Providers>
         <UserDataProvider> 
+          
         {children} 
         </UserDataProvider>
         </Providers>

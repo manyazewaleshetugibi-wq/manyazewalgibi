@@ -347,7 +347,7 @@ export default function EnhancedExpensePage() {
 
   // Dashboard View
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-background/95">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-background/95 p-2 sm:p-0">
       <main className="container max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8">
         {/* Header with animated gradient */}
         <div className="mb-6 sm:mb-8">
@@ -377,7 +377,7 @@ export default function EnhancedExpensePage() {
         </div>
 
         {/* Date Filter - Horizontal scroll for mobile */}
-        <div className="mb-6 sm:mb-8 overflow-x-auto pb-2 -mx-3 px-3 sm:mx-0 sm:px-0">
+        <div className="mb-6 sm:mb-8 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0">
           <div className="flex gap-1.5 sm:gap-2 min-w-max">
             {filterButtons.map((filter) => (
               <Button
@@ -402,7 +402,7 @@ export default function EnhancedExpensePage() {
         </div>
 
         {/* 3 Clickable Cards - Responsive grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 mb-6 sm:mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 mb-6 sm:mb-8">
           <ClickableCard
             title="Common Expenses"
             value={formatCurrency(totals.totalCommon)}
