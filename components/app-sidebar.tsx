@@ -111,7 +111,6 @@ const roleBasedNavigation = {
           { title: "profit", url: "/profit" }
         ],
       },
-      // Updated HR Training and Culture section with 3-level nesting
       {
         title: "HR Training and Culture",
         url: "#",

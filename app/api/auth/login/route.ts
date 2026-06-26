@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
       { expiresIn: '8h' }
     );
     
-    // Remove sensitive data
+   
     const { password: _, ...staffWithoutPassword } = staff;
     
     return NextResponse.json({
