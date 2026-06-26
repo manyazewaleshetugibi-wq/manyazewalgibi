@@ -80,7 +80,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Parse amounts - Supporting both field naming conventions
     const cashAmount = parseFloat(body.cashAmount) || 0;
     const bankAmount = parseFloat(body.bankAmount) || 0;
     const transferAmount = parseFloat(body.transferAmount) || 0;
