@@ -1,11 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Add this line to allow your mobile IP
-  allowedDevOrigins: ['192.168.1.10'],
+  allowedDevOrigins: ['192.168.1.2'],
 
   typescript: {
     ignoreBuildErrors: true,
   },
+  
   images: {
     remotePatterns: [
       {
@@ -30,8 +31,25 @@ const nextConfig = {
   },
   
   output: process.env.NETLIFY ? 'standalone' : undefined,
-  
   reactStrictMode: true,
+  
+  // ⭐ Turbopack configuration (Next.js 16+)
+  turbopack: {
+    // Disable caching in development
+    resolveAlias: {
+      // Add any aliases if needed
+    },
+  },
+  
+  // ⭐ Experimental features (Next.js 16 compatible)
+  experimental: {
+    disableOptimizedLoading: true,
+  },
+  
+  onDemandEntries: {
+    maxInactiveAge: 25 * 1000,
+    pagesBufferLength: 2,
+  },
   
   async headers() {
     return [
@@ -42,10 +60,29 @@ const nextConfig = {
           { key: 'Access-Control-Allow-Origin', value: '*' },
           { key: 'Access-Control-Allow-Methods', value: 'GET,OPTIONS,PATCH,DELETE,POST,PUT' },
           { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version' },
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Pragma', value: 'no-cache' },
+          { key: 'Expires', value: '0' },
         ]
-      }
+      },
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Pragma', value: 'no-cache' },
+          { key: 'Expires', value: '0' },
+        ],
+      },
     ]
-  }
+  },
+  
+  poweredByHeader: false,
+  
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production' ? {
+      exclude: ['error', 'warn'],
+    } : false,
+  },
 }
 
-module.exports = nextConfig;
+export default nextConfig

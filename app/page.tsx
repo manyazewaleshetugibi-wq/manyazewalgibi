@@ -1,4 +1,4 @@
-// app/menu/page.tsx - COMPLETE VERSION WITH LOCALSTORAGE PERSISTENCE
+// app/menu/page.tsx - COMPLETE FIXED VERSION WITH SECURITY VALIDATION
 
 'use client'
 
@@ -53,6 +53,167 @@ import {
 } from '@/lib/menu-utils'
 
 import { getCategoryIcon } from '@/components/menu/MenuIcons'
+import { MenuCacheManager } from '@/lib/menu-cache-manager'
+
+// ========== SECURITY UTILITIES ==========
+
+/**
+ * Sanitize input to prevent XSS attacks
+ * Removes HTML tags, scripts, and dangerous characters
+ */
+const sanitizeInput = (input: string): string => {
+  if (!input) return ''
+  
+  // Remove HTML tags
+  let sanitized = input.replace(/<[^>]*>/g, '')
+  
+  // Remove script tags and their content
+  sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+  
+  // Remove javascript: protocol
+  sanitized = sanitized.replace(/javascript:/gi, '')
+  
+  // Remove on* event handlers
+  sanitized = sanitized.replace(/\son\w+\s*=/gi, '')
+  
+  // Remove eval, alert, confirm, prompt
+  sanitized = sanitized.replace(/\b(alert|confirm|prompt|eval|function)\s*\(/gi, '')
+  
+  // Remove special characters that could be used for injection
+  sanitized = sanitized.replace(/[<>{}()\[\]\\;'"`]/g, '')
+  
+  // Trim extra spaces
+  sanitized = sanitized.trim()
+  
+  return sanitized
+}
+
+/**
+ * Validate search input - only allow alphanumeric, spaces, and basic punctuation
+ */
+const validateSearchInput = (input: string): { isValid: boolean; sanitized: string } => {
+  if (!input) return { isValid: true, sanitized: '' }
+  
+  // First sanitize
+  const sanitized = sanitizeInput(input)
+  
+  // Allow: letters (including accented), numbers, spaces, hyphens, apostrophes, periods, commas
+  const validPattern = /^[a-zA-Z0-9\s\-'.,\u00C0-\u017F]*$/
+  
+  if (!validPattern.test(sanitized)) {
+    // Remove any remaining invalid characters
+    const cleaned = sanitized.replace(/[^a-zA-Z0-9\s\-'.,\u00C0-\u017F]/g, '')
+    return { isValid: true, sanitized: cleaned }
+  }
+  
+  return { isValid: true, sanitized }
+}
+
+/**
+ * Validate text input for general use (comments, notes, etc.)
+ * Less restrictive than search but still secure
+ */
+const validateTextInput = (input: string): { isValid: boolean; sanitized: string } => {
+  if (!input) return { isValid: true, sanitized: '' }
+  
+  // First sanitize
+  let sanitized = sanitizeInput(input)
+  
+  // Allow more characters for general text
+  const validPattern = /^[a-zA-Z0-9\s\-'.,!?@#$%^&*()_+=:;<>\/\\|~`\u00C0-\u017F]*$/
+  
+  if (!validPattern.test(sanitized)) {
+    const cleaned = sanitized.replace(/[^a-zA-Z0-9\s\-'.,!?@#$%^&*()_+=:;<>\/\\|~`\u00C0-\u017F]/g, '')
+    return { isValid: true, sanitized: cleaned }
+  }
+  
+  return { isValid: true, sanitized }
+}
+
+/**
+ * Check if input contains potentially malicious code
+ */
+const containsMaliciousCode = (input: string): boolean => {
+  if (!input) return false
+  
+  const maliciousPatterns = [
+    /<script/i,
+    /javascript:/i,
+    /on\w+\s*=/i,
+    /alert\s*\(/i,
+    /confirm\s*\(/i,
+    /prompt\s*\(/i,
+    /eval\s*\(/i,
+    /document\./i,
+    /window\./i,
+    /<iframe/i,
+    /<object/i,
+    /<embed/i,
+    /<link/i,
+    /<meta/i,
+    /<style/i,
+    /<base/i,
+    /<form/i,
+    /<input/i,
+    /<button/i,
+    /<textarea/i,
+    /<select/i,
+    /<option/i,
+    /<svg/i,
+    /<math/i,
+    /&#/i, // HTML entities
+    /%3C/i, // URL encoded <
+    /%3E/i, // URL encoded >
+    /%22/i, // URL encoded "
+    /%27/i, // URL encoded '
+    /%3B/i, // URL encoded ;
+    /%2F/i, // URL encoded /
+    /%5C/i, // URL encoded \
+    /%3D/i, // URL encoded =
+  ]
+  
+  return maliciousPatterns.some(pattern => pattern.test(input))
+}
+
+/**
+ * Input validation hook for form fields
+ */
+const useInputValidation = () => {
+  const [error, setError] = useState<string | null>(null)
+  
+  const validateAndSanitize = (value: string, type: 'search' | 'text' | 'number' = 'text'): string => {
+    setError(null)
+    
+    // Check for malicious code first
+    if (containsMaliciousCode(value)) {
+      setError('Input contains potentially malicious content')
+      return ''
+    }
+    
+    let result: { isValid: boolean; sanitized: string }
+    
+    switch (type) {
+      case 'search':
+        result = validateSearchInput(value)
+        break
+      case 'number':
+        // For numbers, only allow digits and decimal points
+        const numSanitized = value.replace(/[^0-9.]/g, '')
+        return numSanitized
+      default:
+        result = validateTextInput(value)
+    }
+    
+    if (!result.isValid) {
+      setError('Invalid input')
+      return ''
+    }
+    
+    return result.sanitized
+  }
+  
+  return { validateAndSanitize, error, setError }
+}
 
 // Guest user data interface
 interface GuestUserData {
@@ -76,18 +237,7 @@ interface TableData {
   floor?: string
 }
 
-// Cache keys
-const CACHE_KEYS = {
-  CATEGORIES: 'menu_categories',
-  ITEMS: 'menu_items',
-  WAITERS: 'menu_waiters',
-  TIMESTAMP: 'menu_timestamp'
-}
-
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
-
 // ========== MIXED RATIO DISPLAY CONFIGURATION ==========
-// Ratio: 4 Food items : 2 Juice items (then repeat)
 const FOOD_PER_BATCH = 4
 const JUICE_PER_BATCH = 2
 
@@ -113,7 +263,6 @@ const isJuiceCategory = (categoryName: string): boolean => {
   return juiceKeywords.some(keyword => lowerName.includes(keyword))
 }
 
-// Get high-priced juice items (top 2 by price from juice categories)
 const getTopPricedJuices = (items: Item[], categories: Category[]): Item[] => {
   const juiceCategoryIds = categories
     .filter(cat => isJuiceCategory(cat.name))
@@ -126,7 +275,6 @@ const getTopPricedJuices = (items: Item[], categories: Category[]): Item[] => {
   return [...juiceItems].sort((a, b) => b.price - a.price)
 }
 
-// Get food items (all active food items)
 const getFoodItems = (items: Item[], categories: Category[]): Item[] => {
   const foodCategoryIds = categories
     .filter(cat => isFoodCategory(cat.name))
@@ -137,7 +285,6 @@ const getFoodItems = (items: Item[], categories: Category[]): Item[] => {
   )
 }
 
-// Get other items (desserts, beverages, etc.)
 const getOtherItems = (items: Item[], categories: Category[]): Item[] => {
   const otherCategoryIds = categories
     .filter(cat => !isFoodCategory(cat.name) && !isJuiceCategory(cat.name))
@@ -148,7 +295,6 @@ const getOtherItems = (items: Item[], categories: Category[]): Item[] => {
   )
 }
 
-// Create mixed display array: 4 food : 2 high-price juice (repeat)
 const createMixedDisplayArray = (
   foodItems: Item[], 
   juiceItems: Item[], 
@@ -159,7 +305,6 @@ const createMixedDisplayArray = (
   let juiceIndex = 0
   const featuredAdded: string[] = []
   
-  // First, add featured items at the top (up to 3)
   const featuredItems = [...foodItems, ...juiceItems].filter(item => item.isFeatured)
   
   featuredItems.slice(0, 3).forEach(item => {
@@ -171,9 +316,7 @@ const createMixedDisplayArray = (
     }
   })
   
-  // Create batches: FOOD_PER_BATCH food items, then JUICE_PER_BATCH juice items
   while (foodIndex < foodItems.length || juiceIndex < juiceItems.length) {
-    // Add FOOD_PER_BATCH food items
     for (let i = 0; i < FOOD_PER_BATCH && foodIndex < foodItems.length; i++) {
       const foodItem = foodItems[foodIndex]
       if (!featuredAdded.includes(foodItem._id)) {
@@ -182,7 +325,6 @@ const createMixedDisplayArray = (
       foodIndex++
     }
     
-    // Add JUICE_PER_BATCH high-price juice items
     for (let i = 0; i < JUICE_PER_BATCH && juiceIndex < juiceItems.length; i++) {
       const juiceItem = juiceItems[juiceIndex]
       if (!featuredAdded.includes(juiceItem._id)) {
@@ -192,7 +334,6 @@ const createMixedDisplayArray = (
     }
   }
   
-  // Add other items at the end
   if (otherItems.length > 0) {
     otherItems.forEach(item => {
       if (!featuredAdded.includes(item._id)) {
@@ -204,7 +345,6 @@ const createMixedDisplayArray = (
   return result
 }
 
-// Sort categories for filter dropdown
 const sortCategoriesByPriority = (categories: Category[]): Category[] => {
   return [...categories].sort((a, b) => {
     if (isFoodCategory(a.name) && !isFoodCategory(b.name)) return -1
@@ -227,8 +367,11 @@ export default function MenuPage() {
     subtotal: baseSubtotal,
     totalItems,
     isLoaded: cartLoaded,
-    checkLocalStorage
   } = useCart()
+
+  // Input validation hook
+  const { validateAndSanitize: validateSearch, error: searchError, setError: setSearchError } = useInputValidation()
+  const { validateAndSanitize: validateText } = useInputValidation()
 
   const [categories, setCategories] = useState<Category[]>([])
   const [sortedCategories, setSortedCategories] = useState<Category[]>([])
@@ -238,6 +381,7 @@ export default function MenuPage() {
   const [waiters, setWaiters] = useState<Waiter[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [searchInputValue, setSearchInputValue] = useState('') // Raw input value
   const [loading, setLoading] = useState(true)
   const [loadingTimeout, setLoadingTimeout] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -275,6 +419,9 @@ export default function MenuPage() {
   const deliveryCalculator = useMemo(() => new EnhancedDeliveryCalculator(), [])
   const abortControllerRef = useRef<AbortController | null>(null)
 
+  // Initialize cache manager
+  const cacheManager = MenuCacheManager.getInstance()
+
   const packagingCharge = useMemo(() => {
     return calculatePackagingCharge(cart, categories, orderType === 'delivery')
   }, [cart, categories, orderType])
@@ -298,54 +445,39 @@ export default function MenuPage() {
     return adjustedSubtotal * 0.15
   }, [adjustedSubtotal])
 
-  // Debug: Log cart state and localStorage
-  useEffect(() => {
-    if (cartLoaded) {
-      console.log('📊 Current cart state:', cart)
-      console.log('📊 Cart loaded:', cartLoaded)
-      console.log('📊 Total items:', totalItems)
-      console.log('📊 Subtotal:', baseSubtotal)
-      
-      // Check localStorage directly
-      const stored = localStorage.getItem('cart_items')
-      console.log('📊 localStorage cart_items:', stored)
-    }
-  }, [cart, cartLoaded, totalItems, baseSubtotal])
-
-  // Load cached data
-  const loadFromCache = useCallback(() => {
+  // Load from encrypted cache
+  const loadFromCache = useCallback(async () => {
     try {
-      const timestamp = localStorage.getItem(CACHE_KEYS.TIMESTAMP)
-      if (timestamp && Date.now() - parseInt(timestamp) < CACHE_DURATION) {
-        const cachedCategories = localStorage.getItem(CACHE_KEYS.CATEGORIES)
-        const cachedItems = localStorage.getItem(CACHE_KEYS.ITEMS)
-        const cachedWaiters = localStorage.getItem(CACHE_KEYS.WAITERS)
+      const { 
+        categories: cachedCategories, 
+        items: cachedItems, 
+        waiters: cachedWaiters, 
+        isValid 
+      } = await cacheManager.loadMenuData()
 
-        if (cachedCategories && cachedItems) {
-          const parsedCategories = JSON.parse(cachedCategories)
-          setCategories(parsedCategories)
-          setSortedCategories(sortCategoriesByPriority(parsedCategories))
-          setItems(JSON.parse(cachedItems))
-          setFilteredItems(JSON.parse(cachedItems))
-          if (cachedWaiters) setWaiters(JSON.parse(cachedWaiters))
-          setDataLoaded(true)
-          setLoading(false)
-          return true
-        }
+      if (isValid && cachedCategories.length > 0 && cachedItems.length > 0) {
+        setCategories(cachedCategories)
+        setSortedCategories(sortCategoriesByPriority(cachedCategories))
+        setItems(cachedItems)
+        setFilteredItems(cachedItems)
+        if (cachedWaiters.length > 0) setWaiters(cachedWaiters)
+        setDataLoaded(true)
+        setLoading(false)
+        console.log('📦 Loaded from encrypted cache')
+        return true
       }
+      return false
     } catch (error) {
       console.error('Cache read error:', error)
+      return false
     }
-    return false
   }, [])
 
-  // Save to cache
-  const saveToCache = useCallback((categoriesData: Category[], itemsData: Item[], waitersData: Waiter[]) => {
+  // Save to encrypted cache
+  const saveToCache = useCallback(async (categoriesData: Category[], itemsData: Item[], waitersData: Waiter[]) => {
     try {
-      localStorage.setItem(CACHE_KEYS.CATEGORIES, JSON.stringify(categoriesData))
-      localStorage.setItem(CACHE_KEYS.ITEMS, JSON.stringify(itemsData))
-      localStorage.setItem(CACHE_KEYS.WAITERS, JSON.stringify(waitersData))
-      localStorage.setItem(CACHE_KEYS.TIMESTAMP, Date.now().toString())
+      await cacheManager.saveMenuData(categoriesData, itemsData, waitersData)
+      console.log('💾 Saved to encrypted cache')
     } catch (error) {
       console.error('Cache save error:', error)
     }
@@ -430,7 +562,7 @@ export default function MenuPage() {
       }
 
       if (categoriesData.length > 0 && itemsData.length > 0) {
-        saveToCache(categoriesData, itemsData, waitersData)
+        await saveToCache(categoriesData, itemsData, waitersData)
       }
 
       setDataLoaded(true)
@@ -439,7 +571,7 @@ export default function MenuPage() {
       if (err.name === 'AbortError') return
       console.error('Fetch error:', err.message)
       
-      const cached = loadFromCache()
+      const cached = await loadFromCache()
       if (!cached) {
         toast.error('Unable to load menu. Please check your connection.')
       }
@@ -447,6 +579,62 @@ export default function MenuPage() {
       setLoading(false)
     }
   }, [loadFromCache, saveToCache])
+
+  // ========== SECURE SEARCH HANDLER ==========
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawValue = e.target.value
+    
+    // Store raw value for display
+    setSearchInputValue(rawValue)
+    
+    // Check for malicious code
+    if (containsMaliciousCode(rawValue)) {
+      setSearchError('Invalid characters detected')
+      toast.error('Search contains invalid characters')
+      // Clear the input
+      setSearchInputValue('')
+      setSearchTerm('')
+      return
+    }
+    
+    // Validate and sanitize
+    const { isValid, sanitized } = validateSearchInput(rawValue)
+    
+    if (!isValid) {
+      setSearchError('Invalid input')
+      toast.error('Invalid characters in search')
+      return
+    }
+    
+    // Clear any previous errors
+    setSearchError(null)
+    
+    // Set the sanitized search term
+    setSearchTerm(sanitized)
+  }, [validateSearchInput, setSearchError])
+
+  // ========== SECURE TEXT INPUT HANDLER ==========
+  const handleTextInputChange = useCallback((
+    value: string, 
+    setter: (value: string) => void,
+    fieldName: string = 'Input'
+  ) => {
+    // Check for malicious code
+    if (containsMaliciousCode(value)) {
+      toast.error(`${fieldName} contains invalid characters`)
+      return
+    }
+    
+    // Validate and sanitize
+    const { isValid, sanitized } = validateTextInput(value)
+    
+    if (!isValid) {
+      toast.error(`Invalid ${fieldName}`)
+      return
+    }
+    
+    setter(sanitized)
+  }, [])
 
   // Generate mixed display array when items change
   useEffect(() => {
@@ -472,17 +660,36 @@ export default function MenuPage() {
     }
   }, [])
 
-  // Initial load
+  // Initialize encryption and load data
   useEffect(() => {
-    const cached = loadFromCache()
-    if (!cached) {
-      fetchMenuData()
+    const initialize = async () => {
+      try {
+        // Check for old plain text data and migrate
+        const hasOldCategories = localStorage.getItem('menu_categories') !== null
+        const hasOldItems = localStorage.getItem('menu_items') !== null
+        
+        if (hasOldCategories || hasOldItems) {
+          console.log('🔄 Migrating old data to encrypted format...')
+          await cacheManager.migrateOldData()
+        }
+        
+        // Load from cache
+        const loaded = await loadFromCache()
+        if (!loaded) {
+          await fetchMenuData()
+        }
+      } catch (error) {
+        console.error('Initialization error:', error)
+        await fetchMenuData()
+      }
     }
+
+    initialize()
     
     return () => {
       if (abortControllerRef.current) abortControllerRef.current.abort()
     }
-  }, [loadFromCache, fetchMenuData])
+  }, [])
 
   // Preload images
   useEffect(() => {
@@ -576,8 +783,17 @@ export default function MenuPage() {
   }, [numberOfGuests])
 
   const handleGuestOrder = (guestData: GuestUserData) => {
-    setGuestUserData(guestData)
-    sessionStorage.setItem('guestOrderData', JSON.stringify(guestData))
+    // Sanitize guest data
+    const sanitizedGuestData: GuestUserData = {
+      firstName: validateTextInput(guestData.firstName).sanitized || '',
+      lastName: validateTextInput(guestData.lastName).sanitized || '',
+      phone: guestData.phone.replace(/[^0-9+]/g, ''), // Only allow digits and +
+      email: guestData.email.replace(/[^a-zA-Z0-9@._-]/g, ''), // Only allow valid email chars
+      isGuest: true
+    }
+    
+    setGuestUserData(sanitizedGuestData)
+    sessionStorage.setItem('guestOrderData', JSON.stringify(sanitizedGuestData))
   }
 
   // Delivery fee calculation
@@ -681,14 +897,23 @@ export default function MenuPage() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      // Validate file type
       if (!file.type.startsWith('image/')) {
         toast.error('Please upload an image file')
         return
       }
+      // Validate file size (5MB max)
       if (file.size > 5 * 1024 * 1024) {
         toast.error('File size must be less than 5MB')
         return
       }
+      // Validate file name for malicious content
+      const sanitizedFileName = sanitizeInput(file.name)
+      if (sanitizedFileName !== file.name) {
+        toast.error('File name contains invalid characters')
+        return
+      }
+      
       const previewUrl = URL.createObjectURL(file)
       setPaymentScreenshot({ file, previewUrl, uploaded: true })
       toast.success('Payment screenshot uploaded')
@@ -732,9 +957,9 @@ export default function MenuPage() {
         
         return {
           itemId: cartItem._id,
-          itemName: cartItem.name,
+          itemName: sanitizeInput(cartItem.name), // Sanitize item name
           quantity: cartItem.quantity,
-          notes: cartItem.specialInstructions || '',
+          notes: sanitizeInput(cartItem.specialInstructions || ''), // Sanitize notes
           basePrice: basePrice,
           categoryCharge: categoryCharge,
           price: finalItemPrice,
@@ -748,33 +973,33 @@ export default function MenuPage() {
         : (guestUserData ? 'guest' : 'walk-in')
         
       const customerName = isLoggedIn 
-        ? `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim() || 'Walk-in'
+        ? sanitizeInput(`${userData?.firstName || ''} ${userData?.lastName || ''}`.trim()) || 'Walk-in'
         : guestUserData 
-          ? `${guestUserData.firstName} ${guestUserData.lastName}`.trim()
+          ? sanitizeInput(`${guestUserData.firstName} ${guestUserData.lastName}`.trim())
           : 'Guest User'
           
       const customerPhone = isLoggedIn 
-        ? userData?.phone || ''
-        : guestUserData?.phone || ''
+        ? userData?.phone?.replace(/[^0-9+]/g, '') || ''
+        : guestUserData?.phone?.replace(/[^0-9+]/g, '') || ''
         
       const customerEmail = isLoggedIn 
-        ? userData?.email || ''
-        : guestUserData?.email || ''
+        ? userData?.email?.replace(/[^a-zA-Z0-9@._-]/g, '') || ''
+        : guestUserData?.email?.replace(/[^a-zA-Z0-9@._-]/g, '') || ''
 
       const orderData = {
-        orderNumber,
+        orderNumber: sanitizeInput(orderNumber),
         orderType,
         paymentMethod: 'ONLINE',
         restaurantId: selectedTableData?.restaurantId || 'manyazewal1',
-        restaurantName: selectedTableData?.restaurantName || 'Manyazewal Restaurant',
-        floor: selectedTableData?.floor || 'Ground Floor',
-        arrangementId: arrangementId,
+        restaurantName: sanitizeInput(selectedTableData?.restaurantName || 'Manyazewal Restaurant'),
+        floor: sanitizeInput(selectedTableData?.floor || 'Ground Floor'),
+        arrangementId: sanitizeInput(arrangementId),
         numberOfGuests: orderType === 'table' ? numberOfGuests : 1,
         items: orderItems,
         discount: 0,
-        specialRequirements,
-        transactionId: transactionId || `TXN-${Date.now()}`,
-        customerId,
+        specialRequirements: sanitizeInput(specialRequirements),
+        transactionId: sanitizeInput(transactionId) || `TXN-${Date.now()}`,
+        customerId: sanitizeInput(customerId),
         customerName,
         customerPhone,
         customerEmail,
@@ -788,18 +1013,24 @@ export default function MenuPage() {
         finalAmount: finalTotal,
         isGuestOrder: isGuest,
         ...(orderType === 'table' && {
-          tableNumber: selectedTableData?.number.toString() || tableNumber,
-          tableId: selectedTableData?.id,
+          tableNumber: sanitizeInput(selectedTableData?.number.toString() || tableNumber),
+          tableId: sanitizeInput(selectedTableData?.id || ''),
           tableCapacity: selectedTableData?.capacity,
-          waiterId: assignedWaiterId,
-          waiterName: assignedWaiterName,
+          waiterId: sanitizeInput(assignedWaiterId),
+          waiterName: sanitizeInput(assignedWaiterName),
           inTable: true,
           delivery: false
         })
       }
 
       if (isGuest && guestUserData) {
-        ;(orderData as any).guestInfo = guestUserData
+        ;(orderData as any).guestInfo = {
+          firstName: sanitizeInput(guestUserData.firstName),
+          lastName: sanitizeInput(guestUserData.lastName),
+          phone: guestUserData.phone.replace(/[^0-9+]/g, ''),
+          email: guestUserData.email.replace(/[^a-zA-Z0-9@._-]/g, ''),
+          isGuest: true
+        }
       }
 
       if (orderType === 'delivery' && isLoggedIn) {
@@ -813,10 +1044,10 @@ export default function MenuPage() {
           fullName: customerName,
           phoneNumber: customerPhone,
           email: customerEmail,
-          address: userData?.address || '',
+          address: sanitizeInput(userData?.address || ''),
           city: 'Addis Ababa',
-          landmark: '',
-          deliveryInstructions: specialRequirements || '',
+          landmark: sanitizeInput(userData?.landmark || ''),
+          deliveryInstructions: sanitizeInput(specialRequirements || ''),
           location: locationData
         }
         ;(orderData as any).delivery = true
@@ -833,10 +1064,8 @@ export default function MenuPage() {
 
       if (!response.ok) throw new Error(result.error || result.message || 'Failed to place order')
       
-      // ✅ ONLY CLEAR CART AFTER SUCCESSFUL ORDER
       clearCart()
       
-      // Reset order form
       setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`)
       setOrderType('')
       setTableNumber('')
@@ -887,13 +1116,14 @@ export default function MenuPage() {
 
   const clearFilters = () => {
     setSearchTerm('')
+    setSearchInputValue('')
     setSelectedCategory(null)
+    setSearchError(null)
     toast.success('All filters cleared')
   }
 
   const hasActiveFilters = searchTerm !== '' || selectedCategory !== null
 
-  // Get display items - ALWAYS use mixed display when no filters
   const getDisplayItems = (): Item[] => {
     if (selectedCategory || searchTerm) {
       return filteredItems
@@ -950,20 +1180,54 @@ export default function MenuPage() {
         <div className="hidden md:block sticky top-0 z-50 w-full bg-white/95 backdrop-blur-xl shadow-lg border-b border-purple-100">
           <div className="container mx-auto px-4 py-3">
             <div className="flex items-center gap-3 flex-wrap">
-              {/* Search Bar */}
+              {/* Search Bar - SECURE VERSION */}
               <div className="relative flex-1 max-w-[320px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-500" size={15} />
                 <Input
                   type="text"
                   placeholder="Search menu items..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 pr-8 py-2 h-9 text-sm bg-white border border-purple-200 rounded-xl focus:border-purple-900 focus:ring-2 focus:ring-purple-200 transition-all shadow-sm"
+                  value={searchInputValue}
+                  onChange={handleSearchChange}
+                  onPaste={(e) => {
+                    // Prevent pasting potentially malicious content
+                    const pastedText = e.clipboardData.getData('text')
+                    if (containsMaliciousCode(pastedText)) {
+                      e.preventDefault()
+                      toast.error('Pasted content contains invalid characters')
+                    }
+                  }}
+                  onDrop={(e) => {
+                    // Prevent dropping potentially malicious content
+                    const droppedText = e.dataTransfer.getData('text')
+                    if (containsMaliciousCode(droppedText)) {
+                      e.preventDefault()
+                      toast.error('Dropped content contains invalid characters')
+                    }
+                  }}
+                  className={`pl-9 pr-8 py-2 h-9 text-sm bg-white border rounded-xl focus:border-purple-900 focus:ring-2 transition-all shadow-sm ${
+                    searchError ? 'border-red-500 ring-2 ring-red-200' : 'border-purple-200 focus:ring-purple-200'
+                  }`}
+                  maxLength={100}
+                  autoComplete="off"
+                  spellCheck={false}
                 />
-                {searchTerm && (
-                  <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                {searchInputValue && (
+                  <button 
+                    onClick={() => {
+                      setSearchInputValue('')
+                      setSearchTerm('')
+                      setSearchError(null)
+                    }} 
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    aria-label="Clear search"
+                  >
                     <X size={14} />
                   </button>
+                )}
+                {searchError && (
+                  <div className="absolute left-0 right-0 -bottom-6 text-xs text-red-500 animate-fadeIn">
+                    {searchError}
+                  </div>
                 )}
               </div>
 
@@ -1041,7 +1305,11 @@ export default function MenuPage() {
                 {searchTerm && (
                   <Badge variant="secondary" className="bg-purple-100 text-purple-800 rounded-full text-xs px-2 py-0.5 gap-1">
                     Search: "{searchTerm}"
-                    <button onClick={() => setSearchTerm('')} className="ml-1 hover:text-purple-900"><X size={12} /></button>
+                    <button onClick={() => {
+                      setSearchTerm('')
+                      setSearchInputValue('')
+                      setSearchError(null)
+                    }} className="ml-1 hover:text-purple-900"><X size={12} /></button>
                   </Badge>
                 )}
                 {selectedCategory && (
@@ -1055,14 +1323,50 @@ export default function MenuPage() {
           </div>
         </div>
 
-        {/* Mobile Header */}
+        {/* Mobile Header - SECURE VERSION */}
         <div className="md:hidden sticky top-0 z-50 w-full bg-white/95 backdrop-blur-xl shadow-sm border-b border-purple-100">
           <div className="px-3 py-2">
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-500" size={13} />
-                <Input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-8 pr-6 py-1.5 h-8 text-xs bg-white border border-purple-200 rounded-lg focus:border-purple-900 focus:ring-2 focus:ring-purple-200 transition-all w-full" />
-                {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"><X size={11} /></button>}
+                <Input 
+                  type="text" 
+                  placeholder="Search..." 
+                  value={searchInputValue} 
+                  onChange={handleSearchChange}
+                  onPaste={(e) => {
+                    const pastedText = e.clipboardData.getData('text')
+                    if (containsMaliciousCode(pastedText)) {
+                      e.preventDefault()
+                      toast.error('Invalid characters')
+                    }
+                  }}
+                  onDrop={(e) => {
+                    const droppedText = e.dataTransfer.getData('text')
+                    if (containsMaliciousCode(droppedText)) {
+                      e.preventDefault()
+                      toast.error('Invalid characters')
+                    }
+                  }}
+                  className={`pl-8 pr-6 py-1.5 h-8 text-xs bg-white border rounded-lg focus:border-purple-900 focus:ring-2 transition-all w-full ${
+                    searchError ? 'border-red-500 ring-2 ring-red-200' : 'border-purple-200 focus:ring-purple-200'
+                  }`}
+                  maxLength={100}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {searchInputValue && (
+                  <button 
+                    onClick={() => {
+                      setSearchInputValue('')
+                      setSearchTerm('')
+                      setSearchError(null)
+                    }} 
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
+                  >
+                    <X size={11} />
+                  </button>
+                )}
               </div>
 
               <DropdownMenu>
@@ -1111,8 +1415,22 @@ export default function MenuPage() {
 
             {hasActiveFilters && (
               <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-1.5 border-t border-purple-100">
-                {searchTerm && <Badge variant="secondary" className="bg-purple-100 text-purple-800 rounded-full text-[10px] px-1.5 py-0.5 gap-0.5">"{searchTerm.substring(0, 12)}"<button onClick={() => setSearchTerm('')}><X size={9} /></button></Badge>}
-                {selectedCategory && <Badge variant="secondary" className="bg-purple-100 text-purple-800 rounded-full text-[10px] px-1.5 py-0.5 gap-0.5">{categories.find(c => c._id === selectedCategory)?.name?.substring(0, 15)}<button onClick={() => setSelectedCategory(null)}><X size={9} /></button></Badge>}
+                {searchTerm && (
+                  <Badge variant="secondary" className="bg-purple-100 text-purple-800 rounded-full text-[10px] px-1.5 py-0.5 gap-0.5">
+                    "{searchTerm.substring(0, 12)}"
+                    <button onClick={() => {
+                      setSearchTerm('')
+                      setSearchInputValue('')
+                      setSearchError(null)
+                    }}><X size={9} /></button>
+                  </Badge>
+                )}
+                {selectedCategory && (
+                  <Badge variant="secondary" className="bg-purple-100 text-purple-800 rounded-full text-[10px] px-1.5 py-0.5 gap-0.5">
+                    {categories.find(c => c._id === selectedCategory)?.name?.substring(0, 15)}
+                    <button onClick={() => setSelectedCategory(null)}><X size={9} /></button>
+                  </Badge>
+                )}
               </div>
             )}
           </div>
@@ -1216,7 +1534,7 @@ export default function MenuPage() {
             numberOfGuests={numberOfGuests} 
             onGuestsChange={setNumberOfGuests} 
             specialRequirements={specialRequirements} 
-            onSpecialRequirementsChange={setSpecialRequirements} 
+            onSpecialRequirementsChange={(value) => handleTextInputChange(value, setSpecialRequirements, 'Special requirements')}
             subtotal={adjustedSubtotal} 
             tax={calculatedTax} 
             deliveryFee={deliveryFee} 
@@ -1258,12 +1576,11 @@ export default function MenuPage() {
         onRemoveScreenshot={removePaymentScreenshot} 
         onFileUpload={handleFileUpload} 
         transactionId={transactionId} 
-        onTransactionIdChange={setTransactionId} 
+        onTransactionIdChange={(value) => handleTextInputChange(value, setTransactionId, 'Transaction ID')}
         subtotal={adjustedSubtotal} 
         tax={calculatedTax} 
         orderType={orderType} 
         deliveryFee={orderType === 'delivery' && isLoggedIn ? deliveryFee?.fee || 0 : 0} 
-        packagingCharge={orderType === 'delivery' && isLoggedIn ? packagingCharge : 0} 
         total={finalTotal} 
         onFinalizeOrder={handleFinalizeOrder} 
         isPlacingOrder={isPlacingOrder} 

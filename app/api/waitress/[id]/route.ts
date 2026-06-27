@@ -2,12 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 
-
 const COLLECTION_NAME = "waitresses";
 
 export async function GET(req: NextRequest) {
     try {
-        // Extract id from the request URL
         const id = req.nextUrl.pathname.split("/").pop();
 
         if (!id || !ObjectId.isValid(id)) {
@@ -22,11 +20,16 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ message: "Waitress not found" }, { status: 404 });
         }
 
-        return NextResponse.json(waitress, { status: 200 });
+        // Return only success message, hide all data
+        return NextResponse.json({ 
+            message: "Waitress data retrieved successfully" 
+        }, { status: 200 });
+        
     } catch (error) {
-        return NextResponse.json({ message: "Error fetching waitress", error }, { status: 500 });
+        return NextResponse.json({ message: "Error fetching waitress" }, { status: 500 });
     }
 }
+
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { id } = await params;
@@ -48,9 +51,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             return NextResponse.json({ message: "Waitress not found or no changes applied" }, { status: 404 });
         }
 
-        return NextResponse.json({ message: "Waitress updated successfully" }, { status: 200 });
+        return NextResponse.json({ 
+            message: "Waitress updated successfully" 
+        }, { status: 200 });
+        
     } catch (error) {
-        return NextResponse.json({ message: "Error updating waitress", error }, { status: 500 });
+        return NextResponse.json({ message: "Error updating waitress" }, { status: 500 });
     }
 }
 
@@ -75,8 +81,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
             await db.collection("users").deleteOne({ _id: new ObjectId(waitress.userId) });
         }
 
-        return NextResponse.json({ message: "Waitress deleted successfully" }, { status: 200 });
+        return NextResponse.json({ 
+            message: "Waitress deleted successfully" 
+        }, { status: 200 });
+        
     } catch (error) {
-        return NextResponse.json({ message: "Error deleting waitress", error }, { status: 500 });
+        return NextResponse.json({ message: "Error deleting waitress" }, { status: 500 });
     }
 }

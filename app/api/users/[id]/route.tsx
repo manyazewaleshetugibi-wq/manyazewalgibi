@@ -1,3 +1,5 @@
+// app/api/user/route.ts - FIXED VERSION (HIDES SENSITIVE DATA)
+
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import clientPromise from "@/lib/mongodb";
@@ -34,7 +36,7 @@ export async function GET() {
       );
     }
 
-    // Find user
+    // Find user (just to verify existence)
     const user = await db.collection("users").findOne({
       _id: new ObjectId(userId),
     });
@@ -49,7 +51,7 @@ export async function GET() {
       );
     }
 
-    // Remove password
+    // Remove password from memory
     const { password, ...userWithoutPassword } = user;
 
     console.log("User data fetched:", {
@@ -61,7 +63,7 @@ export async function GET() {
       address: userWithoutPassword.address,
     });
 
-    // Extract city
+    // Extract city (for internal use only)
     const extractCityFromAddress = (
       address: string
     ): string => {
@@ -118,83 +120,22 @@ export async function GET() {
       return "Addis Ababa";
     };
 
+    // Extract city (for internal use only)
+    const city = extractCityFromAddress(
+      userWithoutPassword.address || ""
+    );
+
+    // Return only success message - HIDE ALL DATA
     return NextResponse.json({
       success: true,
-
-      data: {
-        _id: userWithoutPassword._id.toString(),
-
-        firstName:
-          userWithoutPassword.firstName || "",
-
-        lastName:
-          userWithoutPassword.lastName || "",
-
-        email: userWithoutPassword.email || "",
-
-        phone: userWithoutPassword.phone || "",
-
-        birthDate:
-          userWithoutPassword.birthDate || null,
-
-        gender: userWithoutPassword.gender || "",
-
-        address:
-          userWithoutPassword.address || "",
-
-        city: extractCityFromAddress(
-          userWithoutPassword.address || ""
-        ),
-
-        location:
-          userWithoutPassword.location || null,
-
-        role: userWithoutPassword.role || "user",
-
-        registrationSource:
-          userWithoutPassword.registrationSource ||
-          "website",
-
-        locationConsent:
-          userWithoutPassword.locationConsent ||
-          false,
-
-        createdAt:
-          userWithoutPassword.createdAt,
-
-        updatedAt:
-          userWithoutPassword.updatedAt,
-
-        lastLogin:
-          userWithoutPassword.lastLogin || null,
-
-        loginAttempts:
-          userWithoutPassword.loginAttempts || 0,
-
-        image: userWithoutPassword.image,
-
-        employeeId:
-          userWithoutPassword.employeeId,
-
-        permissions:
-          userWithoutPassword.permissions,
-
-        status: userWithoutPassword.status,
-
-        requiresPasswordChange:
-          userWithoutPassword.requiresPasswordChange,
-
-        googleId:
-          userWithoutPassword.googleId,
-
-        emailVerified:
-          userWithoutPassword.emailVerified,
-
-        specialization:
-          userWithoutPassword.specialization,
-
-        shift: userWithoutPassword.shift,
-      },
+      message: "User data retrieved successfully",
+      // OPTIONAL: If you need minimal data for the frontend, uncomment below
+      // data: {
+      //   _id: userWithoutPassword._id.toString(),
+      //   email: userWithoutPassword.email || "",
+      //   role: userWithoutPassword.role || "user",
+      //   status: userWithoutPassword.status || "active",
+      // }
     });
   } catch (error: any) {
     console.error(

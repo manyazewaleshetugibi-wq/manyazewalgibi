@@ -87,6 +87,23 @@ export function ItemCard({
     }
   }
 
+  // Function to dynamically adjust font size based on text length
+  const getDynamicFontSize = (text: string, isMobile: boolean = false) => {
+    const length = text.length
+    if (isMobile) {
+      if (length <= 15) return 'text-[11px]'
+      if (length <= 25) return 'text-[10px]'
+      if (length <= 35) return 'text-[9px]'
+      return 'text-[8px]'
+    } else {
+      if (length <= 15) return 'text-xs'
+      if (length <= 25) return 'text-[10px]'
+      if (length <= 35) return 'text-[9px]'
+      return 'text-[8px]'
+    }
+  }
+
+  // DESKTOP NUTRITIONAL LIST
   const DesktopNutritionalList = () => (
     <div className="space-y-0.5">
       <div className="flex items-center justify-between">
@@ -128,47 +145,6 @@ export function ItemCard({
     </div>
   )
 
-  const MobileNutritionalList = () => (
-    <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
-      <div className="flex items-center justify-between bg-gray-50/80 rounded px-1.5 py-0.5">
-        <div className="flex items-center gap-1">
-          <Flame className="h-2.5 w-2.5 text-orange-500" />
-          <span className="text-[8px] font-medium text-gray-600">Cal</span>
-        </div>
-        <span className="text-[9px] font-bold text-gray-800">
-          {nutritionalInfo.calories}
-        </span>
-      </div>
-      <div className="flex items-center justify-between bg-gray-50/80 rounded px-1.5 py-0.5">
-        <div className="flex items-center gap-1">
-          <Beef className="h-2.5 w-2.5 text-red-500" />
-          <span className="text-[8px] font-medium text-gray-600">Protein</span>
-        </div>
-        <span className="text-[9px] font-bold text-gray-800">
-          {nutritionalInfo.protein}g
-        </span>
-      </div>
-      <div className="flex items-center justify-between bg-gray-50/80 rounded px-1.5 py-0.5">
-        <div className="flex items-center gap-1">
-          <Wheat className="h-2.5 w-2.5 text-amber-600" />
-          <span className="text-[8px] font-medium text-gray-600">Carbs</span>
-        </div>
-        <span className="text-[9px] font-bold text-gray-800">
-          {nutritionalInfo.carbs}g
-        </span>
-      </div>
-      <div className="flex items-center justify-between bg-gray-50/80 rounded px-1.5 py-0.5">
-        <div className="flex items-center gap-1">
-          <Milk className="h-2.5 w-2.5 text-blue-500" />
-          <span className="text-[8px] font-medium text-gray-600">Fat</span>
-        </div>
-        <span className="text-[9px] font-bold text-gray-800">
-          {nutritionalInfo.fat}g
-        </span>
-      </div>
-    </div>
-  )
-
   const renderAddToCartButton = (isMobileVersion: boolean = false) => {
     const buttonContent = isMobileVersion ? (
       <>
@@ -188,7 +164,7 @@ export function ItemCard({
           whileTap={{ scale: 0.95 }}
           onClick={handleAddToCart}
           disabled={item.isActive === false}
-          className={`flex items-center justify-center gap-1 rounded-full px-2 py-1 text-[9px] font-medium transition-all active:scale-95 ${
+          className={`flex items-center justify-center gap-1 rounded-full px-2 py-1 text-[9px] font-medium transition-all active:scale-95 flex-shrink-0 ${
             item.isActive === false
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
               : 'bg-gradient-to-r from-purple-700 to-purple-800 text-white shadow-sm'
@@ -203,7 +179,7 @@ export function ItemCard({
       <Button
         onClick={handleAddToCart}
         disabled={item.isActive === false}
-        className={`rounded-full px-2 py-0 text-[9px] font-medium transition-all h-6 ${
+        className={`rounded-full px-2 py-0 text-[9px] font-medium transition-all h-6 flex-shrink-0 ${
           item.isActive === false
             ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
             : 'bg-gradient-to-r from-purple-700 to-purple-800 text-white shadow-sm hover:shadow-md hover:scale-105'
@@ -214,8 +190,10 @@ export function ItemCard({
     )
   }
 
-  // MOBILE VERSION
+  // MOBILE VERSION - No truncation, dynamic font sizes
   if (isMobile) {
+    const dynamicFontSize = getDynamicFontSize(item.name, true)
+    
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -260,22 +238,32 @@ export function ItemCard({
           <div className="p-2">
             <div className="flex items-start justify-between gap-1">
               <div className="flex-1 min-w-0">
-                <h3 className="text-[11px] font-semibold text-gray-800 line-clamp-1 leading-tight">
+                {/* Item name - no truncation, dynamic font size */}
+                <h3 className={`${dynamicFontSize} font-semibold text-gray-800 leading-tight break-words`}>
                   {item.name}
                 </h3>
+                {/* Category and time on mobile */}
+                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                  <Badge variant="secondary" className="bg-purple-50 text-purple-900 border-0 rounded-full px-1.5 py-0 text-[7px] font-medium">
+                    {getCategoryIcon(categoryName, "h-2 w-2 mr-0.5")}
+                    {categoryName}
+                  </Badge>
+                  <div className="flex items-center gap-0.5 text-[7px] text-gray-500">
+                    <Clock className="h-2 w-2" />
+                    <span>{Number(item.preparationTime) || 0} min</span>
+                  </div>
+                </div>
               </div>
               <button
                 onClick={() => onViewDetails(item)}
-                className="p-1 rounded-full bg-gray-50 active:bg-gray-100 transition-colors"
+                className="p-1 rounded-full bg-gray-50 active:bg-gray-100 transition-colors flex-shrink-0"
                 aria-label="View details"
               >
                 <Eye className="h-3 w-3 text-gray-600" />
               </button>
             </div>
 
-            <div className="mt-1.5">
-              <MobileNutritionalList />
-            </div>
+            {/* NUTRITIONAL SECTION REMOVED ON MOBILE */}
 
             <div className="flex items-center justify-between gap-1 pt-1.5 border-t border-gray-100 mt-1.5">
               <div className="flex items-baseline gap-1">
@@ -292,7 +280,9 @@ export function ItemCard({
     )
   }
 
-  // DESKTOP VERSION
+  // DESKTOP VERSION - No truncation, dynamic font sizes
+  const dynamicFontSize = getDynamicFontSize(item.name, false)
+  
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -337,13 +327,14 @@ export function ItemCard({
             )}
           </div>
 
-          <div className="w-[45%] flex flex-col p-2">
+          <div className="w-[45%] flex flex-col p-2 min-w-0">
             <div className="flex items-start justify-between gap-1">
               <div className="flex-1 min-w-0">
-                <h3 className="text-xs font-semibold text-gray-800 mb-0.5 line-clamp-1 group-hover:text-purple-900 transition-colors">
+                {/* Item name - no truncation, dynamic font size */}
+                <h3 className={`${dynamicFontSize} font-semibold text-gray-800 mb-0.5 group-hover:text-purple-900 transition-colors leading-tight break-words`}>
                   {item.name}
                 </h3>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-wrap">
                   <Badge variant="secondary" className="bg-purple-50 text-purple-900 border-0 rounded-full px-1.5 py-0 text-[8px] font-medium">
                     {getCategoryIcon(categoryName, "h-2 w-2 mr-0.5")}
                     {categoryName}
@@ -354,7 +345,7 @@ export function ItemCard({
                   </div>
                 </div>
               </div>
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0">
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -378,6 +369,7 @@ export function ItemCard({
               </div>
             </div>
 
+            {/* DESKTOP NUTRITIONAL SECTION */}
             <div className="mt-1 mb-0.5">
               <DesktopNutritionalList />
             </div>

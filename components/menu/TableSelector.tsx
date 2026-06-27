@@ -1,3 +1,5 @@
+// components/menu/TableSelector.tsx - COMPLETE FIXED VERSION
+
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -1139,6 +1141,7 @@ export function TableSelector({
     }
   };
 
+  // FIXED: Handle switch table with better error handling
   const handleSwitchTableAtomic = async (newTable: TableData) => {
     if (isSwitchingTable) return;
     if (selectionLockRef.current) return;
@@ -1159,6 +1162,7 @@ export function TableSelector({
         requestBody.anonymousId = anonymousId;
       }
       
+      // FIXED: Use the correct API endpoint with full URL
       const response = await axios.patch('/api/tables/arrangement', requestBody, getAxiosConfig());
       
       if (response.data.success) {
@@ -1187,26 +1191,39 @@ export function TableSelector({
         
         onTableSelect({ ...newTable, restaurantId: selectedRestaurantId, restaurantName: currentRestaurantName, floor: selectedFloor }, selectedRestaurantId, selectedFloor);
         toast.success(`Switched to Table ${newTable.number}`);
+        return true;
+      } else {
+        throw new Error(response.data.error || 'Failed to switch table');
       }
     } catch (error: any) {
       console.error('Switch table error:', error);
       
+      // FIXED: Better error handling
       if (error.response?.status === 401) {
         handleSessionExpired();
+        toast.error('Session expired. Please log in again.');
+      } else if (error.response?.status === 404) {
+        toast.error('Table service unavailable. Please try again.');
+        // Refresh tables
+        await fetchTablesForSelection();
       } else if (error.response?.status === 409) {
         toast.error(`Table ${newTable.number} was just taken by another customer`);
         await fetchTablesForSelection();
       } else if (error.response?.status === 400) {
         toast.error(error.response?.data?.error || 'Cannot switch to this table');
+      } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        toast.error('Request timed out. Please try again.');
       } else {
         toast.error('Failed to switch tables. Please try again.');
       }
+      return false;
     } finally {
       setIsSwitchingTable(false);
       selectionLockRef.current = false;
     }
   };
 
+  // FIXED: Handle select table with better error handling
   const handleSelectTable = async (table: TableData) => {
     const now = Date.now();
     
@@ -1232,7 +1249,10 @@ export function TableSelector({
     }
     
     if (autoSwitchTables) {
-      await handleSwitchTableAtomic(table);
+      const success = await handleSwitchTableAtomic(table);
+      if (success) {
+        setOpen(false);
+      }
       return;
     }
     
@@ -1607,6 +1627,10 @@ export function TableSelector({
       {controlledOpen !== undefined || !isMobile ? (
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogContent className="sm:max-w-[900px] max-w-[95vw] max-h-[90vh] bg-white rounded-2xl overflow-hidden p-0 shadow-2xl">
+            {/* Required for accessibility */}
+            <DialogTitle className="sr-only">
+              Select Table
+            </DialogTitle>
             <div className="h-full overflow-y-auto">
               {mainContent}
             </div>
@@ -1615,6 +1639,10 @@ export function TableSelector({
       ) : (
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetContent side="bottom" className="h-[85vh] rounded-t-xl p-0 bg-white">
+            {/* Required for accessibility */}
+            <SheetTitle className="sr-only">
+              Select Table
+            </SheetTitle>
             <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-10 h-1 bg-gray-300 rounded-full z-50" />
             <div className="pt-3 h-full overflow-y-auto">
               {mainContent}

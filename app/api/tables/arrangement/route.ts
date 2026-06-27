@@ -1,3 +1,5 @@
+// app/api/tables/arrangement/route.ts - COMPLETE FIXED VERSION
+
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { TableArrangement, ITable } from '@/models/TableArrangement';
@@ -98,28 +100,7 @@ function validateGuestSession(guestId?: string): { valid: boolean; session?: any
   return { valid: true, session };
 }
 
-async function saveWithRetry(document: any, maxRetries = 3): Promise<any> {
-  let lastError;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await document.save({ validateBeforeSave: false });
-    } catch (error: any) {
-      lastError = error;
-      
-      if (error.name === 'VersionError' && attempt < maxRetries) {
-        console.log(`Version conflict on attempt ${attempt}, retrying...`);
-        await document.refresh();
-        continue;
-      }
-      throw error;
-    }
-  }
-  
-  throw lastError;
-}
-
-// GET - Fetch table arrangement(s)
+// FIXED: GET handler
 export async function GET(req: NextRequest) {
   try {
     await ensureConnection();
@@ -131,59 +112,68 @@ export async function GET(req: NextRequest) {
     const includeSelections = searchParams.get('includeSelections') === 'true';
     const skipSync = searchParams.get('skipSync') === 'true';
 
-    if (!fetchAll) {
-      if (!restaurantId || !floor) {
-        return NextResponse.json(
-          { success: false, error: 'restaurantId and floor are required' },
-          { status: 400 }
-        );
-      }
+    // If fetchAll is true, return all arrangements
+    if (fetchAll) {
+      const arrangements = await TableArrangement.find({ isActive: true })
+        .select('_id restaurantId restaurantName floor name layoutType totalTables availableTables occupiedTables totalCapacity updatedAt')
+        .sort({ restaurantName: 1, floor: 1 })
+        .lean();
+      return NextResponse.json({ success: true, data: arrangements });
+    }
 
-      const query: any = { restaurantId, floor, isActive: true };
-      let arrangement = await TableArrangement.findOne(query).sort({ updatedAt: -1 });
+    // Otherwise, fetch specific arrangement
+    if (!restaurantId || !floor) {
+      return NextResponse.json(
+        { success: false, error: 'restaurantId and floor are required' },
+        { status: 400 }
+      );
+    }
 
-      if (arrangement && !skipSync) {
+    const query: any = { restaurantId, floor, isActive: true };
+    let arrangement = await TableArrangement.findOne(query).sort({ updatedAt: -1 });
+
+    // Sync with pending orders if needed
+    if (arrangement && !skipSync) {
+      try {
         const syncResult = await syncTablesWithPendingOrders(restaurantId, floor);
         if (syncResult.success && syncResult.data?.arrangement) {
           arrangement = syncResult.data.arrangement;
         }
+      } catch (syncError) {
+        console.error('Sync error (non-critical):', syncError);
       }
-
-      if (!arrangement) {
-        return NextResponse.json({ 
-          success: true, 
-          data: null,
-          message: 'No arrangement found'
-        });
-      }
-
-      const response: any = { success: true, data: arrangement };
-
-      if (includeSelections) {
-        const selectionKey = getSelectionKey(arrangement.restaurantId, arrangement.floor);
-        const activeSelection = activeSelections.get(selectionKey);
-        if (activeSelection && activeSelection.expiresAt > new Date()) {
-          response.activeSelection = {
-            tableId: activeSelection.tableId,
-            tableNumber: activeSelection.tableNumber,
-            selectedBy: activeSelection.isGuest ? 'guest' : activeSelection.selectedBy,
-            selectedByName: activeSelection.isGuest ? 'Guest' : activeSelection.selectedByName,
-            selectedAt: activeSelection.selectedAt.toISOString(),
-            expiresAt: activeSelection.expiresAt.toISOString(),
-            isGuest: activeSelection.isGuest
-          };
-        } else if (activeSelection && activeSelection.expiresAt <= new Date()) {
-          activeSelections.delete(selectionKey);
-        }
-      }
-
-      return NextResponse.json(response);
-    } else {
-      const arrangements = await TableArrangement.find({ isActive: true })
-        .select('_id restaurantId restaurantName floor name layoutType totalTables availableTables occupiedTables totalCapacity updatedAt')
-        .sort({ restaurantName: 1, floor: 1 });
-      return NextResponse.json({ success: true, data: arrangements });
     }
+
+    if (!arrangement) {
+      return NextResponse.json({ 
+        success: true, 
+        data: null,
+        message: 'No arrangement found'
+      });
+    }
+
+    const response: any = { success: true, data: arrangement };
+
+    // Include active selection if requested
+    if (includeSelections) {
+      const selectionKey = getSelectionKey(arrangement.restaurantId, arrangement.floor);
+      const activeSelection = activeSelections.get(selectionKey);
+      if (activeSelection && activeSelection.expiresAt > new Date()) {
+        response.activeSelection = {
+          tableId: activeSelection.tableId,
+          tableNumber: activeSelection.tableNumber,
+          selectedBy: activeSelection.isGuest ? 'guest' : activeSelection.selectedBy,
+          selectedByName: activeSelection.isGuest ? 'Guest' : activeSelection.selectedByName,
+          selectedAt: activeSelection.selectedAt.toISOString(),
+          expiresAt: activeSelection.expiresAt.toISOString(),
+          isGuest: activeSelection.isGuest
+        };
+      } else if (activeSelection && activeSelection.expiresAt <= new Date()) {
+        activeSelections.delete(selectionKey);
+      }
+    }
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error('Error fetching table arrangement:', error);
     return NextResponse.json(
@@ -193,7 +183,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// PATCH - Update table status (FIXED for auto-switch)
+// FIXED: PATCH handler - This is the main one being called
 export async function PATCH(req: NextRequest) {
   try {
     await ensureConnection();
@@ -203,15 +193,15 @@ export async function PATCH(req: NextRequest) {
       restaurantId,
       floor,
       tableId, 
-      updates,
       selectTable,
       unselectTable,
-      switchTable, // New flag for auto-switch
+      switchTable,
       duration = 3,
       guestInfo,
       guestId
     } = body;
 
+    // Validate required fields
     if (!restaurantId || !floor) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields: restaurantId and floor are required' },
@@ -227,47 +217,108 @@ export async function PATCH(req: NextRequest) {
       existingSelection = null;
     }
 
-    // Handle auto-switch table - atomic operation to switch tables
-    if (switchTable && tableId) {
-      const session = await auth();
-      const anonymousId = req.headers.get('X-Anonymous-Id') || guestId;
-      const userEmail = session?.user?.email;
+    // Get user info
+    const session = await auth();
+    const anonymousId = req.headers.get('X-Anonymous-Id') || guestId;
+    const userEmail = session?.user?.email;
+    
+    let selectedBy = '';
+    let selectedByName = '';
+    let isGuest = false;
+    let guestSessionData = null;
+    
+    if (userEmail) {
+      selectedBy = userEmail;
+      selectedByName = session?.user?.name || userEmail.split('@')[0];
+    } else if (anonymousId) {
+      let existingGuestSession = guestSessions.get(anonymousId);
       
-      // Get user info
-      let selectedBy = '';
-      let selectedByName = '';
-      let isGuest = false;
-      let guestSessionData = null;
-      
-      if (userEmail) {
-        selectedBy = userEmail;
-        selectedByName = session?.user?.name || userEmail.split('@')[0];
-      } else if (anonymousId) {
-        let existingGuestSession = guestSessions.get(anonymousId);
-        
-        if (!existingGuestSession) {
-          const guestName = guestInfo?.name || `Guest_${Math.floor(Math.random() * 10000)}`;
-          guestSessionData = getOrCreateGuestSession({
-            name: guestName,
-            phone: guestInfo?.phone,
-            email: guestInfo?.email
-          });
-          selectedBy = guestSessionData.guestId;
-          selectedByName = guestSessionData.name;
-          isGuest = true;
-        } else {
-          selectedBy = existingGuestSession.guestId;
-          selectedByName = existingGuestSession.name;
-          isGuest = true;
-          guestSessionData = existingGuestSession;
-        }
+      if (!existingGuestSession) {
+        const guestName = guestInfo?.name || `Guest_${Math.floor(Math.random() * 10000)}`;
+        guestSessionData = getOrCreateGuestSession({
+          name: guestName,
+          phone: guestInfo?.phone,
+          email: guestInfo?.email
+        });
+        selectedBy = guestSessionData.guestId;
+        selectedByName = guestSessionData.name;
+        isGuest = true;
       } else {
+        selectedBy = existingGuestSession.guestId;
+        selectedByName = existingGuestSession.name;
+        isGuest = true;
+        guestSessionData = existingGuestSession;
+      }
+    } else {
+      return NextResponse.json(
+        { success: false, error: 'Please login or provide guest information' },
+        { status: 401 }
+      );
+    }
+
+    // Handle UN-SELECT TABLE
+    if (unselectTable && tableId) {
+      // If no existing selection, return success
+      if (!existingSelection) {
+        return NextResponse.json({ 
+          success: true,
+          message: 'No active selection to clear'
+        });
+      }
+      
+      // Check authorization
+      let isAuthorized = false;
+      if (userEmail && existingSelection.selectedBy === userEmail) {
+        isAuthorized = true;
+      } else if (anonymousId && existingSelection.selectedBy === anonymousId) {
+        isAuthorized = true;
+      } else if (existingSelection.isGuest && anonymousId) {
+        const guestCheck = validateGuestSession(anonymousId);
+        if (guestCheck.valid && existingSelection.selectedBy === anonymousId) {
+          isAuthorized = true;
+        }
+      }
+      
+      if (!isAuthorized) {
         return NextResponse.json(
-          { success: false, error: 'Please login or provide guest information' },
+          { success: false, error: 'Unauthorized - You did not select this table' },
           { status: 401 }
         );
       }
       
+      // Clear selection from memory
+      activeSelections.delete(selectionKey);
+      
+      // Update database
+      const arrangement = await TableArrangement.findOne({
+        restaurantId,
+        floor,
+        isActive: true
+      });
+      
+      if (arrangement) {
+        const tableIndex = arrangement.tables.findIndex((t: ITable) => t.id === tableId);
+        if (tableIndex !== -1 && arrangement.tables[tableIndex].status === 'reserved') {
+          arrangement.tables[tableIndex].status = 'available';
+          arrangement.tables[tableIndex].reservationInfo = null;
+          arrangement.tables[tableIndex].lastUpdated = new Date();
+          arrangement.updatedAt = new Date();
+          
+          arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
+          arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
+          
+          await arrangement.save({ validateBeforeSave: false });
+        }
+      }
+      
+      return NextResponse.json({ 
+        success: true,
+        message: 'Table unselected successfully'
+      });
+    }
+
+    // Handle SWITCH TABLE (auto-switch)
+    if (switchTable && tableId) {
       // Fetch arrangement
       const arrangement = await TableArrangement.findOne({
         restaurantId,
@@ -300,9 +351,14 @@ export async function PATCH(req: NextRequest) {
       }
       
       // If there's an existing selection, clear it first
+      let previousTableId = null;
+      let previousTableNumber = null;
+      
       if (existingSelection) {
         const oldTableIndex = arrangement.tables.findIndex((t: ITable) => t.id === existingSelection.tableId);
         if (oldTableIndex !== -1) {
+          previousTableId = arrangement.tables[oldTableIndex].id;
+          previousTableNumber = arrangement.tables[oldTableIndex].number;
           arrangement.tables[oldTableIndex].status = 'available';
           arrangement.tables[oldTableIndex].reservationInfo = null;
           arrangement.tables[oldTableIndex].lastUpdated = new Date();
@@ -344,8 +400,9 @@ export async function PATCH(req: NextRequest) {
       // Update statistics
       arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
       arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
+      arrangement.updatedAt = new Date();
       
-      await saveWithRetry(arrangement);
+      await arrangement.save({ validateBeforeSave: false });
       
       const responseData: any = {
         success: true,
@@ -356,8 +413,8 @@ export async function PATCH(req: NextRequest) {
             expiresAt: newSelection.expiresAt.toISOString()
           },
           table: arrangement.tables[newTableIndex],
-          previousTableId: existingSelection?.tableId,
-          previousTableNumber: existingSelection?.tableNumber
+          previousTableId: previousTableId,
+          previousTableNumber: previousTableNumber
         },
         message: `Switched to Table ${newTable.number} successfully!`
       };
@@ -371,109 +428,9 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json(responseData);
     }
 
-    // Handle table unselection
-    if (unselectTable && tableId) {
-      const session = await auth();
-      const anonymousId = req.headers.get('X-Anonymous-Id') || guestId;
-      const userEmail = session?.user?.email;
-      
-      // If no existing selection, just return success
-      if (!existingSelection) {
-        return NextResponse.json({ 
-          success: true,
-          message: 'No active selection to clear'
-        });
-      }
-      
-      let isAuthorized = false;
-      if (userEmail && existingSelection.selectedBy === userEmail) {
-        isAuthorized = true;
-      } else if (anonymousId && existingSelection.selectedBy === anonymousId) {
-        isAuthorized = true;
-      } else if (existingSelection.isGuest && anonymousId) {
-        const guestCheck = validateGuestSession(anonymousId);
-        if (guestCheck.valid && existingSelection.selectedBy === anonymousId) {
-          isAuthorized = true;
-        }
-      }
-      
-      if (!isAuthorized) {
-        return NextResponse.json(
-          { success: false, error: 'Unauthorized - You did not select this table' },
-          { status: 401 }
-        );
-      }
-      
-      // Clear selection from memory
-      activeSelections.delete(selectionKey);
-      
-      // Update database
-      const arrangement = await TableArrangement.findOne({
-        restaurantId,
-        floor,
-        isActive: true
-      });
-      
-      if (arrangement) {
-        const tableIndex = arrangement.tables.findIndex((t: ITable) => t.id === tableId);
-        if (tableIndex !== -1 && arrangement.tables[tableIndex].status === 'reserved') {
-          arrangement.tables[tableIndex].status = 'available';
-          arrangement.tables[tableIndex].reservationInfo = null;
-          arrangement.tables[tableIndex].lastUpdated = new Date();
-          
-          arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
-          arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
-          
-          await saveWithRetry(arrangement);
-        }
-      }
-      
-      return NextResponse.json({ 
-        success: true,
-        message: 'Table unselected successfully'
-      });
-    }
-
-    // Handle single table selection (without auto-switch)
+    // Handle SELECT TABLE (single selection)
     if (selectTable && tableId) {
-      let selectedBy = '';
-      let selectedByName = '';
-      let isGuest = false;
-      let guestSessionData = null;
-      
-      const session = await auth();
-      const anonymousId = req.headers.get('X-Anonymous-Id') || guestId;
-      
-      if (session?.user?.email) {
-        selectedBy = session.user.email;
-        selectedByName = session.user.name || session.user.email.split('@')[0];
-      } else if (anonymousId) {
-        let existingGuestSession = guestSessions.get(anonymousId);
-        
-        if (!existingGuestSession) {
-          const guestName = guestInfo?.name || `Guest_${Math.floor(Math.random() * 10000)}`;
-          guestSessionData = getOrCreateGuestSession({
-            name: guestName,
-            phone: guestInfo?.phone,
-            email: guestInfo?.email
-          });
-          selectedBy = guestSessionData.guestId;
-          selectedByName = guestSessionData.name;
-          isGuest = true;
-        } else {
-          selectedBy = existingGuestSession.guestId;
-          selectedByName = existingGuestSession.name;
-          isGuest = true;
-          guestSessionData = existingGuestSession;
-        }
-      } else {
-        return NextResponse.json(
-          { success: false, error: 'Please login or provide guest information' },
-          { status: 401 }
-        );
-      }
-      
-      // Fetch fresh arrangement
+      // Fetch arrangement
       const arrangement = await TableArrangement.findOne({
         restaurantId,
         floor,
@@ -545,7 +502,8 @@ export async function PATCH(req: NextRequest) {
         if (arrangement.tables[tableIndex].reservationInfo) {
           arrangement.tables[tableIndex].reservationInfo!.expiresAt = newExpiresAt;
           arrangement.tables[tableIndex].reservationInfo!.reservedAt = new Date();
-          await saveWithRetry(arrangement);
+          arrangement.updatedAt = new Date();
+          await arrangement.save({ validateBeforeSave: false });
         }
         
         return NextResponse.json({ 
@@ -592,11 +550,12 @@ export async function PATCH(req: NextRequest) {
         expiresAt
       };
       arrangement.tables[tableIndex].lastUpdated = new Date();
+      arrangement.updatedAt = new Date();
       
       arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
       arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
       
-      await saveWithRetry(arrangement);
+      await arrangement.save({ validateBeforeSave: false });
       
       const responseData: any = {
         success: true,
@@ -620,20 +579,21 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json(responseData);
     }
 
+    // If no valid operation
     return NextResponse.json(
-      { success: false, error: 'Invalid operation' },
+      { success: false, error: 'Invalid operation. Must specify selectTable, unselectTable, or switchTable' },
       { status: 400 }
     );
   } catch (error) {
     console.error('Error updating table:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to update table' },
+      { success: false, error: 'Failed to update table: ' + (error instanceof Error ? error.message : 'Unknown error') },
       { status: 500 }
     );
   }
 }
 
-// POST - Save/Create table arrangement
+// FIXED: POST handler
 export async function POST(req: NextRequest) {
   try {
     await ensureConnection();
@@ -702,7 +662,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE - Delete arrangement
+// FIXED: DELETE handler
 export async function DELETE(req: NextRequest) {
   try {
     await ensureConnection();
@@ -751,7 +711,7 @@ export async function DELETE(req: NextRequest) {
   }
 }
 
-// PUT - Sync with orders
+// FIXED: PUT handler
 export async function PUT(req: NextRequest) {
   try {
     await ensureConnection();
@@ -788,4 +748,16 @@ export async function PUT(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// FIXED: OPTIONS handler for CORS
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Anonymous-Id',
+    },
+  });
 }

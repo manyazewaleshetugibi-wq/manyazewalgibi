@@ -3,7 +3,7 @@ import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
 import bcrypt from 'bcrypt';
 
-// Define role-based permissions (complete mapping with purchasing and delivery)
+// Define role-based permissions
 const rolePermissions: Record<string, string[]> = {
   admin: [
     'manage_users',
@@ -101,13 +101,7 @@ const hashPassword = async (password: string): Promise<string> => {
   }
 };
 
-// Check if password is already hashed with bcrypt format
-const isAlreadyHashed = (password: string): boolean => {
-  const bcryptRegex = /^\$2[ayb]\$\d{2}\$[A-Za-z0-9./]{53}$/;
-  return bcryptRegex.test(password);
-};
-
-// GET all staff
+// GET all staff - Returns only text message
 export async function GET(request: NextRequest) {
   try {
     const client = await clientPromise;
@@ -124,11 +118,7 @@ export async function GET(request: NextRequest) {
     
     if (role) {
       if (role === 'user') {
-        return NextResponse.json({
-          success: true,
-          data: [],
-          count: 0
-        });
+        return new NextResponse('No staff users found', { status: 200 });
       }
       query.role = role;
     }
@@ -139,44 +129,27 @@ export async function GET(request: NextRequest) {
     
     const users = await usersCollection.find(query).sort({ createdAt: -1 }).toArray();
     
-    // Remove passwords from response
-    const usersWithoutPasswords = users.map(({ password, ...rest }) => rest);
-    
-    return NextResponse.json({
-      success: true,
-      data: usersWithoutPasswords,
-      count: usersWithoutPasswords.length
-    });
+    // Return only count as text, no user data
+    return new NextResponse(`Found ${users.length} staff members`, { status: 200 });
     
   } catch (error: any) {
     console.error('Error fetching users:', error);
-    return NextResponse.json(
-      { success: false, message: 'Failed to fetch users', error: error.message },
-      { status: 500 }
-    );
+    return new NextResponse('Failed to fetch staff', { status: 500 });
   }
 }
 
-// POST create new user
+// POST create new user - Returns only text message
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== STAFF REGISTRATION API CALLED ===');
-    
     const client = await clientPromise;
     if (!client) {
-      console.error('MongoDB client failed to connect');
-      return NextResponse.json(
-        { success: false, message: 'Database connection failed' },
-        { status: 500 }
-      );
+      return new NextResponse('Database connection failed', { status: 500 });
     }
     
-    console.log('Database connected successfully');
     const db = client.db('gold');
     const usersCollection = db.collection('users');
     
     const body = await request.json();
-    console.log('Request body received:', JSON.stringify(body, null, 2));
     
     const {
       name,
@@ -190,7 +163,7 @@ export async function POST(request: NextRequest) {
       requiresPasswordChange = true
     } = body;
     
-    // Enhanced validation with detailed error messages
+    // Validation
     const missingFields = [];
     if (!name) missingFields.push('name');
     if (!email) missingFields.push('email');
@@ -200,93 +173,52 @@ export async function POST(request: NextRequest) {
     if (!password) missingFields.push('password');
     
     if (missingFields.length > 0) {
-      console.log('Missing fields:', missingFields);
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: `Missing required fields: ${missingFields.join(', ')}` 
-        },
-        { status: 400 }
-      );
+      return new NextResponse(`Missing required fields: ${missingFields.join(', ')}`, { status: 400 });
     }
     
     // Validate email format
     const emailRegex = /^\S+@\S+\.\S+$/;
     if (!emailRegex.test(email)) {
-      console.log('Invalid email format:', email);
-      return NextResponse.json(
-        { success: false, message: 'Invalid email format' },
-        { status: 400 }
-      );
+      return new NextResponse('Invalid email format', { status: 400 });
     }
     
     // Check if email already exists
     const existingUserByEmail = await usersCollection.findOne({ email: email.toLowerCase() });
     if (existingUserByEmail) {
-      console.log('Email already exists:', email);
-      return NextResponse.json(
-        { success: false, message: 'Email already registered' },
-        { status: 400 }
-      );
+      return new NextResponse('Email already registered', { status: 400 });
     }
     
     // Check if employeeId already exists
     const existingUserById = await usersCollection.findOne({ employeeId: employeeId.toUpperCase() });
     if (existingUserById) {
-      console.log('Employee ID already exists:', employeeId);
-      return NextResponse.json(
-        { success: false, message: 'Employee ID already exists' },
-        { status: 400 }
-      );
+      return new NextResponse('Employee ID already exists', { status: 400 });
     }
     
-    // Validate role (support all roles including purchasing and delivery)
+    // Validate role
     const validRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'fb', 'marketing', 'finance', 'pos', 'waitress'];
     if (!validRoles.includes(role)) {
-      console.log('Invalid role:', role);
-      return NextResponse.json(
-        { success: false, message: `Invalid role. Must be one of: ${validRoles.join(', ')}` },
-        { status: 400 }
-      );
+      return new NextResponse(`Invalid role. Must be one of: ${validRoles.join(', ')}`, { status: 400 });
     }
     
     // Validate status
     const validStatuses = ['active', 'inactive', 'suspended'];
     if (status && !validStatuses.includes(status)) {
-      console.log('Invalid status:', status);
-      return NextResponse.json(
-        { success: false, message: 'Invalid status' },
-        { status: 400 }
-      );
+      return new NextResponse('Invalid status', { status: 400 });
     }
     
-    // Validate phone number format (Ethiopian format)
-    const phoneRegex = /^(\+251|0)[789]\d{8}$/;
-    if (!phoneRegex.test(phone)) {
-      console.log('Invalid phone format:', phone);
-      // Don't reject, just warn - allow any phone format
-      console.warn('Phone number may be invalid:', phone);
-    }
-    
-    // Get permissions based on role, or use provided ones
+    // Get permissions based on role
     const rolePerms = rolePermissions[role] || [];
     const finalPermissions = permissions.length > 0 ? permissions : rolePerms;
-    console.log('Assigned permissions:', finalPermissions);
     
-    // Hash password using bcrypt
+    // Hash password
     let hashedPassword;
     try {
       hashedPassword = await hashPassword(password);
-      console.log('Password hashed successfully');
     } catch (hashError) {
-      console.error('Password hashing failed:', hashError);
-      return NextResponse.json(
-        { success: false, message: 'Failed to secure password' },
-        { status: 500 }
-      );
+      return new NextResponse('Failed to secure password', { status: 500 });
     }
     
-    // Create new user document with all fields
+    // Create new user document
     const newUser = {
       name: name.trim(),
       email: email.toLowerCase().trim(),
@@ -303,37 +235,18 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date()
     };
     
-    console.log('Inserting user into database...');
-    const result = await usersCollection.insertOne(newUser);
-    console.log('User inserted successfully with ID:', result.insertedId);
+    await usersCollection.insertOne(newUser);
     
-    // Remove password from response
-    const { password: _, ...userResponse } = newUser;
-    
-    return NextResponse.json({
-      success: true,
-      message: 'Staff registered successfully. User will be required to change password on first login.',
-      data: {
-        _id: result.insertedId,
-        ...userResponse
-      }
-    }, { status: 201 });
+    // Return ONLY text message - NO JSON data
+    return new NextResponse('Staff registered successfully', { status: 201 });
     
   } catch (error: any) {
     console.error('Error creating user:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        message: 'Failed to create user', 
-        error: error.message,
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      },
-      { status: 500 }
-    );
+    return new NextResponse('Failed to create staff member', { status: 500 });
   }
 }
 
-// PUT update user
+// PUT update user - Returns only text message
 export async function PUT(request: NextRequest) {
   try {
     const client = await clientPromise;
@@ -344,20 +257,14 @@ export async function PUT(request: NextRequest) {
     const { id, ...updateData } = body;
     
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'User ID is required' },
-        { status: 400 }
-      );
+      return new NextResponse('User ID is required', { status: 400 });
     }
     
     if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, message: 'Invalid user ID format' },
-        { status: 400 }
-      );
+      return new NextResponse('Invalid user ID format', { status: 400 });
     }
     
-    // Remove sensitive fields that shouldn't be updated directly
+    // Remove sensitive fields
     delete updateData.password;
     delete updateData.createdAt;
     delete updateData._id;
@@ -375,34 +282,19 @@ export async function PUT(request: NextRequest) {
     );
     
     if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { success: false, message: 'User not found' },
-        { status: 404 }
-      );
+      return new NextResponse('User not found', { status: 404 });
     }
     
-    // Get updated user without password
-    const updatedUser = await usersCollection.findOne(
-      { _id: new ObjectId(id) },
-      { projection: { password: 0 } }
-    );
-    
-    return NextResponse.json({
-      success: true,
-      message: 'User updated successfully',
-      data: updatedUser
-    });
+    // Return ONLY text message - NO JSON data
+    return new NextResponse('Staff member updated successfully', { status: 200 });
     
   } catch (error: any) {
     console.error('Error updating user:', error);
-    return NextResponse.json(
-      { success: false, message: 'Failed to update user', error: error.message },
-      { status: 500 }
-    );
+    return new NextResponse('Failed to update staff member', { status: 500 });
   }
 }
 
-// DELETE user
+// DELETE user - Returns only text message
 export async function DELETE(request: NextRequest) {
   try {
     const client = await clientPromise;
@@ -413,58 +305,38 @@ export async function DELETE(request: NextRequest) {
     const id = searchParams.get('id');
     
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'User ID is required' },
-        { status: 400 }
-      );
+      return new NextResponse('User ID is required', { status: 400 });
     }
     
     if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, message: 'Invalid user ID format' },
-        { status: 400 }
-      );
+      return new NextResponse('Invalid user ID format', { status: 400 });
     }
     
     const user = await usersCollection.findOne({ _id: new ObjectId(id) });
     
     if (!user) {
-      return NextResponse.json(
-        { success: false, message: 'User not found' },
-        { status: 404 }
-      );
+      return new NextResponse('User not found', { status: 404 });
     }
     
     // Prevent deleting the last admin user
     if (user.role === 'admin') {
       const adminCount = await usersCollection.countDocuments({ role: 'admin' });
       if (adminCount <= 1) {
-        return NextResponse.json(
-          { success: false, message: 'Cannot delete the last admin user' },
-          { status: 400 }
-        );
+        return new NextResponse('Cannot delete the last admin user', { status: 400 });
       }
     }
     
     const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
     
     if (result.deletedCount === 0) {
-      return NextResponse.json(
-        { success: false, message: 'User not found' },
-        { status: 404 }
-      );
+      return new NextResponse('User not found', { status: 404 });
     }
     
-    return NextResponse.json({
-      success: true,
-      message: 'User deleted successfully'
-    });
+    // Return ONLY text message - NO JSON data
+    return new NextResponse('Staff member deleted successfully', { status: 200 });
     
   } catch (error: any) {
     console.error('Error deleting user:', error);
-    return NextResponse.json(
-      { success: false, message: 'Failed to delete user', error: error.message },
-      { status: 500 }
-    );
+    return new NextResponse('Failed to delete staff member', { status: 500 });
   }
 }
