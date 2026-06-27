@@ -32,6 +32,7 @@ import {
   Timer,
   Hourglass,
   X,
+  ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
@@ -70,6 +71,222 @@ import { format, formatDistanceToNow } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 
 const api = axios.create({ baseURL: "/api" });
+
+// Restaurant Task Templates
+const RESTAURANT_TASKS = {
+  "Back of House (BOH)": [
+    {
+      title: "Receive and Inspect Deliveries",
+      description: "Check incoming food deliveries for quality, quantity, and temperature. Verify invoices against received items. Report any discrepancies to management.",
+      priority: "high" as const,
+      estimatedHours: 1.5,
+      category: "BOH"
+    },
+    {
+      title: "Store Inventory Using FIFO Method",
+      description: "Rotate stock using First-In-First-Out method. Log all temperatures for refrigerated and frozen items. Ensure proper labeling and dating of all stored items.",
+      priority: "medium" as const,
+      estimatedHours: 1,
+      category: "BOH"
+    },
+    {
+      title: "Wash, Peel, and Chop Vegetables",
+      description: "Thoroughly wash all produce. Peel and chop vegetables according to prep list. Store in labeled containers with proper dating.",
+      priority: "medium" as const,
+      estimatedHours: 1.5,
+      category: "BOH"
+    },
+    {
+      title: "Portion, Marinate, and Trim Proteins",
+      description: "Portion meats according to recipe specifications. Apply marinades and seasonings. Trim excess fat and prepare proteins for service.",
+      priority: "high" as const,
+      estimatedHours: 2,
+      category: "BOH"
+    },
+    {
+      title: "Prepare Stocks, Sauces, and Dressings",
+      description: "Make fresh stocks from bones and vegetables. Prepare signature sauces and dressings. Cook grain bases (rice, quinoa, pasta).",
+      priority: "high" as const,
+      estimatedHours: 2.5,
+      category: "BOH"
+    },
+    {
+      title: "Restock Line Coolers and Prep Stations",
+      description: "Refill line coolers with prepped ingredients. Restock squeeze bottles and sauce containers. Ensure all prep stations have necessary tools and ingredients.",
+      priority: "medium" as const,
+      estimatedHours: 1,
+      category: "BOH"
+    },
+    {
+      title: "Monitor and Read Kitchen Tickets",
+      description: "Review incoming kitchen tickets, prioritize orders, and communicate with expeditor. Ensure all modifications are understood and executed correctly.",
+      priority: "urgent" as const,
+      estimatedHours: 4,
+      category: "BOH"
+    },
+    {
+      title: "Cook Food Across All Stations",
+      description: "Cook menu items on grill, sauté, fry, and pantry stations. Maintain proper cooking temperatures and times. Ensure all food is cooked to order.",
+      priority: "urgent" as const,
+      estimatedHours: 4,
+      category: "BOH"
+    },
+    {
+      title: "Plate and Garnish Finished Dishes",
+      description: "Plate dishes according to presentation standards. Add garnishes as specified. Ensure plate consistency and quality.",
+      priority: "high" as const,
+      estimatedHours: 4,
+      category: "BOH"
+    },
+    {
+      title: "Pass Food to Expeditor",
+      description: "Wipe plate rims for clean presentation. Verify each dish matches the ticket. Call out for expeditor and organize passing window.",
+      priority: "high" as const,
+      estimatedHours: 4,
+      category: "BOH"
+    },
+    {
+      title: "Label, Date, and Store Leftover Prepped Food",
+      description: "Properly label and date all remaining prepped items. Store in appropriate containers in refrigerators or freezers. Update inventory records.",
+      priority: "medium" as const,
+      estimatedHours: 0.5,
+      category: "BOH"
+    },
+    {
+      title: "Clean and Sanitize Kitchen Equipment",
+      description: "Clean and sanitize flat tops, grills, fryers, and prep tables. Degrease hood vents and exhaust fans. Deep clean cooking equipment.",
+      priority: "medium" as const,
+      estimatedHours: 2,
+      category: "BOH"
+    },
+    {
+      title: "Kitchen Floor Cleaning",
+      description: "Remove and wash rubber floor mats. Sweep and mop entire kitchen floor. Clean under all equipment and storage areas.",
+      priority: "low" as const,
+      estimatedHours: 1,
+      category: "BOH"
+    },
+    {
+      title: "Empty Kitchen Trash and Compost",
+      description: "Empty all trash cans and compost bins. Replace liners and sanitize bins. Ensure proper waste segregation and disposal.",
+      priority: "low" as const,
+      estimatedHours: 0.5,
+      category: "BOH"
+    }
+  ],
+  "Front of House (FOH)": [
+    {
+      title: "Set Up Dining Room",
+      description: "Wipe down all tables, arrange chairs, and set place settings. Ensure salt, pepper, sugar, and condiment caddies are full and organized.",
+      priority: "medium" as const,
+      estimatedHours: 1,
+      category: "FOH"
+    },
+    {
+      title: "Open Cash Drawer and POS Setup",
+      description: "Count the opening cash drawer and verify amount. Turn on POS terminals and ensure all systems are operational. Print opening reports.",
+      priority: "high" as const,
+      estimatedHours: 0.5,
+      category: "FOH"
+    },
+    {
+      title: "Prepare Beverage Stations",
+      description: "Brew fresh coffee and tea. Stock ice bins. Prep beverage garnishes (lemons, limes, mint). Ensure all beverage equipment is working.",
+      priority: "medium" as const,
+      estimatedHours: 0.75,
+      category: "FOH"
+    },
+    {
+      title: "Greet and Seat Guests",
+      description: "Welcome guests warmly, manage the waitlist, and seat guests at appropriate tables. Provide menus and inform guests of specials.",
+      priority: "urgent" as const,
+      estimatedHours: 5,
+      category: "FOH"
+    },
+    {
+      title: "Take and Process Orders",
+      description: "Take accurate food and drink orders from guests. Enter orders into POS system promptly. Serve food and drinks in a timely manner.",
+      priority: "urgent" as const,
+      estimatedHours: 5,
+      category: "FOH"
+    },
+    {
+      title: "Bus Tables and Reset Stations",
+      description: "Clear plates and glassware promptly after guests finish. Sanitize tables and reset empty booths for next guests. Maintain clean dining room.",
+      priority: "high" as const,
+      estimatedHours: 4,
+      category: "FOH"
+    },
+    {
+      title: "Polish and Restock Silverware/Glassware",
+      description: "Polish all silverware and glassware to remove spots and watermarks. Restock server stations with clean utensils and glassware.",
+      priority: "medium" as const,
+      estimatedHours: 1,
+      category: "FOH"
+    },
+    {
+      title: "Reconcile Server Banks and Tips",
+      description: "Reconcile server cash banks and process tips. Drop final cash receipts and print closing reports. Prepare cash for deposit.",
+      priority: "high" as const,
+      estimatedHours: 0.75,
+      category: "FOH"
+    },
+    {
+      title: "Close Beverage Stations",
+      description: "Empty and clean coffee makers, soda fountains, and ice bins. Store all beverage equipment properly. Prepare for next day's service.",
+      priority: "medium" as const,
+      estimatedHours: 0.75,
+      category: "FOH"
+    },
+    {
+      title: "Close Dining Room",
+      description: "Put up chairs, sweep and mop dining room floors. Wipe down entrance doors and windows. Ensure all lights are off and doors are locked.",
+      priority: "low" as const,
+      estimatedHours: 0.75,
+      category: "FOH"
+    }
+  ],
+  "Dishwashing & Stewarding": [
+    {
+      title: "Scrape and Sort Incoming Tableware",
+      description: "Scrape food waste from plates and sort incoming tableware by type. Separate any broken or chipped items for disposal.",
+      priority: "medium" as const,
+      estimatedHours: 1,
+      category: "Dishwashing"
+    },
+    {
+      title: "Load and Run Dishwashing Machine",
+      description: "Load racks with sorted tableware and run through dishwashing machine. Ensure proper cycle selection and monitor wash quality.",
+      priority: "medium" as const,
+      estimatedHours: 2,
+      category: "Dishwashing"
+    },
+    {
+      title: "Hand-Wash Pots, Pans, and Chef Knives",
+      description: "Wash pots, pans, and chef knives in the 3-compartment sink. Follow proper wash, rinse, and sanitize procedures. Air dry all items.",
+      priority: "high" as const,
+      estimatedHours: 1.5,
+      category: "Dishwashing"
+    },
+    {
+      title: "Restock Clean Dishes to Designated Stations",
+      description: "Air-dry and organize clean dishes. Restock to their designated stations throughout the kitchen. Ensure proper organization and accessibility.",
+      priority: "medium" as const,
+      estimatedHours: 1,
+      category: "Dishwashing"
+    },
+    {
+      title: "Monitor Dishwasher Chemical Levels",
+      description: "Check and log dishwasher chemical levels (detergent, rinse aid, sanitizer). Monitor water temperatures and replace chemicals as needed.",
+      priority: "medium" as const,
+      estimatedHours: 0.5,
+      category: "Dishwashing"
+    }
+  ]
+};
+
+// Flatten all tasks for the dropdown
+const ALL_TEMPLATE_TASKS = Object.values(RESTAURANT_TASKS).flat();
 
 // Types
 interface User {
@@ -256,6 +473,7 @@ function DailyTasksDashboard() {
   const [userFetchError, setUserFetchError] = useState<string | null>(null);
   const [selectedUserError, setSelectedUserError] = useState(false);
 
+  // New task form state
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
@@ -267,6 +485,46 @@ function DailyTasksDashboard() {
     priority: "medium" as const,
     estimatedHours: "",
   });
+
+  // State for template dropdown
+  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+
+  // Filtered templates based on search
+  const filteredTemplates = useMemo(() => {
+    if (!templateSearch) return ALL_TEMPLATE_TASKS;
+    const search = templateSearch.toLowerCase();
+    return ALL_TEMPLATE_TASKS.filter(task => 
+      task.title.toLowerCase().includes(search) ||
+      task.description.toLowerCase().includes(search) ||
+      task.category.toLowerCase().includes(search)
+    );
+  }, [templateSearch]);
+
+  // Group templates by category for display
+  const groupedTemplates = useMemo(() => {
+    const groups: Record<string, typeof ALL_TEMPLATE_TASKS> = {};
+    filteredTemplates.forEach(task => {
+      if (!groups[task.category]) groups[task.category] = [];
+      groups[task.category].push(task);
+    });
+    return groups;
+  }, [filteredTemplates]);
+
+  // Handle template selection
+  const handleTemplateSelect = (template: typeof ALL_TEMPLATE_TASKS[0]) => {
+    setNewTask({
+      ...newTask,
+      title: template.title,
+      description: template.description,
+      priority: template.priority,
+      estimatedHours: template.estimatedHours.toString(),
+    });
+    setSelectedTemplate(template.title);
+    setShowTemplateDropdown(false);
+    setTemplateSearch("");
+  };
 
   // Fetch current user
   useEffect(() => {
@@ -413,6 +671,7 @@ function DailyTasksDashboard() {
         priority: "medium",
         estimatedHours: "",
       });
+      setSelectedTemplate("");
       toast({ title: "✅ Success", description: "Task assigned successfully" });
     },
     onError: (error: any) => {
@@ -556,6 +815,9 @@ function DailyTasksDashboard() {
       priority: "medium",
       estimatedHours: "",
     });
+    setSelectedTemplate("");
+    setShowTemplateDropdown(false);
+    setTemplateSearch("");
   };
 
   // Task Card Component with minimized design
@@ -967,19 +1229,125 @@ function DailyTasksDashboard() {
               📋 Assign New Task
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Fill in the details below to assign a task to a team member
+              Select a template or type a custom task
             </p>
           </div>
           
           <div className="space-y-4">
+            {/* Task Title with Template Dropdown */}
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold">Task Title <span className="text-red-500">*</span></Label>
-              <Input
-                placeholder="Enter task title"
-                value={newTask.title}
-                onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                className="text-sm"
-              />
+              <div className="relative">
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <Input
+                      placeholder="Type task title or select from templates..."
+                      value={newTask.title}
+                      onChange={(e) => {
+                        setNewTask({ ...newTask, title: e.target.value });
+                        setSelectedTemplate("");
+                        if (e.target.value) {
+                          setShowTemplateDropdown(true);
+                          setTemplateSearch(e.target.value);
+                        } else {
+                          setShowTemplateDropdown(false);
+                        }
+                      }}
+                      onFocus={() => {
+                        if (ALL_TEMPLATE_TASKS.length > 0) {
+                          setShowTemplateDropdown(true);
+                          setTemplateSearch(newTask.title || "");
+                        }
+                      }}
+                      className="text-sm pr-10"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-2"
+                      onClick={() => setShowTemplateDropdown(!showTemplateDropdown)}
+                      type="button"
+                    >
+                      <ChevronDown className={`h-4 w-4 transition-transform ${showTemplateDropdown ? 'rotate-180' : ''}`} />
+                    </Button>
+                  </div>
+                  {selectedTemplate && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setNewTask({ ...newTask, title: "", description: "", priority: "medium", estimatedHours: "" });
+                        setSelectedTemplate("");
+                      }}
+                      className="h-9 px-2"
+                      type="button"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                
+                {/* Template Dropdown */}
+                <AnimatePresence>
+                  {showTemplateDropdown && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-950 border rounded-lg shadow-lg max-h-80 overflow-y-auto"
+                    >
+                      {templateSearch && (
+                        <div className="p-2 border-b">
+                          <p className="text-xs text-gray-500">
+                            {filteredTemplates.length} template{filteredTemplates.length !== 1 ? 's' : ''} found
+                          </p>
+                        </div>
+                      )}
+                      
+                      {Object.entries(groupedTemplates).length > 0 ? (
+                        Object.entries(groupedTemplates).map(([category, tasks]) => (
+                          <div key={category}>
+                            <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-900/50">
+                              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                {category}
+                              </span>
+                            </div>
+                            {tasks.map((template) => (
+                              <button
+                                key={template.title}
+                                onClick={() => handleTemplateSelect(template)}
+                                className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border-b last:border-b-0"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium truncate">{template.title}</p>
+                                    <p className="text-xs text-gray-500 line-clamp-1">{template.description}</p>
+                                  </div>
+                                  <div className="flex gap-1 flex-shrink-0">
+                                    <Badge className={`${getPriorityColor(template.priority)} text-[10px] px-1.5`}>
+                                      {template.priority}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-[10px] px-1.5">
+                                      {template.estimatedHours}h
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-4 text-center">
+                          <p className="text-sm text-gray-500">No templates found</p>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              {selectedTemplate && (
+                <p className="text-xs text-green-600">✓ Using template: {selectedTemplate}</p>
+              )}
             </div>
             
             <div className="space-y-1.5">

@@ -24,12 +24,19 @@ export async function GET(req: NextRequest) {
     const recipeId = url.searchParams.get("id");
     const itemId = url.searchParams.get("itemId");
     const all = url.searchParams.get("all") === "true";
+    const includeDeleted = url.searchParams.get("includeDeleted") === "true";
 
-    let query = {};
+    let query: any = {};
+    
+    // If includeDeleted is true, don't filter by isActive
+    if (!includeDeleted) {
+      query.isActive = { $ne: false };
+    }
+    
     if (recipeId && ObjectId.isValid(recipeId)) {
-      query = { _id: new ObjectId(recipeId) };
+      query._id = new ObjectId(recipeId);
     } else if (itemId && ObjectId.isValid(itemId)) {
-      query = { itemId: new ObjectId(itemId) };
+      query.itemId = new ObjectId(itemId);
     }
 
     const recipes = await db.collection("preparation_recipes")
@@ -90,9 +97,8 @@ export async function GET(req: NextRequest) {
       })
     );
 
-  
-// If all is true, return all recipes, else return only active ones
-const filteredRecipes = all ? recipesWithDetails : recipesWithDetails.filter((r: any) => r.isActive !== false);
+    // If all is true, return all recipes, else return only active ones
+    const filteredRecipes = all ? recipesWithDetails : recipesWithDetails.filter((r: any) => r.isActive !== false);
 
     return NextResponse.json({
       success: true,
@@ -348,13 +354,153 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// DELETE endpoint - Soft delete recipe
+// DELETE endpoint - Delete recipe (soft or hard delete)
 export async function DELETE(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
     const url = new URL(req.url);
-    const recipeId = url.searchParams.get("id");
+    
+    // Get parameters from URL
+    const recipeId = url.searchParams.get("id") || url.searchParams.get("recipeId");
+    const itemId = url.searchParams.get("itemId");
+    const permanent = url.searchParams.get("permanent") === "true";
+    const force = url.searchParams.get("force") === "true";
+
+    // Get current user
+    const userData = await getCurrentUserData(req);
+    const isAdmin = isAdminRole(userData?.role);
+
+    if (!isAdmin && !force) {
+      return NextResponse.json(
+        { success: false, error: "Only admins can delete recipes" },
+        { status: 403 }
+      );
+    }
+
+    // Build query based on provided parameters
+    let query: any = {};
+    if (recipeId && ObjectId.isValid(recipeId)) {
+      query._id = new ObjectId(recipeId);
+    } else if (itemId && ObjectId.isValid(itemId)) {
+      query.itemId = new ObjectId(itemId);
+    } else {
+      return NextResponse.json(
+        { success: false, error: "Valid recipe ID or item ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Find the recipe(s) to delete
+    const recipes = await db.collection("preparation_recipes")
+      .find(query)
+      .toArray();
+
+    if (!recipes || recipes.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "Recipe(s) not found" },
+        { status: 404 }
+      );
+    }
+
+    let deletedCount = 0;
+    const deletedRecipes = [];
+
+    // Process each recipe
+    for (const recipe of recipes) {
+      let result;
+      
+      if (permanent) {
+        // Hard delete - permanently remove from database
+        result = await db.collection("preparation_recipes").deleteOne({
+          _id: recipe._id
+        });
+        
+        if (result.deletedCount > 0) {
+          deletedCount++;
+          deletedRecipes.push({
+            id: recipe._id,
+            itemName: recipe.itemName,
+            deleted: true,
+            permanent: true
+          });
+          
+          // Log permanent deletion
+          await db.collection("preparation_logs").insertOne({
+            action: "PERMANENT_DELETE",
+            recipeId: recipe._id,
+            itemId: recipe.itemId,
+            itemName: recipe.itemName,
+            deletedBy: userData?.name || userData?.email || "Unknown",
+            deletedAt: new Date(),
+            permanent: true
+          });
+        }
+      } else {
+        // Soft delete - just mark as inactive
+        result = await db.collection("preparation_recipes").updateOne(
+          { _id: recipe._id },
+          { 
+            $set: { 
+              isActive: false,
+              deletedAt: new Date(),
+              deletedBy: userData?.name || userData?.email || "Unknown",
+              deletedReason: "Soft delete by admin"
+            } 
+          }
+        );
+        
+        if (result.modifiedCount > 0) {
+          deletedCount++;
+          deletedRecipes.push({
+            id: recipe._id,
+            itemName: recipe.itemName,
+            deleted: true,
+            permanent: false,
+            isActive: false
+          });
+          
+          // Log soft deletion
+          await db.collection("preparation_logs").insertOne({
+            action: "SOFT_DELETE",
+            recipeId: recipe._id,
+            itemId: recipe.itemId,
+            itemName: recipe.itemName,
+            deletedBy: userData?.name || userData?.email || "Unknown",
+            deletedAt: new Date(),
+            permanent: false
+          });
+        }
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `${deletedCount} recipe(s) ${permanent ? 'permanently deleted' : 'soft deleted'} successfully`,
+      deletedCount,
+      deletedRecipes,
+      permanent,
+      softDelete: !permanent,
+      restoredAvailable: !permanent // Only soft-deleted items can be restored
+    }, { status: 200 });
+
+  } catch (error) {
+    console.error("Error deleting recipe:", error);
+    return NextResponse.json(
+      { success: false, error: "Failed to delete recipe(s)" },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH endpoint - Restore soft-deleted recipe
+export async function PATCH(req: NextRequest) {
+  try {
+    const dbClient = await clientPromise;
+    const db = dbClient.db("gold");
+    const url = new URL(req.url);
+    const recipeId = url.searchParams.get("id") || url.searchParams.get("recipeId");
+    const action = url.searchParams.get("action") || "restore";
 
     if (!recipeId || !ObjectId.isValid(recipeId)) {
       return NextResponse.json(
@@ -368,12 +514,15 @@ export async function DELETE(req: NextRequest) {
 
     if (!isAdmin) {
       return NextResponse.json(
-        { success: false, error: "Only admins can delete recipes" },
+        { success: false, error: "Only admins can restore recipes" },
         { status: 403 }
       );
     }
 
-    const recipe = await db.collection("preparation_recipes").findOne({ _id: new ObjectId(recipeId) });
+    const recipe = await db.collection("preparation_recipes").findOne({ 
+      _id: new ObjectId(recipeId) 
+    });
+    
     if (!recipe) {
       return NextResponse.json(
         { success: false, error: "Recipe not found" },
@@ -381,37 +530,51 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Soft delete
+    if (recipe.isActive !== false) {
+      return NextResponse.json(
+        { success: false, error: "Recipe is already active" },
+        { status: 400 }
+      );
+    }
+
+    // Restore the recipe
     const result = await db.collection("preparation_recipes").updateOne(
       { _id: new ObjectId(recipeId) },
       { 
         $set: { 
-          isActive: false,
-          deletedAt: new Date(),
-          deletedBy: userData?.name || userData?.email
-        } 
+          isActive: true,
+          restoredAt: new Date(),
+          restoredBy: userData?.name || userData?.email || "Unknown"
+        },
+        $unset: { 
+          deletedAt: "",
+          deletedBy: "",
+          deletedReason: ""
+        }
       }
     );
 
+    // Log restore action
     await db.collection("preparation_logs").insertOne({
-      action: "DELETE",
+      action: "RESTORE",
       recipeId: new ObjectId(recipeId),
       itemId: recipe.itemId,
       itemName: recipe.itemName,
-      deletedBy: userData?.name || userData?.email,
-      deletedAt: new Date()
+      restoredBy: userData?.name || userData?.email || "Unknown",
+      restoredAt: new Date()
     });
 
     return NextResponse.json({
       success: true,
-      message: "Recipe deleted successfully",
-      modifiedCount: result.modifiedCount
+      message: "Recipe restored successfully",
+      modifiedCount: result.modifiedCount,
+      recipeId: recipeId
     }, { status: 200 });
 
   } catch (error) {
-    console.error("Error deleting recipe:", error);
+    console.error("Error restoring recipe:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to delete recipe" },
+      { success: false, error: "Failed to restore recipe" },
       { status: 500 }
     );
   }
