@@ -31,7 +31,20 @@ const fetchExpenses = () => api.get("/expense").then((res) => res.data.data)
 const fetchCommonExpenses = () => api.get("/common-expense").then((res) => res.data.data)
 const fetchOrderReport = () => api.get("/order/report").then((res) => res.data)
 const fetchStock = () => api.get("/stock").then((res) => res.data.data)
-const fetchStockPurchases = () => api.get("/stock-purchase").then((res) => res.data.purchases)
+
+// ✅ FIXED: Properly handle the API response for stock purchases
+const fetchStockPurchases = async () => {
+  try {
+    const response = await api.get("/stock-purchase")
+    // The API returns: { success: true, data: [...], message: "..." }
+    // Return the data array or empty array if undefined
+    return response.data.data || []
+  } catch (error) {
+    console.error("Error fetching stock purchases:", error)
+    return [] // Return empty array as fallback
+  }
+}
+
 const fetchDailyCash = () => api.get("/daily-cash").then((res) => res.data.data)
 
 // Types
@@ -821,6 +834,7 @@ function Dashboard() {
     ...queryOptions
   })
   
+  // ✅ FIXED: Properly typed query with the fixed fetch function
   const { data: stockPurchases, isLoading: isLoadingStockPurchases } = useQuery<StockPurchase[]>({
     queryKey: ["stockPurchases"],
     queryFn: fetchStockPurchases,

@@ -1,3 +1,5 @@
+// components/cart/CartPanel.tsx - COMPLETE FIXED VERSION
+
 'use client';
 
 import React, { memo, useState } from 'react';
@@ -25,7 +27,14 @@ import { CartItem, UserData, Waiter, DeliveryFeeDetails } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TableSelector } from '@/components/menu/TableSelector';
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogDescription, 
+  DialogFooter 
+} from "@/components/ui/dialog";
 
 interface TableData {
   id: string;
@@ -798,14 +807,19 @@ export const CartPanel = memo(({
         />
       </div>
 
-      {/* Guest Information Dialog - MODAL THAT COLLECTS GUEST DATA BEFORE PAYMENT */}
+      {/* Guest Information Dialog - FIXED WITH PROPER DialogTitle */}
       <Dialog open={showGuestInfoDialog} onOpenChange={setShowGuestInfoDialog}>
         <DialogContent className="sm:max-w-md rounded-xl p-0 overflow-hidden">
+          {/* Hidden DialogTitle for accessibility - Required by DialogContent */}
+          <DialogTitle className="sr-only">
+            Guest Information Required
+          </DialogTitle>
+          
           <DialogHeader className="px-4 pt-4 pb-2 bg-gradient-to-r from-purple-50 to-white">
-            <DialogTitle className="flex items-center gap-2 text-purple-900">
+            <div className="flex items-center gap-2 text-purple-900">
               <UserPlus className="h-4 w-4" />
-              Guest Information Required
-            </DialogTitle>
+              <span className="text-lg font-semibold">Guest Information Required</span>
+            </div>
             <DialogDescription className="text-xs text-gray-600">
               Please provide your contact information to complete your table order
             </DialogDescription>

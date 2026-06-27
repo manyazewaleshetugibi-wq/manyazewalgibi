@@ -342,9 +342,10 @@ const PUBLIC_ROUTES = [
   '/',
   '/home',
   '/login',
+  '/Register',  // ✅ This is already here - make sure it's correct case
   '/belog',
   '/contact',
-  '/register',
+  '/register',  // ✅ Also has lowercase version
   '/about',
   '/blogs',
   '/auth/error',
@@ -465,11 +466,12 @@ export default async function proxy(req: NextRequest) {
 
   // Handle public routes
   if (isPublic) {
-    // If user is logged in and trying to access login pages
+    // If user is logged in and trying to access login/register pages, redirect to dashboard
     if (token && (
       pathname === '/login' || 
       pathname === '/belog' || 
-      pathname === '/register' ||
+      pathname === '/Register' ||  // ✅ Added Register here
+      pathname === '/register' ||  // ✅ Added lowercase register
       pathname === '/auth/signin' ||
       pathname === '/auth/signup'
     )) {
