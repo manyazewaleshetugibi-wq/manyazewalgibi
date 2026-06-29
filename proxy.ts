@@ -1,4 +1,3 @@
-// proxy.ts
 import { NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import type { NextRequest } from "next/server";
@@ -336,26 +335,29 @@ const ROLE_ROUTE_PERMISSIONS = {
 
 // ============================================
 // PUBLIC ROUTES - COMPLETE LIST
+// All these pages are accessible WITHOUT login
 // ============================================
 
 const PUBLIC_ROUTES = [
-  '/',
-  '/home',
-  '/login',
-  '/Register',  // ✅ This is already here - make sure it's correct case
-  '/belog',
-  '/contact',
-  '/register',  // ✅ Also has lowercase version
-  '/about',
-  '/blogs',
-  '/auth/error',
-  '/auth/signin',
-  '/auth/signup',
-  '/api/auth',
+  '/',                // Home page
+  '/home',            // Home page
+  '/login',           // Login page
+  '/Register',        // Registration page
+  '/register',        // Registration page (lowercase)
+  '/belog',           // Blog page
+  '/Contact',         // ✅ Contact page - PUBLIC
+  '/contactus',       // ✅ Contact Us page - PUBLIC
+  '/about',           // About page - PUBLIC
+  '/blogs',           // Blogs page - PUBLIC
+  '/menu',            // Menu page - PUBLIC
+  '/auth/error',      // Auth error page
+  '/auth/signin',     // Sign in page
+  '/auth/signup',     // Sign up page
+  '/api/auth',        // Auth API routes
   '/api/auth/change-password-first',
   '/api/auth/session',
   '/api/auth/signout',
-  '/_next/',
+  '/_next/',          // Next.js internal
   '/favicon.ico',
   '/manifest.json',
   '/robots.txt',
@@ -387,12 +389,31 @@ function normalizeRole(role: string | undefined): string {
 }
 
 function isPublicRoute(pathname: string): boolean {
-  return PUBLIC_ROUTES.some(route => {
+  // Remove trailing slash for comparison (except root)
+  const cleanPath = pathname.endsWith('/') && pathname.length > 1 
+    ? pathname.slice(0, -1) 
+    : pathname;
+  
+  // Check exact match
+  if (PUBLIC_ROUTES.includes(cleanPath)) {
+    return true;
+  }
+  
+  // Check if path starts with any public route
+  for (const route of PUBLIC_ROUTES) {
+    // Handle routes that end with '/'
     if (route.endsWith('/')) {
-      return pathname.startsWith(route);
+      if (pathname.startsWith(route)) {
+        return true;
+      }
     }
-    return pathname === route || pathname.startsWith(route + '/');
-  });
+    // Handle routes like /contact, /about, etc.
+    else if (cleanPath === route || cleanPath.startsWith(route + '/')) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 function shouldSkipAuth(pathname: string): boolean {
@@ -407,22 +428,17 @@ function hasRouteAccess(role: string, pathname: string): boolean {
     return false;
   }
   
-  // Check if it's an API route
   const isApiRoute = pathname.startsWith('/api/');
-  
-  // Get the appropriate route list based on whether it's an API route
   const routeList = isApiRoute ? permissions.apiRoutes : permissions.routes;
   
   if (!routeList) {
     return false;
   }
   
-  // Check exact match
   if (routeList.includes(pathname)) {
     return true;
   }
   
-  // Check if path starts with any allowed route
   for (const route of routeList) {
     if (pathname.startsWith(route + '/')) {
       return true;
@@ -451,41 +467,52 @@ export default async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check if route is public
+  // ✅ CHECK IF ROUTE IS PUBLIC
   const isPublic = isPublicRoute(pathname);
   
-  // Get token
-  let token = null;
-  if (!isPublic) {
-    try {
-      token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-    } catch (error) {
-      console.error('Error getting token:', error);
-    }
-  }
-
-  // Handle public routes
+  // ✅ FOR PUBLIC ROUTES - Allow access immediately
   if (isPublic) {
-    // If user is logged in and trying to access login/register pages, redirect to dashboard
-    if (token && (
+    // If user is logged in and trying to access login/register, redirect to dashboard
+    if (
       pathname === '/login' || 
       pathname === '/belog' || 
-      pathname === '/Register' ||  // ✅ Added Register here
-      pathname === '/register' ||  // ✅ Added lowercase register
+      pathname === '/Register' ||
+      pathname === '/register' || 
       pathname === '/auth/signin' ||
       pathname === '/auth/signup'
-    )) {
-      const userRole = token.role || 'DEFAULT';
-      const defaultPage = getDefaultRedirect(userRole);
-      url.pathname = defaultPage;
-      return NextResponse.redirect(url);
+    ) {
+      try {
+        const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+        if (token) {
+          const userRole = token.role || 'DEFAULT';
+          const defaultPage = getDefaultRedirect(userRole);
+          url.pathname = defaultPage;
+          return NextResponse.redirect(url);
+        }
+      } catch (error) {
+        // If token check fails, just show the login page
+        console.error('Error checking token for login redirect:', error);
+      }
     }
+    
+    // ✅ ALLOW ACCESS TO ALL PUBLIC PAGES (contact, about, blogs, etc.)
+    // No authentication required!
     return NextResponse.next();
+  }
+
+  // ============================================
+  // PROTECTED ROUTES - Require authentication
+  // ============================================
+  
+  let token = null;
+  try {
+    token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  } catch (error) {
+    console.error('Error getting token:', error);
   }
 
   // No token - redirect to login
   if (!token) {
-    // For API routes, return 401
     if (pathname.startsWith('/api/')) {
       return NextResponse.json(
         { 
@@ -531,7 +558,7 @@ export default async function proxy(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // ⭐⭐ STRICT ROLE-BASED ACCESS CONTROL
+  // Role-based access control
   const userRole = token.role || 'DEFAULT';
   const normalizedRole = normalizeRole(userRole);
   
@@ -542,39 +569,29 @@ export default async function proxy(req: NextRequest) {
     return NextResponse.redirect(url);
   }
   
-  // ⭐ CRITICAL: Check if user has access to this route
+  // Check access
   const hasAccess = hasRouteAccess(normalizedRole, pathname);
   
   if (!hasAccess) {
-    // Log unauthorized access
     console.warn(`🚫 ACCESS DENIED: ${normalizedRole} attempted to access ${pathname}`);
-    console.warn(`📍 User: ${token.email || token.id}`);
     
-    // For API routes - return 403
     if (pathname.startsWith("/api/")) {
       return NextResponse.json(
         { 
           success: false, 
-          message: `Access Denied: ${normalizedRole} does not have permission to access ${pathname}`,
-          attemptedUrl: pathname,
+          message: `Access Denied: ${normalizedRole} does not have permission`,
           role: normalizedRole,
-          allowedRoutes: ROLE_ROUTE_PERMISSIONS[normalizedRole as keyof typeof ROLE_ROUTE_PERMISSIONS]?.apiRoutes || []
         },
         { status: 403 }
       );
     }
     
-    // ⭐ For page routes - redirect to role-specific default with error param
     const defaultPage = getDefaultRedirect(normalizedRole);
     url.pathname = defaultPage;
     url.searchParams.delete('callbackUrl');
-    
-    // Add error parameter to show unauthorized message
     url.searchParams.set('unauthorized', 'true');
     
     const response = NextResponse.redirect(url);
-    
-    // Also set a cookie for client-side detection
     response.cookies.set('unauthorized_access', 'true', { 
       maxAge: 5, 
       httpOnly: false,

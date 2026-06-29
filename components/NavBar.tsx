@@ -541,7 +541,7 @@ export function NavBar() {
 
   const handleRegisterClick = () => {
     setIsMenuOpen(false)
-    router.push("/Register")
+    router.push("/register")
   }
 
   // Component to render animated logo

@@ -19,7 +19,23 @@ interface PosUser {
     waitresses?: boolean;
 }
 
-export async function GET() {
+// Define the response type without email
+interface WaitressResponse {
+    _id: ObjectId;
+    name: string;
+    phone: string;
+    shift: string;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+    userId?: ObjectId;
+    role?: string;
+    registeredFromUser?: boolean;
+    registrationDate?: Date;
+    // email is EXCLUDED from response
+}
+
+export async function GET(req: NextRequest) {
     try {
         const client = await clientPromise;
         const db = client.db("gold");
@@ -87,17 +103,33 @@ export async function GET() {
             }
         }
 
-        // 6. Return only success message - HIDE ALL DATA
+        // 6. Get all waitresses and EXCLUDE email field from response
+        const allWaitresses = await db.collection<Waitress>(COLLECTION_NAME)
+            .find({})
+            .sort({ name: 1 })
+            .project({ 
+                email: 0 // Explicitly exclude email field
+            })
+            .toArray();
+
+        // 7. Return success with data (email excluded)
         return NextResponse.json({ 
+            success: true,
+            data: allWaitresses,
             message: "Waitress data retrieved and synchronized successfully",
-            count: newWaitressesToRegister.length // Optional: show how many were added
+            count: newWaitressesToRegister.length
         }, { status: 200 });
         
     } catch (error) {
         console.error('Error fetching waitresses:', error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
         return NextResponse.json(
-            { message: "Error fetching waitresses", error: errorMessage }, 
+            { 
+                success: false, 
+                message: "Error fetching waitresses", 
+                error: errorMessage,
+                data: [] 
+            }, 
             { status: 500 }
         );
     }
@@ -110,7 +142,11 @@ export async function POST(req: NextRequest) {
 
         if (!name || !phone || !shift) {
             return NextResponse.json(
-                { message: "Missing required fields", required: ["name", "phone", "shift"] }, 
+                { 
+                    success: false,
+                    message: "Missing required fields", 
+                    required: ["name", "phone", "shift"] 
+                }, 
                 { status: 400 }
             );
         }
@@ -136,16 +172,29 @@ export async function POST(req: NextRequest) {
         
         if (existing) {
             return NextResponse.json(
-                { message: "Waitress with this name and phone already exists" }, 
+                { 
+                    success: false,
+                    message: "Waitress with this name and phone already exists" 
+                }, 
                 { status: 409 }
             );
         }
         
-        await db.collection(COLLECTION_NAME).insertOne(newWaitress);
+        const result = await db.collection(COLLECTION_NAME).insertOne(newWaitress);
 
-        // Return only success message - HIDE THE DATA
+        // Get the created waitress WITHOUT email
+        const createdWaitress = await db.collection(COLLECTION_NAME)
+            .findOne(
+                { _id: result.insertedId },
+                { projection: { email: 0 } } // Exclude email
+            );
+
         return NextResponse.json(
-            { message: "Waitress added successfully" }, 
+            { 
+                success: true,
+                data: createdWaitress,
+                message: "Waitress added successfully" 
+            }, 
             { status: 201 }
         );
         
@@ -153,7 +202,11 @@ export async function POST(req: NextRequest) {
         console.error('Error adding waitress:', error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
         return NextResponse.json(
-            { message: "Error adding waitress", error: errorMessage }, 
+            { 
+                success: false,
+                message: "Error adding waitress", 
+                error: errorMessage 
+            }, 
             { status: 500 }
         );
     }

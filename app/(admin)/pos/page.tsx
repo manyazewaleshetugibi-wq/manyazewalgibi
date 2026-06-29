@@ -269,6 +269,34 @@ const getRestaurantNameFromId = (restaurantId: string): string => {
   }
 };
 
+// Helper to safely extract data from API response
+const extractData = <T,>(response: any, fallback: T[] = []): T[] => {
+  try {
+    // Check various response formats
+    if (response?.data?.data && Array.isArray(response.data.data)) {
+      return response.data.data;
+    }
+    if (response?.data && Array.isArray(response.data)) {
+      return response.data;
+    }
+    if (Array.isArray(response)) {
+      return response;
+    }
+    // Check if response has success flag and data
+    if (response?.data?.success && response.data.data) {
+      return Array.isArray(response.data.data) ? response.data.data : fallback;
+    }
+    // Check if response itself has success and data
+    if (response?.success && response.data) {
+      return Array.isArray(response.data) ? response.data : fallback;
+    }
+    return fallback;
+  } catch (error) {
+    console.error('Error extracting data:', error);
+    return fallback;
+  }
+};
+
 // Custom debounce function
 const useDebounce = <T,>(value: T, delay: number): T => {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -987,8 +1015,11 @@ export default function POSPage() {
         const response = await fetch('/api/restaurants');
         const data = await response.json();
         
-        if (data.success && data.data) {
-          const activeRestaurants = data.data
+        // Use extractData to safely get restaurants
+        const restaurantsData = extractData<Restaurant>(data, []);
+        
+        if (restaurantsData.length > 0) {
+          const activeRestaurants = restaurantsData
             .filter((r: any) => r.isActive !== false)
             .map((r: any) => ({
               _id: r._id,
@@ -1036,7 +1067,7 @@ export default function POSPage() {
     fetchRestaurants();
   }, []);
 
-  // Fetch current user info
+  // ========== FIXED: Fetch current user info ==========
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
@@ -1047,7 +1078,11 @@ export default function POSPage() {
           const waitersRes = await fetch('/api/waitress');
           const waitersData = await waitersRes.json();
           
-          const matchingWaiter = (waitersData || []).find(
+          // Use extractData to safely get waiters array
+          const waitersList = extractData<Waiter>(waitersData, []);
+          
+          // Now safely find the matching waiter
+          const matchingWaiter = waitersList.find(
             (w: any) => w.email === sessionData.user.email
           );
           
@@ -1106,18 +1141,20 @@ export default function POSPage() {
     }
   }, [selectedRestaurant, restaurants]);
 
-  // Fetch waiters (for Admin/Kitchen dropdown - POS users don't need this dropdown)
+  // ========== FIXED: Fetch waiters ==========
   useEffect(() => {
     const fetchWaiters = async () => {
       try {
         const response = await fetch("/api/waitress");
         const data = await response.json();
         
-        setWaiters(data || []);
+        // Use extractData to safely get waiters array
+        const waitersList = extractData<Waiter>(data, []);
+        setWaiters(waitersList);
         
         // For non-POS users, select first waiter if none selected
-        if (!isPOS && !selectedWaiter && (data || []).length > 0) {
-          setSelectedWaiter(data[0]._id);
+        if (!isPOS && !selectedWaiter && waitersList.length > 0) {
+          setSelectedWaiter(waitersList[0]._id);
         }
       } catch (error) {
         console.error("Error fetching waiters:", error);
@@ -1433,7 +1470,7 @@ export default function POSPage() {
     }
   }, [soundEnabled, playNotificationSound]);
 
-  // FIXED: handlePlaceOrder with proper restaurant information
+  // handlePlaceOrder with proper restaurant information
   const handlePlaceOrder = async () => {
     // Determine which waiter ID to use based on user type
     let finalWaiterId = selectedWaiter;
