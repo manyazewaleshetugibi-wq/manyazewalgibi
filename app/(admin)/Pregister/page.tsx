@@ -76,6 +76,9 @@ import type { SelectedIngredient } from "@/types/preparation";
 import { motion, AnimatePresence } from "framer-motion";
 import PreparationPanel from "./PreparationPanel";
 
+// Time unit type
+type TimeUnit = 'minutes' | 'seconds' | 'hours' | 'microseconds';
+
 interface Item {
   _id: string;
   name: string;
@@ -103,6 +106,50 @@ interface ExistingRecipe {
   version: number;
 }
 
+// Helper function to convert time to minutes for total calculation
+const convertToMinutes = (value: number, unit: TimeUnit): number => {
+  switch (unit) {
+    case 'seconds':
+      return value / 60;
+    case 'hours':
+      return value * 60;
+    case 'microseconds':
+      return value / 60000000;
+    case 'minutes':
+    default:
+      return value;
+  }
+};
+
+// Helper function to format time for display
+const formatTimeDisplay = (value: number, unit: TimeUnit): string => {
+  if (value === 0) return '';
+  const unitLabels = {
+    'minutes': 'min',
+    'seconds': 'sec',
+    'hours': 'hr',
+    'microseconds': 'μs'
+  };
+  return `${value} ${unitLabels[unit]}`;
+};
+
+// Helper to parse time from text with unit
+const parseTimeFromText = (text: string): { value: number; unit: TimeUnit } => {
+  const value = extractFirstNumber(text);
+  if (value === 0) return { value: 0, unit: 'minutes' };
+  
+  const lowerText = text.toLowerCase();
+  if (lowerText.includes('sec') || lowerText.includes('second')) {
+    return { value, unit: 'seconds' };
+  } else if (lowerText.includes('hour') || lowerText.includes('hr')) {
+    return { value, unit: 'hours' };
+  } else if (lowerText.includes('micro') || lowerText.includes('μs')) {
+    return { value, unit: 'microseconds' };
+  } else {
+    return { value, unit: 'minutes' };
+  }
+};
+
 export default function PreparationRegisterPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -116,6 +163,8 @@ export default function PreparationRegisterPage() {
       description: "",
       timeText: "",
       timeValue: 0,
+      timeUnit: "minutes" as TimeUnit,
+      timeMinutes: 0, // Store converted value in minutes for total calculation
       heatText: "",
       heatValue: null,
       tempText: "",
@@ -259,8 +308,10 @@ export default function PreparationRegisterPage() {
     if (existingRecipe) {
       const loadedSteps = existingRecipe.steps.map((step: any) => ({
         description: step.description || "",
-        timeText: step.timeText || (step.timeAmount ? `${step.timeAmount} minutes` : ""),
+        timeText: step.timeText || (step.timeAmount ? `${step.timeAmount} ${step.timeUnit || 'minutes'}` : ""),
         timeValue: step.timeValue || step.timeAmount || 0,
+        timeUnit: step.timeUnit || 'minutes',
+        timeMinutes: step.timeMinutes || convertToMinutes(step.timeValue || step.timeAmount || 0, step.timeUnit || 'minutes'),
         heatText: step.heatText || step.heatPower || "",
         heatValue: step.heatValue || step.heatPower || null,
         tempText: step.tempText || (step.temperature ? `${step.temperature}°C` : ""),
@@ -284,6 +335,8 @@ export default function PreparationRegisterPage() {
         description: "",
         timeText: "",
         timeValue: 0,
+        timeUnit: "minutes" as TimeUnit,
+        timeMinutes: 0,
         heatText: "",
         heatValue: null,
         tempText: "",
@@ -330,6 +383,8 @@ export default function PreparationRegisterPage() {
             description: "",
             timeText: "",
             timeValue: 0,
+            timeUnit: "minutes" as TimeUnit,
+            timeMinutes: 0,
             heatText: "",
             heatValue: null,
             tempText: "",
@@ -394,11 +449,41 @@ export default function PreparationRegisterPage() {
     toast.success(`Removed ${removedIngredient.name} from step`);
   };
 
-  const handleTimeChange = (text: string) => {
+  const handleTimeChange = (text: string, unit?: TimeUnit) => {
     const numericValue = extractFirstNumber(text);
+    const parsedUnit = unit || parseTimeFromText(text).unit;
+    const timeMinutes = convertToMinutes(numericValue, parsedUnit);
+    
     const updatedSteps = [...steps];
     updatedSteps[currentStep].timeText = text;
     updatedSteps[currentStep].timeValue = numericValue;
+    updatedSteps[currentStep].timeUnit = parsedUnit;
+    updatedSteps[currentStep].timeMinutes = timeMinutes;
+    setSteps(updatedSteps);
+  };
+
+  const handleTimeUnitChange = (unit: TimeUnit) => {
+    const currentStepData = steps[currentStep];
+    const text = currentStepData.timeText || '';
+    const numericValue = extractFirstNumber(text);
+    const timeMinutes = convertToMinutes(numericValue, unit);
+    
+    const updatedSteps = [...steps];
+    updatedSteps[currentStep].timeUnit = unit;
+    updatedSteps[currentStep].timeValue = numericValue;
+    updatedSteps[currentStep].timeMinutes = timeMinutes;
+    // Update the text to reflect the new unit
+    if (numericValue > 0) {
+      const unitLabels = {
+        'minutes': 'min',
+        'seconds': 'sec',
+        'hours': 'hr',
+        'microseconds': 'μs'
+      };
+      // Replace the unit in the text or append it
+      const cleanText = text.replace(/\s*(min|sec|hr|μs|minute|second|hour|microsecond)s?\b/gi, '').trim();
+      updatedSteps[currentStep].timeText = `${cleanText} ${numericValue} ${unitLabels[unit]}`;
+    }
     setSteps(updatedSteps);
   };
 
@@ -424,6 +509,8 @@ export default function PreparationRegisterPage() {
         description: "",
         timeText: "",
         timeValue: 0,
+        timeUnit: "minutes" as TimeUnit,
+        timeMinutes: 0,
         heatText: "",
         heatValue: null,
         tempText: "",
@@ -478,7 +565,7 @@ export default function PreparationRegisterPage() {
 
     setLoading(true);
     try {
-      const totalTime = steps.reduce((acc, step) => acc + (step.timeValue || 0), 0);
+      const totalTime = steps.reduce((acc, step) => acc + (step.timeMinutes || 0), 0);
       
       // Prepare steps with step numbers
       const stepsWithNumbers = steps.map((step, idx) => ({
@@ -530,6 +617,8 @@ export default function PreparationRegisterPage() {
           description: "",
           timeText: "",
           timeValue: 0,
+          timeUnit: "minutes" as TimeUnit,
+          timeMinutes: 0,
           heatText: "",
           heatValue: null,
           tempText: "",
@@ -857,6 +946,7 @@ export default function PreparationRegisterPage() {
         handleAddIngredientToStep={handleAddIngredientToStep}
         handleRemoveIngredientFromStep={handleRemoveIngredientFromStep}
         handleTimeChange={handleTimeChange}
+        handleTimeUnitChange={handleTimeUnitChange}
         handleHeatChange={handleHeatChange}
         handleTempChange={handleTempChange}
         handleAddStep={handleAddStep}

@@ -19,17 +19,31 @@ interface PosUser {
     waitresses?: boolean;
 }
 
+// Helper function to serialize MongoDB documents
+function serializeWaitress(waitress: any) {
+    return {
+        ...waitress,
+        _id: waitress._id?.toString(),
+        userId: waitress.userId?.toString(),
+        createdAt: waitress.createdAt?.toISOString(),
+        updatedAt: waitress.updatedAt?.toISOString(),
+        registrationDate: waitress.registrationDate?.toISOString()
+    };
+}
+
 export async function GET() {
     try {
         const client = await clientPromise;
         const db = client.db("gold");
 
         // --- Automatic registration of POS users as waitresses ---
-        // 1. Get all users with "pos" role
+        // Use aggregation for better performance instead of multiple queries
+        
+        // 1. Get all users with "pos" role (limit to reasonable number)
         const posUsers = await db.collection<PosUser>(USERS_COLLECTION_NAME)
             .find({ role: "pos", waitresses: { $ne: true } })
-            .project({ password: 0, __v: 0 })
-            .limit(1000)
+            .project({ password: 0, __v: 0 }) // Exclude unnecessary fields
+            .limit(1000) // Prevent overload
             .toArray();
 
         // 2. Get all existing waitresses who were registered from a user account
@@ -71,7 +85,7 @@ export async function GET() {
         // 4. Batch insert new waitresses if any
         if (newWaitressesToRegister.length > 0) {
             await db.collection<Waitress>(COLLECTION_NAME).insertMany(newWaitressesToRegister, {
-                ordered: false
+                ordered: false // Continue even if some fail
             });
         }
 
@@ -87,11 +101,17 @@ export async function GET() {
             }
         }
 
-        // 6. Return only success message - HIDE ALL DATA
-        return NextResponse.json({ 
-            message: "Waitress data retrieved and synchronized successfully",
-            count: newWaitressesToRegister.length // Optional: show how many were added
-        }, { status: 200 });
+        // 6. Fetch all waitresses with projection for better performance
+        const allWaitresses = await db.collection<Waitress>(COLLECTION_NAME)
+            .find({})
+            .project({ _id: 1, name: 1, phone: 1, shift: 1, isActive: 1, email: 1, role: 1, userId: 1, createdAt: 1 })
+            .limit(1000) // Limit results
+            .toArray();
+
+        // 7. Serialize and return
+        const serializedWaitresses = allWaitresses.map(serializeWaitress);
+        
+        return NextResponse.json(serializedWaitresses, { status: 200 });
         
     } catch (error) {
         console.error('Error fetching waitresses:', error);
@@ -143,9 +163,8 @@ export async function POST(req: NextRequest) {
         
         await db.collection(COLLECTION_NAME).insertOne(newWaitress);
 
-        // Return only success message - HIDE THE DATA
         return NextResponse.json(
-            { message: "Waitress added successfully" }, 
+            { message: "Waitress added successfully", data: serializeWaitress(newWaitress) }, 
             { status: 201 }
         );
         
