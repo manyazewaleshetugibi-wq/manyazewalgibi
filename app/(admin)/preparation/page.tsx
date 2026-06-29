@@ -50,6 +50,8 @@ interface PreparationStep {
   timeText?: string;
   timeAmount?: number;
   timeValue?: number;
+  timeUnit?: string;
+  timeMinutes?: number;
   heatText?: string;
   heatPower?: string;
   tempText?: string;
@@ -84,6 +86,136 @@ interface ExtendedRecipe extends PreparationRecipe {
   };
   version?: number;
 }
+
+// Helper function to format time based on unit
+const formatTime = (totalMinutes: number): string => {
+  // First, check if we have a step with a specific unit
+  // If totalMinutes is 0 or undefined, return "0 min"
+  if (!totalMinutes || totalMinutes === 0) return "0 min";
+  
+  // Check if the time is in whole seconds (no fractional minutes)
+  const isWholeSeconds = Number.isInteger(totalMinutes * 60);
+  
+  // If the time is less than 1 minute, display in seconds
+  if (totalMinutes < 1 && isWholeSeconds) {
+    const seconds = Math.round(totalMinutes * 60);
+    return `${seconds} sec`;
+  }
+  
+  // If the time is exactly a whole number of minutes
+  if (Number.isInteger(totalMinutes) && totalMinutes < 60) {
+    return `${Math.round(totalMinutes)} min`;
+  }
+  
+  // For hours and minutes
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = Math.round(totalMinutes % 60);
+  
+  if (hours > 0 && minutes > 0) {
+    return `${hours}h ${minutes}m`;
+  } else if (hours > 0) {
+    return `${hours}h`;
+  } else {
+    return `${Math.round(totalMinutes)} min`;
+  }
+};
+
+// Helper to format a single step's time
+const formatStepTime = (step: PreparationStep): string => {
+  if (step.timeUnit && step.timeValue) {
+    const unitLabels: { [key: string]: string } = {
+      'seconds': 'sec',
+      'minutes': 'min',
+      'hours': 'hr',
+      'microseconds': 'μs'
+    };
+    
+    // If timeUnit is seconds and timeValue is a whole number
+    if (step.timeUnit === 'seconds' && Number.isInteger(step.timeValue)) {
+      return `${step.timeValue} ${unitLabels[step.timeUnit]}`;
+    }
+    
+    // For other units, format nicely
+    if (step.timeUnit === 'minutes' && Number.isInteger(step.timeValue)) {
+      return `${step.timeValue} ${unitLabels[step.timeUnit]}`;
+    }
+    
+    if (step.timeUnit === 'hours') {
+      if (Number.isInteger(step.timeValue)) {
+        return `${step.timeValue} ${unitLabels[step.timeUnit]}`;
+      }
+      return `${step.timeValue.toFixed(1)} ${unitLabels[step.timeUnit]}`;
+    }
+    
+    return `${step.timeValue} ${unitLabels[step.timeUnit] || ''}`;
+  }
+  
+  // Fallback to using timeText
+  return step.timeText || '';
+};
+
+// Helper to get total time display with unit awareness
+const getTotalTimeDisplay = (recipe: ExtendedRecipe): string => {
+  // Check if all steps use the same unit
+  const steps = recipe.steps || [];
+  if (steps.length === 0) return "0 min";
+  
+  // If there's a single step, use its unit
+  if (steps.length === 1) {
+    return formatStepTime(steps[0]);
+  }
+  
+  // For multiple steps, check if they all use the same unit
+  const units = steps.map(s => s.timeUnit).filter(Boolean);
+  const uniqueUnits = new Set(units);
+  
+  // If all steps use the same unit and it's not minutes
+  if (uniqueUnits.size === 1 && uniqueUnits.has('seconds')) {
+    const totalSeconds = steps.reduce((acc, step) => {
+      if (step.timeUnit === 'seconds' && step.timeValue) {
+        return acc + step.timeValue;
+      }
+      return acc;
+    }, 0);
+    
+    if (totalSeconds > 0) {
+      if (totalSeconds >= 60) {
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        if (seconds > 0) {
+          return `${minutes}m ${seconds}s`;
+        }
+        return `${minutes}m`;
+      }
+      return `${totalSeconds} sec`;
+    }
+  }
+  
+  // If all steps use the same unit and it's hours
+  if (uniqueUnits.size === 1 && uniqueUnits.has('hours')) {
+    const totalHours = steps.reduce((acc, step) => {
+      if (step.timeUnit === 'hours' && step.timeValue) {
+        return acc + step.timeValue;
+      }
+      return acc;
+    }, 0);
+    
+    if (totalHours > 0) {
+      if (totalHours >= 1) {
+        const hrs = Math.floor(totalHours);
+        const mins = Math.round((totalHours - hrs) * 60);
+        if (mins > 0) {
+          return `${hrs}h ${mins}m`;
+        }
+        return `${hrs}h`;
+      }
+      return `${totalHours.toFixed(1)} hr`;
+    }
+  }
+  
+  // Default: use totalTime in minutes
+  return formatTime(recipe.totalTime || 0);
+};
 
 export default function PreparationBookPage() {
   const { data: session } = useSession();
@@ -144,15 +276,6 @@ export default function PreparationBookPage() {
     }
 
     setFilteredRecipes(filtered);
-  };
-
-  const getTotalTimeDisplay = (totalTime: number) => {
-    const hours = Math.floor(totalTime / 60);
-    const minutes = totalTime % 60;
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
-    return `${minutes}m`;
   };
 
   const getDifficultyLevel = (steps: number, totalTime: number) => {
@@ -265,7 +388,7 @@ export default function PreparationBookPage() {
     }
   };
 
-  // Book Cover Component - Clean, no borders, no extra text
+  // Book Cover Component
   const BookCover = () => (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -275,7 +398,6 @@ export default function PreparationBookPage() {
     >
       <div className="bg-gradient-to-br from-amber-900 via-amber-800 to-amber-950 rounded-3xl shadow-2xl overflow-hidden w-full max-w-4xl">
         <div className="relative p-8 md:p-12 min-h-[500px] md:min-h-[600px] flex flex-col items-center justify-center text-center">
-          {/* Decorative elements */}
           <div className="absolute top-8 right-8 opacity-20">
             <Utensils className="h-20 w-20 md:h-24 md:w-24 text-amber-300" />
           </div>
@@ -286,7 +408,6 @@ export default function PreparationBookPage() {
           <div className="absolute top-12 left-1/2 transform -translate-x-1/2 w-24 md:w-32 h-px bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
           <div className="absolute bottom-12 left-1/2 transform -translate-x-1/2 w-24 md:w-32 h-px bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
 
-          {/* Main content */}
           <div className="space-y-4 md:space-y-6">
             <div className="flex justify-center">
               <div className="p-3 md:p-4 bg-amber-700/30 rounded-full border-2 border-amber-400/30">
@@ -312,7 +433,6 @@ export default function PreparationBookPage() {
             </h3>
           </div>
 
-          {/* Open button */}
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -409,7 +529,7 @@ export default function PreparationBookPage() {
                           </span>
                           <span className="flex items-center gap-0.5 md:gap-1">
                             <Clock className="h-2.5 w-2.5 md:h-3 md:w-3" />
-                            {getTotalTimeDisplay(recipe.totalTime || 0)}
+                            {getTotalTimeDisplay(recipe)}
                           </span>
                           <Badge className={`${difficulty.color} text-[8px] md:text-[10px] px-1 md:px-1.5 py-0 border-0`}>
                             {difficulty.icon} {difficulty.label}
@@ -428,7 +548,7 @@ export default function PreparationBookPage() {
     </motion.div>
   );
 
-  // Recipe Page Component - ALL steps visible with full details
+  // Recipe Page Component
   const RecipePage = () => {
     const recipe = filteredRecipes[selectedRecipeIndex];
     if (!recipe) return null;
@@ -483,7 +603,7 @@ export default function PreparationBookPage() {
               </span>
               <span className="flex items-center gap-0.5 md:gap-1">
                 <Clock className="h-3 w-3 md:h-4 md:w-4" />
-                {getTotalTimeDisplay(recipe.totalTime || 0)}
+                {getTotalTimeDisplay(recipe)}
               </span>
               <Badge className={`${difficulty.color} border-0 text-[10px] md:text-xs`}>
                 {difficulty.icon} {difficulty.label}
@@ -505,7 +625,7 @@ export default function PreparationBookPage() {
         </div>
 
         <div className="p-4 md:p-6 lg:p-8">
-          {/* ALL Steps Display - Every step visible with full details */}
+          {/* ALL Steps Display */}
           <div className="space-y-4 md:space-y-6">
             <div className="flex items-center justify-between">
               <h2 className="text-base md:text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
@@ -518,7 +638,7 @@ export default function PreparationBookPage() {
               </Badge>
             </div>
 
-            {/* All steps displayed in order with full details */}
+            {/* All steps displayed in order */}
             {recipe.steps.map((step, index) => (
               <motion.div
                 key={index}
@@ -542,7 +662,7 @@ export default function PreparationBookPage() {
                       {step.timeText && (
                         <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 px-2 py-1">
                           <Timer className="h-3 w-3 mr-1.5" />
-                          {step.timeText}
+                          {formatStepTime(step)}
                         </Badge>
                       )}
                       {step.heatText && (
@@ -559,7 +679,7 @@ export default function PreparationBookPage() {
                       )}
                     </div>
 
-                    {/* Ingredients - Full list */}
+                    {/* Ingredients */}
                     {(step.ingredients && step.ingredients.length > 0) && (
                       <div className="mt-3">
                         <div className="flex items-center gap-2 mb-1.5">
@@ -591,7 +711,7 @@ export default function PreparationBookPage() {
               </motion.div>
             ))}
 
-            {/* 🍽️ FINAL IMAGE CARD - Always displayed after all steps */}
+            {/* Final Image Card */}
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -648,12 +768,12 @@ export default function PreparationBookPage() {
               )}
               <span className="flex items-center gap-1">
                 <Clock className="h-2.5 w-2.5 md:h-3 md:w-3" />
-                Total: {getTotalTimeDisplay(recipe.totalTime || 0)}
+                Total: {getTotalTimeDisplay(recipe)}
               </span>
             </div>
           </div>
 
-          {/* Navigation - Next Recipe / Previous Recipe */}
+          {/* Navigation */}
           <div className="mt-6 md:mt-8 flex flex-col sm:flex-row justify-between gap-3">
             <Button
               variant="outline"
@@ -774,7 +894,7 @@ export default function PreparationBookPage() {
         )}
       </div>
 
-      {/* Main Book Container - No scroll, clean display */}
+      {/* Main Book Container */}
       <div ref={bookRef} className="container mx-auto p-2 md:p-4 max-w-4xl h-screen flex flex-col">
         {/* Only show header for non-cover pages */}
         {currentPage !== "cover" && (
@@ -800,7 +920,7 @@ export default function PreparationBookPage() {
           </div>
         )}
 
-        {/* Page Content - No scroll for cover, scrollable for others */}
+        {/* Page Content */}
         <div 
           ref={contentRef} 
           className={`flex-1 ${currentPage === "cover" ? "overflow-hidden" : "overflow-y-auto"}`}
@@ -814,4 +934,4 @@ export default function PreparationBookPage() {
       </div>
     </div>
   );
-} 
+}

@@ -190,7 +190,7 @@ export function ItemCard({
     )
   }
 
-  // MOBILE VERSION - No truncation, dynamic font sizes
+  // MOBILE VERSION - No truncation, dynamic font sizes, category and time removed
   if (isMobile) {
     const dynamicFontSize = getDynamicFontSize(item.name, true)
     
@@ -242,17 +242,7 @@ export function ItemCard({
                 <h3 className={`${dynamicFontSize} font-semibold text-gray-800 leading-tight break-words`}>
                   {item.name}
                 </h3>
-                {/* Category and time on mobile */}
-                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                  <Badge variant="secondary" className="bg-purple-50 text-purple-900 border-0 rounded-full px-1.5 py-0 text-[7px] font-medium">
-                    {getCategoryIcon(categoryName, "h-2 w-2 mr-0.5")}
-                    {categoryName}
-                  </Badge>
-                  <div className="flex items-center gap-0.5 text-[7px] text-gray-500">
-                    <Clock className="h-2 w-2" />
-                    <span>{Number(item.preparationTime) || 0} min</span>
-                  </div>
-                </div>
+                {/* Category and time completely removed on mobile */}
               </div>
               <button
                 onClick={() => onViewDetails(item)}

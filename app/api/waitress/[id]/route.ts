@@ -1,3 +1,7 @@
+
+
+
+
 // app/api/waitress/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
