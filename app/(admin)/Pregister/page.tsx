@@ -29,6 +29,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -66,6 +76,9 @@ import type { SelectedIngredient } from "@/types/preparation";
 import { motion, AnimatePresence } from "framer-motion";
 import PreparationPanel from "./PreparationPanel";
 
+// Time unit type
+type TimeUnit = 'minutes' | 'seconds' | 'hours' | 'microseconds';
+
 interface Item {
   _id: string;
   name: string;
@@ -93,6 +106,50 @@ interface ExistingRecipe {
   version: number;
 }
 
+// Helper function to convert time to minutes for total calculation
+const convertToMinutes = (value: number, unit: TimeUnit): number => {
+  switch (unit) {
+    case 'seconds':
+      return value / 60;
+    case 'hours':
+      return value * 60;
+    case 'microseconds':
+      return value / 60000000;
+    case 'minutes':
+    default:
+      return value;
+  }
+};
+
+// Helper function to format time for display
+const formatTimeDisplay = (value: number, unit: TimeUnit): string => {
+  if (value === 0) return '';
+  const unitLabels = {
+    'minutes': 'min',
+    'seconds': 'sec',
+    'hours': 'hr',
+    'microseconds': 'μs'
+  };
+  return `${value} ${unitLabels[unit]}`;
+};
+
+// Helper to parse time from text with unit
+const parseTimeFromText = (text: string): { value: number; unit: TimeUnit } => {
+  const value = extractFirstNumber(text);
+  if (value === 0) return { value: 0, unit: 'minutes' };
+  
+  const lowerText = text.toLowerCase();
+  if (lowerText.includes('sec') || lowerText.includes('second')) {
+    return { value, unit: 'seconds' };
+  } else if (lowerText.includes('hour') || lowerText.includes('hr')) {
+    return { value, unit: 'hours' };
+  } else if (lowerText.includes('micro') || lowerText.includes('μs')) {
+    return { value, unit: 'microseconds' };
+  } else {
+    return { value, unit: 'minutes' };
+  }
+};
+
 export default function PreparationRegisterPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -106,6 +163,8 @@ export default function PreparationRegisterPage() {
       description: "",
       timeText: "",
       timeValue: 0,
+      timeUnit: "minutes" as TimeUnit,
+      timeMinutes: 0, // Store converted value in minutes for total calculation
       heatText: "",
       heatValue: null,
       tempText: "",
@@ -135,6 +194,11 @@ export default function PreparationRegisterPage() {
   const [showMoreRecipes, setShowMoreRecipes] = useState(false);
   const [showMoreIngredients, setShowMoreIngredients] = useState(false);
   const INITIAL_DISPLAY_COUNT = 3;
+
+  // State for delete confirmation
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [recipeToDelete, setRecipeToDelete] = useState<any>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch items, ingredients, and registered recipes
   useEffect(() => {
@@ -244,8 +308,10 @@ export default function PreparationRegisterPage() {
     if (existingRecipe) {
       const loadedSteps = existingRecipe.steps.map((step: any) => ({
         description: step.description || "",
-        timeText: step.timeText || (step.timeAmount ? `${step.timeAmount} minutes` : ""),
+        timeText: step.timeText || (step.timeAmount ? `${step.timeAmount} ${step.timeUnit || 'minutes'}` : ""),
         timeValue: step.timeValue || step.timeAmount || 0,
+        timeUnit: step.timeUnit || 'minutes',
+        timeMinutes: step.timeMinutes || convertToMinutes(step.timeValue || step.timeAmount || 0, step.timeUnit || 'minutes'),
         heatText: step.heatText || step.heatPower || "",
         heatValue: step.heatValue || step.heatPower || null,
         tempText: step.tempText || (step.temperature ? `${step.temperature}°C` : ""),
@@ -269,6 +335,8 @@ export default function PreparationRegisterPage() {
         description: "",
         timeText: "",
         timeValue: 0,
+        timeUnit: "minutes" as TimeUnit,
+        timeMinutes: 0,
         heatText: "",
         heatValue: null,
         tempText: "",
@@ -280,6 +348,66 @@ export default function PreparationRegisterPage() {
     ]);
     setCurrentStep(0);
     toast.success("Creating new recipe version");
+  };
+
+  const handleDeleteRecipe = async (recipe: any) => {
+    setRecipeToDelete(recipe);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteRecipe = async () => {
+    if (!recipeToDelete) return;
+    
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`/api/preparation-steps?recipeId=${recipeToDelete._id}`, {
+        method: "DELETE",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete recipe");
+      }
+
+      toast.success(`Recipe for "${recipeToDelete.itemName}" deleted successfully!`);
+      
+      // Refresh the recipes list
+      await fetchRegisteredRecipes();
+      
+      // If the deleted recipe is currently being edited, reset the form
+      if (isEditMode && existingRecipe?._id === recipeToDelete._id) {
+        setSelectedItemId("");
+        setSteps([
+          {
+            description: "",
+            timeText: "",
+            timeValue: 0,
+            timeUnit: "minutes" as TimeUnit,
+            timeMinutes: 0,
+            heatText: "",
+            heatValue: null,
+            tempText: "",
+            tempValue: null,
+            ingredients: [],
+            notes: null,
+            imageUrl: null,
+          },
+        ]);
+        setCurrentStep(0);
+        setIsEditMode(false);
+        setExistingRecipe(null);
+        setIsPanelOpen(false);
+        document.body.style.overflow = 'unset';
+      }
+    } catch (error: any) {
+      console.error("Error deleting recipe:", error);
+      toast.error(error.message || "Failed to delete recipe");
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      setRecipeToDelete(null);
+    }
   };
 
   const handleAddIngredientToStep = () => {
@@ -321,11 +449,41 @@ export default function PreparationRegisterPage() {
     toast.success(`Removed ${removedIngredient.name} from step`);
   };
 
-  const handleTimeChange = (text: string) => {
+  const handleTimeChange = (text: string, unit?: TimeUnit) => {
     const numericValue = extractFirstNumber(text);
+    const parsedUnit = unit || parseTimeFromText(text).unit;
+    const timeMinutes = convertToMinutes(numericValue, parsedUnit);
+    
     const updatedSteps = [...steps];
     updatedSteps[currentStep].timeText = text;
     updatedSteps[currentStep].timeValue = numericValue;
+    updatedSteps[currentStep].timeUnit = parsedUnit;
+    updatedSteps[currentStep].timeMinutes = timeMinutes;
+    setSteps(updatedSteps);
+  };
+
+  const handleTimeUnitChange = (unit: TimeUnit) => {
+    const currentStepData = steps[currentStep];
+    const text = currentStepData.timeText || '';
+    const numericValue = extractFirstNumber(text);
+    const timeMinutes = convertToMinutes(numericValue, unit);
+    
+    const updatedSteps = [...steps];
+    updatedSteps[currentStep].timeUnit = unit;
+    updatedSteps[currentStep].timeValue = numericValue;
+    updatedSteps[currentStep].timeMinutes = timeMinutes;
+    // Update the text to reflect the new unit
+    if (numericValue > 0) {
+      const unitLabels = {
+        'minutes': 'min',
+        'seconds': 'sec',
+        'hours': 'hr',
+        'microseconds': 'μs'
+      };
+      // Replace the unit in the text or append it
+      const cleanText = text.replace(/\s*(min|sec|hr|μs|minute|second|hour|microsecond)s?\b/gi, '').trim();
+      updatedSteps[currentStep].timeText = `${cleanText} ${numericValue} ${unitLabels[unit]}`;
+    }
     setSteps(updatedSteps);
   };
 
@@ -351,6 +509,8 @@ export default function PreparationRegisterPage() {
         description: "",
         timeText: "",
         timeValue: 0,
+        timeUnit: "minutes" as TimeUnit,
+        timeMinutes: 0,
         heatText: "",
         heatValue: null,
         tempText: "",
@@ -405,7 +565,7 @@ export default function PreparationRegisterPage() {
 
     setLoading(true);
     try {
-      const totalTime = steps.reduce((acc, step) => acc + (step.timeValue || 0), 0);
+      const totalTime = steps.reduce((acc, step) => acc + (step.timeMinutes || 0), 0);
       
       // Prepare steps with step numbers
       const stepsWithNumbers = steps.map((step, idx) => ({
@@ -457,6 +617,8 @@ export default function PreparationRegisterPage() {
           description: "",
           timeText: "",
           timeValue: 0,
+          timeUnit: "minutes" as TimeUnit,
+          timeMinutes: 0,
           heatText: "",
           heatValue: null,
           tempText: "",
@@ -623,14 +785,16 @@ export default function PreparationRegisterPage() {
                   {displayedRecipes.map((recipe) => (
                     <div
                       key={recipe._id}
-                      className="group p-3 border border-gray-100 hover:border-green-200 hover:bg-green-50/20 cursor-pointer transition-all duration-200"
-                      onClick={() => {
-                        setSelectedItemId(recipe.itemId);
-                        setItemSearchTerm("");
-                      }}
+                      className="group p-3 border border-gray-100 hover:border-green-200 hover:bg-green-50/20 transition-all duration-200"
                     >
                       <div className="flex items-start justify-between">
-                        <div className="flex-1">
+                        <div 
+                          className="flex-1 cursor-pointer"
+                          onClick={() => {
+                            setSelectedItemId(recipe.itemId);
+                            setItemSearchTerm("");
+                          }}
+                        >
                           <div className="flex items-center gap-2 mb-1">
                             <span className="font-medium text-sm text-gray-800">{recipe.itemName}</span>
                             {recipe.version && recipe.version > 1 && (
@@ -654,7 +818,21 @@ export default function PreparationRegisterPage() {
                             </span>
                           </div>
                         </div>
-                        <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-green-600 group-hover:translate-x-0.5 transition-all" />
+                        <div className="flex items-center gap-1 ml-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteRecipe(recipe);
+                            }}
+                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Delete recipe"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-green-600 group-hover:translate-x-0.5 transition-all" />
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -768,6 +946,7 @@ export default function PreparationRegisterPage() {
         handleAddIngredientToStep={handleAddIngredientToStep}
         handleRemoveIngredientFromStep={handleRemoveIngredientFromStep}
         handleTimeChange={handleTimeChange}
+        handleTimeUnitChange={handleTimeUnitChange}
         handleHeatChange={handleHeatChange}
         handleTempChange={handleTempChange}
         handleAddStep={handleAddStep}
@@ -874,6 +1053,47 @@ export default function PreparationRegisterPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-base text-red-600">
+              <Trash2 className="h-4 w-4" />
+              Delete Recipe
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm">
+              Are you sure you want to delete the recipe for <strong>"{recipeToDelete?.itemName}"</strong>?
+              <br />
+              <span className="text-xs text-gray-500 mt-1 block">
+                This action cannot be undone. All steps and ingredients will be permanently removed.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="h-9 text-sm border-gray-300">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteRecipe}
+              disabled={isDeleting}
+              className="h-9 text-sm bg-red-600 hover:bg-red-700 text-white focus:ring-red-500"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-3.5 w-3.5 mr-2" />
+                  Delete Recipe
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

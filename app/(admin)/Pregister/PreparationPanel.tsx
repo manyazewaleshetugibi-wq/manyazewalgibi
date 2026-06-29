@@ -24,9 +24,19 @@ import {
   Maximize2,
   Minimize2,
   Hash,
+  Clock,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import type { SelectedIngredient } from "@/types/preparation";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+type TimeUnit = 'minutes' | 'seconds' | 'hours' | 'microseconds';
 
 interface PreparationPanelProps {
   isOpen: boolean;
@@ -51,7 +61,8 @@ interface PreparationPanelProps {
   setShowIngredientDialog: (show: boolean) => void;
   handleAddIngredientToStep: () => void;
   handleRemoveIngredientFromStep: (index: number) => void;
-  handleTimeChange: (text: string) => void;
+  handleTimeChange: (text: string, unit?: TimeUnit) => void;
+  handleTimeUnitChange: (unit: TimeUnit) => void;
   handleHeatChange: (text: string) => void;
   handleTempChange: (text: string) => void;
   handleAddStep: () => void;
@@ -84,6 +95,7 @@ export default function PreparationPanel({
   handleAddIngredientToStep,
   handleRemoveIngredientFromStep,
   handleTimeChange,
+  handleTimeUnitChange,
   handleHeatChange,
   handleTempChange,
   handleAddStep,
@@ -103,6 +115,18 @@ export default function PreparationPanel({
         behavior: "smooth",
       });
     }
+  };
+
+  // Format time display
+  const formatTimeDisplay = (value: number, unit: TimeUnit): string => {
+    if (value === 0) return '';
+    const unitLabels = {
+      'minutes': 'min',
+      'seconds': 'sec',
+      'hours': 'hr',
+      'microseconds': 'μs'
+    };
+    return `${value} ${unitLabels[unit]}`;
   };
 
   if (!isOpen) return null;
@@ -215,17 +239,43 @@ export default function PreparationPanel({
                   <Timer className="h-3.5 w-3.5 text-amber-500" />
                   Cooking Time <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={currentStepData.timeText}
-                  onChange={(e) => handleTimeChange(e.target.value)}
-                  placeholder="e.g., cook for 5 minutes"
-                  className="w-full px-3 py-2 text-sm border border-gray-300 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={currentStepData.timeText}
+                    onChange={(e) => handleTimeChange(e.target.value)}
+                    placeholder="e.g., cook for 5"
+                    className="flex-1 px-3 py-2 text-sm border border-gray-300 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all"
+                  />
+                  <Select
+                    value={currentStepData.timeUnit || "minutes"}
+                    onValueChange={(value: TimeUnit) => handleTimeUnitChange(value)}
+                  >
+                    <SelectTrigger className="w-28 h-10 text-sm border-gray-300">
+                      <SelectValue>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5" />
+                          {currentStepData.timeUnit || "minutes"}
+                        </span>
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="minutes">Minutes</SelectItem>
+                      <SelectItem value="seconds">Seconds</SelectItem>
+                      <SelectItem value="hours">Hours</SelectItem>
+                      <SelectItem value="microseconds">Microseconds</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 {currentStepData.timeValue > 0 && (
                   <p className="text-[10px] text-green-600 flex items-center gap-1">
                     <CheckCircle className="h-2.5 w-2.5" />
-                    {currentStepData.timeValue} minutes
+                    {formatTimeDisplay(currentStepData.timeValue, currentStepData.timeUnit || "minutes")}
+                    {currentStepData.timeMinutes > 0 && (
+                      <span className="text-gray-400 ml-1">
+                        ({currentStepData.timeMinutes.toFixed(2)} min)
+                      </span>
+                    )}
                   </p>
                 )}
               </div>

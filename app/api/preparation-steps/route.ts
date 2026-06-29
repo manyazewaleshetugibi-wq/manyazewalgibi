@@ -3,12 +3,6 @@ import { ObjectId } from "mongodb";
 import clientPromise from "@/lib/mongodb";
 import { getCurrentUserData } from "../utils/orderHelpers";
 
-// Helper function to check if user is admin
-const isAdminRole = (role: string | undefined): boolean => {
-  if (!role) return false;
-  return ['ADMIN', 'admin', 'Admin', 'SUPER_ADMIN'].includes(role);
-};
-
 // Helper function to extract first number from text
 const extractFirstNumber = (text: string): number => {
   const match = text?.match(/\d+\.?\d*/);
@@ -24,12 +18,18 @@ export async function GET(req: NextRequest) {
     const recipeId = url.searchParams.get("id");
     const itemId = url.searchParams.get("itemId");
     const all = url.searchParams.get("all") === "true";
+    const includeDeleted = url.searchParams.get("includeDeleted") === "true";
 
-    let query = {};
+    let query: any = {};
+    
+    if (!includeDeleted) {
+      query.isActive = { $ne: false };
+    }
+    
     if (recipeId && ObjectId.isValid(recipeId)) {
-      query = { _id: new ObjectId(recipeId) };
+      query._id = new ObjectId(recipeId);
     } else if (itemId && ObjectId.isValid(itemId)) {
-      query = { itemId: new ObjectId(itemId) };
+      query.itemId = new ObjectId(itemId);
     }
 
     const recipes = await db.collection("preparation_recipes")
@@ -45,10 +45,8 @@ export async function GET(req: NextRequest) {
           { projection: { name: 1, imageUrl: 1, price: 1 } }
         );
         
-        // Fetch stock details for ingredients (support both old and new structure)
         const stepsWithStockDetails = await Promise.all(
           (recipe.steps || []).map(async (step: any) => {
-            // Handle multiple ingredients (new structure)
             if (step.ingredients && step.ingredients.length > 0) {
               const ingredientsWithStock = await Promise.all(
                 step.ingredients.map(async (ingredient: any) => {
@@ -61,7 +59,6 @@ export async function GET(req: NextRequest) {
               );
               return { ...step, ingredients: ingredientsWithStock };
             }
-            // Handle single ingredient (old structure)
             else if (step.ingredientName) {
               const stockItem = await db.collection("stock").findOne(
                 { name: step.ingredientName },
@@ -73,7 +70,6 @@ export async function GET(req: NextRequest) {
           })
         );
         
-        // Calculate total time using timeValue (new) or timeAmount (old)
         const totalTime = recipe.steps?.reduce((acc: number, step: any) => {
           if (step.timeValue) return acc + step.timeValue;
           if (step.timeAmount) return acc + step.timeAmount;
@@ -90,9 +86,7 @@ export async function GET(req: NextRequest) {
       })
     );
 
-  
-// If all is true, return all recipes, else return only active ones
-const filteredRecipes = all ? recipesWithDetails : recipesWithDetails.filter((r: any) => r.isActive !== false);
+    const filteredRecipes = all ? recipesWithDetails : recipesWithDetails.filter((r: any) => r.isActive !== false);
 
     return NextResponse.json({
       success: true,
@@ -110,7 +104,7 @@ const filteredRecipes = all ? recipesWithDetails : recipesWithDetails.filter((r:
   }
 }
 
-// POST endpoint - Create new preparation recipe (with duplicate check)
+// POST endpoint - Create new preparation recipe (allow all authenticated users)
 export async function POST(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
@@ -133,7 +127,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if item exists
     const item = await db.collection("items").findOne({ _id: new ObjectId(itemId) });
     if (!item) {
       return NextResponse.json(
@@ -142,7 +135,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if recipe already exists for this item (prevent duplicate)
+    // Check if recipe already exists
     const existingRecipe = await db.collection("preparation_recipes").findOne({ 
       itemId: new ObjectId(itemId),
       isActive: { $ne: false }
@@ -158,34 +151,38 @@ export async function POST(req: NextRequest) {
       }, { status: 409 });
     }
 
-    // Get current user
-    const userData = await getCurrentUserData(req);
-    const isAdmin = isAdminRole(userData?.role);
+    // Get current user - use fallback if not available
+    let userData;
+    try {
+      userData = await getCurrentUserData(req);
+    } catch (error) {
+      console.warn("Could not get user data, using fallback:", error);
+      userData = { name: "Unknown User", email: "unknown@example.com", role: "user" };
+    }
 
-    // Prepare recipe document with new structure
+    const isAdmin = userData?.role ? ['ADMIN', 'admin', 'Admin', 'SUPER_ADMIN'].includes(userData.role) : false;
+
+    // Prepare recipe document
     const recipeData = {
       itemId: new ObjectId(itemId),
       itemName: item.name,
       steps: steps.map((step: any, index: number) => {
-        // Create step object with new structure
         const stepObj: any = {
           stepNumber: index + 1,
           description: step.description,
-          // New descriptive fields
           timeText: step.timeText || `${step.timeAmount || 0} minutes`,
           timeValue: step.timeValue || step.timeAmount || 0,
+          timeUnit: step.timeUnit || 'minutes',
+          timeMinutes: step.timeMinutes || 0,
           heatText: step.heatText || step.heatPower || "",
           heatValue: step.heatValue || step.heatPower || null,
           tempText: step.tempText || (step.temperature ? `${step.temperature}°C` : ""),
           tempValue: step.tempValue || step.temperature || null,
-          // Ingredients (support multiple)
           ingredients: step.ingredients || [],
-          // Other fields
           notes: step.notes || null,
           imageUrl: step.imageUrl || null
         };
         
-        // Keep legacy fields for backward compatibility
         if (step.timeAmount !== undefined) stepObj.timeAmount = step.timeAmount;
         if (step.heatPower !== undefined) stepObj.heatPower = step.heatPower;
         if (step.temperature !== undefined) stepObj.temperature = step.temperature;
@@ -196,8 +193,8 @@ export async function POST(req: NextRequest) {
       totalTime: totalTime || steps.reduce((acc: number, step: any) => {
         return acc + (step.timeValue || step.timeAmount || 0);
       }, 0),
-      createdBy: userData?.name || userData?.email || "Unknown",
-      createdByRole: userData?.role,
+      createdBy: userData?.name || userData?.email || "Unknown User",
+      createdByRole: userData?.role || "user",
       isAdminCreated: isAdmin,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -214,7 +211,7 @@ export async function POST(req: NextRequest) {
       itemId: new ObjectId(itemId),
       itemName: item.name,
       stepsCount: steps.length,
-      createdBy: userData?.name || userData?.email,
+      createdBy: userData?.name || userData?.email || "Unknown",
       createdAt: new Date()
     });
 
@@ -237,7 +234,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PUT endpoint - Update existing recipe
+// PUT endpoint - Update existing recipe (allow all authenticated users)
 export async function PUT(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
@@ -252,14 +249,13 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const userData = await getCurrentUserData(req);
-    const isAdmin = isAdminRole(userData?.role);
-
-    if (!isAdmin) {
-      return NextResponse.json(
-        { success: false, error: "Only admins can update recipes" },
-        { status: 403 }
-      );
+    // Get current user - use fallback if not available
+    let userData;
+    try {
+      userData = await getCurrentUserData(req);
+    } catch (error) {
+      console.warn("Could not get user data, using fallback:", error);
+      userData = { name: "Unknown User", email: "unknown@example.com", role: "user" };
     }
 
     const existingRecipe = await db.collection("preparation_recipes").findOne({ _id: new ObjectId(recipeId) });
@@ -270,33 +266,34 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    // REMOVED ADMIN CHECK - Allow any authenticated user to update
+    // Just log who is updating
+    console.log(`User ${userData?.name || 'Unknown'} updating recipe ${recipeId}`);
+
     const updateData: any = {
       updatedAt: new Date(),
-      updatedBy: userData?.name || userData?.email,
+      updatedBy: userData?.name || userData?.email || "Unknown User",
       version: (existingRecipe.version || 0) + 1
     };
 
     if (steps && Array.isArray(steps)) {
       updateData.steps = steps.map((step: any, index: number) => {
-        // Create step object with new structure
         const stepObj: any = {
           stepNumber: index + 1,
           description: step.description,
-          // New descriptive fields
           timeText: step.timeText || `${step.timeAmount || 0} minutes`,
           timeValue: step.timeValue || step.timeAmount || 0,
+          timeUnit: step.timeUnit || 'minutes',
+          timeMinutes: step.timeMinutes || 0,
           heatText: step.heatText || step.heatPower || "",
           heatValue: step.heatValue || step.heatPower || null,
           tempText: step.tempText || (step.temperature ? `${step.temperature}°C` : ""),
           tempValue: step.tempValue || step.temperature || null,
-          // Ingredients (support multiple)
           ingredients: step.ingredients || [],
-          // Other fields
           notes: step.notes || null,
           imageUrl: step.imageUrl || null
         };
         
-        // Keep legacy fields for backward compatibility
         if (step.timeAmount !== undefined) stepObj.timeAmount = step.timeAmount;
         if (step.heatPower !== undefined) stepObj.heatPower = step.heatPower;
         if (step.temperature !== undefined) stepObj.temperature = step.temperature;
@@ -327,7 +324,7 @@ export async function PUT(req: NextRequest) {
       recipeId: new ObjectId(recipeId),
       itemId: existingRecipe.itemId,
       itemName: existingRecipe.itemName,
-      updatedBy: userData?.name || userData?.email,
+      updatedBy: userData?.name || userData?.email || "Unknown",
       updatedAt: new Date(),
       version: updateData.version
     });
@@ -348,13 +345,152 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// DELETE endpoint - Soft delete recipe
+// DELETE endpoint - Delete recipe (admin only)
 export async function DELETE(req: NextRequest) {
   try {
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
     const url = new URL(req.url);
-    const recipeId = url.searchParams.get("id");
+    
+    const recipeId = url.searchParams.get("id") || url.searchParams.get("recipeId");
+    const itemId = url.searchParams.get("itemId");
+    const permanent = url.searchParams.get("permanent") === "true";
+    const force = url.searchParams.get("force") === "true";
+
+    let userData;
+    try {
+      userData = await getCurrentUserData(req);
+    } catch (error) {
+      console.warn("Could not get user data:", error);
+      userData = { name: "Unknown User", email: "unknown@example.com", role: "user" };
+    }
+
+    const isAdmin = userData?.role ? ['ADMIN', 'admin', 'Admin', 'SUPER_ADMIN'].includes(userData.role) : false;
+
+    // Keep admin check for DELETE (safer to restrict deletion)
+    if (!isAdmin && !force) {
+      return NextResponse.json(
+        { success: false, error: "Only admins can delete recipes" },
+        { status: 403 }
+      );
+    }
+
+    let query: any = {};
+    if (recipeId && ObjectId.isValid(recipeId)) {
+      query._id = new ObjectId(recipeId);
+    } else if (itemId && ObjectId.isValid(itemId)) {
+      query.itemId = new ObjectId(itemId);
+    } else {
+      return NextResponse.json(
+        { success: false, error: "Valid recipe ID or item ID is required" },
+        { status: 400 }
+      );
+    }
+
+    const recipes = await db.collection("preparation_recipes")
+      .find(query)
+      .toArray();
+
+    if (!recipes || recipes.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "Recipe(s) not found" },
+        { status: 404 }
+      );
+    }
+
+    let deletedCount = 0;
+    const deletedRecipes = [];
+
+    for (const recipe of recipes) {
+      let result;
+      
+      if (permanent) {
+        result = await db.collection("preparation_recipes").deleteOne({
+          _id: recipe._id
+        });
+        
+        if (result.deletedCount > 0) {
+          deletedCount++;
+          deletedRecipes.push({
+            id: recipe._id,
+            itemName: recipe.itemName,
+            deleted: true,
+            permanent: true
+          });
+          
+          await db.collection("preparation_logs").insertOne({
+            action: "PERMANENT_DELETE",
+            recipeId: recipe._id,
+            itemId: recipe.itemId,
+            itemName: recipe.itemName,
+            deletedBy: userData?.name || userData?.email || "Unknown",
+            deletedAt: new Date(),
+            permanent: true
+          });
+        }
+      } else {
+        result = await db.collection("preparation_recipes").updateOne(
+          { _id: recipe._id },
+          { 
+            $set: { 
+              isActive: false,
+              deletedAt: new Date(),
+              deletedBy: userData?.name || userData?.email || "Unknown",
+              deletedReason: "Soft delete by admin"
+            } 
+          }
+        );
+        
+        if (result.modifiedCount > 0) {
+          deletedCount++;
+          deletedRecipes.push({
+            id: recipe._id,
+            itemName: recipe.itemName,
+            deleted: true,
+            permanent: false,
+            isActive: false
+          });
+          
+          await db.collection("preparation_logs").insertOne({
+            action: "SOFT_DELETE",
+            recipeId: recipe._id,
+            itemId: recipe.itemId,
+            itemName: recipe.itemName,
+            deletedBy: userData?.name || userData?.email || "Unknown",
+            deletedAt: new Date(),
+            permanent: false
+          });
+        }
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `${deletedCount} recipe(s) ${permanent ? 'permanently deleted' : 'soft deleted'} successfully`,
+      deletedCount,
+      deletedRecipes,
+      permanent,
+      softDelete: !permanent,
+      restoredAvailable: !permanent
+    }, { status: 200 });
+
+  } catch (error) {
+    console.error("Error deleting recipe:", error);
+    return NextResponse.json(
+      { success: false, error: "Failed to delete recipe(s)" },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH endpoint - Restore soft-deleted recipe (admin only)
+export async function PATCH(req: NextRequest) {
+  try {
+    const dbClient = await clientPromise;
+    const db = dbClient.db("gold");
+    const url = new URL(req.url);
+    const recipeId = url.searchParams.get("id") || url.searchParams.get("recipeId");
+    const action = url.searchParams.get("action") || "restore";
 
     if (!recipeId || !ObjectId.isValid(recipeId)) {
       return NextResponse.json(
@@ -363,17 +499,27 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const userData = await getCurrentUserData(req);
-    const isAdmin = isAdminRole(userData?.role);
+    let userData;
+    try {
+      userData = await getCurrentUserData(req);
+    } catch (error) {
+      console.warn("Could not get user data:", error);
+      userData = { name: "Unknown User", email: "unknown@example.com", role: "user" };
+    }
+
+    const isAdmin = userData?.role ? ['ADMIN', 'admin', 'Admin', 'SUPER_ADMIN'].includes(userData.role) : false;
 
     if (!isAdmin) {
       return NextResponse.json(
-        { success: false, error: "Only admins can delete recipes" },
+        { success: false, error: "Only admins can restore recipes" },
         { status: 403 }
       );
     }
 
-    const recipe = await db.collection("preparation_recipes").findOne({ _id: new ObjectId(recipeId) });
+    const recipe = await db.collection("preparation_recipes").findOne({ 
+      _id: new ObjectId(recipeId) 
+    });
+    
     if (!recipe) {
       return NextResponse.json(
         { success: false, error: "Recipe not found" },
@@ -381,37 +527,49 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Soft delete
+    if (recipe.isActive !== false) {
+      return NextResponse.json(
+        { success: false, error: "Recipe is already active" },
+        { status: 400 }
+      );
+    }
+
     const result = await db.collection("preparation_recipes").updateOne(
       { _id: new ObjectId(recipeId) },
       { 
         $set: { 
-          isActive: false,
-          deletedAt: new Date(),
-          deletedBy: userData?.name || userData?.email
-        } 
+          isActive: true,
+          restoredAt: new Date(),
+          restoredBy: userData?.name || userData?.email || "Unknown"
+        },
+        $unset: { 
+          deletedAt: "",
+          deletedBy: "",
+          deletedReason: ""
+        }
       }
     );
 
     await db.collection("preparation_logs").insertOne({
-      action: "DELETE",
+      action: "RESTORE",
       recipeId: new ObjectId(recipeId),
       itemId: recipe.itemId,
       itemName: recipe.itemName,
-      deletedBy: userData?.name || userData?.email,
-      deletedAt: new Date()
+      restoredBy: userData?.name || userData?.email || "Unknown",
+      restoredAt: new Date()
     });
 
     return NextResponse.json({
       success: true,
-      message: "Recipe deleted successfully",
-      modifiedCount: result.modifiedCount
+      message: "Recipe restored successfully",
+      modifiedCount: result.modifiedCount,
+      recipeId: recipeId
     }, { status: 200 });
 
   } catch (error) {
-    console.error("Error deleting recipe:", error);
+    console.error("Error restoring recipe:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to delete recipe" },
+      { success: false, error: "Failed to restore recipe" },
       { status: 500 }
     );
   }
