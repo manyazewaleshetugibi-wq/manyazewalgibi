@@ -1,3 +1,5 @@
+// components/cart/PaymentUploadDialog.tsx - COMPLETE FIXED VERSION
+
 'use client'
 
 import React, { memo, useRef } from 'react'
@@ -27,16 +29,15 @@ interface PaymentUploadDialogProps {
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
   transactionId: string
   onTransactionIdChange: (value: string) => void
-  subtotal: number  // Original price before tax (e.g., 869.57)
-  tax: number       // Tax amount (e.g., 130.43)
+  subtotal: number
+  tax: number
   orderType: string
   deliveryFee: number
-  total: number     // Total payment with tax (e.g., 1000)
+  total: number
   onFinalizeOrder: () => Promise<void>
   isPlacingOrder: boolean
 }
 
-// Helper function to safely format numbers
 const formatCurrency = (value: number | undefined | null): string => {
   if (value === undefined || value === null || isNaN(value)) {
     return '0'
@@ -69,7 +70,6 @@ export const PaymentUploadDialog = memo(({
     fileInputRef.current?.click()
   }
 
-  // Safely format all numeric values
   const formattedSubtotal = formatCurrency(subtotal)
   const formattedTax = formatCurrency(tax)
   const formattedDeliveryFee = formatCurrency(deliveryFee)
@@ -78,26 +78,36 @@ export const PaymentUploadDialog = memo(({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto p-0 bg-gradient-to-br from-white to-purple-50/30 border-0 shadow-2xl rounded-2xl">
-        {/* Decorative header gradient - Purple-900 */}
+        {/* REQUIRED: DialogTitle for accessibility - hidden visually but accessible to screen readers */}
+        <DialogTitle className="sr-only">
+          Payment Verification
+        </DialogTitle>
+        
+        <DialogDescription className="sr-only">
+          Please upload a screenshot of your payment confirmation to verify your order
+        </DialogDescription>
+
+        {/* Decorative header gradient */}
         <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-purple-900/20 to-transparent rounded-t-2xl" />
         
         <div className="relative">
-          <DialogHeader className="p-6 pb-0">
-            <DialogTitle className="flex items-center gap-3 text-2xl font-bold">
+          {/* Visual Header */}
+          <div className="p-6 pb-0">
+            <div className="flex items-center gap-3 text-2xl font-bold">
               <div className="p-3 bg-gradient-to-br from-purple-800 to-purple-900 rounded-xl shadow-lg">
                 <CreditCard className="h-6 w-6 text-white" />
               </div>
               <span className="bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent">
                 Payment Verification
               </span>
-            </DialogTitle>
-            <DialogDescription className="text-gray-600 pl-2">
+            </div>
+            <p className="text-gray-600 pl-2 mt-1 text-sm">
               Please upload a screenshot of your payment confirmation
-            </DialogDescription>
-          </DialogHeader>
+            </p>
+          </div>
           
           <div className="p-6 space-y-5">
-            {/* Bank Details with Purple-900 styling */}
+            {/* Bank Details */}
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -135,7 +145,7 @@ export const PaymentUploadDialog = memo(({
               </div>
             </motion.div>
             
-            {/* Upload Section with Purple-900 */}
+            {/* Upload Section */}
             <div className="space-y-3">
               <Label className="text-sm font-semibold flex items-center gap-2 text-purple-900">
                 <div className="p-1 bg-purple-100 rounded-md">
@@ -226,7 +236,7 @@ export const PaymentUploadDialog = memo(({
               </motion.div>
             </div>
             
-            {/* Transaction ID with Purple-900 */}
+            {/* Transaction ID */}
             <div className="space-y-2">
               <Label htmlFor="transaction-id" className="text-sm font-medium text-purple-900 flex items-center gap-2">
                 <div className="p-1 bg-purple-100 rounded-md">
@@ -247,7 +257,7 @@ export const PaymentUploadDialog = memo(({
               </p>
             </div>
             
-            {/* Order Summary with Purple-900 */}
+            {/* Order Summary */}
             <motion.div 
               initial={{ y: 10, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -291,7 +301,7 @@ export const PaymentUploadDialog = memo(({
               </div>
             </motion.div>
 
-            {/* Error Alert with Purple-900 styling */}
+            {/* Error Alert */}
             <AnimatePresence>
               {!paymentScreenshot.uploaded && (
                 <motion.div
@@ -358,3 +368,5 @@ export const PaymentUploadDialog = memo(({
 })
 
 PaymentUploadDialog.displayName = 'PaymentUploadDialog'
+
+export default PaymentUploadDialog

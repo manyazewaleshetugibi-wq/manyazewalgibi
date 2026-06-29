@@ -402,7 +402,7 @@ function LoginPage() {
                     Don't have an account?{" "}
                     <a 
                       className="text-purple-900 dark:text-purple-400 font-semibold hover:text-purple-700 dark:hover:text-purple-300 hover:underline decoration-2 underline-offset-2 transition-all duration-300 hover:text-lg inline-block" 
-                      href="/Register"
+                      href="/register"
                     >
                       Register
                     </a>

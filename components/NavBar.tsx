@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -14,8 +14,6 @@ import {
   UtensilsCrossed,
   PhoneCall,
   BookOpen,
-  LogIn,
-  UserPlus,
   User,
   LogOut,
   ClipboardList,
@@ -38,6 +36,8 @@ import {
   Instagram,
   MapPin,
   Clock,
+  Play,
+  Pause,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -49,6 +49,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { FaTiktok } from "react-icons/fa"
 import axios from "axios"
+
+// Import the JSON data
+import videoData from "./LOGO.json"
 
 // API client setup
 const api = axios.create({
@@ -88,10 +91,41 @@ interface NavLinkProps {
   onClick?: () => void
 }
 
+// Video frame type
+interface VideoFrame {
+  timestamp: number;
+  width: number;
+  height: number;
+  pixels: number[];
+  frameIndex: number;
+}
+
+// Video data type
+interface VideoDataType {
+  metadata: {
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    duration: number;
+    width: number;
+    height: number;
+    frameRate: number;
+    totalFrames: number;
+    extractionQuality: string;
+    extractionDate: string;
+  };
+  frames: VideoFrame[];
+  summary: {
+    totalFrames: number;
+    avgFrameSize: number;
+    durationSeconds: number;
+  };
+}
+
 const navLinks = [
   { href: "/home", icon: Home, label: "Home" },
   { href: "/about", icon: Info, label: "About Us" },
-  { href: "/", icon: UtensilsCrossed, label: "Menu" }, // Changed from "/" to "/menu"
+  { href: "/", icon: UtensilsCrossed, label: "Menu" },
   { href: "/blogs", icon: BookOpen, label: "Blogs" },
   { href: "/contact", icon: PhoneCall, label: "Contact Us" },
 ]
@@ -122,12 +156,116 @@ export function NavBar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isCheckingStatus, setIsCheckingStatus] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [currentFrameIndex, setCurrentFrameIndex] = useState(0)
+  const [isVideoDataLoaded, setIsVideoDataLoaded] = useState(false)
+  const [videoFrameData, setVideoFrameData] = useState<VideoDataType | null>(null)
+  const [isPlayingVideo, setIsPlayingVideo] = useState(false)
+  const [frameImages, setFrameImages] = useState<string[]>([])
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  
   const pathname = usePathname()
   const router = useRouter()
   const { data: session, status } = useSession()
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const animationFrameRef = useRef<number | null>(null)
   
   // Cast session user to ExtendedUser type
   const user = session?.user as ExtendedUser | undefined
+
+  // Load and process video data
+  useEffect(() => {
+    const loadVideoData = async () => {
+      try {
+        if (videoData && videoData.frames && videoData.frames.length > 0) {
+          // Validate the data
+          const typedData = videoData as VideoDataType;
+          setVideoFrameData(typedData);
+          setIsVideoDataLoaded(true);
+          
+          // Convert frames to image data URLs
+          const images = await convertFramesToImages(typedData.frames);
+          setFrameImages(images);
+          
+          console.log(`✅ Loaded ${typedData.frames.length} frames from video data`);
+        } else {
+          console.warn("⚠️ No video data found or empty frames");
+        }
+      } catch (error) {
+        console.error("❌ Error loading video data:", error);
+      }
+    };
+
+    loadVideoData();
+  }, []);
+
+  // Convert pixel data to image data URLs
+  const convertFramesToImages = (frames: VideoFrame[]): Promise<string[]> => {
+    return new Promise((resolve) => {
+      const images: string[] = [];
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        resolve([]);
+        return;
+      }
+
+      frames.forEach((frame, index) => {
+        try {
+          canvas.width = frame.width;
+          canvas.height = frame.height;
+          
+          const imageData = new ImageData(frame.width, frame.height);
+          const data = imageData.data;
+          
+          // Copy pixel data
+          const pixelCount = Math.min(frame.pixels.length, data.length);
+          for (let i = 0; i < pixelCount; i++) {
+            data[i] = frame.pixels[i];
+          }
+          
+          ctx.putImageData(imageData, 0, 0);
+          images.push(canvas.toDataURL('image/jpeg', 0.8));
+        } catch (error) {
+          console.error(`Error processing frame ${index}:`, error);
+        }
+      });
+      
+      resolve(images);
+    });
+  };
+
+  // Animation loop for the logo
+  useEffect(() => {
+    if (isVideoDataLoaded && isPlayingVideo && frameImages.length > 0) {
+      let frameIndex = 0;
+      
+      const animateLogo = () => {
+        setCurrentImageIndex(frameIndex);
+        frameIndex = (frameIndex + 1) % frameImages.length;
+        
+        animationFrameRef.current = requestAnimationFrame(animateLogo);
+      };
+      
+      // Start animation
+      animationFrameRef.current = requestAnimationFrame(animateLogo);
+      
+      return () => {
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+        }
+      };
+    }
+  }, [isVideoDataLoaded, isPlayingVideo, frameImages]);
+
+  // Clean up animation on unmount
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
 
   // Close menu when route changes
   useEffect(() => {
@@ -138,7 +276,6 @@ export function NavBar() {
   useEffect(() => {
     if (isMenuOpen) {
       document.body.style.overflow = 'hidden'
-      // Add a class to the root element for additional styling if needed
       document.documentElement.classList.add('mobile-menu-open')
     } else {
       document.body.style.overflow = 'unset'
@@ -149,6 +286,51 @@ export function NavBar() {
       document.documentElement.classList.remove('mobile-menu-open')
     }
   }, [isMenuOpen])
+
+  // Render the current frame to canvas
+  const renderCurrentFrame = () => {
+    if (!canvasRef.current || !videoFrameData || frameImages.length === 0) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const currentFrame = videoFrameData.frames[currentFrameIndex % videoFrameData.frames.length];
+    if (!currentFrame) return;
+    
+    try {
+      // Create ImageData from pixel data
+      const imageData = new ImageData(currentFrame.width, currentFrame.height);
+      const data = imageData.data;
+      
+      // Copy pixel data
+      const pixelCount = Math.min(currentFrame.pixels.length, data.length);
+      for (let i = 0; i < pixelCount; i++) {
+        data[i] = currentFrame.pixels[i];
+      }
+      
+      // Clear canvas and draw
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.putImageData(imageData, 0, 0);
+    } catch (error) {
+      console.error("Error rendering frame:", error);
+    }
+  };
+
+  // Toggle video animation
+  const toggleVideoAnimation = () => {
+    if (!isVideoDataLoaded || frameImages.length === 0) {
+      console.warn("No video data available to play");
+      return;
+    }
+    
+    setIsPlayingVideo(!isPlayingVideo);
+    
+    // If starting animation, reset to first frame
+    if (!isPlayingVideo) {
+      setCurrentImageIndex(0);
+    }
+  };
 
   // Comprehensive user validation function
   const validateUserSession = async () => {
@@ -359,8 +541,53 @@ export function NavBar() {
 
   const handleRegisterClick = () => {
     setIsMenuOpen(false)
-    router.push("/Register")
+    router.push("/register")
   }
+
+  // Component to render animated logo
+  const AnimatedLogo = () => {
+    // If video data is loaded and we have images, show the animated version
+    if (isVideoDataLoaded && frameImages.length > 0) {
+      const currentImage = frameImages[currentImageIndex % frameImages.length];
+      
+      return (
+        <div className="relative">
+          <img 
+            src={currentImage}
+            alt="Manyazewal Animated Logo"
+            className="w-auto h-10 md:h-12 rounded-xl border border-transparent group-hover:border-purple-900 shadow-sm group-hover:shadow-md transition-all duration-300 object-contain"
+            style={{ 
+              width: 'auto',
+              maxWidth: '80px',
+              height: '40px',
+              objectFit: 'contain'
+            }}
+          />
+          
+          {/* Play indicator */}
+          {isPlayingVideo && (
+            <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse border-2 border-white" />
+          )}
+          
+          {/* Frame counter badge */}
+          <div className="absolute -top-1 -right-1 bg-purple-600 text-white text-[8px] px-1.5 py-0.5 rounded-full">
+            {videoFrameData?.metadata?.totalFrames || 0}f
+          </div>
+        </div>
+      );
+    }
+
+    // Fallback to static image
+    return (
+      <Image 
+        src="/man_logo.jpg" 
+        alt="Manyazewal Logo" 
+        width={80} 
+        height={80} 
+        className="w-auto h-10 md:h-12 transition-transform duration-300 group-hover:scale-105 rounded-xl border border-transparent group-hover:border-purple-900 shadow-sm group-hover:shadow-md" 
+      />
+    );
+  };
 
   const renderUserMenu = () => {
     if (status === "loading" || isCheckingStatus) {
@@ -524,6 +751,30 @@ export function NavBar() {
     )
   }
 
+  // Video controls for the logo
+  const VideoLogoControls = () => {
+    if (!isVideoDataLoaded || frameImages.length === 0) return null;
+    
+    return (
+      <div className="absolute -bottom-2 -right-2 flex items-center gap-1 bg-white/90 dark:bg-gray-800/90 rounded-full shadow-lg px-1.5 py-0.5 backdrop-blur-sm border border-gray-200 dark:border-gray-700">
+        <button
+          onClick={toggleVideoAnimation}
+          className="p-0.5 rounded-full hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
+          aria-label={isPlayingVideo ? "Pause animation" : "Play animation"}
+        >
+          {isPlayingVideo ? (
+            <Pause className="w-3 h-3 text-purple-700 dark:text-purple-300" />
+          ) : (
+            <Play className="w-3 h-3 text-purple-700 dark:text-purple-300" />
+          )}
+        </button>
+        <span className="text-[8px] text-gray-500 dark:text-gray-400 font-mono">
+          {currentImageIndex + 1}/{frameImages.length}
+        </span>
+      </div>
+    );
+  };
+
   return (
     <>
       {/* Sub Header - Modern Mobile-Friendly Layout */}
@@ -639,15 +890,18 @@ export function NavBar() {
         <div className="px-4 mx-auto max-w-7xl sm:px-6 lg:px-8">
           <nav className="flex items-center justify-between h-16 md:h-20">
             <div className="flex items-center flex-1">
-              <Link href="/" className="flex items-center group">
-                <motion.div whileHover={{ scale: 1.05 }} transition={{ type: "spring", stiffness: 400, damping: 10 }}>
-                  <Image 
-                    src="/man_logo.jpg" 
-                    alt="Manyazewal Logo" 
-                    width={80} 
-                    height={80} 
-                    className="w-auto h-10 md:h-12 transition-transform duration-300 group-hover:scale-105 rounded-xl border border-transparent group-hover:border-purple-900 shadow-sm group-hover:shadow-md" 
-                  />
+              <Link href="/" className="flex items-center group relative">
+                <motion.div 
+                  whileHover={{ scale: 1.05 }} 
+                  transition={{ type: "spring", stiffness: 400, damping: 10 }}
+                  className="relative"
+                >
+                  <AnimatedLogo />
+                  
+                  {/* Video controls overlay */}
+                  {isVideoDataLoaded && frameImages.length > 0 && (
+                    <VideoLogoControls />
+                  )}
                 </motion.div>
               </Link>
             </div>
@@ -678,11 +932,10 @@ export function NavBar() {
         </div>
       </header>
 
-      {/* Mobile Side Menu - Full overlay that covers all page content */}
+      {/* Mobile Side Menu */}
       <AnimatePresence>
         {isMenuOpen && (
           <>
-            {/* Full-screen backdrop overlay - covers everything including header */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -693,7 +946,6 @@ export function NavBar() {
               style={{ top: 0, left: 0, right: 0, bottom: 0 }}
             />
             
-            {/* Slide-in Panel from Right - Above the overlay */}
             <motion.div
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
@@ -702,9 +954,7 @@ export function NavBar() {
               className="fixed top-0 right-0 bottom-0 w-[75%] max-w-sm bg-white dark:bg-gray-900 shadow-2xl z-[101] overflow-hidden"
               style={{ top: 0, right: 0, bottom: 0 }}
             >
-              {/* Menu Content - Compact, fits in one screen without scrolling */}
               <div className="flex flex-col h-full">
-                {/* Close button - positioned at top right */}
                 <button
                   onClick={() => setIsMenuOpen(false)}
                   className="absolute top-3 right-3 z-10 p-1.5 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
@@ -714,7 +964,7 @@ export function NavBar() {
                 </button>
 
                 <div className="flex-1 px-4 py-4 space-y-3 overflow-y-auto">
-                  {/* Navigation Links - No icons, minimal spacing, with active indicators */}
+                  {/* Navigation Links */}
                   <div className="space-y-0.5">
                     {navLinks.map((link) => {
                       const isActive = isRouteActive(link.href)
@@ -735,10 +985,9 @@ export function NavBar() {
                     })}
                   </div>
                   
-                  {/* Thin Divider */}
                   <div className="border-t border-gray-100 dark:border-gray-800 my-1"></div>
                   
-                  {/* Auth Section - Ultra Compact */}
+                  {/* Auth Section */}
                   <div className="space-y-2">
                     {!user ? (
                       <div className="flex gap-2 pt-1">
@@ -761,7 +1010,6 @@ export function NavBar() {
                       </div>
                     ) : (
                       <>
-                        {/* User info - ultra compact */}
                         <div className="bg-gray-50 dark:bg-gray-800/50 rounded-md px-2 py-1.5">
                           <p className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
                             {user.name || user.email}
@@ -771,7 +1019,6 @@ export function NavBar() {
                           </p>
                         </div>
                         
-                        {/* Dashboard link - compact */}
                         <Button 
                           variant="outline" 
                           size="sm"
@@ -790,7 +1037,6 @@ export function NavBar() {
                           {getDashboardLink(user.role).label}
                         </Button>
 
-                        {/* Role-specific links - ultra compact row */}
                         {user.role === 'purchasing' && (
                           <div className="flex gap-1.5">
                             <Button 
@@ -893,7 +1139,6 @@ export function NavBar() {
                           </Button>
                         )}
                         
-                        {/* Logout Button - compact */}
                         <Button 
                           variant="outline" 
                           size="sm"
@@ -910,7 +1155,34 @@ export function NavBar() {
                     )}
                   </div>
 
-                  {/* Contact Info - Ultra compact */}
+                  {/* Video Data Info */}
+                  {isVideoDataLoaded && videoFrameData && (
+                    <div className="space-y-1.5 pt-1 border-t border-gray-100 dark:border-gray-800">
+                      <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">Video Data</p>
+                      <div className="grid grid-cols-2 gap-1">
+                        <div className="bg-purple-50 dark:bg-purple-900/20 rounded px-1.5 py-1">
+                          <p className="text-[8px] text-gray-500 dark:text-gray-400">Frames</p>
+                          <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">
+                            {videoFrameData.metadata.totalFrames}
+                          </p>
+                        </div>
+                        <div className="bg-purple-50 dark:bg-purple-900/20 rounded px-1.5 py-1">
+                          <p className="text-[8px] text-gray-500 dark:text-gray-400">Duration</p>
+                          <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">
+                            {Math.round(videoFrameData.metadata.duration)}s
+                          </p>
+                        </div>
+                        <div className="bg-purple-50 dark:bg-purple-900/20 rounded px-1.5 py-1 col-span-2">
+                          <p className="text-[8px] text-gray-500 dark:text-gray-400">Quality</p>
+                          <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 capitalize">
+                            {videoFrameData.metadata.extractionQuality}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Contact Info */}
                   <div className="space-y-1.5 pt-1 border-t border-gray-100 dark:border-gray-800">
                     <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">Contact</p>
                     <div className="space-y-1">
@@ -933,7 +1205,7 @@ export function NavBar() {
                     </div>
                   </div>
 
-                  {/* Social Media - Small icons */}
+                  {/* Social Media */}
                   <div className="space-y-1.5">
                     <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">Follow</p>
                     <div className="flex gap-2">
@@ -954,7 +1226,7 @@ export function NavBar() {
                     </div>
                   </div>
 
-                  {/* Footer - Minimal */}
+                  {/* Footer */}
                   <div className="pt-1 pb-1">
                     <p className="text-[8px] text-center text-gray-400">© 2024 Manyazewal Restaurant</p>
                   </div>

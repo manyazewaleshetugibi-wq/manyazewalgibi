@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
       { expiresIn: '8h' }
     );
     
-    // Remove sensitive data
+   
     const { password: _, ...staffWithoutPassword } = staff;
     
     return NextResponse.json({
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
       data: {
         user: staffWithoutPassword,
         token,
-        requiresPasswordChange: requiresPasswordChange // Use the same calculated value
+        requiresPasswordChange: requiresPasswordChange 
       }
     });
     
@@ -126,3 +126,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

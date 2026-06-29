@@ -203,7 +203,7 @@ type DateFilterType = 'today' | 'yesterday' | 'last7days' | 'thisWeek' | 'lastWe
 type AnalyticsView = 'sales' | 'restaurants' | 'waiters' | 'orderTypes'
 
 // ============================================
-// API Functions
+// API Functions - FIXED
 // ============================================
 
 // Fetch restaurants from API
@@ -243,7 +243,154 @@ const fetchWaitressesWithRestaurants = async (): Promise<Waitress[]> => {
   }
 }
 
-// Helper function to get restaurant ID from order - IMPROVED with dynamic mapping
+// FIXED: Fetch orders directly from the orders API
+const fetchOrdersFromAPI = async (startDate?: string, endDate?: string, restaurantId?: string): Promise<Order[]> => {
+  try {
+    const params = new URLSearchParams()
+    if (startDate) params.append('startDate', startDate)
+    if (endDate) params.append('endDate', endDate)
+    if (restaurantId && restaurantId !== 'all' && restaurantId !== 'unassigned') params.append('restaurantId', restaurantId)
+    
+    const url = `/api/order${params.toString() ? `?${params.toString()}` : ''}`
+    console.log("Fetching orders from:", url)
+    
+    const response = await fetch(url)
+    const data = await response.json()
+    console.log("Orders API response:", data)
+    
+    if (data.success && Array.isArray(data.data)) {
+      return data.data
+    } else if (Array.isArray(data)) {
+      return data
+    } else if (data.orders && Array.isArray(data.orders)) {
+      return data.orders
+    }
+    return []
+  } catch (error) {
+    console.error("Error fetching orders:", error)
+    return []
+  }
+}
+
+// FIXED: Fetch waiter report - now uses the proper endpoint
+const fetchWaiterReport = async (waiterId?: string, startDate?: string, endDate?: string, restaurantId?: string, limit?: number): Promise<WaiterReportResponse> => {
+  try {
+    // First try to get orders from the main orders endpoint
+    const orders = await fetchOrdersFromAPI(startDate, endDate, restaurantId)
+    
+    // Filter by waiter if specified
+    let filteredOrders = orders
+    if (waiterId && waiterId !== 'all') {
+      filteredOrders = orders.filter(order => order.waiterId === waiterId)
+    }
+    
+    // Calculate summary
+    const totalOrders = filteredOrders.length
+    const totalSales = filteredOrders.reduce((sum, order) => sum + (order.finalAmount || 0), 0)
+    const totalTax = filteredOrders.reduce((sum, order) => sum + (order.tax || 0), 0)
+    const totalDiscount = filteredOrders.reduce((sum, order) => sum + (order.discount || 0), 0)
+    const totalItems = filteredOrders.reduce((sum, order) => sum + (order.items?.length || 0), 0)
+    const totalGuests = filteredOrders.reduce((sum, order) => sum + (order.numberOfGuests || 0), 0)
+    const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0
+    
+    // Calculate breakdowns
+    const byStatus: Record<string, { count: number; total: number }> = {}
+    const byPayment: Record<string, { count: number; total: number }> = {}
+    
+    filteredOrders.forEach(order => {
+      const status = order.status || 'UNKNOWN'
+      if (!byStatus[status]) byStatus[status] = { count: 0, total: 0 }
+      byStatus[status].count += 1
+      byStatus[status].total += order.finalAmount || 0
+      
+      const payment = order.paymentMethod || 'CASH'
+      if (!byPayment[payment]) byPayment[payment] = { count: 0, total: 0 }
+      byPayment[payment].count += 1
+      byPayment[payment].total += order.finalAmount || 0
+    })
+    
+    // Calculate top items
+    const itemMap = new Map<string, { name: string; quantity: number; revenue: number }>()
+    filteredOrders.forEach(order => {
+      (order.items || order.orderItems || []).forEach(item => {
+        const itemId = item.menuItemId || item.itemId || 'unknown'
+        const existing = itemMap.get(itemId) || { name: item.name || 'Unknown Item', quantity: 0, revenue: 0 }
+        existing.quantity += item.quantity || 0
+        existing.revenue += (item.subtotal || item.price || item.unitPrice || 0) * (item.quantity || 0)
+        itemMap.set(itemId, existing)
+      })
+    })
+    
+    const topItems = Array.from(itemMap.entries())
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10)
+    
+    // Calculate daily sales
+    const dailyMap = new Map<string, { total: number; orders: number }>()
+    filteredOrders.forEach(order => {
+      if (order.createdAt) {
+        const date = new Date(order.createdAt).toISOString().split('T')[0]
+        const existing = dailyMap.get(date) || { total: 0, orders: 0 }
+        existing.total += order.finalAmount || 0
+        existing.orders += 1
+        dailyMap.set(date, existing)
+      }
+    })
+    
+    const dailySales = Array.from(dailyMap.entries())
+      .map(([date, data]) => ({
+        date,
+        total: data.total,
+        orders: data.orders,
+        averageOrderValue: data.orders > 0 ? data.total / data.orders : 0
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+    
+    return {
+      success: true,
+      orders: filteredOrders,
+      summary: {
+        totalOrders,
+        totalSales,
+        totalTax,
+        totalDiscount,
+        totalItems,
+        totalGuests,
+        averageOrderValue
+      },
+      breakdown: {
+        byStatus,
+        byPayment
+      },
+      topItems,
+      dailySales
+    }
+  } catch (error) {
+    console.error("Error fetching waiter report:", error)
+    return {
+      success: false,
+      orders: [],
+      summary: {
+        totalOrders: 0,
+        totalSales: 0,
+        totalTax: 0,
+        totalDiscount: 0,
+        totalItems: 0,
+        totalGuests: 0,
+        averageOrderValue: 0
+      },
+      breakdown: {
+        byStatus: {},
+        byPayment: {}
+      },
+      topItems: [],
+      dailySales: []
+    }
+  }
+}
+
+// Helper function to get restaurant ID from order
 const getOrderRestaurantId = (
   order: Order, 
   waitersList: Waitress[], 
@@ -254,7 +401,7 @@ const getOrderRestaurantId = (
     return order.restaurantId
   }
   
-  // 2. Direct name match from order data (fuzzy)
+  // 2. Direct name match from order data
   const rName = (order.restaurantName || "").toLowerCase()
   if (rName) {
     const match = restaurantsList.find(r => 
@@ -265,21 +412,7 @@ const getOrderRestaurantId = (
     if (match) return match._id
   }
   
-  // 3. Fallback check for Manyazewal specific branch naming patterns (1, 2, 3)
-  if (rName.includes("1") || rName.includes("gibi 1")) {
-    const match = restaurantsList.find(r => r._id === "manyazewal1" || r.name.includes("1"))
-    if (match) return match._id
-  }
-  if (rName.includes("2") || rName.includes("gibi 2")) {
-    const match = restaurantsList.find(r => r._id === "manyazewal2" || r.name.includes("2"))
-    if (match) return match._id
-  }
-  if (rName.includes("3") || rName.includes("gibi 3")) {
-    const match = restaurantsList.find(r => r._id === "manyazewal3" || r.name.includes("3"))
-    if (match) return match._id
-  }
-  
-  // 4. Map by waiter's restaurant assignment
+  // 3. Map by waiter's restaurant assignment
   if (order.waiterId) {
     const waiter = waitersList.find(w => w._id === order.waiterId)
     if (waiter?.restaurantId) {
@@ -320,84 +453,6 @@ const filterOrdersByRestaurant = (
     const orderRestaurantId = getOrderRestaurantId(order, waitersList, restaurantsList)
     return orderRestaurantId === restaurantId
   })
-}
-
-// Create restaurant options from dynamic list
-const getRestaurantOptions = (restaurants: Restaurant[]) => {
-  return restaurants.map(r => ({
-    id: r._id,
-    name: r.name,
-    shortName: r.shortName,
-    color: r.color || 'indigo'
-  }))
-}
-
-const ORDER_TYPES = [
-  { id: "dinein", name: "Dine In", icon: Home, color: "#10b981" },
-  { id: "delivery", name: "Delivery", icon: Truck, color: "#3b82f6" },
-  { id: "POS", name: "POS", icon: Package2, color: "#f59e0b" },
-  { id: "online", name: "Online", icon: Smartphone, color: "#8b5cf6" },
-]
-
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-800",
-  CONFIRMED: "bg-blue-100 text-blue-800",
-  PREPARING: "bg-purple-100 text-purple-800",
-  PICKUP: "bg-indigo-100 text-indigo-800",
-  SERVED: "bg-green-100 text-green-800",
-  COMPLETED: "bg-teal-100 text-teal-800",
-  CANCELLED: "bg-red-100 text-red-800",
-}
-
-const CHART_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"]
-
-const menuItemsCache = new Map<string, { data: Map<string, MenuItem>; timestamp: number }>()
-const CACHE_DURATION = 5 * 60 * 1000
-const BATCH_SIZE_LIMIT = 100
-
-const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>> => {
-  if (itemIds.length === 0) return new Map()
-  const uniqueIds = [...new Set(itemIds)]
-  const limitedIds = uniqueIds.slice(0, BATCH_SIZE_LIMIT)
-  const cacheKey = limitedIds.sort().join(',')
-  const cached = menuItemsCache.get(cacheKey)
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) return cached.data
-  try {
-    const response = await fetch(`/api/items?ids=${limitedIds.join(',')}`)
-    if (!response.ok) throw new Error("Failed to fetch items")
-    const data = await response.json()
-    const itemsMap = new Map<string, MenuItem>()
-    const items = data.items || data || []
-    items.forEach((item: MenuItem) => { if (item?._id) itemsMap.set(item._id, item) })
-    menuItemsCache.set(cacheKey, { data: itemsMap, timestamp: Date.now() })
-    return itemsMap
-  } catch (error) {
-    console.error("Error fetching items batch:", error)
-    return new Map()
-  }
-}
-
-// Fetch waiter report with optional limit
-const fetchWaiterReport = async (waiterId?: string, startDate?: string, endDate?: string, restaurantId?: string, limit?: number): Promise<WaiterReportResponse> => {
-  const params = new URLSearchParams()
-  if (startDate) params.append('startDate', startDate)
-  if (endDate) params.append('endDate', endDate)
-  if (waiterId && waiterId !== 'all') params.append('waiterId', waiterId)
-  if (restaurantId && restaurantId !== 'all' && restaurantId !== 'unassigned') params.append('restaurantId', restaurantId)
-  if (limit && limit > 0) params.append('limit', limit.toString())
-  else params.append('limit', '10000')
-  
-  const url = `/api/order/waiterreport${params.toString() ? `?${params.toString()}` : ''}`
-  console.log("Fetching URL:", url)
-  const response = await fetch(url)
-  const data = await response.json()
-  console.log("Fetched orders count:", data.orders?.length || 0)
-  return data
-}
-
-const fetchWaitresses = async (): Promise<Waitress[]> => {
-  const response = await fetch("/api/waitress")
-  return response.json()
 }
 
 const fetchWaitress = async (id: string): Promise<Waitress> => {
@@ -541,18 +596,18 @@ function MetricsOverview({
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
       <Card className="overflow-hidden transition-all hover:shadow-lg">
         <CardContent className="p-6">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-muted-foreground">Total Sales</p>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <h3 className="text-2xl font-bold">{formatCurrency(totalSales)}</h3>
+          <div className="mt-1 flex items-baseline gap-2">
+            <h3 className="text-xl sm:text-2xl font-bold">{formatCurrency(totalSales)}</h3>
             {renderComparison(salesComparison)}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">vs previous period</p>
+          <p className="text-xs text-muted-foreground mt-1">vs previous period</p>
         </CardContent>
       </Card>
 
@@ -562,11 +617,11 @@ function MetricsOverview({
             <p className="text-sm font-medium text-muted-foreground">Total Orders</p>
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <h3 className="text-2xl font-bold">{totalOrders}</h3>
+          <div className="mt-1 flex items-baseline gap-2">
+            <h3 className="text-xl sm:text-2xl font-bold">{totalOrders}</h3>
             {renderComparison(ordersComparison)}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">vs previous period</p>
+          <p className="text-xs text-muted-foreground mt-1">vs previous period</p>
         </CardContent>
       </Card>
 
@@ -576,11 +631,11 @@ function MetricsOverview({
             <p className="text-sm font-medium text-muted-foreground">Average Order Value</p>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <h3 className="text-2xl font-bold">{formatCurrency(averageOrderValue)}</h3>
+          <div className="mt-1 flex items-baseline gap-2">
+            <h3 className="text-xl sm:text-2xl font-bold">{formatCurrency(averageOrderValue)}</h3>
             {renderComparison(aovComparison)}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">vs previous period</p>
+          <p className="text-xs text-muted-foreground mt-1">vs previous period</p>
         </CardContent>
       </Card>
 
@@ -590,12 +645,12 @@ function MetricsOverview({
             <p className="text-sm font-medium text-muted-foreground">Growth Rate</p>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </div>
-          <div className="mt-2">
-            <h3 className={`text-2xl font-bold ${salesComparison.isPositive ? 'text-green-600' : 'text-red-600'}`}>
+          <div className="mt-1">
+            <h3 className={`text-xl sm:text-2xl font-bold ${salesComparison.isPositive ? 'text-green-600' : 'text-red-600'}`}>
               {salesComparison.isPositive ? '+' : ''}{salesComparison.percentage.toFixed(1)}%
             </h3>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">sales vs previous period</p>
+          <p className="text-xs text-muted-foreground mt-1">sales vs previous period</p>
         </CardContent>
       </Card>
     </div>
@@ -743,6 +798,8 @@ function SalesBarChart({
     return null
   }
 
+  const CHART_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"]
+
   return (
     <Card className="overflow-hidden">
       <CardHeader>
@@ -872,6 +929,8 @@ function RankingAndComparisonPanel({
   const displayItems = items.slice(0, maxItems)
   const maxValue = Math.max(...displayItems.map(i => i.value), 1)
 
+  const CHART_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"]
+
   return (
     <Card>
       <CardHeader>
@@ -972,7 +1031,7 @@ interface DashboardHeaderProps {
   onCustomDateChange?: (start: Date | null, end: Date | null) => void
 }
 
-function DashboardHeader({
+function DashboardHeader({ 
   currentRestaurantName,
   currentWaiterName,
   orderCount,
@@ -1014,7 +1073,7 @@ function DashboardHeader({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
             Sales Analytics
@@ -1024,10 +1083,10 @@ function DashboardHeader({
           </p>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <Select value={selectedRestaurant} onValueChange={onRestaurantChange}>
-            <SelectTrigger className="w-[200px]">
-              <Store className="h-4 w-4 mr-2" />
+            <SelectTrigger className="w-full sm:w-[200px]">
+              <Store className="h-4 w-4 mr-2 text-gray-500" />
               <SelectValue placeholder="Restaurant" />
             </SelectTrigger>
             <SelectContent>
@@ -1042,8 +1101,8 @@ function DashboardHeader({
           </Select>
           
           <Select value={selectedWaiter} onValueChange={onWaiterChange}>
-            <SelectTrigger className="w-[180px]">
-              <Users className="h-4 w-4 mr-2" />
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <Users className="h-4 w-4 mr-2 text-gray-500" />
               <SelectValue placeholder="Waiter" />
             </SelectTrigger>
             <SelectContent>
@@ -1056,39 +1115,33 @@ function DashboardHeader({
             </SelectContent>
           </Select>
           
-          <Button variant="outline" size="icon" onClick={onRefresh} disabled={isRefreshing}>
+          <Button variant="outline" size="icon" onClick={onRefresh} disabled={isRefreshing} className="hidden sm:inline-flex">
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </Button>
         </div>
       </div>
 
       {/* Date Filter Chips */}
-      <div className="flex flex-wrap gap-2">
-        {dateFilters.map((filter) => (
-          <button
-            key={filter.value}
-            onClick={() => {
-              if (filter.value === 'custom') {
-                setShowCustomPicker(!showCustomPicker)
-              } else {
-                onDateFilterChange(filter.value)
-                setShowCustomPicker(false)
-              }
-            }}
-            className={`
-              px-4 py-2 rounded-full text-sm font-medium transition-all duration-200
-              ${dateFilterType === filter.value && filter.value !== 'custom'
-                ? 'bg-blue-600 text-white shadow-md'
-                : filter.value === 'custom' && showCustomPicker
-                ? 'bg-gray-200 text-gray-900'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }
-            `}
-          >
-            {filter.label}
-            {filter.value === 'custom' && showCustomPicker && <ChevronDown className="inline ml-1 h-3 w-3" />}
-          </button>
-        ))}
+      <div className="pb-2">
+        <div className="grid grid-cols-4 gap-2">
+          {dateFilters.map((filter) => (
+            <button
+              key={filter.value}
+              onClick={() => {
+                if (filter.value === 'custom') {
+                  setShowCustomPicker(!showCustomPicker);
+                } else {
+                  onDateFilterChange(filter.value);
+                  setShowCustomPicker(false);
+                }
+              }}
+              className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all duration-200 ${dateFilterType === filter.value && filter.value !== 'custom' ? 'bg-blue-600 text-white shadow-md' : filter.value === 'custom' && showCustomPicker ? 'bg-gray-200 text-gray-900' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              {filter.label}
+              {filter.value === 'custom' && showCustomPicker && <ChevronDown className="inline ml-1 h-3 w-3" />}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Custom Date Picker */}
@@ -1123,8 +1176,51 @@ function DashboardHeader({
 }
 
 // ============================================
-// 7. Main Dashboard Component (Refactored)
+// 7. Main Dashboard Component (Refactored with FIXED API integration)
 // ============================================
+
+const ORDER_TYPES = [
+  { id: "dinein", name: "Dine In", icon: Home, color: "#10b981" },
+  { id: "delivery", name: "Delivery", icon: Truck, color: "#3b82f6" },
+  { id: "POS", name: "POS", icon: Package2, color: "#f59e0b" },
+  { id: "online", name: "Online", icon: Smartphone, color: "#8b5cf6" },
+]
+
+const STATUS_COLORS: Record<string, string> = {
+  PENDING: "bg-yellow-100 text-yellow-800",
+  CONFIRMED: "bg-blue-100 text-blue-800",
+  PREPARING: "bg-purple-100 text-purple-800",
+  PICKUP: "bg-indigo-100 text-indigo-800",
+  SERVED: "bg-green-100 text-green-800",
+  COMPLETED: "bg-teal-100 text-teal-800",
+  CANCELLED: "bg-red-100 text-red-800",
+}
+
+const menuItemsCache = new Map<string, { data: Map<string, MenuItem>; timestamp: number }>()
+const CACHE_DURATION = 5 * 60 * 1000
+const BATCH_SIZE_LIMIT = 100
+
+const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>> => {
+  if (itemIds.length === 0) return new Map()
+  const uniqueIds = [...new Set(itemIds)]
+  const limitedIds = uniqueIds.slice(0, BATCH_SIZE_LIMIT)
+  const cacheKey = limitedIds.sort().join(',')
+  const cached = menuItemsCache.get(cacheKey)
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) return cached.data
+  try {
+    const response = await fetch(`/api/items?ids=${limitedIds.join(',')}`)
+    if (!response.ok) throw new Error("Failed to fetch items")
+    const data = await response.json()
+    const itemsMap = new Map<string, MenuItem>()
+    const items = data.items || data || []
+    items.forEach((item: MenuItem) => { if (item?._id) itemsMap.set(item._id, item) })
+    menuItemsCache.set(cacheKey, { data: itemsMap, timestamp: Date.now() })
+    return itemsMap
+  } catch (error) {
+    console.error("Error fetching items batch:", error)
+    return new Map()
+  }
+}
 
 export default function DashboardPage() {
   // State
@@ -1221,8 +1317,8 @@ export default function DashboardPage() {
 
   // Calculate comparisons
   const calculateComparisons = useCallback((currentOrders: Order[], previousOrders: Order[]) => {
-    const currentSales = currentOrders.reduce((sum, o) => sum + o.finalAmount, 0)
-    const previousSales = previousOrders.reduce((sum, o) => sum + o.finalAmount, 0)
+    const currentSales = currentOrders.reduce((sum, o) => sum + (o.finalAmount || 0), 0)
+    const previousSales = previousOrders.reduce((sum, o) => sum + (o.finalAmount || 0), 0)
     const currentOrderCount = currentOrders.length
     const previousOrderCount = previousOrders.length
     const currentAOV = currentOrderCount > 0 ? currentSales / currentOrderCount : 0
@@ -1250,7 +1346,7 @@ export default function DashboardPage() {
     })
   }, [])
 
-  // Load main data
+  // Load main data - FIXED to handle empty data properly
   const loadData = async () => {
     setIsLoading(true)
     try {
@@ -1258,16 +1354,22 @@ export default function DashboardPage() {
       const endDateStr = format(dateRange.end, 'yyyy-MM-dd')
       const apiRestaurantId = selectedRestaurant === 'unassigned' ? 'all' : selectedRestaurant
 
+      console.log("Loading data with params:", { startDateStr, endDateStr, selectedWaiter, apiRestaurantId })
+      
       const reportData = await fetchWaiterReport(selectedWaiter, startDateStr, endDateStr, apiRestaurantId, 10000)
+      console.log("Report data received:", reportData)
+      
       setWaiterReportData(reportData)
 
       if (reportData.success) {
         let orders = reportData.orders || []
         console.log(`Loaded ${orders.length} orders from API`)
         
-        // Apply restaurant filter using dynamic restaurant detection
-        orders = filterOrdersByRestaurant(orders, selectedRestaurant, waitresses, restaurants)
-        console.log(`After restaurant filter: ${orders.length} orders`)
+        // Only apply restaurant filter if we have orders
+        if (orders.length > 0) {
+          orders = filterOrdersByRestaurant(orders, selectedRestaurant, waitresses, restaurants)
+          console.log(`After restaurant filter: ${orders.length} orders`)
+        }
 
         const itemsMap = await fetchMenuItemsForOrders(orders)
         const enhancedOrders = enhanceOrdersWithMenuItems(orders, itemsMap)
@@ -1282,12 +1384,13 @@ export default function DashboardPage() {
         // Generate daily sales data
         const dailySalesMap = new Map<string, { total: number; orders: number }>()
         enrichedOrders.forEach(order => {
-          const date = new Date(order.createdAt).toLocaleDateString()
-          const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
-          dailySalesMap.set(date, {
-            total: existing.total + order.finalAmount,
-            orders: existing.orders + 1
-          })
+          if (order.createdAt) {
+            const date = new Date(order.createdAt).toLocaleDateString()
+            const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
+            existing.total += order.finalAmount || 0
+            existing.orders += 1
+            dailySalesMap.set(date, existing)
+          }
         })
 
         const dailySalesArray = Array.from(dailySalesMap.entries())
@@ -1295,6 +1398,7 @@ export default function DashboardPage() {
           .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime())
 
         setDailySalesData(dailySalesArray)
+        console.log("Daily sales data generated:", dailySalesArray)
 
         // Fetch previous period data for comparisons
         const previousRange = getPreviousPeriodRange(filterType, dateRange.start, dateRange.end)
@@ -1318,9 +1422,12 @@ export default function DashboardPage() {
           // Generate previous period daily sales
           const previousDailyMap = new Map<string, { total: number }>()
           enrichedPreviousOrders.forEach(order => {
-            const date = new Date(order.createdAt).toLocaleDateString()
-            const existing = previousDailyMap.get(date) || { total: 0 }
-            previousDailyMap.set(date, { total: existing.total + order.finalAmount })
+            if (order.createdAt) {
+              const date = new Date(order.createdAt).toLocaleDateString()
+              const existing = previousDailyMap.get(date) || { total: 0 }
+              existing.total += order.finalAmount || 0
+              previousDailyMap.set(date, existing)
+            }
           })
           
           const previousDailyArray = Array.from(previousDailyMap.entries())
@@ -1329,9 +1436,21 @@ export default function DashboardPage() {
           
           setPreviousPeriodSalesData(previousDailyArray)
         }
+      } else {
+        console.error("Report data not successful:", reportData)
+        // Set empty states
+        setFilteredOrders([])
+        setFilteredOverviewOrders([])
+        setDailySalesData([])
+        setPreviousPeriodSalesData([])
       }
     } catch (error) {
       console.error('Error loading data:', error)
+      // Set empty states on error
+      setFilteredOrders([])
+      setFilteredOverviewOrders([])
+      setDailySalesData([])
+      setPreviousPeriodSalesData([])
     } finally {
       setIsLoading(false)
     }
@@ -1378,12 +1497,13 @@ export default function DashboardPage() {
 
         const dailySalesMap = new Map<string, { total: number; orders: number }>()
         enrichedOrders.forEach(order => {
-          const date = new Date(order.createdAt).toLocaleDateString()
-          const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
-          dailySalesMap.set(date, {
-            total: existing.total + order.finalAmount,
-            orders: existing.orders + 1
-          })
+          if (order.createdAt) {
+            const date = new Date(order.createdAt).toLocaleDateString()
+            const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
+            existing.total += order.finalAmount || 0
+            existing.orders += 1
+            dailySalesMap.set(date, existing)
+          }
         })
 
         const dailySalesArray = Array.from(dailySalesMap.entries())
@@ -1413,9 +1533,12 @@ export default function DashboardPage() {
           
           const previousDailyMap = new Map<string, { total: number }>()
           enrichedPreviousOrders.forEach(order => {
-            const date = new Date(order.createdAt).toLocaleDateString()
-            const existing = previousDailyMap.get(date) || { total: 0 }
-            previousDailyMap.set(date, { total: existing.total + order.finalAmount })
+            if (order.createdAt) {
+              const date = new Date(order.createdAt).toLocaleDateString()
+              const existing = previousDailyMap.get(date) || { total: 0 }
+              existing.total += order.finalAmount || 0
+              previousDailyMap.set(date, existing)
+            }
           })
           
           const previousDailyArray = Array.from(previousDailyMap.entries())
@@ -1460,12 +1583,13 @@ export default function DashboardPage() {
 
         const dailySalesMap = new Map<string, { total: number; orders: number }>()
         enrichedOrders.forEach(order => {
-          const date = new Date(order.createdAt).toLocaleDateString()
-          const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
-          dailySalesMap.set(date, {
-            total: existing.total + order.finalAmount,
-            orders: existing.orders + 1
-          })
+          if (order.createdAt) {
+            const date = new Date(order.createdAt).toLocaleDateString()
+            const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
+            existing.total += order.finalAmount || 0
+            existing.orders += 1
+            dailySalesMap.set(date, existing)
+          }
         })
 
         const dailySalesArray = Array.from(dailySalesMap.entries())
@@ -1509,12 +1633,13 @@ export default function DashboardPage() {
 
         const dailySalesMap = new Map<string, { total: number; orders: number }>()
         enrichedOrders.forEach(order => {
-          const date = new Date(order.createdAt).toLocaleDateString()
-          const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
-          dailySalesMap.set(date, {
-            total: existing.total + order.finalAmount,
-            orders: existing.orders + 1
-          })
+          if (order.createdAt) {
+            const date = new Date(order.createdAt).toLocaleDateString()
+            const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
+            existing.total += order.finalAmount || 0
+            existing.orders += 1
+            dailySalesMap.set(date, existing)
+          }
         })
 
         const dailySalesArray = Array.from(dailySalesMap.entries())
@@ -1561,13 +1686,13 @@ export default function DashboardPage() {
 
   // Calculate metrics
   const overviewMetrics = useMemo(() => {
-    const totalSales = filteredOverviewOrders.reduce((sum, order) => sum + order.finalAmount, 0)
+    const totalSales = filteredOverviewOrders.reduce((sum, order) => sum + (order.finalAmount || 0), 0)
     const orderCount = filteredOverviewOrders.length
     const averageOrderValue = orderCount > 0 ? totalSales / orderCount : 0
     return { totalSales, orderCount, averageOrderValue, totalTax: 0, totalDiscounts: 0 }
   }, [filteredOverviewOrders])
 
-  // Prepare restaurant ranking data using dynamic detection
+  // Prepare restaurant ranking data
   const restaurantRankingData = useMemo((): RankingItem[] => {
     const restaurantSales = new Map<string, { name: string; sales: number; orders: number }>()
     
@@ -1578,7 +1703,7 @@ export default function DashboardPage() {
       const existing = restaurantSales.get(restaurantId) || { name: restaurantName, sales: 0, orders: 0 }
       restaurantSales.set(restaurantId, {
         name: restaurantName,
-        sales: existing.sales + order.finalAmount,
+        sales: existing.sales + (order.finalAmount || 0),
         orders: existing.orders + 1
       })
     })
@@ -1604,7 +1729,7 @@ export default function DashboardPage() {
       const existing = waiterSales.get(waiterId) || { name: waiterName, sales: 0, orders: 0 }
       waiterSales.set(waiterId, {
         name: waiterName,
-        sales: existing.sales + order.finalAmount,
+        sales: existing.sales + (order.finalAmount || 0),
         orders: existing.orders + 1
       })
     })
@@ -1633,11 +1758,10 @@ export default function DashboardPage() {
         name: typeName, 
         sales: 0, 
         orders: 0,
-        icon: typeConfig ? <typeConfig.icon className="h-4 w-4" /> : null
-      }
+        icon: typeConfig ? <typeConfig.icon className="h-4 w-4" /> : null      }
       typeSales.set(orderType, {
         name: typeName,
-        sales: existing.sales + order.finalAmount,
+        sales: existing.sales + (order.finalAmount || 0),
         orders: existing.orders + 1,
         icon: existing.icon || (typeConfig ? <typeConfig.icon className="h-4 w-4" /> : null)
       })
@@ -1792,7 +1916,7 @@ export default function DashboardPage() {
 
         {/* Ranking Panel - Shows additional insights */}
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* Top Restaurants (if not already shown) */}
+          {/* Top Restaurants */}
           {activeAnalyticsView !== 'restaurants' && restaurantRankingData.length > 0 && (
             <RankingAndComparisonPanel
               title="Top Restaurants"
@@ -1805,7 +1929,7 @@ export default function DashboardPage() {
             />
           )}
 
-          {/* Top Waiters (if not already shown) */}
+          {/* Top Waiters */}
           {activeAnalyticsView !== 'waiters' && waiterRankingData.length > 0 && (
             <RankingAndComparisonPanel
               title="Top Performing Waiters"
@@ -1818,7 +1942,7 @@ export default function DashboardPage() {
             />
           )}
 
-          {/* Order Type Distribution (if not already shown) */}
+          {/* Order Type Distribution */}
           {activeAnalyticsView !== 'orderTypes' && orderTypeRankingData.length > 0 && (
             <RankingAndComparisonPanel
               title="Order Type Distribution"
@@ -1832,7 +1956,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Recent Orders Table - Show ALL orders now */}
+        {/* Recent Orders Table */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -1841,7 +1965,7 @@ export default function DashboardPage() {
                 <Badge variant="secondary" className="text-sm">
                   Total: {filteredOverviewOrders.length} orders
                 </Badge>
-                <Button variant="outline" size="sm" onClick={() => handleRefresh()} disabled={isRefreshing}>
+                <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                   Refresh
                 </Button>
@@ -1849,8 +1973,8 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md border">
-              <Table>
+            <div className="rounded-md border overflow-hidden">
+              <Table className="hidden md:table">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Order #</TableHead>
@@ -1865,7 +1989,7 @@ export default function DashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredOverviewOrders.map((order) => {
+                  {filteredOverviewOrders.slice(0, 50).map((order) => {
                     const restaurantName = getRestaurantDisplayName(order, waitresses, restaurants)
                     const orderType = order.inTable === true 
                       ? { icon: <Home className="h-3 w-3" />, label: "Dine In", color: "bg-green-100 text-green-800" }
@@ -1914,6 +2038,62 @@ export default function DashboardPage() {
                   )}
                 </TableBody>
               </Table>
+
+              {/* Mobile Card View */}
+              <div className="md:hidden space-y-3 p-2 bg-gray-50">
+                {filteredOverviewOrders.slice(0, 50).map((order) => {
+                  const restaurantName = getRestaurantDisplayName(order, waitresses, restaurants)
+                  const orderType = order.inTable === true 
+                    ? { icon: <Home className="h-3 w-3" />, label: "Dine In", color: "bg-green-100 text-green-800" }
+                    : order.delivery === true
+                    ? { icon: <Truck className="h-3 w-3" />, label: "Delivery", color: "bg-blue-100 text-blue-800" }
+                    : { icon: <Package2 className="h-3 w-3" />, label: "POS", color: "bg-purple-100 text-purple-800" }
+                  
+                  return (
+                    <div key={order._id} className="bg-white rounded-lg shadow-sm p-4" onClick={() => handleViewDetails(order)}>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-bold text-sm text-gray-800">#{order.orderNumber}</p>
+                          <p className="text-xs text-gray-500">{new Date(order.createdAt).toLocaleString()}</p>
+                        </div>
+                        <Badge className={STATUS_COLORS[order.status] || "bg-gray-100"}>{order.status}</Badge>
+                      </div>
+
+                      <div className="mt-3 space-y-2 text-sm text-gray-700">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Amount</span>
+                          <span className="font-semibold">{formatCurrency(order.finalAmount)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Waiter</span>
+                          <span>{order.waiterName || 'Unknown'}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Restaurant</span>
+                          <span>{restaurantName}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Type</span>
+                          <Badge className={`${orderType.color} font-normal`}>{orderType.label}</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {filteredOverviewOrders.length === 0 && (
+                <div className="md:hidden text-center py-12">
+                  <ShoppingCart className="mx-auto h-12 w-12 text-gray-300" />
+                  <p className="mt-4 text-sm text-gray-500">No orders found</p>
+                </div>
+              )}
+
+              {filteredOverviewOrders.length === 0 && (
+                <Table className="hidden md:table">
+                  <TableBody><TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No orders found for the selected criteria</TableCell></TableRow></TableBody>
+                </Table>
+              )}
             </div>
           </CardContent>
         </Card>

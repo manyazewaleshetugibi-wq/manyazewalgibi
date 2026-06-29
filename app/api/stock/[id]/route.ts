@@ -14,15 +14,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const client = await clientPromise;
     const db = client.db("gold");
+    // Still check if stock exists but don't return data
     const stock = await db.collection("stocks").findOne({ _id: new ObjectId(id) });
 
     if (!stock) {
       return createResponse(404, false, "Stock not found");
     }
 
-    return createResponse(200, true, "Stock retrieved successfully", stock);
+    return createResponse(200, true, "Stock retrieved successfully", null);
   } catch (error) {
-    console.error("GET /stock/[id] Error:", error);
     return createResponse(500, false, "Internal Server Error");
   }
 }
@@ -66,9 +66,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return createResponse(404, false, "Stock not found");
     }
 
-    return createResponse(200, true, "Stock updated successfully", { modifiedCount: result.modifiedCount });
+    return createResponse(200, true, "Stock updated successfully", null);
   } catch (error) {
-    console.error("PUT /stock/[id] Error:", error);
     return createResponse(400, false, "Invalid request data", error instanceof Error ? error.message : null);
   }
 }
@@ -89,9 +88,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return createResponse(404, false, "Stock not found");
     }
 
-    return createResponse(200, true, "Stock deleted successfully");
+    return createResponse(200, true, "Stock deleted successfully", null);
   } catch (error) {
-    console.error("DELETE /stock/[id] Error:", error);
     return createResponse(500, false, "Internal Server Error");
   }
 }

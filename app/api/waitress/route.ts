@@ -1,3 +1,6 @@
+
+
+
 // app/api/waitress/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
@@ -19,31 +22,33 @@ interface PosUser {
     waitresses?: boolean;
 }
 
-// Helper function to serialize MongoDB documents
-function serializeWaitress(waitress: any) {
-    return {
-        ...waitress,
-        _id: waitress._id?.toString(),
-        userId: waitress.userId?.toString(),
-        createdAt: waitress.createdAt?.toISOString(),
-        updatedAt: waitress.updatedAt?.toISOString(),
-        registrationDate: waitress.registrationDate?.toISOString()
-    };
+// Define the response type without email
+interface WaitressResponse {
+    _id: ObjectId;
+    name: string;
+    phone: string;
+    shift: string;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+    userId?: ObjectId;
+    role?: string;
+    registeredFromUser?: boolean;
+    registrationDate?: Date;
+    // email is EXCLUDED from response
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
         const client = await clientPromise;
         const db = client.db("gold");
 
         // --- Automatic registration of POS users as waitresses ---
-        // Use aggregation for better performance instead of multiple queries
-        
-        // 1. Get all users with "pos" role (limit to reasonable number)
+        // 1. Get all users with "pos" role
         const posUsers = await db.collection<PosUser>(USERS_COLLECTION_NAME)
             .find({ role: "pos", waitresses: { $ne: true } })
-            .project({ password: 0, __v: 0 }) // Exclude unnecessary fields
-            .limit(1000) // Prevent overload
+            .project({ password: 0, __v: 0 })
+            .limit(1000)
             .toArray();
 
         // 2. Get all existing waitresses who were registered from a user account
@@ -85,7 +90,7 @@ export async function GET() {
         // 4. Batch insert new waitresses if any
         if (newWaitressesToRegister.length > 0) {
             await db.collection<Waitress>(COLLECTION_NAME).insertMany(newWaitressesToRegister, {
-                ordered: false // Continue even if some fail
+                ordered: false
             });
         }
 
@@ -101,23 +106,33 @@ export async function GET() {
             }
         }
 
-        // 6. Fetch all waitresses with projection for better performance
+        // 6. Get all waitresses and EXCLUDE email field from response
         const allWaitresses = await db.collection<Waitress>(COLLECTION_NAME)
             .find({})
-            .project({ _id: 1, name: 1, phone: 1, shift: 1, isActive: 1, email: 1, role: 1, userId: 1, createdAt: 1 })
-            .limit(1000) // Limit results
+            .sort({ name: 1 })
+            .project({ 
+                email: 0 // Explicitly exclude email field
+            })
             .toArray();
 
-        // 7. Serialize and return
-        const serializedWaitresses = allWaitresses.map(serializeWaitress);
-        
-        return NextResponse.json(serializedWaitresses, { status: 200 });
+        // 7. Return success with data (email excluded)
+        return NextResponse.json({ 
+            success: true,
+            data: allWaitresses,
+            message: "Waitress data retrieved and synchronized successfully",
+            count: newWaitressesToRegister.length
+        }, { status: 200 });
         
     } catch (error) {
         console.error('Error fetching waitresses:', error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
         return NextResponse.json(
-            { message: "Error fetching waitresses", error: errorMessage }, 
+            { 
+                success: false, 
+                message: "Error fetching waitresses", 
+                error: errorMessage,
+                data: [] 
+            }, 
             { status: 500 }
         );
     }
@@ -130,7 +145,11 @@ export async function POST(req: NextRequest) {
 
         if (!name || !phone || !shift) {
             return NextResponse.json(
-                { message: "Missing required fields", required: ["name", "phone", "shift"] }, 
+                { 
+                    success: false,
+                    message: "Missing required fields", 
+                    required: ["name", "phone", "shift"] 
+                }, 
                 { status: 400 }
             );
         }
@@ -156,15 +175,29 @@ export async function POST(req: NextRequest) {
         
         if (existing) {
             return NextResponse.json(
-                { message: "Waitress with this name and phone already exists" }, 
+                { 
+                    success: false,
+                    message: "Waitress with this name and phone already exists" 
+                }, 
                 { status: 409 }
             );
         }
         
-        await db.collection(COLLECTION_NAME).insertOne(newWaitress);
+        const result = await db.collection(COLLECTION_NAME).insertOne(newWaitress);
+
+        // Get the created waitress WITHOUT email
+        const createdWaitress = await db.collection(COLLECTION_NAME)
+            .findOne(
+                { _id: result.insertedId },
+                { projection: { email: 0 } } // Exclude email
+            );
 
         return NextResponse.json(
-            { message: "Waitress added successfully", data: serializeWaitress(newWaitress) }, 
+            { 
+                success: true,
+                data: createdWaitress,
+                message: "Waitress added successfully" 
+            }, 
             { status: 201 }
         );
         
@@ -172,7 +205,11 @@ export async function POST(req: NextRequest) {
         console.error('Error adding waitress:', error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
         return NextResponse.json(
-            { message: "Error adding waitress", error: errorMessage }, 
+            { 
+                success: false,
+                message: "Error adding waitress", 
+                error: errorMessage 
+            }, 
             { status: 500 }
         );
     }

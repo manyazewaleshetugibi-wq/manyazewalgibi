@@ -113,17 +113,27 @@ const isOrderEdited = (order: Order): boolean => {
   return !!(order.orderItems && order.orderItems.length > 0)
 }
 
-// Fetch restaurants - NO TIMEOUT
-const fetchRestaurants = async (): Promise<Restaurant[]> => {
+// ========== SAFE DATA EXTRACTOR ==========
+const extractData = <T,>(response: any, fallback: T[] = []): T[] => {
   try {
-    const response = await api.get('/restaurants')
-    if (response.data.success && Array.isArray(response.data.data)) {
-      return response.data.data.filter((r: Restaurant) => r.isActive !== false)
+    // Check various response formats
+    if (response?.data?.data && Array.isArray(response.data.data)) {
+      return response.data.data
     }
-    return []
+    if (response?.data && Array.isArray(response.data)) {
+      return response.data
+    }
+    if (Array.isArray(response)) {
+      return response
+    }
+    // Check if response has success flag and data
+    if (response?.data?.success && response.data.data) {
+      return Array.isArray(response.data.data) ? response.data.data : fallback
+    }
+    return fallback
   } catch (error) {
-    console.error("Error fetching restaurants:", error)
-    return []
+    console.error('Error extracting data:', error)
+    return fallback
   }
 }
 
@@ -285,6 +295,42 @@ export default function OrderManagementMain() {
     [isAdmin, itemsPerPage]
   )
 
+  // ========== FETCH WAITRESSES - FIXED ==========
+  const fetchWaitresses = useCallback(async () => {
+    try {
+      const response = await api.get('/waitress')
+      
+      if (isMountedRef.current) {
+        // Use the extractor to safely get waitresses data
+        const waitressesData = extractData<Waitress>(response, [])
+        setWaitresses(waitressesData)
+        console.log(`✅ Loaded ${waitressesData.length} waitresses`)
+      }
+    } catch (error: any) {
+      console.error("Error fetching waitresses:", error)
+      if (isMountedRef.current) {
+        setWaitresses([])
+      }
+    }
+  }, [])
+
+  // ========== LOAD RESTAURANTS - FIXED ==========
+  const loadRestaurants = useCallback(async () => {
+    try {
+      const response = await api.get('/restaurants')
+      if (isMountedRef.current) {
+        // Extract data from the response
+        const restaurantsData = extractData<Restaurant>(response, [])
+        setRestaurants(restaurantsData)
+        console.log(`✅ Loaded ${restaurantsData.length} restaurants`)
+      }
+    } catch (error) {
+      console.error("Error loading restaurants:", error)
+    } finally {
+      if (isMountedRef.current) setLoadingRestaurants(false)
+    }
+  }, [])
+
   // ========== CHECK PENDING STOCK ORDERS ==========
   const checkPendingStockOrders = useCallback(async () => {
     try {
@@ -339,7 +385,7 @@ export default function OrderManagementMain() {
     }
   }, [])
 
-  // ========== HANDLE PROCESS STOCK - FIXED ==========
+  // ========== HANDLE PROCESS STOCK ==========
   const handleProcessStock = useCallback(async () => {
     setProcessingStock(true)
     setStockError(null)
@@ -364,7 +410,7 @@ export default function OrderManagementMain() {
           await safePlaySound()
         }
         
-        // Show failed orders - SAFELY HANDLED
+        // Show failed orders
         if (failed > 0) {
           toast.error(`⚠️ ${failed} orders failed to process`, { duration: 8000 })
           
@@ -389,12 +435,10 @@ export default function OrderManagementMain() {
                 const errorMsg = err.error || 'Unknown error'
                 toast.error(`Order ${orderNumber}: ${errorMsg}`, { duration: 5000 })
               } catch (toastError) {
-                // If individual toast fails, continue
                 console.warn('Failed to show toast for error:', toastError)
               }
             }
             
-            // If there are more than 3 errors, show a summary
             if (errors.length > 3) {
               toast.error(`Plus ${errors.length - 3} more orders failed`, { 
                 duration: 5000,
@@ -435,7 +479,6 @@ export default function OrderManagementMain() {
       toast.dismiss(loadingToast)
       console.error('Error processing stock:', error)
       
-      // Safe error message display
       let errorMessage = 'Failed to process stock. Please try again.'
       if (error.response?.status === 500) {
         errorMessage = 'Server connection issue. Please try again in a moment.'
@@ -509,36 +552,6 @@ export default function OrderManagementMain() {
     }, 30000)
     return () => clearInterval(interval)
   }, [checkPendingStockOrders])
-
-  // ========== FETCH WAITRESSES ==========
-  const fetchWaitresses = useCallback(async () => {
-    try {
-      const response = await api.get('/waitress')
-      
-      if (isMountedRef.current) {
-        setWaitresses(response.data || [])
-      }
-    } catch (error: any) {
-      console.error("Error fetching waitresses:", error)
-      if (isMountedRef.current) {
-        setWaitresses([])
-      }
-    }
-  }, [])
-
-  // ========== LOAD RESTAURANTS ==========
-  const loadRestaurants = useCallback(async () => {
-    try {
-      const data = await fetchRestaurants()
-      if (isMountedRef.current) {
-        setRestaurants(data)
-      }
-    } catch (error) {
-      console.error("Error loading restaurants:", error)
-    } finally {
-      if (isMountedRef.current) setLoadingRestaurants(false)
-    }
-  }, [])
 
   // ========== POLL NEW ORDERS ==========
   const pollNewOrders = useCallback(async () => {
@@ -926,13 +939,13 @@ export default function OrderManagementMain() {
   const filteredAndSortedOrders = useMemo(() => {
     let filtered = orders.filter((order) => {
       // Skip deleted orders
-      if (order.deletedAt) return false
+      if (order.deletedAt) return false;
 
       // For non-admin users: Hide CANCELLED orders and limit completed orders to last 5
       if (!isAdmin) {
         // Hide cancelled orders
         if (order.status === "CANCELLED") {
-          return false
+          return false;
         }
 
         // Limit completed orders to last 5
@@ -940,12 +953,12 @@ export default function OrderManagementMain() {
           // Get all completed orders sorted by createdAt desc
           const completedOrders = orders
             .filter(o => o.status === "COMPLETED" && !o.deletedAt)
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
           
           // Only keep the 5 most recent completed orders
-          const completedOrderIds = completedOrders.slice(0, 5).map(o => o._id)
+          const completedOrderIds = completedOrders.slice(0, 5).map(o => o._id);
           if (!completedOrderIds.includes(order._id)) {
-            return false
+            return false;
           }
         }
       }
@@ -954,135 +967,135 @@ export default function OrderManagementMain() {
       if (stockStatusFilter !== "ALL") {
         if (order.status !== "COMPLETED") {
           // If not completed, only show if filter is ALL
-          if (stockStatusFilter !== "ALL") return false
+          if (stockStatusFilter !== "ALL") return false;
         } else {
           // For completed orders, apply stock status filter
-          const isProcessed = order.stockProcessed === true
-          const isFailed = !!order.stockProcessingError
-          const isPending = !isProcessed && !isFailed
+          const isProcessed = order.stockProcessed === true;
+          const isFailed = !!order.stockProcessingError;
+          const isPending = !isProcessed && !isFailed;
           
-          if (stockStatusFilter === "PROCESSED" && !isProcessed) return false
-          if (stockStatusFilter === "FAILED" && !isFailed) return false
-          if (stockStatusFilter === "PENDING" && !isPending) return false
+          if (stockStatusFilter === "PROCESSED" && !isProcessed) return false;
+          if (stockStatusFilter === "FAILED" && !isFailed) return false;
+          if (stockStatusFilter === "PENDING" && !isPending) return false;
         }
       }
 
       const matchesSearch =
         order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
         order.tableNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (order.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) || false)
+        (order.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
 
-      const matchesStatus = !statusFilter || order.status === statusFilter
-      const matchesWaitress = !waitressFilter || order.waiterId === waitressFilter
-      const matchesDate = !dateFilter || new Date(order.createdAt).toDateString() === dateFilter.toDateString()
+      const matchesStatus = !statusFilter || order.status === statusFilter;
+      const matchesWaitress = !waitressFilter || order.waiterId === waitressFilter;
+      const matchesDate = !dateFilter || new Date(order.createdAt).toDateString() === dateFilter.toDateString();
       const matchesType = !orderTypeFilter ||
         (orderTypeFilter === "intable" && order.inTable === true) ||
         (orderTypeFilter === "delivery" && order.delivery === true) ||
-        (orderTypeFilter === "pos" && !order.inTable && !order.delivery)
-      const matchesMarked = !showMarkedOnly || order.markedForDeletion === true
+        (orderTypeFilter === "pos" && !order.inTable && !order.delivery);
+      const matchesMarked = !showMarkedOnly || order.markedForDeletion === true;
 
       // Restaurant filtering logic
-      let matchesRestaurant = true
+      let matchesRestaurant = true;
       if (restaurantFilter && restaurantFilter !== "all" && restaurantFilter !== "All") {
-        let orderRestaurantId = null
+        let orderRestaurantId = null;
         
         if (order.restaurantId) {
-          orderRestaurantId = order.restaurantId
+          orderRestaurantId = order.restaurantId;
         } 
         else if (order.restaurantName && restaurants.length > 0) {
           const matchingRestaurant = restaurants.find(r => 
             r.name === order.restaurantName || 
             order.restaurantName?.includes(r.name) ||
             r.name?.includes(order.restaurantName || "")
-          )
+          );
           if (matchingRestaurant) {
-            orderRestaurantId = matchingRestaurant._id
+            orderRestaurantId = matchingRestaurant._id;
           }
         }
         else if (order.restaurantName?.includes("Manyazewal 1") || order.restaurantName === "Manyazewal Eshetu Gibi 1") {
-          orderRestaurantId = "manyazewal1"
+          orderRestaurantId = "manyazewal1";
         }
         else if (order.restaurantName?.includes("Manyazewal 2") || order.restaurantName === "Manyazewal Eshetu Gibi 2") {
-          orderRestaurantId = "manyazewal2"
+          orderRestaurantId = "manyazewal2";
         }
         
-        matchesRestaurant = orderRestaurantId === restaurantFilter
+        matchesRestaurant = orderRestaurantId === restaurantFilter;
         
         if (!matchesRestaurant && order.restaurantName) {
-          const restaurant = restaurants.find(r => r._id === restaurantFilter)
+          const restaurant = restaurants.find(r => r._id === restaurantFilter);
           if (restaurant && order.restaurantName === restaurant.name) {
-            matchesRestaurant = true
+            matchesRestaurant = true;
           }
         }
       }
 
       return matchesSearch && matchesStatus && matchesWaitress && matchesDate && 
-             matchesType && matchesRestaurant && matchesMarked
-    })
+             matchesType && matchesRestaurant && matchesMarked;
+    });
 
     filtered.sort((a, b) => {
-      const aValue = a[sortField]
-      const bValue = b[sortField]
-      if (aValue === bValue) return 0
-      if (aValue === undefined || aValue === null) return 1
-      if (bValue === undefined || bValue === null) return -1
-      if (aValue < bValue) return sortDirection === "asc" ? -1 : 1
-      if (aValue > bValue) return sortDirection === "asc" ? 1 : -1
-      return 0
-    })
+      const aValue = a[sortField];
+      const bValue = b[sortField];
+      if (aValue === bValue) return 0;
+      if (aValue === undefined || aValue === null) return 1;
+      if (bValue === undefined || bValue === null) return -1;
+      if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
+      if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
 
-    return filtered
+    return filtered;
   }, [orders, searchTerm, statusFilter, waitressFilter, restaurantFilter, dateFilter, 
-      orderTypeFilter, sortField, sortDirection, showMarkedOnly, restaurants, isAdmin, stockStatusFilter])
+      orderTypeFilter, sortField, sortDirection, showMarkedOnly, restaurants, isAdmin, stockStatusFilter]);
 
   useEffect(() => {
-    setTotalPages(Math.ceil(filteredAndSortedOrders.length / itemsPerPage))
-    setCurrentPage(1)
-  }, [filteredAndSortedOrders.length, itemsPerPage])
+    setTotalPages(Math.ceil(filteredAndSortedOrders.length / itemsPerPage));
+    setCurrentPage(1);
+  }, [filteredAndSortedOrders.length, itemsPerPage]);
 
   const paginatedOrders = useMemo(() => {
     return filteredAndSortedOrders.slice(
       (currentPage - 1) * itemsPerPage,
       currentPage * itemsPerPage
-    )
-  }, [filteredAndSortedOrders, currentPage, itemsPerPage])
+    );
+  }, [filteredAndSortedOrders, currentPage, itemsPerPage]);
 
   const handleClearFilters = useCallback(() => {
-    setSearchTerm("")
-    setStatusFilter(null)
-    setWaitressFilter(null)
-    setRestaurantFilter(null)
-    setOrderTypeFilter(null)
-    setDateFilter(null)
-    setShowMarkedOnly(false)
-    setStockStatusFilter("ALL")
-  }, [])
+    setSearchTerm("");
+    setStatusFilter(null);
+    setWaitressFilter(null);
+    setRestaurantFilter(null);
+    setOrderTypeFilter(null);
+    setDateFilter(null);
+    setShowMarkedOnly(false);
+    setStockStatusFilter("ALL");
+  }, []);
 
   // ========== INITIALIZE ==========
   useEffect(() => {
-    isMountedRef.current = true
+    isMountedRef.current = true;
     
     const initialize = async () => {
       await Promise.allSettled([
         fetchOrders(true),
         loadRestaurants(),
         fetchWaitresses()
-      ])
+      ]);
       
       pollingIntervalRef.current = setInterval(() => {
-        pollNewOrders()
-      }, 30000)
-    }
+        pollNewOrders();
+      }, 30000);
+    };
     
-    initialize()
+    initialize();
     
     return () => {
-      isMountedRef.current = false
+      isMountedRef.current = false;
       if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current)
+        clearInterval(pollingIntervalRef.current);
       }
-    }
-  }, [fetchOrders, fetchWaitresses, loadRestaurants, pollNewOrders])
+    };
+  }, [fetchOrders, fetchWaitresses, loadRestaurants, pollNewOrders]);
 
   // ========== STATUS OPTIONS ==========
   const statusOptions: OrderStatus[] = [
@@ -1093,7 +1106,7 @@ export default function OrderManagementMain() {
     "SERVED",
     "COMPLETED",
     "CANCELLED",
-  ]
+  ];
 
   const statusIcons: Record<OrderStatus, React.ReactNode> = {
     PENDING: <Clock className="h-4 w-4" />,
@@ -1103,7 +1116,7 @@ export default function OrderManagementMain() {
     SERVED: <span className="h-4 w-4">☕</span>,
     COMPLETED: <CheckCircle className="h-4 w-4" />,
     CANCELLED: <XCircle className="h-4 w-4" />,
-  }
+  };
 
   const statusColors: Record<OrderStatus, string> = {
     PENDING: "bg-yellow-100 text-yellow-800",
@@ -1113,7 +1126,7 @@ export default function OrderManagementMain() {
     SERVED: "bg-green-100 text-green-800",
     COMPLETED: "bg-teal-100 text-teal-800",
     CANCELLED: "bg-red-100 text-red-800",
-  }
+  };
 
   const getOrderTypeDisplay = (order: Order) => {
     if (order.inTable === true) {
@@ -1122,27 +1135,27 @@ export default function OrderManagementMain() {
           <Home className="h-3 w-3 mr-1" />
           In-Table
         </Badge>
-      )
+      );
     } else if (order.delivery === true) {
       return (
         <Badge variant="outline" className="bg-blue-100 text-blue-800">
           <Truck className="h-3 w-3 mr-1" />
           Delivery
         </Badge>
-      )
+      );
     } else {
       return (
         <Badge variant="outline" className="bg-purple-100 text-purple-800">
           <ShoppingBag className="h-3 w-3 mr-1" />
           POS
         </Badge>
-      )
+      );
     }
-  }
+  };
 
   const getRestaurantDisplay = (order: Order) => {
-    const orderRestaurantId = getOrderRestaurantId(order)
-    const restaurant = getRestaurantById(restaurants, orderRestaurantId || undefined)
+    const orderRestaurantId = getOrderRestaurantId(order);
+    const restaurant = getRestaurantById(restaurants, orderRestaurantId || undefined);
     
     if (restaurant) {
       return (
@@ -1150,7 +1163,7 @@ export default function OrderManagementMain() {
           <Building2 className="h-3 w-3 mr-1" />
           {restaurant.name}
         </Badge>
-      )
+      );
     }
     
     if (order.restaurantName) {
@@ -1159,7 +1172,7 @@ export default function OrderManagementMain() {
           <Building2 className="h-3 w-3 mr-1" />
           {order.restaurantName}
         </Badge>
-      )
+      );
     }
     
     return (
@@ -1167,8 +1180,8 @@ export default function OrderManagementMain() {
         <Building2 className="h-3 w-3 mr-1" />
         Unknown
       </Badge>
-    )
-  }
+    );
+  };
 
   if (!session) {
     return (
@@ -1180,7 +1193,7 @@ export default function OrderManagementMain() {
           <Button onClick={() => (window.location.href = "/login")}>Go to Login</Button>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -1381,9 +1394,9 @@ export default function OrderManagementMain() {
             </thead>
             <tbody>
               {paginatedOrders.map((order) => {
-                const waitress = waitresses.find((w) => w._id === order.waiterId)
-                const displayItems = order.orderItems || order.items
-                const lockedCount = displayItems.filter((item) => item.isUneditable).length
+                const waitress = waitresses.find((w) => w._id === order.waiterId);
+                const displayItems = order.orderItems || order.items || [];
+                const lockedCount = displayItems.filter((item) => item.isUneditable).length;
 
                 return (
                   <TableRow key={order._id} className={order.markedForDeletion ? "bg-yellow-50/50" : ""}>
@@ -1443,8 +1456,8 @@ export default function OrderManagementMain() {
                               </div>
                             ) : (
                               <div className="text-yellow-600 px-2 py-1.5 text-sm cursor-pointer" onClick={() => {
-                                const reason = prompt("Please provide a reason:")
-                                if (reason) handleMarkForDeletion(order._id, reason)
+                                const reason = prompt("Please provide a reason:");
+                                if (reason) handleMarkForDeletion(order._id, reason);
                               }}>
                                 <Flag className="mr-2 h-4 w-4 inline" />Mark for Deletion
                               </div>
@@ -1462,7 +1475,7 @@ export default function OrderManagementMain() {
                       </div>
                     </TableCell>
                   </TableRow>
-                )
+                );
               })}
             </tbody>
           </table>
@@ -1494,8 +1507,8 @@ export default function OrderManagementMain() {
           <PaginationContent>
             <PaginationItem><PaginationPrevious onClick={() => setCurrentPage(p => Math.max(1, p-1))} className={currentPage === 1 ? "opacity-50" : "cursor-pointer"} /></PaginationItem>
             {[...Array(Math.min(totalPages, 5))].map((_, i) => {
-              let pageNum = totalPages <= 5 ? i+1 : currentPage <= 3 ? i+1 : currentPage >= totalPages-2 ? totalPages-4+i : currentPage-2+i
-              return <PaginationItem key={pageNum}><PaginationLink onClick={() => setCurrentPage(pageNum)} isActive={currentPage === pageNum}>{pageNum}</PaginationLink></PaginationItem>
+              let pageNum = totalPages <= 5 ? i+1 : currentPage <= 3 ? i+1 : currentPage >= totalPages-2 ? totalPages-4+i : currentPage-2+i;
+              return <PaginationItem key={pageNum}><PaginationLink onClick={() => setCurrentPage(pageNum)} isActive={currentPage === pageNum}>{pageNum}</PaginationLink></PaginationItem>;
             })}
             <PaginationItem><PaginationNext onClick={() => setCurrentPage(p => Math.min(totalPages, p+1))} className={currentPage === totalPages ? "opacity-50" : "cursor-pointer"} /></PaginationItem>
           </PaginationContent>
@@ -1504,5 +1517,5 @@ export default function OrderManagementMain() {
 
       <StockConfirmDialogComponent />
     </div>
-  )
+  );
 }

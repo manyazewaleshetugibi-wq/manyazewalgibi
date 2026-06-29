@@ -118,7 +118,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ✅ USE FRONTEND VALUES instead of recalculating
     const subtotalFromFrontend = body.subtotal || 0;      // Price without tax
     const taxFromFrontend = body.tax || 0;                // Tax amount
     const totalAmountFromFrontend = body.totalAmount || 0; // Price with tax

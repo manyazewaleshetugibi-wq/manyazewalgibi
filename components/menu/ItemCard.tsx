@@ -18,7 +18,7 @@ interface ItemCardProps {
   onAddToCart: (item: Item) => void
   onViewDetails: (item: Item) => void
   isUserLoggedIn: boolean
-  onLoginRequired?: (message: string) => void // Made optional for guest access
+  onLoginRequired?: (message: string) => void
   index?: number
 }
 
@@ -55,17 +55,13 @@ export function ItemCard({
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation()
     
-    // Check if item is available
     if (item.isActive === false) {
       toast.error(`Sorry, ${item.name} is currently unavailable`)
       return
     }
     
-    // Allow adding to cart regardless of login status
-    // Guest users can add items, they'll be prompted to login at checkout
     onAddToCart(item)
     
-    // Show appropriate success message
     if (!isUserLoggedIn) {
       toast.success(`Added ${item.name} to cart as guest`, {
         icon: '🛒',
@@ -91,7 +87,23 @@ export function ItemCard({
     }
   }
 
-  // ----- DESKTOP NUTRITIONAL LIST (compact, readable) -----
+  // Function to dynamically adjust font size based on text length
+  const getDynamicFontSize = (text: string, isMobile: boolean = false) => {
+    const length = text.length
+    if (isMobile) {
+      if (length <= 15) return 'text-[11px]'
+      if (length <= 25) return 'text-[10px]'
+      if (length <= 35) return 'text-[9px]'
+      return 'text-[8px]'
+    } else {
+      if (length <= 15) return 'text-xs'
+      if (length <= 25) return 'text-[10px]'
+      if (length <= 35) return 'text-[9px]'
+      return 'text-[8px]'
+    }
+  }
+
+  // DESKTOP NUTRITIONAL LIST
   const DesktopNutritionalList = () => (
     <div className="space-y-0.5">
       <div className="flex items-center justify-between">
@@ -133,53 +145,10 @@ export function ItemCard({
     </div>
   )
 
-  // ----- MOBILE NUTRITIONAL LIST (ultra tiny, minimal height) -----
-  const MobileNutritionalList = () => (
-    <div className="space-y-0 leading-none">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-0.5">
-          <Flame className="h-1.5 w-1.5 text-orange-500" />
-          <span className="text-[6px] font-medium text-gray-500">Cal</span>
-        </div>
-        <span className="text-[7px] font-semibold text-gray-800">
-          {nutritionalInfo.calories}<span className="text-[4px] font-normal text-gray-400">kcal</span>
-        </span>
-      </div>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-0.5">
-          <Beef className="h-1.5 w-1.5 text-red-500" />
-          <span className="text-[6px] font-medium text-gray-500">Pro</span>
-        </div>
-        <span className="text-[7px] font-semibold text-gray-800">
-          {nutritionalInfo.protein}<span className="text-[4px] font-normal text-gray-400">g</span>
-        </span>
-      </div>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-0.5">
-          <Wheat className="h-1.5 w-1.5 text-amber-600" />
-          <span className="text-[6px] font-medium text-gray-500">Carbs</span>
-        </div>
-        <span className="text-[7px] font-semibold text-gray-800">
-          {nutritionalInfo.carbs}<span className="text-[4px] font-normal text-gray-400">g</span>
-        </span>
-      </div>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-0.5">
-          <Milk className="h-1.5 w-1.5 text-blue-500" />
-          <span className="text-[6px] font-medium text-gray-500">Fat</span>
-        </div>
-        <span className="text-[7px] font-semibold text-gray-800">
-          {nutritionalInfo.fat}<span className="text-[4px] font-normal text-gray-400">g</span>
-        </span>
-      </div>
-    </div>
-  )
-
-  // Helper function to render cart button
   const renderAddToCartButton = (isMobileVersion: boolean = false) => {
     const buttonContent = isMobileVersion ? (
       <>
-        <ShoppingCart className="h-1.5 w-1.5" />
+        <ShoppingCart className="h-3 w-3" />
         <span>Add</span>
       </>
     ) : (
@@ -195,7 +164,7 @@ export function ItemCard({
           whileTap={{ scale: 0.95 }}
           onClick={handleAddToCart}
           disabled={item.isActive === false}
-          className={`flex items-center justify-center gap-0.5 rounded-full px-1 py-0.5 text-[6px] font-medium transition-all active:scale-95 ${
+          className={`flex items-center justify-center gap-1 rounded-full px-2 py-1 text-[9px] font-medium transition-all active:scale-95 flex-shrink-0 ${
             item.isActive === false
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
               : 'bg-gradient-to-r from-purple-700 to-purple-800 text-white shadow-sm'
@@ -210,7 +179,7 @@ export function ItemCard({
       <Button
         onClick={handleAddToCart}
         disabled={item.isActive === false}
-        className={`rounded-full px-2 py-0 text-[9px] font-medium transition-all h-6 ${
+        className={`rounded-full px-2 py-0 text-[9px] font-medium transition-all h-6 flex-shrink-0 ${
           item.isActive === false
             ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
             : 'bg-gradient-to-r from-purple-700 to-purple-800 text-white shadow-sm hover:shadow-md hover:scale-105'
@@ -221,8 +190,10 @@ export function ItemCard({
     )
   }
 
-  // ----- MOBILE VERSION (super compact – fits 5+ cards per screen) -----
+  // MOBILE VERSION - No truncation, dynamic font sizes, category and time removed
   if (isMobile) {
+    const dynamicFontSize = getDynamicFontSize(item.name, true)
+    
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -231,8 +202,7 @@ export function ItemCard({
         className="touch-manipulation"
       >
         <div className="overflow-hidden bg-white shadow-sm rounded-xl active:scale-[0.98] transition-transform duration-150">
-          {/* Image section – minimized height (h-16 = 64px) */}
-          <div className="relative h-16 overflow-hidden bg-white">
+          <div className="relative h-20 overflow-hidden bg-white">
             {!isImageLoaded && (
               <div className="absolute inset-0 bg-gradient-to-r from-gray-100 via-purple-50 to-gray-100 animate-pulse" />
             )}
@@ -249,62 +219,48 @@ export function ItemCard({
               }}
             />
             {item.isFeatured && (
-              <div className="absolute top-0.5 left-0.5 z-10">
-                <div className="bg-gradient-to-r from-amber-400 to-orange-500 text-white text-[5px] font-semibold px-1 py-0.5 rounded-full shadow-lg flex items-center gap-0.5 backdrop-blur-sm">
-                  <Sparkles className="h-1.5 w-1.5" />
+              <div className="absolute top-1 left-1 z-10">
+                <div className="bg-gradient-to-r from-amber-400 to-orange-500 text-white text-[6px] font-semibold px-1.5 py-0.5 rounded-full shadow-lg flex items-center gap-0.5 backdrop-blur-sm">
+                  <Sparkles className="h-2 w-2" />
                   <span>Featured</span>
                 </div>
               </div>
             )}
             {item.isActive === false && (
               <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-20">
-                <span className="bg-white/90 text-gray-800 text-[7px] font-semibold px-1 py-0.5 rounded-full">
+                <span className="bg-white/90 text-gray-800 text-[8px] font-semibold px-2 py-1 rounded-full">
                   Unavailable
                 </span>
               </div>
             )}
           </div>
 
-          {/* Content – ultra minimal padding */}
-          <div className="p-1">
-            {/* Title & category row – extremely tight */}
-            <div className="flex items-start justify-between gap-0.5">
+          <div className="p-2">
+            <div className="flex items-start justify-between gap-1">
               <div className="flex-1 min-w-0">
-                <h3 className="text-[10px] font-semibold text-gray-800 line-clamp-1 leading-tight">
+                {/* Item name - no truncation, dynamic font size */}
+                <h3 className={`${dynamicFontSize} font-semibold text-gray-800 leading-tight break-words`}>
                   {item.name}
                 </h3>
-                <div className="flex items-center gap-0.5 mt-0.5">
-                  <Badge variant="secondary" className="bg-purple-50 text-purple-700 border-0 rounded-full px-1 py-0 text-[6px] font-medium leading-none">
-                    {getCategoryIcon(categoryName, "h-1.5 w-1.5 mr-0.5")}
-                    <span className="ml-0.5">{categoryName}</span>
-                  </Badge>
-                  <div className="flex items-center gap-0.5 text-[5px] text-gray-400">
-                    <Clock className="h-1.5 w-1.5" />
-                    <span>{Number(item.preparationTime) || 0}m</span>
-                  </div>
-                </div>
+                {/* Category and time completely removed on mobile */}
               </div>
               <button
                 onClick={() => onViewDetails(item)}
-                className="p-0.5 rounded-full bg-gray-50 active:bg-gray-100 transition-colors"
+                className="p-1 rounded-full bg-gray-50 active:bg-gray-100 transition-colors flex-shrink-0"
                 aria-label="View details"
               >
-                <Eye className="h-2 w-2 text-gray-600" />
+                <Eye className="h-3 w-3 text-gray-600" />
               </button>
             </div>
 
-            {/* Nutritional list – ultra compact vertical */}
-            <div className="my-0.5 pt-0.5 border-t border-gray-50">
-              <MobileNutritionalList />
-            </div>
+            {/* NUTRITIONAL SECTION REMOVED ON MOBILE */}
 
-            {/* Price & Add to Cart – minimal height */}
-            <div className="flex items-center justify-between gap-0.5 pt-0.5 border-t border-gray-100 mt-0.5">
-              <div className="flex items-baseline gap-0.5">
-                <span className="text-[9px] font-bold text-purple-900">
+            <div className="flex items-center justify-between gap-1 pt-1.5 border-t border-gray-100 mt-1.5">
+              <div className="flex items-baseline gap-1">
+                <span className="text-[11px] font-bold text-purple-900">
                   {priceWithTax.toLocaleString()}
                 </span>
-                <span className="text-[5px] text-gray-400">ETB</span>
+                <span className="text-[7px] text-gray-400">ETB</span>
               </div>
               {renderAddToCartButton(true)}
             </div>
@@ -314,7 +270,9 @@ export function ItemCard({
     )
   }
 
-  // ----- DESKTOP VERSION (unchanged – compact & modern) -----
+  // DESKTOP VERSION - No truncation, dynamic font sizes
+  const dynamicFontSize = getDynamicFontSize(item.name, false)
+  
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -326,7 +284,6 @@ export function ItemCard({
     >
       <div className="group relative overflow-hidden border border-gray-100 bg-white shadow-sm hover:shadow-md transition-all duration-300 rounded-xl h-[180px]">
         <div className="flex h-full">
-          {/* Left: Image (55% width) */}
           <div className="relative w-[55%] overflow-hidden bg-white">
             {!isImageLoaded && (
               <div className="absolute inset-0 bg-gradient-to-r from-gray-100 via-purple-50 to-gray-100 animate-pulse" />
@@ -360,14 +317,14 @@ export function ItemCard({
             )}
           </div>
 
-          {/* Right: Content (45% width) */}
-          <div className="w-[45%] flex flex-col p-2">
+          <div className="w-[45%] flex flex-col p-2 min-w-0">
             <div className="flex items-start justify-between gap-1">
               <div className="flex-1 min-w-0">
-                <h3 className="text-xs font-semibold text-gray-800 mb-0.5 line-clamp-1 group-hover:text-purple-900 transition-colors">
+                {/* Item name - no truncation, dynamic font size */}
+                <h3 className={`${dynamicFontSize} font-semibold text-gray-800 mb-0.5 group-hover:text-purple-900 transition-colors leading-tight break-words`}>
                   {item.name}
                 </h3>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-wrap">
                   <Badge variant="secondary" className="bg-purple-50 text-purple-900 border-0 rounded-full px-1.5 py-0 text-[8px] font-medium">
                     {getCategoryIcon(categoryName, "h-2 w-2 mr-0.5")}
                     {categoryName}
@@ -378,7 +335,7 @@ export function ItemCard({
                   </div>
                 </div>
               </div>
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0">
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -402,6 +359,7 @@ export function ItemCard({
               </div>
             </div>
 
+            {/* DESKTOP NUTRITIONAL SECTION */}
             <div className="mt-1 mb-0.5">
               <DesktopNutritionalList />
             </div>

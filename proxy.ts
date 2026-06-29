@@ -2,223 +2,610 @@ import { NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import type { NextRequest } from "next/server";
 
-// Security configuration
-const SECURITY_CONFIG = {
-  blockedDomains: [
-    'bedpage.com',
-    'bedpage.',
-    'malicious.',
-    '.xyz',
-    '.top',
-    '.club',
-    '.click',
-    '.stream',
-    '.download',
-  ],
-  allowedRedirectProtocols: ['http:', 'https:'],
-  maxCallbackUrlLength: 500,
+// ============================================
+// ROLE-BASED ROUTE ACCESS CONTROL - STRICT
+// ============================================
+
+const ROLE_ROUTE_PERMISSIONS = {
+  ADMIN: {
+    routes: [
+      '/dashboard',
+      '/stock',
+      '/scategory',
+      '/stockReport',
+      '/purchase-request',
+      '/items',
+      '/catagory',
+      '/healthy-menu',
+      '/menu-profitability',
+      '/orders',
+      '/delivery',
+      '/blog',
+      '/contents',
+      '/applications',
+      '/sales',
+      '/expe',
+      '/profit',
+      '/training',
+      '/Pregister',
+      '/preparation',
+      '/Sregister',
+      '/standards',
+      '/staffregister',
+      '/waitress',
+      '/restaurants',
+      '/BirthDate',
+      '/prizes',
+      '/pos',
+      '/search',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+      '/table-arrangement',
+      '/feedback',
+      '/edit',
+      '/myorders',
+      '/expenses',
+    ],
+    apiRoutes: [
+      '/api/order',
+      '/api/orders',
+      '/api/items',
+      '/api/stock',
+      '/api/item-category',
+      '/api/categories',
+      '/api/users',
+      '/api/current',
+      '/api/restaurants',
+      '/api/sales',
+      '/api/expenses',
+      '/api/profit',
+      '/api/training',
+      '/api/blog',
+      '/api/contents',
+      '/api/delivery',
+      '/api/purchase-request',
+      '/api/scategory',
+      '/api/stockReport',
+      '/api/menu-profitability',
+      '/api/healthy-menu',
+      '/api/applications',
+      '/api/expe',
+      '/api/Pregister',
+      '/api/preparation',
+      '/api/Sregister',
+      '/api/standards',
+      '/api/staffregister',
+      '/api/waitress',
+      '/api/BirthDate',
+      '/api/prizes',
+      '/api/search',
+      '/api/daily-tasks',
+      '/api/table-arrangement',
+      '/api/feedback',
+      '/api/edit',
+      '/api/myorders',
+    ],
+    defaultRedirect: '/dashboard'
+  },
+  
+  KITCHEN: {
+    routes: [
+      '/dashboard',
+      '/orders',
+      '/delivery',
+      '/training',
+      '/preparation',
+      '/standards',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+      '/table-arrangement',
+    ],
+    apiRoutes: [
+      '/api/order',
+      '/api/orders',
+      '/api/delivery',
+      '/api/training',
+      '/api/preparation',
+      '/api/standards',
+      '/api/daily-tasks',
+      '/api/table-arrangement',
+    ],
+    defaultRedirect: '/orders'
+  },
+  
+  FB: {
+    routes: [
+      '/dashboard',
+      '/items',
+      '/catagory',
+      '/menu-profitability',
+      '/Pregister',
+      '/Sregister',
+      '/training',
+      '/preparation',
+      '/standards',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/items',
+      '/api/item-category',
+      '/api/categories',
+      '/api/menu-profitability',
+      '/api/Pregister',
+      '/api/Sregister',
+      '/api/training',
+      '/api/preparation',
+      '/api/standards',
+      '/api/daily-tasks',
+    ],
+    defaultRedirect: '/items'
+  },
+  
+  MARKETING: {
+    routes: [
+      '/dashboard',
+      '/blog',
+      '/contents',
+      '/training',
+      '/feedback',
+      '/standards',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/blog',
+      '/api/contents',
+      '/api/training',
+      '/api/feedback',
+      '/api/standards',
+      '/api/daily-tasks',
+    ],
+    defaultRedirect: '/blog'
+  },
+  
+  FINANCE: {
+    routes: [
+      '/dashboard',
+      '/stock',
+      '/scategory',
+      '/stockReport',
+      '/purchase-request',
+      '/sales',
+      '/expe',
+      '/profit',
+      '/training',
+      '/expenses',
+      '/standards',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/stock',
+      '/api/scategory',
+      '/api/stockReport',
+      '/api/purchase-request',
+      '/api/sales',
+      '/api/expe',
+      '/api/profit',
+      '/api/training',
+      '/api/expenses',
+      '/api/standards',
+      '/api/daily-tasks',
+    ],
+    defaultRedirect: '/dashboard'
+  },
+  
+  STOCK_MANAGER: {
+    routes: [
+      '/dashboard',
+      '/stock',
+      '/scategory',
+      '/stockReport',
+      '/purchase-request',
+      '/training',
+      '/standards',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/stock',
+      '/api/scategory',
+      '/api/stockReport',
+      '/api/purchase-request',
+      '/api/training',
+      '/api/standards',
+      '/api/daily-tasks',
+    ],
+    defaultRedirect: '/stock'
+  },
+  
+  PURCHASING: {
+    routes: [
+      '/dashboard',
+      '/purchase-request',
+      '/stock',
+      '/stockReport',
+      '/training',
+      '/standards',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/purchase-request',
+      '/api/stock',
+      '/api/stockReport',
+      '/api/training',
+      '/api/standards',
+      '/api/daily-tasks',
+    ],
+    defaultRedirect: '/purchase-request'
+  },
+  
+  DELIVERY: {
+    routes: [
+      '/dashboard',
+      '/delivery',
+      '/training',
+      '/standards',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/delivery',
+      '/api/orders',
+      '/api/training',
+      '/api/standards',
+      '/api/daily-tasks',
+    ],
+    defaultRedirect: '/delivery'
+  },
+  
+  POS: {
+    routes: [
+      '/dashboard',
+      '/pos',
+      '/edit',
+      '/myorders',
+      '/table-arrangement',
+      '/training',
+      '/standards',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/pos',
+      '/api/orders',
+      '/api/edit',
+      '/api/myorders',
+      '/api/table-arrangement',
+      '/api/training',
+      '/api/standards',
+      '/api/daily-tasks',
+    ],
+    defaultRedirect: '/pos'
+  },
+  
+  WAITRESS: {
+    routes: [
+      '/dashboard',
+      '/pos',
+      '/myorders',
+      '/table-arrangement',
+      '/training',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/pos',
+      '/api/orders',
+      '/api/myorders',
+      '/api/table-arrangement',
+      '/api/training',
+      '/api/daily-tasks',
+    ],
+    defaultRedirect: '/pos'
+  },
+  
+  DEFAULT: {
+    routes: [
+      '/dashboard',
+      '/training',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/training',
+      '/api/daily-tasks',
+    ],
+    defaultRedirect: '/dashboard'
+  }
 };
 
-// Security helper functions
-function validateRedirectUrl(urlString: string, baseOrigin: string): { 
-  valid: boolean; 
-  reason?: string; 
-} {
-  try {
-    const url = new URL(urlString);
-    
-    // 1. Check length
-    if (urlString.length > SECURITY_CONFIG.maxCallbackUrlLength) {
-      return { valid: false, reason: 'URL too long' };
-    }
-    
-    // 2. Check protocol
-    if (!SECURITY_CONFIG.allowedRedirectProtocols.includes(url.protocol)) {
-      return { valid: false, reason: 'Invalid protocol' };
-    }
-    
-    // 3. Check against blocked domains
-    const hostname = url.hostname.toLowerCase();
-    const isBlocked = SECURITY_CONFIG.blockedDomains.some(domain => {
-      if (domain.startsWith('.')) {
-        return hostname.endsWith(domain);
-      } else if (domain.endsWith('.')) {
-        return hostname.startsWith(domain);
-      } else {
-        return hostname === domain || hostname.includes(domain);
+// ============================================
+// PUBLIC ROUTES - COMPLETE LIST
+// All these pages are accessible WITHOUT login
+// ============================================
+
+const PUBLIC_ROUTES = [
+  '/',                // Home page
+  '/home',            // Home page
+  '/login',           // Login page
+  '/Register',        // Registration page
+  '/register',        // Registration page (lowercase)
+  '/belog',           // Blog page
+  '/Contact',         // ✅ Contact page - PUBLIC
+  '/contactus',       // ✅ Contact Us page - PUBLIC
+  '/about',           // About page - PUBLIC
+  '/blogs',           // Blogs page - PUBLIC
+  '/menu',            // Menu page - PUBLIC
+  '/auth/error',      // Auth error page
+  '/auth/signin',     // Sign in page
+  '/auth/signup',     // Sign up page
+  '/api/auth',        // Auth API routes
+  '/api/auth/change-password-first',
+  '/api/auth/session',
+  '/api/auth/signout',
+  '/_next/',          // Next.js internal
+  '/favicon.ico',
+  '/manifest.json',
+  '/robots.txt',
+  '/sitemap.xml',
+  '/api/auth/callback',
+  '/api/auth/providers',
+  '/api/auth/csrf',
+];
+
+const AUTH_SKIP_ROUTES = [
+  '/api/auth',
+  '/_next',
+  '/favicon.ico',
+  '/manifest.json',
+  '/robots.txt',
+  '/sitemap.xml',
+  '/api/auth/callback',
+  '/api/auth/providers',
+  '/api/auth/csrf',
+];
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+function normalizeRole(role: string | undefined): string {
+  if (!role) return 'DEFAULT';
+  return role.toUpperCase().trim();
+}
+
+function isPublicRoute(pathname: string): boolean {
+  // Remove trailing slash for comparison (except root)
+  const cleanPath = pathname.endsWith('/') && pathname.length > 1 
+    ? pathname.slice(0, -1) 
+    : pathname;
+  
+  // Check exact match
+  if (PUBLIC_ROUTES.includes(cleanPath)) {
+    return true;
+  }
+  
+  // Check if path starts with any public route
+  for (const route of PUBLIC_ROUTES) {
+    // Handle routes that end with '/'
+    if (route.endsWith('/')) {
+      if (pathname.startsWith(route)) {
+        return true;
       }
-    });
-    
-    if (isBlocked) {
-      return { valid: false, reason: 'Blocked domain' };
     }
-    
-    // 4. Ensure it's same-origin or relative
-    if (url.origin !== baseOrigin && !urlString.startsWith('/')) {
-      return { valid: false, reason: 'External redirect not allowed' };
+    // Handle routes like /contact, /about, etc.
+    else if (cleanPath === route || cleanPath.startsWith(route + '/')) {
+      return true;
     }
-    
-    return { valid: true };
-  } catch (error) {
-    return { valid: false, reason: 'Invalid URL format' };
   }
-}
-
-function logSecurityIncident(
-  req: NextRequest, 
-  type: string, 
-  details: Record<string, any>
-) {
-  const logEntry = {
-    timestamp: new Date().toISOString(),
-    type,
-    path: req.nextUrl.pathname,
-    method: req.method,
-    ...details,
-  };
   
-  console.error('🔒 SECURITY INCIDENT:', logEntry);
+  return false;
 }
 
-// Main function - use 'proxy' as function name for Next.js 16
-// If you want to keep 'middleware' name, just rename the file back to middleware.ts
-export async function proxy(req: NextRequest) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+function shouldSkipAuth(pathname: string): boolean {
+  return AUTH_SKIP_ROUTES.some(route => pathname.startsWith(route));
+}
+
+function hasRouteAccess(role: string, pathname: string): boolean {
+  const normalizedRole = normalizeRole(role);
+  const permissions = ROLE_ROUTE_PERMISSIONS[normalizedRole as keyof typeof ROLE_ROUTE_PERMISSIONS];
+  
+  if (!permissions) {
+    return false;
+  }
+  
+  const isApiRoute = pathname.startsWith('/api/');
+  const routeList = isApiRoute ? permissions.apiRoutes : permissions.routes;
+  
+  if (!routeList) {
+    return false;
+  }
+  
+  if (routeList.includes(pathname)) {
+    return true;
+  }
+  
+  for (const route of routeList) {
+    if (pathname.startsWith(route + '/')) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+function getDefaultRedirect(role: string): string {
+  const normalizedRole = normalizeRole(role);
+  const permissions = ROLE_ROUTE_PERMISSIONS[normalizedRole as keyof typeof ROLE_ROUTE_PERMISSIONS];
+  return permissions?.defaultRedirect || '/dashboard';
+}
+
+// ============================================
+// ⭐ MAIN MIDDLEWARE
+// ============================================
+
+export default async function proxy(req: NextRequest) {
   const url = req.nextUrl.clone();
+  const pathname = url.pathname;
   
-  // === SECURITY: VALIDATE ALL REDIRECTS ===
-  const callbackUrl = url.searchParams.get('callbackUrl');
-  if (callbackUrl) {
-    const validation = validateRedirectUrl(callbackUrl, req.nextUrl.origin);
-    if (!validation.valid) {
-      console.error(`🚨 SECURITY: ${validation.reason}`, callbackUrl);
-      url.searchParams.delete('callbackUrl');
-      
-      logSecurityIncident(req, 'malicious_redirect', {
-        attemptedUrl: callbackUrl,
-        reason: validation.reason,
-        userAgent: req.headers.get('user-agent'),
-        ip: req.headers.get('x-forwarded-for') || req.ip,
-      });
-      
-      return NextResponse.redirect(new URL('/dashboard', req.url));
-    }
-  }
-  
-  // Public routes that don't require authentication
-  const publicRoutes = [
-    "/",
-    "/about", 
-    "/blogs", 
-    "/contact",
-    "/login",
-    "/auth/error",
-    "/api/auth",
-    "/api/auth/change-password-first",
-    "/_next/",
-    "/favicon.ico"
-  ];
-
-  // Check if current path is public
-  const isPublicPath = publicRoutes.some(route => 
-    url.pathname.startsWith(route)
-  );
-
-  // No token - redirect to login for protected routes
-  if (!token) {
-    if (!isPublicPath && !url.pathname.startsWith("/auth/")) {
-      url.pathname = "/auth/signin";
-      url.searchParams.set("callbackUrl", req.url);
-      return NextResponse.redirect(url);
-    }
+  // Skip static assets
+  if (shouldSkipAuth(pathname)) {
     return NextResponse.next();
   }
 
-  // If already logged in and trying to access login page
-  if (url.pathname === "/auth/signin" || url.pathname === "/auth/error") {
-    url.pathname = "/dashboard";
+  // ✅ CHECK IF ROUTE IS PUBLIC
+  const isPublic = isPublicRoute(pathname);
+  
+  // ✅ FOR PUBLIC ROUTES - Allow access immediately
+  if (isPublic) {
+    // If user is logged in and trying to access login/register, redirect to dashboard
+    if (
+      pathname === '/login' || 
+      pathname === '/belog' || 
+      pathname === '/Register' ||
+      pathname === '/register' || 
+      pathname === '/auth/signin' ||
+      pathname === '/auth/signup'
+    ) {
+      try {
+        const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+        if (token) {
+          const userRole = token.role || 'DEFAULT';
+          const defaultPage = getDefaultRedirect(userRole);
+          url.pathname = defaultPage;
+          return NextResponse.redirect(url);
+        }
+      } catch (error) {
+        // If token check fails, just show the login page
+        console.error('Error checking token for login redirect:', error);
+      }
+    }
+    
+    // ✅ ALLOW ACCESS TO ALL PUBLIC PAGES (contact, about, blogs, etc.)
+    // No authentication required!
+    return NextResponse.next();
+  }
+
+  // ============================================
+  // PROTECTED ROUTES - Require authentication
+  // ============================================
+  
+  let token = null;
+  try {
+    token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  } catch (error) {
+    console.error('Error getting token:', error);
+  }
+
+  // No token - redirect to login
+  if (!token) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: 'Authentication required',
+          error: 'UNAUTHORIZED'
+        },
+        { status: 401 }
+      );
+    }
+    
+    const redirectUrl = pathname + url.search;
+    url.pathname = '/login';
+    url.searchParams.set('callbackUrl', redirectUrl);
     return NextResponse.redirect(url);
   }
 
-  // 🔴 CRITICAL: Handle password change completion
-  // Check if password was just changed (via cookie or query param)
-  const passwordChanged = url.searchParams.get('passwordChanged') === 'true' || 
-                         req.cookies.get('password-changed')?.value === 'true';
-  
-  if (passwordChanged && token) {
-    console.log('🔄 Password change detected, refreshing session...');
-    
-    // Clear the cookie if it exists
-    const response = NextResponse.next();
-    response.cookies.delete('password-changed');
-    
-    // Remove query param
-    url.searchParams.delete('passwordChanged');
-    
-    // Force a session refresh by calling updateSession
-    // This will trigger the JWT callback with trigger: "update"
-    const headers = new Headers(req.headers);
-    headers.set('x-force-session-refresh', 'true');
-    
-    return NextResponse.next({
-      request: {
-        headers,
-      },
-    });
-  }
-
-  // Check if password change is required
+  // Check password change requirement
   const requiresPasswordChange = token.requiresPasswordChange === true;
-
-  // If password change is required, redirect to change-password page
-  if (requiresPasswordChange && url.pathname !== "/change-password") {
-    // Allow access to change-password API
-    if (url.pathname.startsWith("/api/auth/change-password-first")) {
+  if (requiresPasswordChange && pathname !== "/change-password") {
+    const allowedEndpoints = [
+      "/api/auth/change-password-first",
+      "/api/auth/signout",
+      "/api/auth/session",
+    ];
+    
+    if (allowedEndpoints.some(endpoint => pathname.startsWith(endpoint))) {
       return NextResponse.next();
     }
     
-    // Allow access to logout
-    if (url.pathname.startsWith("/api/auth/signout")) {
-      return NextResponse.next();
-    }
-
-    // Allow access to session endpoint so client can detect the flag without error
-    if (url.pathname.startsWith("/api/auth/session")) {
-      return NextResponse.next();
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: "Password change required before accessing this resource",
+          requiresPasswordChange: true
+        },
+        { status: 403 }
+      );
     }
     
-    // Block access to other pages/APIs (except static files)
-    if (url.pathname.startsWith("/api/") || 
-        (!url.pathname.startsWith("/_next/") && !url.pathname.startsWith("/favicon.ico"))) {
-      
-      if (url.pathname.startsWith("/api/")) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            message: "Password change required before accessing this resource",
-            requiresPasswordChange: true
-          },
-          { status: 403 }
-        );
-      }
-      
-      // Redirect to change-password page for non-API routes
-      url.pathname = "/change-password";
-      return NextResponse.redirect(url);
-    }
+    url.pathname = "/change-password";
+    return NextResponse.redirect(url);
   }
 
-  // ⭐ FIX: Add user info to headers with proper encoding for Ethiopian characters
+  // Role-based access control
+  const userRole = token.role || 'DEFAULT';
+  const normalizedRole = normalizeRole(userRole);
+  
+  // Root redirect
+  if (pathname === '/') {
+    const defaultPage = getDefaultRedirect(normalizedRole);
+    url.pathname = defaultPage;
+    return NextResponse.redirect(url);
+  }
+  
+  // Check access
+  const hasAccess = hasRouteAccess(normalizedRole, pathname);
+  
+  if (!hasAccess) {
+    console.warn(`🚫 ACCESS DENIED: ${normalizedRole} attempted to access ${pathname}`);
+    
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: `Access Denied: ${normalizedRole} does not have permission`,
+          role: normalizedRole,
+        },
+        { status: 403 }
+      );
+    }
+    
+    const defaultPage = getDefaultRedirect(normalizedRole);
+    url.pathname = defaultPage;
+    url.searchParams.delete('callbackUrl');
+    url.searchParams.set('unauthorized', 'true');
+    
+    const response = NextResponse.redirect(url);
+    response.cookies.set('unauthorized_access', 'true', { 
+      maxAge: 5, 
+      httpOnly: false,
+      path: '/'
+    });
+    
+    return response;
+  }
+
+  // Add user info to headers
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-user-id", token.id || "");
   requestHeaders.set("x-user-email", token.email || "");
-  
-  // Encode name to handle non-ASCII characters (ሀሁ, አማርኛ, ትግርኛ, etc.)
-  // This prevents the "Cannot convert argument to a ByteString" error
-  const encodedName = token.name ? encodeURIComponent(token.name) : "";
-  requestHeaders.set("x-user-name", encodedName);
-  
-  requestHeaders.set("x-user-role", token.role || "");
+  requestHeaders.set("x-user-role", normalizedRole);
   requestHeaders.set("x-employee-id", token.employeeId || "");
   requestHeaders.set("x-requires-password-change", requiresPasswordChange.toString());
 
@@ -229,9 +616,29 @@ export async function proxy(req: NextRequest) {
   });
 }
 
-// For App Router, use route segment config instead of export config
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
+
+// Export helper functions
+export function getUserRoutes(role: string): string[] {
+  const normalizedRole = normalizeRole(role);
+  const permissions = ROLE_ROUTE_PERMISSIONS[normalizedRole as keyof typeof ROLE_ROUTE_PERMISSIONS];
+  return permissions ? permissions.routes : ROLE_ROUTE_PERMISSIONS.DEFAULT.routes;
+}
+
+export function getUserApiRoutes(role: string): string[] {
+  const normalizedRole = normalizeRole(role);
+  const permissions = ROLE_ROUTE_PERMISSIONS[normalizedRole as keyof typeof ROLE_ROUTE_PERMISSIONS];
+  return permissions ? permissions.apiRoutes : ROLE_ROUTE_PERMISSIONS.DEFAULT.apiRoutes;
+}
+
+export function isPublicRoutePath(pathname: string): boolean {
+  return isPublicRoute(pathname);
+}
+
+export function getUserDefaultRoute(role: string): string {
+  return getDefaultRedirect(role);
+}

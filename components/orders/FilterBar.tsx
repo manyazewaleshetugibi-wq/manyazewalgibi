@@ -95,8 +95,8 @@ export function FilterBar({
   onClearFilters,
   onRefresh,
   isLoading,
-  waitresses,
-  restaurants,
+  waitresses = [], // Default to empty array
+  restaurants = [], // Default to empty array
   loadingRestaurants,
 }: FilterBarProps) {
   
@@ -110,10 +110,16 @@ export function FilterBar({
 
   // Get the display name for the selected restaurant
   const getSelectedRestaurantName = () => {
-    if (!restaurantFilter || restaurantFilter === "All") return "All Restaurants"
+    if (!restaurantFilter || restaurantFilter === "All" || restaurantFilter === "all") return "All Restaurants"
     const restaurant = restaurants.find(r => r._id === restaurantFilter)
     return restaurant?.name || restaurantFilter
   }
+
+  // Ensure waitresses is always an array
+  const waitressesList = Array.isArray(waitresses) ? waitresses : []
+  
+  // Ensure restaurants is always an array
+  const restaurantsList = Array.isArray(restaurants) ? restaurants : []
 
   return (
     <Card>
@@ -174,7 +180,6 @@ export function FilterBar({
           <Select
             value={restaurantFilter || "All"}
             onValueChange={(value) => {
-              // Pass the restaurant ID when a restaurant is selected, null for "All"
               onRestaurantFilterChange(value === "All" ? null : value)
             }}
           >
@@ -188,7 +193,7 @@ export function FilterBar({
               {loadingRestaurants ? (
                 <SelectItem value="loading" disabled>Loading...</SelectItem>
               ) : (
-                restaurants.map((restaurant) => (
+                restaurantsList.map((restaurant) => (
                   <SelectItem key={restaurant._id} value={restaurant._id}>
                     <div className="flex items-center gap-2">
                       {restaurant.name}
@@ -223,11 +228,15 @@ export function FilterBar({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="All">All Waitresses</SelectItem>
-              {waitresses.map((waitress) => (
-                <SelectItem key={waitress._id} value={waitress._id}>
-                  {waitress.name}
-                </SelectItem>
-              ))}
+              {waitressesList.length === 0 ? (
+                <SelectItem value="none" disabled>No waitresses found</SelectItem>
+              ) : (
+                waitressesList.map((waitress) => (
+                  <SelectItem key={waitress._id} value={waitress._id}>
+                    {waitress.name}
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
 
