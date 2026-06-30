@@ -1,4 +1,4 @@
-// app/menu/page.tsx - COMPLETE FIXED VERSION WITH SECURITY VALIDATION
+// app/menu/page.tsx - COMPLETE TWO-STEP NAVIGATION WITH VIEW TOGGLE & FASTING TABS
 
 'use client'
 
@@ -9,7 +9,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Eye, Clock, Sparkles, Layers, ShoppingCart, RefreshCw,
   ChevronUp, ChevronDown, Grid, List, Star, Search,
-  Filter, ArrowUpDown, X, TrendingUp, Flame, Crown
+  Filter, ArrowUpDown, X, TrendingUp, Flame, Crown,
+  ArrowLeft, ChevronRight, Plus, Minus, Heart
 } from 'lucide-react'
 
 import { Button } from "@/components/ui/button"
@@ -355,6 +356,288 @@ const sortCategoriesByPriority = (categories: Category[]): Category[] => {
   })
 }
 
+// ========== MINIMAL ITEM CARD COMPONENT ==========
+// Ultra-minimal card: image (w-36 for desktop) + name + dot menu (opens details directly)
+// Name and three dots fit within image width
+const MinimalItemCard = ({ 
+  item, 
+  categoryName, 
+  onAddToCart, 
+  onViewDetails,
+  index = 0,
+  isDesktop = false
+}: {
+  item: Item
+  categoryName: string
+  onAddToCart: (item: Item) => void
+  onViewDetails: (item: Item) => void
+  index?: number
+  isDesktop?: boolean
+}) => {
+  const [isHovered, setIsHovered] = useState(false)
+
+  // Handle image click - ADD TO CART
+  const handleImageClick = () => {
+    onAddToCart(item)
+    toast.success(`Added ${item.name} to cart!`)
+  }
+
+  // Handle three dots click - OPEN DETAILS DIRECTLY
+  const handleDotsClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onViewDetails(item)
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, delay: index * 0.03 }}
+      className="flex flex-col items-center cursor-pointer group"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {/* Image - Click to add to cart */}
+      <div 
+        className={`
+          aspect-square rounded-lg overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100/50 relative
+          ${isDesktop ? 'w-36' : 'w-full'}
+          transition-all duration-200 hover:ring-2 hover:ring-purple-400 hover:shadow-lg
+        `}
+        onClick={handleImageClick}
+        role="button"
+        aria-label={`Add ${item.name} to cart`}
+      >
+        {item.imageUrl ? (
+          <img
+            src={getImageSrc(item.imageUrl)}
+            alt={item.name}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            loading="lazy"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = '/placeholder.svg'
+            }}
+          />
+        ) : (
+          <div className="flex items-center justify-center w-full h-full">
+            <span className="text-2xl text-purple-300">🍽️</span>
+          </div>
+        )}
+        
+        {/* Add to cart overlay on hover */}
+        <div className={`
+          absolute inset-0 bg-purple-900/60 flex items-center justify-center 
+          transition-opacity duration-200 rounded-lg
+          ${isHovered ? 'opacity-100' : 'opacity-0'}
+        `}>
+          <ShoppingCart className="h-5 w-5 text-white" />
+        </div>
+      </div>
+
+      {/* Name and Dot Menu - fits within image width, no extra padding */}
+      <div className="w-full flex items-center justify-between mt-1 px-0.5">
+        <h3 className="text-xs font-medium text-gray-700 truncate flex-1 min-w-0">
+          {item.name}
+        </h3>
+        
+        {/* Three Dots - Click to open details directly */}
+        <button
+          onClick={handleDotsClick}
+          className="p-0.5 rounded-full hover:bg-purple-50 transition-colors text-gray-400 hover:text-purple-900 flex-shrink-0"
+          aria-label={`View details for ${item.name}`}
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+            <circle cx="8" cy="2" r="1.5" />
+            <circle cx="8" cy="8" r="1.5" />
+            <circle cx="8" cy="14" r="1.5" />
+          </svg>
+        </button>
+      </div>
+    </motion.div>
+  )
+}
+
+// ========== LIST VIEW ITEM CARD (MOBILE) ==========
+// Image on left (w-16 h-16), Name + Price + Description on right (vertical, description 1 line)
+const ListViewItemCard = ({
+  item,
+  categoryName,
+  onAddToCart,
+  onViewDetails,
+  index = 0
+}: {
+  item: Item
+  categoryName: string
+  onAddToCart: (item: Item) => void
+  onViewDetails: (item: Item) => void
+  index?: number
+}) => {
+  const handleImageClick = () => {
+    onAddToCart(item)
+    toast.success(`Added ${item.name} to cart!`)
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, delay: index * 0.05 }}
+      className="flex items-center gap-3 p-2.5 bg-white rounded-xl shadow-sm border border-purple-100/50 hover:border-purple-300 hover:shadow-md transition-all cursor-pointer group"
+      onClick={() => onViewDetails(item)}
+    >
+      {/* Image - w-16 h-16, clickable to add to cart */}
+      <div 
+        className="w-16 h-16 rounded-lg overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100/50 flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-purple-400 transition-all"
+        onClick={(e) => {
+          e.stopPropagation()
+          handleImageClick()
+        }}
+      >
+        {item.imageUrl ? (
+          <img
+            src={getImageSrc(item.imageUrl)}
+            alt={item.name}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = '/placeholder.svg'
+            }}
+          />
+        ) : (
+          <div className="flex items-center justify-center w-full h-full">
+            <span className="text-2xl text-purple-300">🍽️</span>
+          </div>
+        )}
+      </div>
+
+      {/* Right side: Name, Price, Description (vertical, description 1 line) */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-1">
+          <h3 className="text-sm font-medium text-gray-800 truncate flex-1">
+            {item.name}
+          </h3>
+          <span className="text-sm font-bold text-purple-900 whitespace-nowrap">
+            ${item.price.toFixed(2)}
+          </span>
+        </div>
+        
+        {/* Description - one line only */}
+        {item.description && (
+          <p className="text-xs text-gray-500 truncate mt-0.5">
+            {item.description}
+          </p>
+        )}
+        
+        {/* Category name - small */}
+        <p className="text-[10px] text-gray-400 mt-0.5">
+          {categoryName}
+        </p>
+      </div>
+
+      {/* Quick add button */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          handleImageClick()
+        }}
+        className="p-1.5 rounded-full bg-purple-50 text-purple-900 hover:bg-purple-100 transition-colors flex-shrink-0"
+        aria-label={`Add ${item.name} to cart`}
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+    </motion.div>
+  )
+}
+
+// ========== LIST VIEW FOR DESKTOP (2 cards per row) ==========
+const DesktopListViewItem = ({
+  item,
+  categoryName,
+  onAddToCart,
+  onViewDetails,
+  index = 0
+}: {
+  item: Item
+  categoryName: string
+  onAddToCart: (item: Item) => void
+  onViewDetails: (item: Item) => void
+  index?: number
+}) => {
+  const handleImageClick = () => {
+    onAddToCart(item)
+    toast.success(`Added ${item.name} to cart!`)
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, delay: index * 0.04 }}
+      className="flex items-center gap-4 p-3 bg-white rounded-xl shadow-sm border border-purple-100/50 hover:border-purple-300 hover:shadow-md transition-all cursor-pointer group"
+      onClick={() => onViewDetails(item)}
+    >
+      {/* Image - w-20 h-20 */}
+      <div 
+        className="w-20 h-20 rounded-lg overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100/50 flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-purple-400 transition-all"
+        onClick={(e) => {
+          e.stopPropagation()
+          handleImageClick()
+        }}
+      >
+        {item.imageUrl ? (
+          <img
+            src={getImageSrc(item.imageUrl)}
+            alt={item.name}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = '/placeholder.svg'
+            }}
+          />
+        ) : (
+          <div className="flex items-center justify-center w-full h-full">
+            <span className="text-3xl text-purple-300">🍽️</span>
+          </div>
+        )}
+      </div>
+
+      {/* Right side content */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-base font-medium text-gray-800 truncate">
+            {item.name}
+          </h3>
+          <span className="text-base font-bold text-purple-900 whitespace-nowrap">
+            ${item.price.toFixed(2)}
+          </span>
+        </div>
+        
+        {item.description && (
+          <p className="text-sm text-gray-500 truncate mt-0.5">
+            {item.description}
+          </p>
+        )}
+        
+        <p className="text-xs text-gray-400 mt-1">
+          {categoryName}
+        </p>
+      </div>
+
+      {/* Quick add button */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          handleImageClick()
+        }}
+        className="p-2 rounded-full bg-purple-50 text-purple-900 hover:bg-purple-100 transition-colors flex-shrink-0"
+        aria-label={`Add ${item.name} to cart`}
+      >
+        <Plus className="h-5 w-5" />
+      </button>
+    </motion.div>
+  )
+}
+
 export default function MenuPage() {
   const router = useRouter()
   const { userData, isLoggedIn } = useUserData()
@@ -381,12 +664,25 @@ export default function MenuPage() {
   const [waiters, setWaiters] = useState<Waiter[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [searchInputValue, setSearchInputValue] = useState('') // Raw input value
+  const [searchInputValue, setSearchInputValue] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadingTimeout, setLoadingTimeout] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [imagesPreloaded, setImagesPreloaded] = useState(false)
   const [dataLoaded, setDataLoaded] = useState(false)
+
+  // ========== TWO-STEP NAVIGATION STATE ==========
+  // Mobile
+  const [mobileStep, setMobileStep] = useState<'categories' | 'items'>('categories')
+  const [selectedCategoryForMobile, setSelectedCategoryForMobile] = useState<Category | null>(null)
+  
+  // ========== FASTING FILTER STATE (MOBILE ONLY) ==========
+  type FastingFilter = 'all' | 'fasting' | 'non-fasting'
+  const [fastingFilter, setFastingFilter] = useState<FastingFilter>('all')
+  
+  // Desktop
+  const [desktopStep, setDesktopStep] = useState<'categories' | 'items'>('categories')
+  const [selectedCategoryForDesktop, setSelectedCategoryForDesktop] = useState<Category | null>(null)
 
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
   const [showItemDetail, setShowItemDetail] = useState(false)
@@ -546,6 +842,7 @@ export default function MenuPage() {
           },
           isActive: item.isActive !== undefined ? item.isActive : true,
           isFeatured: item.isFeatured || false,
+          isFasting: item.isFasting !== undefined ? item.isFasting : false,
           tags: item.tags || [],
           createdAt: item.createdAt || '',
           updatedAt: item.updatedAt || ''
@@ -584,20 +881,16 @@ export default function MenuPage() {
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value
     
-    // Store raw value for display
     setSearchInputValue(rawValue)
     
-    // Check for malicious code
     if (containsMaliciousCode(rawValue)) {
       setSearchError('Invalid characters detected')
       toast.error('Search contains invalid characters')
-      // Clear the input
       setSearchInputValue('')
       setSearchTerm('')
       return
     }
     
-    // Validate and sanitize
     const { isValid, sanitized } = validateSearchInput(rawValue)
     
     if (!isValid) {
@@ -606,10 +899,7 @@ export default function MenuPage() {
       return
     }
     
-    // Clear any previous errors
     setSearchError(null)
-    
-    // Set the sanitized search term
     setSearchTerm(sanitized)
   }, [validateSearchInput, setSearchError])
 
@@ -619,13 +909,11 @@ export default function MenuPage() {
     setter: (value: string) => void,
     fieldName: string = 'Input'
   ) => {
-    // Check for malicious code
     if (containsMaliciousCode(value)) {
       toast.error(`${fieldName} contains invalid characters`)
       return
     }
     
-    // Validate and sanitize
     const { isValid, sanitized } = validateTextInput(value)
     
     if (!isValid) {
@@ -664,7 +952,6 @@ export default function MenuPage() {
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Check for old plain text data and migrate
         const hasOldCategories = localStorage.getItem('menu_categories') !== null
         const hasOldItems = localStorage.getItem('menu_items') !== null
         
@@ -673,7 +960,6 @@ export default function MenuPage() {
           await cacheManager.migrateOldData()
         }
         
-        // Load from cache
         const loaded = await loadFromCache()
         if (!loaded) {
           await fetchMenuData()
@@ -783,12 +1069,11 @@ export default function MenuPage() {
   }, [numberOfGuests])
 
   const handleGuestOrder = (guestData: GuestUserData) => {
-    // Sanitize guest data
     const sanitizedGuestData: GuestUserData = {
       firstName: validateTextInput(guestData.firstName).sanitized || '',
       lastName: validateTextInput(guestData.lastName).sanitized || '',
-      phone: guestData.phone.replace(/[^0-9+]/g, ''), // Only allow digits and +
-      email: guestData.email.replace(/[^a-zA-Z0-9@._-]/g, ''), // Only allow valid email chars
+      phone: guestData.phone.replace(/[^0-9+]/g, ''),
+      email: guestData.email.replace(/[^a-zA-Z0-9@._-]/g, ''),
       isGuest: true
     }
     
@@ -844,11 +1129,6 @@ export default function MenuPage() {
     return adjustedSubtotal + calculatedTax + deliveryFeeAmount + packagingFeeAmount
   }, [adjustedSubtotal, calculatedTax, deliveryFee, packagingCharge, orderType, isLoggedIn])
 
-  const handleLoginRequired = (message: string) => {
-    toast.error(message || 'Please login to continue')
-    router.push('/login')
-  }
-
   const handleViewDetails = (item: Item) => {
     setSelectedItem(item)
     setShowItemDetail(true)
@@ -862,11 +1142,6 @@ export default function MenuPage() {
   }, [orderType, tableNumber, waiters])
 
   const handleOrderTypeChange = (type: 'table' | 'delivery') => {
-    if (type === 'delivery' && !isLoggedIn) {
-      toast.error('Please login to use delivery service')
-      router.push('/login')
-      return
-    }
     setOrderType(type)
     if (type !== 'delivery') {
       setDeliveryFee(null)
@@ -886,28 +1161,20 @@ export default function MenuPage() {
       toast.error('Please select a table')
       return
     }
-    if (orderType === 'delivery' && !isLoggedIn) {
-      toast.error('Please login to place delivery order')
-      router.push('/login')
-      return
-    }
     setShowPaymentUpload(true)
   }
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      // Validate file type
       if (!file.type.startsWith('image/')) {
         toast.error('Please upload an image file')
         return
       }
-      // Validate file size (5MB max)
       if (file.size > 5 * 1024 * 1024) {
         toast.error('File size must be less than 5MB')
         return
       }
-      // Validate file name for malicious content
       const sanitizedFileName = sanitizeInput(file.name)
       if (sanitizedFileName !== file.name) {
         toast.error('File name contains invalid characters')
@@ -931,13 +1198,6 @@ export default function MenuPage() {
       return
     }
 
-    if (orderType === 'delivery' && !isLoggedIn) {
-      toast.error('Please login to place delivery order')
-      setShowPaymentUpload(false)
-      router.push('/login')
-      return
-    }
-
     setIsPlacingOrder(true)
     const orderToast = toast.loading('Processing your order...')
 
@@ -957,9 +1217,9 @@ export default function MenuPage() {
         
         return {
           itemId: cartItem._id,
-          itemName: sanitizeInput(cartItem.name), // Sanitize item name
+          itemName: sanitizeInput(cartItem.name),
           quantity: cartItem.quantity,
-          notes: sanitizeInput(cartItem.specialInstructions || ''), // Sanitize notes
+          notes: sanitizeInput(cartItem.specialInstructions || ''),
           basePrice: basePrice,
           categoryCharge: categoryCharge,
           price: finalItemPrice,
@@ -1119,19 +1379,439 @@ export default function MenuPage() {
     setSearchInputValue('')
     setSelectedCategory(null)
     setSearchError(null)
+    setMobileStep('categories')
+    setSelectedCategoryForMobile(null)
+    setDesktopStep('categories')
+    setSelectedCategoryForDesktop(null)
+    setFastingFilter('all')
     toast.success('All filters cleared')
   }
 
-  const hasActiveFilters = searchTerm !== '' || selectedCategory !== null
+  const hasActiveFilters = searchTerm !== '' || selectedCategory !== null || fastingFilter !== 'all'
 
-  const getDisplayItems = (): Item[] => {
-    if (selectedCategory || searchTerm) {
-      return filteredItems
+  // ========== DESKTOP TWO-STEP NAVIGATION ==========
+  
+  // Step 1: Categories List - COMPLETELY CLEAN (No card, no background, no hover)
+  const renderDesktopCategories = () => {
+    const categoriesWithItems = sortedCategories.filter(category => {
+      const categoryItems = items.filter(item => 
+        item.categoryId === category._id && item.isActive !== false
+      )
+      return categoryItems.length > 0
+    })
+
+    if (categoriesWithItems.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12">
+          <div className="p-4 bg-purple-50 rounded-full mb-4">
+            <Layers className="h-8 w-8 text-purple-900" />
+          </div>
+          <p className="text-gray-500">No categories available</p>
+        </div>
+      )
     }
-    if (mixedDisplayItems.length > 0) {
-      return mixedDisplayItems
+
+    // Group categories into rows of 3
+    const groupedCategories = []
+    for (let i = 0; i < categoriesWithItems.length; i += 3) {
+      groupedCategories.push(categoriesWithItems.slice(i, i + 3))
     }
-    return filteredItems
+
+    return (
+      <motion.div 
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        className="space-y-4"
+      >
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-sm font-medium text-gray-600">Select a Category</h2>
+          <span className="text-xs text-gray-400">{categoriesWithItems.length} categories</span>
+        </div>
+        
+        {groupedCategories.map((group, groupIndex) => (
+          <div key={groupIndex} className="grid grid-cols-3 gap-4">
+            {group.map((category) => {
+              const categoryItems = items.filter(item => 
+                item.categoryId === category._id && item.isActive !== false
+              )
+              const itemCount = categoryItems.length
+              const representativeItem = categoryItems[0]
+              
+              return (
+                <div
+                  key={category._id}
+                  onClick={() => {
+                    setSelectedCategoryForDesktop(category)
+                    setDesktopStep('items')
+                    setFastingFilter('all') // Reset fasting filter when selecting category
+                  }}
+                  className="flex flex-col items-center cursor-pointer"
+                >
+                  {/* Category Image - w-32 h-32, NO background, NO card */}
+                  <div className="w-32 h-32 rounded-xl overflow-hidden">
+                    {representativeItem && representativeItem.imageUrl ? (
+                      <img
+                        src={getImageSrc(representativeItem.imageUrl)}
+                        alt={category.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none'
+                        }}
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center w-full h-full bg-purple-50">
+                        {getCategoryIcon(category.type, "h-12 w-12 text-purple-900/60")}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Category Name - 16px text */}
+                  <div className="mt-2 text-center">
+                    <h3 className="text-base font-medium text-gray-700 truncate max-w-[128px]">
+                      {category.name}
+                    </h3>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </motion.div>
+    )
+  }
+
+  // Step 2: Items for selected category (Desktop) - WITH VIEW TOGGLE
+  const renderDesktopCategoryItems = () => {
+    if (!selectedCategoryForDesktop) return null
+
+    // Filter items by category, search term, and fasting filter
+    let categoryItems = items.filter(item => 
+      item.categoryId === selectedCategoryForDesktop._id && item.isActive !== false
+    )
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      categoryItems = categoryItems.filter(item =>
+        item.name.toLowerCase().includes(term) ||
+        (item.description?.toLowerCase() || '').includes(term)
+      )
+    }
+
+    // Apply fasting filter
+    if (fastingFilter === 'fasting') {
+      categoryItems = categoryItems.filter(item => item.isFasting === true)
+    } else if (fastingFilter === 'non-fasting') {
+      categoryItems = categoryItems.filter(item => item.isFasting !== true)
+    }
+
+    return (
+      <motion.div 
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -20 }}
+        transition={{ duration: 0.3 }}
+        className="space-y-4"
+      >
+        {/* Category Header with View Toggle */}
+        <div className="flex items-center justify-between bg-white/80 backdrop-blur-sm rounded-xl p-3 border border-purple-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setDesktopStep('categories')
+                setSelectedCategoryForDesktop(null)
+                setSearchTerm('')
+                setSearchInputValue('')
+                setFastingFilter('all')
+              }}
+              className="p-1.5 hover:bg-purple-50 rounded-lg transition-colors"
+              aria-label="Go back to categories"
+            >
+              <ArrowLeft className="h-4 w-4 text-purple-900" />
+            </button>
+            
+            <div>
+              <h2 className="text-base font-semibold text-gray-800">
+                {selectedCategoryForDesktop.name}
+              </h2>
+              <p className="text-xs text-gray-400">
+                {categoryItems.length} {categoryItems.length === 1 ? 'item' : 'items'}
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {/* Search bar - small */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-500" size={13} />
+              <Input
+                type="text"
+                placeholder="Search..."
+                value={searchInputValue}
+                onChange={handleSearchChange}
+                className={`pl-8 pr-7 py-1.5 h-8 text-xs bg-white border rounded-lg focus:border-purple-900 focus:ring-2 transition-all shadow-sm w-36 lg:w-48 ${
+                  searchError ? 'border-red-500 ring-2 ring-red-200' : 'border-purple-200 focus:ring-purple-200'
+                }`}
+                maxLength={100}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {searchInputValue && (
+                <button 
+                  onClick={() => {
+                    setSearchInputValue('')
+                    setSearchTerm('')
+                    setSearchError(null)
+                  }} 
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  aria-label="Clear search"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            {/* View Toggle - Grid/List */}
+            <div className="flex items-center gap-1 bg-purple-50 rounded-lg p-1 border border-purple-100">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-1.5 rounded-md transition-all ${
+                  viewMode === 'grid' 
+                    ? 'bg-white shadow-sm text-purple-900' 
+                    : 'text-gray-400 hover:text-purple-600'
+                }`}
+                aria-label="Grid view"
+              >
+                <Grid className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-1.5 rounded-md transition-all ${
+                  viewMode === 'list' 
+                    ? 'bg-white shadow-sm text-purple-900' 
+                    : 'text-gray-400 hover:text-purple-600'
+                }`}
+                aria-label="List view"
+              >
+                <List className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Items Display - Grid or List */}
+        {categoryItems.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 bg-white/50 rounded-2xl border border-purple-100">
+            <p className="text-gray-500">No items in this category</p>
+          </div>
+        ) : viewMode === 'grid' ? (
+          // GRID VIEW: w-36 cards with auto-fit
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(144px,1fr))] gap-3">
+            {categoryItems.map((item, index) => {
+              const category = categories.find(c => c._id === item.categoryId)
+              const categoryName = category?.name || 'Uncategorized'
+              
+              return (
+                <MinimalItemCard
+                  key={item._id}
+                  item={item}
+                  categoryName={categoryName}
+                  onAddToCart={addToCart}
+                  onViewDetails={handleViewDetails}
+                  index={index}
+                  isDesktop={true}
+                />
+              )
+            })}
+          </div>
+        ) : (
+          // LIST VIEW: 2 cards per row
+          <div className="grid grid-cols-2 gap-3">
+            {categoryItems.map((item, index) => {
+              const category = categories.find(c => c._id === item.categoryId)
+              const categoryName = category?.name || 'Uncategorized'
+              
+              return (
+                <DesktopListViewItem
+                  key={item._id}
+                  item={item}
+                  categoryName={categoryName}
+                  onAddToCart={addToCart}
+                  onViewDetails={handleViewDetails}
+                  index={index}
+                />
+              )
+            })}
+          </div>
+        )}
+      </motion.div>
+    )
+  }
+
+  // ========== MOBILE TWO-STEP NAVIGATION ==========
+  
+  // Step 1: Categories List - MINIMIZED CARDS FOR MOBILE
+  const renderMobileCategories = () => {
+    const categoriesWithItems = sortedCategories.filter(category => {
+      const categoryItems = items.filter(item => 
+        item.categoryId === category._id && item.isActive !== false
+      )
+      return categoryItems.length > 0
+    })
+
+    if (categoriesWithItems.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-8">
+          <div className="p-3 bg-purple-50 rounded-full mb-3">
+            <Layers className="h-6 w-6 text-purple-900" />
+          </div>
+          <p className="text-gray-500 text-sm">No categories available</p>
+        </div>
+      )
+    }
+
+    return (
+      <motion.div 
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        className="space-y-2"
+      >
+        {categoriesWithItems.map((category) => {
+          const categoryItems = items.filter(item => 
+            item.categoryId === category._id && item.isActive !== false
+          )
+          const itemCount = categoryItems.length
+          const representativeItem = categoryItems[0]
+          
+          return (
+            <motion.div
+              key={category._id}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => {
+                setSelectedCategoryForMobile(category)
+                setMobileStep('items')
+                setFastingFilter('all') // Reset fasting filter when selecting category
+              }}
+              className="flex items-center gap-3 p-2.5 bg-white rounded-xl shadow-sm border border-purple-100/50 active:bg-purple-50/50 transition-all cursor-pointer"
+            >
+              <div className="relative w-11 h-11 rounded-lg overflow-hidden bg-gradient-to-br from-purple-100 to-purple-200 flex-shrink-0">
+                {representativeItem && representativeItem.imageUrl ? (
+                  <img
+                    src={getImageSrc(representativeItem.imageUrl)}
+                    alt={category.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none'
+                    }}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center w-full h-full">
+                    {getCategoryIcon(category.type, "h-4 w-4 text-purple-900")}
+                  </div>
+                )}
+                <div className="absolute -top-1 -right-1 bg-purple-900 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow-lg">
+                  {itemCount}
+                </div>
+              </div>
+              
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <h3 className="text-xs font-semibold text-gray-800 truncate">
+                    {category.name}
+                  </h3>
+                  <div className="p-0.5 bg-purple-100 rounded">
+                    {getCategoryIcon(category.type, "h-2.5 w-2.5 text-purple-900")}
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-400">
+                  {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                </p>
+              </div>
+              
+              <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
+            </motion.div>
+          )
+        })}
+      </motion.div>
+    )
+  }
+
+  // Step 2: Items for selected category (Mobile) - WITH FASTING FILTER APPLIED
+  const renderMobileCategoryItems = () => {
+    if (!selectedCategoryForMobile) return null
+
+    // Filter items by category and search term
+    let categoryItems = items.filter(item => 
+      item.categoryId === selectedCategoryForMobile._id && item.isActive !== false
+    )
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      categoryItems = categoryItems.filter(item =>
+        item.name.toLowerCase().includes(term) ||
+        (item.description?.toLowerCase() || '').includes(term)
+      )
+    }
+
+    // Apply fasting filter
+    if (fastingFilter === 'fasting') {
+      categoryItems = categoryItems.filter(item => item.isFasting === true)
+    } else if (fastingFilter === 'non-fasting') {
+      categoryItems = categoryItems.filter(item => item.isFasting !== true)
+    }
+
+    return (
+      <motion.div 
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -20 }}
+        className="space-y-3 pb-4"
+      >
+        {categoryItems.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8">
+            <p className="text-gray-500 text-sm">
+              {fastingFilter === 'all' 
+                ? 'No items in this category' 
+                : fastingFilter === 'fasting' 
+                  ? 'No fasting items available' 
+                  : 'No non-fasting items available'}
+            </p>
+          </div>
+        ) : viewMode === 'grid' ? (
+          <div className="grid grid-cols-2 gap-2.5">
+            {categoryItems.map((item, index) => {
+              return (
+                <MinimalItemCard
+                  key={item._id}
+                  item={item}
+                  categoryName={selectedCategoryForMobile.name}
+                  onAddToCart={addToCart}
+                  onViewDetails={handleViewDetails}
+                  index={index}
+                  isDesktop={false}
+                />
+              )
+            })}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {categoryItems.map((item, index) => {
+              return (
+                <ListViewItemCard
+                  key={item._id}
+                  item={item}
+                  categoryName={selectedCategoryForMobile.name}
+                  onAddToCart={addToCart}
+                  onViewDetails={handleViewDetails}
+                  index={index}
+                />
+              )
+            })}
+          </div>
+        )}
+      </motion.div>
+    )
   }
 
   // Loading skeleton
@@ -1149,20 +1829,12 @@ export default function MenuPage() {
             </Alert>
           )}
           
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-5">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
             {[...Array(8)].map((_, i) => (
-              <Card key={i} className="overflow-hidden rounded-xl md:rounded-2xl border-0 shadow-md">
-                <Skeleton className="h-36 md:h-56 w-full" />
-                <CardContent className="p-2 md:p-4 space-y-2 md:space-y-3">
-                  <Skeleton className="h-4 md:h-5 w-3/4 rounded" />
-                  <Skeleton className="h-3 md:h-4 w-full rounded" />
-                  <Skeleton className="h-3 md:h-4 w-2/3 rounded" />
-                  <div className="flex justify-between pt-2">
-                    <Skeleton className="h-6 md:h-8 w-16 md:w-20 rounded" />
-                    <Skeleton className="h-7 md:h-9 w-7 md:w-9 rounded-full" />
-                  </div>
-                </CardContent>
-              </Card>
+              <div key={i} className="flex flex-col items-center">
+                <Skeleton className="w-full aspect-square rounded-lg" />
+                <Skeleton className="h-3 w-3/4 mt-1.5 rounded" />
+              </div>
             ))}
           </div>
         </main>
@@ -1176,333 +1848,144 @@ export default function MenuPage() {
       
       <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30 pb-20 md:pb-0">
         
-        {/* Desktop Header */}
-        <div className="hidden md:block sticky top-0 z-50 w-full bg-white/95 backdrop-blur-xl shadow-lg border-b border-purple-100">
-          <div className="container mx-auto px-4 py-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* Search Bar - SECURE VERSION */}
-              <div className="relative flex-1 max-w-[320px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-500" size={15} />
-                <Input
-                  type="text"
-                  placeholder="Search menu items..."
-                  value={searchInputValue}
-                  onChange={handleSearchChange}
-                  onPaste={(e) => {
-                    // Prevent pasting potentially malicious content
-                    const pastedText = e.clipboardData.getData('text')
-                    if (containsMaliciousCode(pastedText)) {
-                      e.preventDefault()
-                      toast.error('Pasted content contains invalid characters')
-                    }
+        {/* ========== MOBILE HEADER WITH FASTING TABS & VIEW TOGGLE ========== */}
+        {/* Only show header when in items step - STICKY AT TOP */}
+        {mobileStep === 'items' && (
+          <div className="md:hidden sticky top-0 z-50 w-full bg-white/95 backdrop-blur-xl shadow-sm border-b border-purple-100">
+            <div className="px-3 py-2">
+              {/* Flex inline header: Back | Tabs | View Toggle */}
+              <div className="flex items-center gap-2">
+                {/* Back Button - Left */}
+                <button
+                  onClick={() => {
+                    setMobileStep('categories')
+                    setSelectedCategoryForMobile(null)
+                    setSearchTerm('')
+                    setSearchInputValue('')
+                    setFastingFilter('all')
                   }}
-                  onDrop={(e) => {
-                    // Prevent dropping potentially malicious content
-                    const droppedText = e.dataTransfer.getData('text')
-                    if (containsMaliciousCode(droppedText)) {
-                      e.preventDefault()
-                      toast.error('Dropped content contains invalid characters')
-                    }
-                  }}
-                  className={`pl-9 pr-8 py-2 h-9 text-sm bg-white border rounded-xl focus:border-purple-900 focus:ring-2 transition-all shadow-sm ${
-                    searchError ? 'border-red-500 ring-2 ring-red-200' : 'border-purple-200 focus:ring-purple-200'
-                  }`}
-                  maxLength={100}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                {searchInputValue && (
-                  <button 
-                    onClick={() => {
-                      setSearchInputValue('')
-                      setSearchTerm('')
-                      setSearchError(null)
-                    }} 
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                    aria-label="Clear search"
+                  className="p-1.5 hover:bg-purple-50 rounded-lg transition-colors flex-shrink-0"
+                  aria-label="Go back to categories"
+                >
+                  <ArrowLeft className="h-5 w-5 text-purple-900" />
+                </button>
+
+                {/* Fasting Tabs - Center (plain text with underline) */}
+                <div className="flex-1 flex items-center justify-center gap-1 min-w-0">
+                  <button
+                    onClick={() => setFastingFilter('all')}
+                    className={`px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
+                      fastingFilter === 'all'
+                        ? 'text-purple-900 border-b-2 border-purple-900'
+                        : 'text-gray-400 hover:text-gray-600'
+                    }`}
                   >
-                    <X size={14} />
+                    All
                   </button>
-                )}
-                {searchError && (
-                  <div className="absolute left-0 right-0 -bottom-6 text-xs text-red-500 animate-fadeIn">
-                    {searchError}
-                  </div>
-                )}
-              </div>
+                  <button
+                    onClick={() => setFastingFilter('fasting')}
+                    className={`px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
+                      fastingFilter === 'fasting'
+                        ? 'text-green-600 border-b-2 border-green-600'
+                        : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                  >
+                    Fasting
+                  </button>
+                  <button
+                    onClick={() => setFastingFilter('non-fasting')}
+                    className={`px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
+                      fastingFilter === 'non-fasting'
+                        ? 'text-orange-600 border-b-2 border-orange-600'
+                        : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                  >
+                    Non-Fasting
+                  </button>
+                </div>
 
-              {/* Category Filter */}
-              <div className="w-[220px]">
-                <Select value={selectedCategory || 'all'} onValueChange={(value) => setSelectedCategory(value === 'all' ? null : value)}>
-                  <SelectTrigger className="h-9 text-sm bg-white border border-purple-200 rounded-xl shadow-sm">
-                    <div className="flex items-center gap-2 truncate">
-                      <Filter size={14} className="text-purple-500 shrink-0" />
-                      <span className="truncate">
-                        {selectedCategory ? categories.find(c => c._id === selectedCategory)?.name : 'All Categories'}
-                      </span>
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl border border-purple-200 shadow-xl max-h-[300px]">
-                    <SelectItem value="all" className="text-sm py-2">
-                      <div className="flex items-center gap-2">
-                        <Layers className="h-3.5 w-3.5 text-purple-900" />
-                        All Categories
-                      </div>
-                    </SelectItem>
-                    {sortedCategories.map((category) => (
-                      <SelectItem key={category._id} value={category._id} className="text-sm py-2">
-                        <div className="flex items-center gap-2">
-                          <div className="p-1 bg-purple-100 rounded-md">
-                            {getCategoryIcon(category.type, "h-3 w-3 text-purple-900")}
-                          </div>
-                          <span className="flex-1 truncate">{category.name}</span>
-                          <Badge variant="secondary" className="bg-purple-100 text-purple-900 rounded-full text-xs px-1.5 ml-1">
-                            {categoryCounts[category._id] || 0}
-                          </Badge>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {/* View Toggle - Grid/List - Right */}
+                <div className="flex items-center gap-0.5 bg-purple-50 rounded-lg p-1 border border-purple-100 flex-shrink-0">
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-1.5 rounded-md transition-all ${
+                      viewMode === 'grid' 
+                        ? 'bg-white shadow-sm text-purple-900' 
+                        : 'text-gray-400 hover:text-purple-600'
+                    }`}
+                    aria-label="Grid view"
+                  >
+                    <Grid className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-1.5 rounded-md transition-all ${
+                      viewMode === 'list' 
+                        ? 'bg-white shadow-sm text-purple-900' 
+                        : 'text-gray-400 hover:text-purple-600'
+                    }`}
+                    aria-label="List view"
+                  >
+                    <List className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
+            </div>
+          </div>
+        )}
 
-              {hasActiveFilters && (
-                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 gap-1 text-sm text-purple-700 hover:text-purple-900 hover:bg-purple-50 rounded-xl">
-                  <X size={14} />
-                  Clear
-                </Button>
+        {/* Main Content - Natural page scroll */}
+        <main className="container mx-auto px-3 md:px-4 py-3 md:py-4">
+          {/* ========== DESKTOP VIEW ========== */}
+          <div className="hidden md:block">
+            <AnimatePresence mode="wait">
+              {desktopStep === 'categories' ? (
+                renderDesktopCategories()
+              ) : (
+                renderDesktopCategoryItems()
               )}
-
-              {/* View Mode Toggle */}
-              <div className="flex gap-1 bg-white p-1 rounded-xl border border-purple-200 shadow-sm">
-                <Button variant={viewMode === 'grid' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('grid')} className={`rounded-lg h-8 w-8 transition-all ${viewMode === 'grid' ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-md' : 'hover:bg-purple-50 text-gray-600'}`}>
-                  <Grid size={16} />
-                </Button>
-                <Button variant={viewMode === 'list' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('list')} className={`rounded-lg h-8 w-8 transition-all ${viewMode === 'list' ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-md' : 'hover:bg-purple-50 text-gray-600'}`}>
-                  <List size={16} />
-                </Button>
-              </div>
-
-              {/* Cart Button */}
-              <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="default" className="relative shadow-md bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white rounded-xl px-4 py-2 h-9 text-sm gap-2">
-                    <ShoppingCart className="h-4 w-4" />
-                    Cart
-                    {totalItems > 0 && (
-                      <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center shadow-md">
-                        {totalItems}
-                      </motion.span>
-                    )}
-                  </Button>
-                </SheetTrigger>
-              </Sheet>
-            </div>
-
-            {hasActiveFilters && (
-              <div className="flex flex-wrap items-center gap-2 mt-3 pt-2 border-t border-purple-100">
-                <span className="text-xs text-gray-500">Active filters:</span>
-                {searchTerm && (
-                  <Badge variant="secondary" className="bg-purple-100 text-purple-800 rounded-full text-xs px-2 py-0.5 gap-1">
-                    Search: "{searchTerm}"
-                    <button onClick={() => {
-                      setSearchTerm('')
-                      setSearchInputValue('')
-                      setSearchError(null)
-                    }} className="ml-1 hover:text-purple-900"><X size={12} /></button>
-                  </Badge>
-                )}
-                {selectedCategory && (
-                  <Badge variant="secondary" className="bg-purple-100 text-purple-800 rounded-full text-xs px-2 py-0.5 gap-1">
-                    Category: {categories.find(c => c._id === selectedCategory)?.name}
-                    <button onClick={() => setSelectedCategory(null)} className="ml-1 hover:text-purple-900"><X size={12} /></button>
-                  </Badge>
-                )}
-              </div>
-            )}
+            </AnimatePresence>
           </div>
-        </div>
-
-        {/* Mobile Header - SECURE VERSION */}
-        <div className="md:hidden sticky top-0 z-50 w-full bg-white/95 backdrop-blur-xl shadow-sm border-b border-purple-100">
-          <div className="px-3 py-2">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-500" size={13} />
-                <Input 
-                  type="text" 
-                  placeholder="Search..." 
-                  value={searchInputValue} 
-                  onChange={handleSearchChange}
-                  onPaste={(e) => {
-                    const pastedText = e.clipboardData.getData('text')
-                    if (containsMaliciousCode(pastedText)) {
-                      e.preventDefault()
-                      toast.error('Invalid characters')
-                    }
-                  }}
-                  onDrop={(e) => {
-                    const droppedText = e.dataTransfer.getData('text')
-                    if (containsMaliciousCode(droppedText)) {
-                      e.preventDefault()
-                      toast.error('Invalid characters')
-                    }
-                  }}
-                  className={`pl-8 pr-6 py-1.5 h-8 text-xs bg-white border rounded-lg focus:border-purple-900 focus:ring-2 transition-all w-full ${
-                    searchError ? 'border-red-500 ring-2 ring-red-200' : 'border-purple-200 focus:ring-purple-200'
-                  }`}
-                  maxLength={100}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                {searchInputValue && (
-                  <button 
-                    onClick={() => {
-                      setSearchInputValue('')
-                      setSearchTerm('')
-                      setSearchError(null)
-                    }} 
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
-                  >
-                    <X size={11} />
-                  </button>
-                )}
-              </div>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8 gap-1 border-purple-200 bg-white rounded-lg text-xs shrink-0 px-2.5">
-                    <Filter size={12} />
-                    <span className="text-xs">Filter</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="rounded-xl border-purple-200 shadow-lg w-[260px]">
-                  <div className="p-2 border-b border-purple-100">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-700">Categories</span>
-                      {selectedCategory && <button onClick={clearFilters} className="text-xs text-purple-600">Clear</button>}
-                    </div>
-                  </div>
-                  <div className="max-h-[300px] overflow-y-auto">
-                    <DropdownMenuItem onClick={() => setSelectedCategory(null)} className={`cursor-pointer ${!selectedCategory ? 'bg-purple-50 text-purple-900' : ''}`}>
-                      <div className="flex items-center gap-2 w-full">
-                        <Layers className="h-3.5 w-3.5 text-purple-900" />
-                        <span className="flex-1 text-sm">All Categories</span>
-                      </div>
-                    </DropdownMenuItem>
-                    {sortedCategories.map((category) => (
-                      <DropdownMenuItem key={category._id} onClick={() => setSelectedCategory(category._id)} className={`cursor-pointer ${selectedCategory === category._id ? 'bg-purple-50 text-purple-900' : ''}`}>
-                        <div className="flex items-center gap-2 w-full">
-                          <div className="p-0.5 bg-purple-100 rounded">{getCategoryIcon(category.type, "h-3 w-3 text-purple-900")}</div>
-                          <span className="flex-1 text-sm truncate">{category.name}</span>
-                          <Badge variant="secondary" className="bg-purple-100 text-purple-900 rounded-full text-xs px-1.5">{categoryCounts[category._id] || 0}</Badge>
-                        </div>
-                      </DropdownMenuItem>
-                    ))}
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <div className="flex gap-0.5 bg-white p-0.5 rounded-lg border border-purple-200 shadow-sm shrink-0">
-                <Button variant={viewMode === 'grid' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('grid')} className={`rounded-md h-7 w-7 transition-all ${viewMode === 'grid' ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-md' : 'hover:bg-purple-50 text-gray-600'}`}>
-                  <Grid size={13} />
-                </Button>
-                <Button variant={viewMode === 'list' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('list')} className={`rounded-md h-7 w-7 transition-all ${viewMode === 'list' ? 'bg-gradient-to-r from-purple-800 to-purple-900 text-white shadow-md' : 'hover:bg-purple-50 text-gray-600'}`}>
-                  <List size={13} />
-                </Button>
-              </div>
-            </div>
-
-            {hasActiveFilters && (
-              <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-1.5 border-t border-purple-100">
-                {searchTerm && (
-                  <Badge variant="secondary" className="bg-purple-100 text-purple-800 rounded-full text-[10px] px-1.5 py-0.5 gap-0.5">
-                    "{searchTerm.substring(0, 12)}"
-                    <button onClick={() => {
-                      setSearchTerm('')
-                      setSearchInputValue('')
-                      setSearchError(null)
-                    }}><X size={9} /></button>
-                  </Badge>
-                )}
-                {selectedCategory && (
-                  <Badge variant="secondary" className="bg-purple-100 text-purple-800 rounded-full text-[10px] px-1.5 py-0.5 gap-0.5">
-                    {categories.find(c => c._id === selectedCategory)?.name?.substring(0, 15)}
-                    <button onClick={() => setSelectedCategory(null)}><X size={9} /></button>
-                  </Badge>
-                )}
-              </div>
-            )}
+          
+          {/* ========== MOBILE VIEW ========== */}
+          <div className="md:hidden">
+            <AnimatePresence mode="wait">
+              {mobileStep === 'categories' ? (
+                <motion.div
+                  key="mobile-categories"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {renderMobileCategories()}
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="mobile-items"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {renderMobileCategoryItems()}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-        </div>
-
-        {/* Main Content */}
-        <main className="container mx-auto px-3 md:px-4 py-4 md:py-6">
-          {getDisplayItems().length > 0 && (
-            <div className="flex justify-between items-center mb-3 md:mb-4 px-1">
-              <p className="text-[11px] md:text-sm text-gray-500">
-                Found <span className="font-semibold text-purple-900">{getDisplayItems().length}</span> items
-              </p>
-              <div className="flex items-center gap-1.5 md:gap-2">
-                <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-[9px] md:text-xs text-gray-400">Ready to order</span>
-              </div>
-            </div>
-          )}
-
-          <AnimatePresence mode="wait">
-            {getDisplayItems().length === 0 ? (
-              <EmptyMenuState searchTerm={searchTerm} selectedCategory={selectedCategory} itemsLength={items.length} onClearFilters={clearFilters} onRefresh={handleRefresh} />
-            ) : (
-              <motion.div key="menu-items" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`grid gap-3 md:gap-5 ${viewMode === 'grid' ? 'grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
-                {getDisplayItems().map((item, index) => {
-                  const category = categories.find(c => c._id === item.categoryId)
-                  const categoryName = category?.name || 'Uncategorized'
-                  
-                  return viewMode === 'grid' ? (
-                    <ItemCard 
-                      key={item._id}
-                      item={item} 
-                      categoryName={categoryName} 
-                      onAddToCart={addToCart} 
-                      onViewDetails={handleViewDetails} 
-                      isUserLoggedIn={isLoggedIn} 
-                      onLoginRequired={handleLoginRequired} 
-                      index={index} 
-                    />
-                  ) : (
-                    <ListViewItem 
-                      key={item._id}
-                      item={item} 
-                      categoryName={categoryName} 
-                      onAddToCart={addToCart} 
-                      onViewDetails={handleViewDetails} 
-                      isUserLoggedIn={isLoggedIn} 
-                      onLoginRequired={handleLoginRequired} 
-                      index={index} 
-                    />
-                  )
-                })}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {getDisplayItems().length > 0 && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="text-center mt-6 md:mt-8 pb-8">
-              <Badge variant="outline" className="bg-white/80 backdrop-blur-sm px-2.5 py-1 md:px-4 md:py-2 rounded-full text-[9px] md:text-xs border border-purple-200 shadow-sm">
-                <Eye className="h-2 w-2 md:h-3 md:w-3 mr-1 md:mr-1.5 text-purple-900" />
-                Showing {getDisplayItems().length} of {items.length} items
-              </Badge>
-            </motion.div>
-          )}
         </main>
       </div>
 
-      {/* Floating Cart Button - Mobile */}
-      <div className="md:hidden fixed bottom-6 right-4 z-50">
+      {/* Floating Cart Button - Both Desktop and Mobile */}
+      <div className="fixed bottom-6 right-4 z-50">
         <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
           <SheetTrigger asChild>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setIsCartOpen(true)} className="relative bg-gradient-to-r from-purple-800 to-purple-900 text-white rounded-full p-3.5 shadow-lg shadow-purple-500/30">
+            <motion.button 
+              whileHover={{ scale: 1.05 }} 
+              whileTap={{ scale: 0.95 }} 
+              onClick={() => setIsCartOpen(true)} 
+              className="relative bg-gradient-to-r from-purple-800 to-purple-900 text-white rounded-full p-3.5 shadow-lg shadow-purple-500/30"
+            >
               <ShoppingCart className="h-5 w-5" />
               {totalItems > 0 && (
                 <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-5 w-5 flex items-center justify-center shadow-md">
@@ -1543,7 +2026,7 @@ export default function MenuPage() {
             onPlaceOrder={handlePlaceOrder} 
             isPlacingOrder={isPlacingOrder} 
             isUserLoggedIn={isLoggedIn}
-            onLoginRequired={handleLoginRequired}
+            onLoginRequired={() => {}} // No-op since we removed login requirement
             userData={userData as UserData | null}
             onNavigateToProfile={handleNavigateToProfile} 
             isCalculatingDelivery={isCalculatingDelivery} 
@@ -1563,8 +2046,8 @@ export default function MenuPage() {
           isOpen={showItemDetail} 
           onOpenChange={setShowItemDetail} 
           onAddToCart={addToCart} 
-          isUserLoggedIn={isLoggedIn} 
-          onLoginRequired={handleLoginRequired} 
+          isUserLoggedIn={true} // Always true to bypass login checks in dialog
+          onLoginRequired={() => {}} // No-op
         />
       )}
       

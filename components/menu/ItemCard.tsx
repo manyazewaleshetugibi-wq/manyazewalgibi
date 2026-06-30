@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { toast } from 'react-hot-toast'
-import { Eye, Clock, ShoppingCart, Sparkles, Flame, Beef, Wheat, Milk } from 'lucide-react'
+import { Eye, Clock, ShoppingCart, Sparkles, Flame, Beef, Wheat, Milk, MoreVertical } from 'lucide-react'
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -85,6 +85,21 @@ export function ItemCard({
         },
       })
     }
+  }
+
+  // Handle card click - add to cart
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Don't trigger if clicking on the three dots button
+    if ((e.target as HTMLElement).closest('.three-dots-button')) {
+      return
+    }
+    handleAddToCart(e)
+  }
+
+  // Handle three dots click - show details
+  const handleThreeDotsClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onViewDetails(item)
   }
 
   // Function to dynamically adjust font size based on text length
@@ -190,7 +205,8 @@ export function ItemCard({
     )
   }
 
-  // MOBILE VERSION - No truncation, dynamic font sizes, category and time removed
+  // MOBILE VERSION - Item name and three dots for details, card click adds to cart
+  // Price, category, time, nutrition removed on mobile
   if (isMobile) {
     const dynamicFontSize = getDynamicFontSize(item.name, true)
     
@@ -199,7 +215,8 @@ export function ItemCard({
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: index * 0.05 }}
-        className="touch-manipulation"
+        className="touch-manipulation cursor-pointer"
+        onClick={handleCardClick}
       >
         <div className="overflow-hidden bg-white shadow-sm rounded-xl active:scale-[0.98] transition-transform duration-150">
           <div className="relative h-20 overflow-hidden bg-white">
@@ -236,34 +253,27 @@ export function ItemCard({
           </div>
 
           <div className="p-2">
-            <div className="flex items-start justify-between gap-1">
-              <div className="flex-1 min-w-0">
-                {/* Item name - no truncation, dynamic font size */}
-                <h3 className={`${dynamicFontSize} font-semibold text-gray-800 leading-tight break-words`}>
-                  {item.name}
-                </h3>
-                {/* Category and time completely removed on mobile */}
-              </div>
+            {/* Item name and three dots button inline flex */}
+            <div className="flex items-center justify-between gap-2">
+              {/* Item name - no truncation, dynamic font size */}
+              <h3 className={`${dynamicFontSize} font-semibold text-gray-800 leading-tight break-words flex-1`}>
+                {item.name}
+              </h3>
+              
+              {/* Three dots button for details */}
               <button
-                onClick={() => onViewDetails(item)}
-                className="p-1 rounded-full bg-gray-50 active:bg-gray-100 transition-colors flex-shrink-0"
+                className="three-dots-button p-1 rounded-full hover:bg-gray-100 active:bg-gray-200 transition-colors flex-shrink-0"
+                onClick={handleThreeDotsClick}
                 aria-label="View details"
               >
-                <Eye className="h-3 w-3 text-gray-600" />
+                <MoreVertical className="h-4 w-4 text-gray-600" />
               </button>
             </div>
 
             {/* NUTRITIONAL SECTION REMOVED ON MOBILE */}
-
-            <div className="flex items-center justify-between gap-1 pt-1.5 border-t border-gray-100 mt-1.5">
-              <div className="flex items-baseline gap-1">
-                <span className="text-[11px] font-bold text-purple-900">
-                  {priceWithTax.toLocaleString()}
-                </span>
-                <span className="text-[7px] text-gray-400">ETB</span>
-              </div>
-              {renderAddToCartButton(true)}
-            </div>
+            {/* PRICE REMOVED ON MOBILE */}
+            {/* CATEGORY AND TIME REMOVED ON MOBILE */}
+            {/* ADD TO CART BUTTON REMOVED ON MOBILE - replaced by card click */}
           </div>
         </div>
       </motion.div>
