@@ -156,7 +156,7 @@ export async function PUT(
       );
     }
 
-    // 🔥 FIXED: Handle image upload properly
+    // Handle image upload properly
     let imageUrl = existingItem.imageUrl;
     let cloudinaryData = existingItem.cloudinaryData;
     const imageFile = formData.get("image") as File | null;
@@ -166,10 +166,6 @@ export async function PUT(
     if (removeImage) {
       imageUrl = "";
       cloudinaryData = null;
-      // Note: You might want to delete from Cloudinary here
-      // if (existingItem.cloudinaryData?.publicId) {
-      //   await deleteFromCloudinary(existingItem.cloudinaryData.publicId);
-      // }
     }
 
     // Handle new image upload - DIRECT TO CLOUDINARY, NOT TO BASE64
@@ -199,15 +195,9 @@ export async function PUT(
 
       try {
         console.log('Starting image upload to Cloudinary for update...');
-        // Upload directly to Cloudinary using the File object
         cloudinaryData = await uploadToCloudinary(imageFile);
         imageUrl = cloudinaryData.url;
         console.log('Image upload successful:', cloudinaryData);
-        
-        // Optionally delete old image from Cloudinary
-        // if (existingItem.cloudinaryData?.publicId) {
-        //   await deleteFromCloudinary(existingItem.cloudinaryData.publicId);
-        // }
       } catch (uploadError: any) {
         console.error('Image upload error:', uploadError);
         return NextResponse.json(
@@ -220,7 +210,7 @@ export async function PUT(
       }
     }
 
-    // Parse other form data
+    // Parse other form data - ADDED isFasting
     const body = {
       name: formData.get("name"),
       description: formData.get("description"),
@@ -229,6 +219,7 @@ export async function PUT(
       preparationTime: Number(formData.get("preparationTime")),
       isActive: formData.get("isActive") === "true",
       isFeatured: formData.get("isFeatured") === "true",
+      isFasting: formData.get("isFasting") === "true", // ADDED
       nutritionalInfo: JSON.parse(formData.get("nutritionalInfo") as string || "{}"),
       requiredStock: JSON.parse(formData.get("requiredStock") as string || "[]"),
     };
@@ -237,7 +228,8 @@ export async function PUT(
     const validatedData = validateItemData({
       ...body,
       imageUrl,
-      cloudinaryData, // Include cloudinaryData in validation
+      cloudinaryData,
+      isFasting: body.isFasting, // ADDED
     });
 
     // Ensure valid category and stock IDs
@@ -251,7 +243,7 @@ export async function PUT(
       }
     });
 
-    // Prepare update data
+    // Prepare update data - ADDED isFasting
     const updateData = {
       ...validatedData,
       categoryId: new ObjectId(validatedData.categoryId),
@@ -260,7 +252,8 @@ export async function PUT(
         quantity: stock.quantity,
       })),
       imageUrl,
-      cloudinaryData, // Store Cloudinary metadata
+      cloudinaryData,
+      isFasting: validatedData.isFasting || false, // ADDED
       updatedAt: new Date(),
     };
 

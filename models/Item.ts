@@ -1,60 +1,60 @@
 import { z } from "zod";
-import { ObjectId } from "mongodb";
 
-// ✅ Item Category Schema
-export const ItemCategorySchema = z.object({
-  _id: z.instanceof(ObjectId).optional(), // Ensure ObjectId compatibility
-  name: z.string().min(1, "Category name is required"),
-  description: z.string().optional(),
-  type: z.enum(["FOOD", "DRINK", "OTHER"]),
-  imageUrl: z.string().url().optional(),
-  isActive: z.boolean().default(true),
-  createdAt: z.date().default(() => new Date()),
-  updatedAt: z.date().default(() => new Date()),
-});
-
-// ✅ Item Schema
+// Define the Item schema with validation
 export const ItemSchema = z.object({
-  _id: z.instanceof(ObjectId).optional(),
-  name: z.string().min(1, "Item name is required"),
-  description: z.string().optional(),
-  categoryId: z
-    .union([z.string(), z.instanceof(ObjectId)])
-    .refine((id) => ObjectId.isValid(id.toString()), { message: "Invalid category ID" }),
-  price: z.number().min(0, "Price must be non-negative"),
-  imageUrl: z.string().url().optional(),
+  id: z.string().optional(),
+  name: z.string().min(1, "Name is required").max(100, "Name must be less than 100 characters"),
+  description: z.string().min(1, "Description is required").max(500, "Description must be less than 500 characters"),
+  categoryId: z.string().min(1, "Category is required"),
+  price: z.number().min(0, "Price must be positive").max(999999, "Price is too high"),
+  cost: z.number().min(0, "Cost must be positive").optional(),
+  imageUrl: z.string().nullable().optional(),
+  cloudinaryData: z.object({
+    publicId: z.string(),
+    url: z.string(),
+    format: z.string(),
+    bytes: z.number(),
+    width: z.number().optional(),
+    height: z.number().optional(),
+  }).nullable().optional(),
   requiredStock: z.array(
     z.object({
-      stockId: z.union([z.string(), z.instanceof(ObjectId)]).refine((id) => ObjectId.isValid(id.toString()), {
-        message: "Invalid stock ID",
-      }),
-      quantity: z.number().min(0, "Quantity must be non-negative"),
+      stockId: z.string(),
+      quantity: z.number().min(0, "Quantity must be positive"),
     })
-  ),
-  nutritionalInfo: z
-    .object({
-      calories: z.number().optional(),
-      protein: z.number().optional(),
-      carbohydrates: z.number().optional(),
-      fat: z.number().optional(),
-    })
-    .optional(),
-  preparationTime: z.number().optional(),
-  isActive: z.boolean().default(true),
-  isFeatured: z.boolean().default(false),
-  createdAt: z.date().default(() => new Date()),
-  updatedAt: z.date().default(() => new Date()),
+  ).optional(),
+  nutritionalInfo: z.object({
+    calories: z.number().min(0, "Calories must be positive").max(10000, "Calories too high"),
+    protein: z.number().min(0, "Protein must be positive").max(1000, "Protein too high"),
+    carbohydrates: z.number().min(0, "Carbohydrates must be positive").max(1000, "Carbohydrates too high"),
+    fat: z.number().min(0, "Fat must be positive").max(1000, "Fat too high"),
+  }).optional(),
+  preparationTime: z.number().min(0, "Preparation time must be positive").max(1440, "Preparation time cannot exceed 24 hours").optional(),
+  isActive: z.boolean().optional(),
+  isFeatured: z.boolean().optional(),
+  isFasting: z.boolean().optional(), // ADDED
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
 });
 
-// ✅ Export types
-export type ItemCategory = z.infer<typeof ItemCategorySchema>;
-export type Item = z.infer<typeof ItemSchema>;
+export type MenuItem = z.infer<typeof ItemSchema>;
 
-// ✅ Validation functions
-export function validateItemData(rawData: any) {
-  return ItemSchema.parse(rawData);
-}
-
-export function validateItemCategoryData(rawData: any) {
-  return ItemCategorySchema.parse(rawData);
+// Validation function for item data
+export function validateItemData(data: any) {
+  try {
+    // Validate with Zod
+    const validatedData = ItemSchema.parse(data);
+    return validatedData;
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      // Format Zod errors for better response
+      const errors = error.errors.reduce((acc: any, curr) => {
+        const path = curr.path.join('.');
+        acc[path] = curr.message;
+        return acc;
+      }, {});
+      throw new Error(JSON.stringify({ errors, message: "Validation failed" }));
+    }
+    throw error;
+  }
 }

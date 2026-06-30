@@ -1,4 +1,4 @@
-// app/api/order/waiterreport/route.ts
+// app/api/order/waiterreport/route.ts (FIXED)
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
@@ -129,6 +129,7 @@ export async function GET(req: NextRequest) {
       },
       {
         $addFields: {
+          waiterName: { $ifNull: ['$waiterInfo.name', '$waiterName'] },
           enrichedRestaurantName: {
             $ifNull: ['$restaurantInfo.name', '$restaurantName']
           },
@@ -151,7 +152,7 @@ export async function GET(req: NextRequest) {
       pipeline.push({ $limit: pageSize });
     }
 
-    // Fetch orders
+    // ✅ FIX: Fetch orders
     const orders = await db.collection("orders")
       .aggregate(pipeline)
       .toArray();
@@ -187,15 +188,106 @@ export async function GET(req: NextRequest) {
       averageOrderValue: 0,
     };
 
-    // Return ONLY success message, completely hiding all order data
+    // ✅ FIX: Calculate breakdowns
+    const breakdownPipeline = [
+      { $match: query },
+      {
+        $facet: {
+          byStatus: [
+            { $group: { _id: '$status', count: { $sum: 1 }, total: { $sum: '$finalAmount' } } }
+          ],
+          byPayment: [
+            { $group: { _id: '$paymentMethod', count: { $sum: 1 }, total: { $sum: '$finalAmount' } } }
+          ]
+        }
+      }
+    ];
+
+    const breakdownResult = await db.collection("orders")
+      .aggregate(breakdownPipeline)
+      .toArray();
+
+    const breakdown = breakdownResult[0] || { byStatus: [], byPayment: [] };
+
+    // Convert breakdown arrays to objects
+    const byStatus: Record<string, { count: number; total: number }> = {};
+    breakdown.byStatus.forEach((item: any) => {
+      byStatus[item._id || 'Unknown'] = { count: item.count, total: item.total };
+    });
+
+    const byPayment: Record<string, { count: number; total: number }> = {};
+    breakdown.byPayment.forEach((item: any) => {
+      byPayment[item._id || 'Unknown'] = { count: item.count, total: item.total };
+    });
+
+    // ✅ FIX: Calculate top items
+    const topItemsPipeline = [
+      { $match: query },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: '$items.itemId',
+          name: { $first: '$items.name' },
+          quantity: { $sum: '$items.quantity' },
+          revenue: { $sum: { $multiply: ['$items.quantity', '$items.unitPrice'] } }
+        }
+      },
+      { $sort: { revenue: -1 } },
+      { $limit: 10 }
+    ];
+
+    const topItems = await db.collection("orders")
+      .aggregate(topItemsPipeline)
+      .toArray();
+
+    // ✅ FIX: Calculate daily sales
+    const dailySalesPipeline = [
+      { $match: query },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          total: { $sum: '$finalAmount' },
+          orders: { $sum: 1 },
+          averageOrderValue: { $avg: '$finalAmount' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ];
+
+    const dailySales = await db.collection("orders")
+      .aggregate(dailySalesPipeline)
+      .toArray();
+
+    // ✅ FIX: Return COMPLETE data with orders
     return NextResponse.json({
       success: true,
       message: "Report data retrieved successfully",
+      orders: orders, // ✅ THIS WAS MISSING!
       summary: {
         totalOrders: summary.totalOrders || 0,
         totalSales: summary.totalSales || 0,
+        totalTax: summary.totalTax || 0,
+        totalDiscount: summary.totalDiscount || 0,
+        totalItems: summary.totalItems || 0,
+        totalGuests: summary.totalGuests || 0,
         averageOrderValue: summary.averageOrderValue || 0,
       },
+      breakdown: {
+        byStatus,
+        byPayment,
+      },
+      topItems: topItems.map((item: any) => ({
+        id: item._id,
+        name: item.name || 'Unknown Item',
+        quantity: item.quantity || 0,
+        revenue: item.revenue || 0,
+      })),
+      dailySales: dailySales.map((day: any) => ({
+        date: day._id,
+        total: day.total || 0,
+        orders: day.orders || 0,
+        averageOrderValue: day.averageOrderValue || 0,
+      })),
       pagination: {
         page,
         pageSize,
@@ -209,11 +301,13 @@ export async function GET(req: NextRequest) {
     });
 
   } catch (error) {
+    console.error('Error in waiterreport API:', error);
     return NextResponse.json(
       { 
         success: false,
         error: 'Failed to fetch reports',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        message: error instanceof Error ? error.message : 'Unknown error',
+        orders: [] // ✅ Always return empty array on error
       },
       { status: 500 }
     );
@@ -235,7 +329,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { format } = body;
 
-    // Return success message without actual data
     return NextResponse.json({
       success: true,
       message: "Export request processed successfully",

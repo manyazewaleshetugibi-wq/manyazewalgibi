@@ -1,5 +1,3 @@
-
-
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { validateItemData } from "@/models/Item";
@@ -116,6 +114,7 @@ export async function POST(req: NextRequest) {
     const categoryId = formData.get("categoryId") as string;
     const requiredStockString = formData.get("requiredStock") as string;
     const imageFile = formData.get("image") as File | null;
+    const isFasting = formData.get("isFasting") === "true"; // ADDED: Parse isFasting
 
     // Basic validation
     if (!name || !description || !categoryId) {
@@ -201,7 +200,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Prepare item data
+    // Prepare item data - ADDED isFasting field
     const itemData = {
       name,
       description,
@@ -210,7 +209,8 @@ export async function POST(req: NextRequest) {
       categoryId,
       imageUrl,
       requiredStock,
-      cloudinaryData, // Store Cloudinary metadata
+      cloudinaryData,
+      isFasting, // ADDED
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -231,7 +231,8 @@ export async function POST(req: NextRequest) {
         quantity: stock.quantity,
       })),
       imageUrl,
-      cloudinaryData, // Store Cloudinary metadata
+      cloudinaryData,
+      isFasting: validatedData.isFasting || false, // ADDED
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -292,7 +293,7 @@ export async function PUT(req: NextRequest) {
 
     const formData = await req.formData();
     
-    // Parse form data
+    // Parse form data - ADDED isFasting
     const name = formData.get("name") as string;
     const description = formData.get("description") as string;
     const price = formData.get("price") as string;
@@ -301,6 +302,7 @@ export async function PUT(req: NextRequest) {
     const requiredStockString = formData.get("requiredStock") as string;
     const imageFile = formData.get("image") as File | null;
     const removeImage = formData.get("removeImage") === "true";
+    const isFasting = formData.get("isFasting") === "true"; // ADDED
 
     // Connect to database
     const dbClient = await clientPromise;
@@ -398,7 +400,7 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // Prepare update data
+    // Prepare update data - ADDED isFasting field
     const updateData: any = {
       name: name !== undefined ? name : existingItem.name,
       description: description !== undefined ? description : existingItem.description,
@@ -411,6 +413,7 @@ export async function PUT(req: NextRequest) {
         stockId: new ObjectId(stock.stockId),
         quantity: stock.quantity,
       })),
+      isFasting: isFasting !== undefined ? isFasting : existingItem.isFasting || false, // ADDED
       updatedAt: new Date(),
     };
 

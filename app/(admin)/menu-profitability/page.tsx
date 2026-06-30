@@ -1,4 +1,3 @@
-// app/menu-profitability/page.tsx
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
@@ -23,13 +22,8 @@ import {
   Pizza,
   Utensils,
   Grid3X3,
-  List,
   PieChart as PieChartIcon,
-  Wine,
-  Soup,
-  Cake,
-  Sandwich,
-  Flame
+  Layers
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -75,7 +69,11 @@ import {
 import * as XLSX from "xlsx"
 import { format } from "date-fns"
 import { useRouter } from "next/navigation"
-// Types based on your API structure
+
+// ============================================
+// TYPES
+// ============================================
+
 interface RequiredStock {
   stockId: string
   quantity: number
@@ -166,59 +164,82 @@ interface CategoryProfitability {
   items: MenuProfitability[]
 }
 
-// Helper function to get category icon
-const getCategoryIcon = (type: string, className?: string) => {
-  switch (type?.toUpperCase()) {
-    case 'FOOD': return <Pizza className={className || "h-4 w-4"} />
-    case 'DRINK': return <Coffee className={className || "h-4 w-4"} />
-    case 'OTHER': return <Utensils className={className || "h-4 w-4"} />
-    default: return <Layers className={className || "h-4 w-4"} />
+// ============================================
+// API FUNCTIONS - FIXED
+// ============================================
+
+// ✅ FIXED: Fetch menu items
+async function fetchMenuItems(): Promise<MenuItem[]> {
+  try {
+    const response = await fetch("/api/items")
+    if (!response.ok) throw new Error("Failed to fetch menu items")
+    const data = await response.json()
+    
+    if (data.data) return data.data
+    if (data.items) return data.items
+    if (Array.isArray(data)) return data
+    return []
+  } catch (error) {
+    console.error("Error fetching menu items:", error)
+    return []
   }
 }
 
-// Category type colors
-const categoryTypeColors = {
-  FOOD: { bg: "bg-amber-100 dark:bg-amber-900/30", text: "text-amber-800 dark:text-amber-300", border: "border-amber-200 dark:border-amber-800", icon: Pizza },
-  DRINK: { bg: "bg-blue-100 dark:bg-blue-900/30", text: "text-blue-800 dark:text-blue-300", border: "border-blue-200 dark:border-blue-800", icon: Coffee },
-  OTHER: { bg: "bg-purple-100 dark:bg-purple-900/30", text: "text-purple-800 dark:text-purple-300", border: "border-purple-200 dark:border-purple-800", icon: Utensils },
-}
-
-// API Functions
-async function fetchMenuItems(): Promise<MenuItem[]> {
-  const response = await fetch("/api/items")
-  if (!response.ok) throw new Error("Failed to fetch menu items")
-  const data = await response.json()
-  if (data.data) return data.data
-  if (data.items) return data.items
-  if (Array.isArray(data)) return data
-  return []
-}
-
+// ✅ FIXED: Fetch categories
 async function fetchCategories(): Promise<Category[]> {
-  const response = await fetch("/api/item-category?limit=100")
-  if (!response.ok) throw new Error("Failed to fetch categories")
-  const data = await response.json()
-  if (data.success && data.data) return data.data
-  return []
+  try {
+    const response = await fetch("/api/item-category?limit=100")
+    if (!response.ok) throw new Error("Failed to fetch categories")
+    const data = await response.json()
+    
+    if (data.success && data.data) return data.data
+    if (Array.isArray(data)) return data
+    return []
+  } catch (error) {
+    console.error("Error fetching categories:", error)
+    return []
+  }
 }
 
+// ✅ FIXED: Fetch stock items
 async function fetchStockItems(): Promise<StockItem[]> {
-  const response = await fetch("/api/stock")
-  if (!response.ok) throw new Error("Failed to fetch stock items")
-  const data = await response.json()
-  if (data.success && data.data) return data.data
-  return []
+  try {
+    const response = await fetch("/api/stock")
+    if (!response.ok) throw new Error("Failed to fetch stock items")
+    const data = await response.json()
+    
+    if (data.success && data.data) return data.data
+    if (Array.isArray(data)) return data
+    return []
+  } catch (error) {
+    console.error("Error fetching stock items:", error)
+    return []
+  }
 }
 
+// ✅ FIXED: Fetch purchases - handles both "data" and "purchases"
 async function fetchPurchases(): Promise<Purchase[]> {
-  const response = await fetch("/api/stock-purchase")
-  if (!response.ok) throw new Error("Failed to fetch purchases")
-  const data = await response.json()
-  if (data.success && data.purchases) return data.purchases
-  return []
+  try {
+    const response = await fetch("/api/stock-purchase")
+    if (!response.ok) throw new Error("Failed to fetch purchases")
+    const data = await response.json()
+    
+    if (data.success && data.data) return data.data
+    if (data.success && data.purchases) return data.purchases
+    if (data.data && Array.isArray(data.data)) return data.data
+    if (data.purchases && Array.isArray(data.purchases)) return data.purchases
+    if (Array.isArray(data)) return data
+    return []
+  } catch (error) {
+    console.error("Error fetching purchases:", error)
+    return []
+  }
 }
 
-// Helper function to get latest price for a stock
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
 function getLatestPrice(stockId: string, purchases: Purchase[]): { price: number, date: string, supplier: string } {
   const stockPurchases = purchases
     .filter(p => p.stockId === stockId)
@@ -244,7 +265,6 @@ function getStockUnit(stockId: string, stocks: StockItem[]): string {
   return stock ? stock.unit : "unit"
 }
 
-// Format currency
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -253,8 +273,28 @@ const formatCurrency = (value: number) => {
   }).format(value)
 }
 
-// Color palette for charts
+// Category icon helper
+const getCategoryIcon = (type: string, className?: string) => {
+  switch (type?.toUpperCase()) {
+    case 'FOOD': return <Pizza className={className || "h-4 w-4"} />
+    case 'DRINK': return <Coffee className={className || "h-4 w-4"} />
+    case 'OTHER': return <Utensils className={className || "h-4 w-4"} />
+    default: return <Layers className={className || "h-4 w-4"} />
+  }
+}
+
+// Color palette
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D", "#FF6B6B", "#4ECDC4"]
+
+const categoryTypeColors = {
+  FOOD: { bg: "bg-amber-100 dark:bg-amber-900/30", text: "text-amber-800 dark:text-amber-300", border: "border-amber-200 dark:border-amber-800", icon: Pizza },
+  DRINK: { bg: "bg-blue-100 dark:bg-blue-900/30", text: "text-blue-800 dark:text-blue-300", border: "border-blue-200 dark:border-blue-800", icon: Coffee },
+  OTHER: { bg: "bg-purple-100 dark:bg-purple-900/30", text: "text-purple-800 dark:text-purple-300", border: "border-purple-200 dark:border-purple-800", icon: Utensils },
+}
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 
 export default function MenuProfitabilityPage() {
   const router = useRouter()
@@ -273,13 +313,8 @@ export default function MenuProfitabilityPage() {
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<string>("items")
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
-  const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
 
-  // Fetch data on mount
-  useEffect(() => {
-    loadData()
-  }, [])
-
+  // Load data
   const loadData = async () => {
     setIsLoading(true)
     try {
@@ -290,6 +325,11 @@ export default function MenuProfitabilityPage() {
         fetchPurchases()
       ])
       
+      console.log("📦 Menu items fetched:", items.length)
+      console.log("📁 Categories fetched:", categoryData.length)
+      console.log("📦 Stock items fetched:", stockItems.length)
+      console.log("🛒 Purchases fetched:", purchaseData.length)
+
       setMenuItems(items)
       setCategories(categoryData)
       setStocks(stockItems)
@@ -302,14 +342,17 @@ export default function MenuProfitabilityPage() {
     }
   }
 
-  // Calculate profitability for each menu item - same logic as your menu page for category matching
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  // Calculate profitability
   const profitabilityData = useMemo(() => {
     const results: MenuProfitability[] = []
 
     menuItems.forEach(item => {
       if (!item.isActive) return
 
-      // Find category - EXACT same logic as your Menu page
       const category = categories.find(c => c._id === item.categoryId)
       const categoryName = category?.name || "Uncategorized"
       const categoryType = category?.type || "OTHER"
@@ -398,7 +441,6 @@ export default function MenuProfitabilityPage() {
       }
     })
 
-    // Calculate average margin for each category
     categoryMap.forEach(category => {
       category.averageMargin = category.totalRevenue > 0 
         ? (category.totalProfit / category.totalRevenue) * 100 
@@ -408,7 +450,7 @@ export default function MenuProfitabilityPage() {
     return Array.from(categoryMap.values())
   }, [profitabilityData])
 
-  // Filter and sort items
+  // Filter and sort
   const filteredItems = useMemo(() => {
     let filtered = [...profitabilityData]
 
@@ -447,7 +489,6 @@ export default function MenuProfitabilityPage() {
     return filtered
   }, [profitabilityData, searchQuery, selectedCategoryId, typeFilter, statusFilter, sortBy, sortOrder])
 
-  // Filter categories
   const filteredCategories = useMemo(() => {
     let filtered = [...categoryProfitability]
 
@@ -483,7 +524,6 @@ export default function MenuProfitabilityPage() {
     }
   }, [filteredItems])
 
-  // Get unique categories for filter - EXACT same as your Menu page
   const categoryOptions = useMemo(() => {
     return categories.filter(cat => cat.isActive).map(cat => ({
       _id: cat._id,
@@ -550,7 +590,12 @@ export default function MenuProfitabilityPage() {
     return 'bg-red-500'
   }
 
-  // Chart data for categories
+  const pieChartData = [
+    { name: 'Profitable (≥20%)', value: stats.profitableItems, color: '#22c55e' },
+    { name: 'Low Margin (0-20%)', value: stats.lowMarginItems, color: '#eab308' },
+    { name: 'Loss (<0%)', value: stats.lossItems, color: '#ef4444' }
+  ].filter(d => d.value > 0)
+
   const categoryChartData = filteredCategories.map(cat => ({
     name: cat.categoryName,
     margin: cat.averageMargin.toFixed(1),
@@ -560,17 +605,9 @@ export default function MenuProfitabilityPage() {
     itemCount: cat.totalItems
   }))
 
-  // Prepare data for pie chart
-  const pieChartData = [
-    { name: 'Profitable (≥20%)', value: stats.profitableItems, color: '#22c55e' },
-    { name: 'Low Margin (0-20%)', value: stats.lowMarginItems, color: '#eab308' },
-    { name: 'Loss (<0%)', value: stats.lossItems, color: '#ef4444' }
-  ].filter(d => d.value > 0)
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30">
-        
         <div className="container mx-auto py-10 px-4">
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -593,7 +630,6 @@ export default function MenuProfitabilityPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30">
       <div className="container mx-auto py-8 px-4">
-        
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <div>
             <div className="flex items-center gap-2 mb-2">
@@ -731,7 +767,6 @@ export default function MenuProfitabilityPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-8">
           <TabsList className="grid w-full max-w-md grid-cols-2 rounded-2xl bg-purple-100 p-1">
             <TabsTrigger value="items" className="rounded-xl data-[state=active]:bg-purple-800 data-[state=active]:text-white">
-              <List className="h-4 w-4 mr-2" />
               Items View
             </TabsTrigger>
             <TabsTrigger value="categories" className="rounded-xl data-[state=active]:bg-purple-800 data-[state=active]:text-white">
@@ -913,7 +948,6 @@ export default function MenuProfitabilityPage() {
 
           {/* Categories Tab */}
           <TabsContent value="categories" className="mt-6">
-            {/* Category Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredCategories.map((category) => {
                 const typeStyle = categoryTypeColors[category.categoryType as keyof typeof categoryTypeColors] || categoryTypeColors.OTHER
@@ -971,7 +1005,7 @@ export default function MenuProfitabilityPage() {
                           className={`h-2 ${getProgressColor(category.averageMargin)}`}
                         />
 
-                        <div className="flex gap-2 pt-2">
+                        <div className="flex gap-2 pt-2 flex-wrap">
                           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 rounded-full">
                             Profitable: {category.profitableItems}
                           </Badge>
@@ -997,7 +1031,7 @@ export default function MenuProfitabilityPage() {
               )}
             </div>
 
-            {/* Category Charts */}
+            {/* Charts */}
             {filteredCategories.length > 0 && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
                 <Card className="rounded-2xl border-0 shadow-lg">
@@ -1045,7 +1079,7 @@ export default function MenuProfitabilityPage() {
               </div>
             )}
 
-            {/* Pie Chart for Overall Distribution */}
+            {/* Pie Chart */}
             {pieChartData.length > 0 && (
               <Card className="rounded-2xl border-0 shadow-lg mt-8">
                 <CardHeader>
@@ -1090,7 +1124,6 @@ export default function MenuProfitabilityPage() {
 
             {selectedMenuItem && (
               <div className="space-y-6">
-                {/* Summary Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <Card className="rounded-xl">
                     <CardContent className="pt-4">
@@ -1126,9 +1159,8 @@ export default function MenuProfitabilityPage() {
                   </Card>
                 </div>
 
-                {/* Category and Prep Time */}
                 <div className="flex flex-wrap gap-4">
-                  <Badge className={categoryTypeColors[selectedMenuItem.categoryType as keyof typeof categoryTypeColors]?.bg + " " + categoryTypeColors[selectedMenuItem.categoryType as keyof typeof categoryTypeColors]?.text + " border-0 rounded-full px-4 py-2 text-base"}>
+                  <Badge className={`${categoryTypeColors[selectedMenuItem.categoryType as keyof typeof categoryTypeColors]?.bg} ${categoryTypeColors[selectedMenuItem.categoryType as keyof typeof categoryTypeColors]?.text} border-0 rounded-full px-4 py-2 text-base`}>
                     Category: {selectedMenuItem.categoryName}
                   </Badge>
                   {selectedMenuItem.preparationTime > 0 && (
@@ -1139,7 +1171,6 @@ export default function MenuProfitabilityPage() {
                   )}
                 </div>
 
-                {/* Ingredients Table */}
                 <div>
                   <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                     <Package className="h-5 w-5 text-purple-600" />
@@ -1186,7 +1217,6 @@ export default function MenuProfitabilityPage() {
                   </div>
                 </div>
 
-                {/* Margin Visualization */}
                 <div>
                   <h3 className="text-lg font-semibold mb-3">Profit Margin Visualization</h3>
                   <div className="space-y-2">
@@ -1208,7 +1238,6 @@ export default function MenuProfitabilityPage() {
                   </div>
                 </div>
 
-                {/* Recommendations */}
                 {selectedMenuItem.profitMargin < 20 && (
                   <div className={`p-4 rounded-xl ${selectedMenuItem.profitMargin < 0 ? 'bg-red-50 border border-red-200' : 'bg-yellow-50 border border-yellow-200'}`}>
                     <div className="flex items-start gap-3">

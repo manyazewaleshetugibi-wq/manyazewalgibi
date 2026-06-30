@@ -1,64 +1,51 @@
 "use client"
 
 // ============================================
-// 1. DashboardHeader Component
+// 1. IMPORTS
 // ============================================
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   BarChart,
   DollarSign,
   ShoppingCart,
-  ArrowDownIcon,
-  Download,
   Eye,
-  User,
-  CreditCard,
-  CalendarDays,
+  Home,
+  Truck,
+  Building2,
+  Package2,
   Utensils,
-  Filter,
   TrendingUp,
   Users,
   RefreshCw,
   Loader2,
-  MessageSquare,
   Phone,
   MapPin,
-  Home,
-  Truck,
-  Building2,
-  Calendar,
-  TrendingDown,
   ArrowUpRight,
   ArrowDownRight,
   LayoutDashboard,
   Store,
-  Briefcase,
-  Package2,
-  UtensilsCrossed,
-  Smartphone,
   ChevronDown,
   X,
+  CalendarDays,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, LineChart, Line, BarChart as ReBarChart, Bar, Cell, CartesianGrid } from "recharts"
-import * as XLSX from "xlsx"
+import { ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, BarChart as ReBarChart, Bar, Cell, CartesianGrid } from "recharts"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import { Label } from "@/components/ui/label"
-import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subMonths, subYears, startOfYear, endOfYear, getDay, setDay, differenceInDays, differenceInWeeks, differenceInMonths, isWithinInterval, parseISO } from "date-fns"
+import { format, subDays, subMonths, differenceInDays, startOfDay, endOfDay } from "date-fns"
 
 // ============================================
-// Types
+// 2. TYPES
 // ============================================
 
 type OrderItem = {
@@ -70,6 +57,7 @@ type OrderItem = {
   subtotal: number
   status: string
   name?: string
+  itemName?: string
   specialInstructions?: string
 }
 
@@ -96,6 +84,8 @@ type Order = {
   inTable?: boolean
   restaurantId?: string
   restaurantName?: string
+  enrichedRestaurantId?: string
+  enrichedRestaurantName?: string
   deliveryInfo?: {
     fullName: string
     phoneNumber: string
@@ -141,16 +131,6 @@ type MenuItem = {
   preparationTime: number
   isActive: boolean
   isFeatured: boolean
-}
-
-type SalesData = {
-  totalSales: number
-  orderCount: number
-  totalTax: number
-  totalDiscounts: number
-  dailySales: Record<string, number>
-  orders: Order[]
-  waitressSales?: Record<string, { name: string; sales: number; orders: number }>
 }
 
 type WaiterReportResponse = {
@@ -199,266 +179,50 @@ type ChartDataPoint = {
 }
 
 type DateFilterType = 'today' | 'yesterday' | 'last7days' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth' | 'custom'
-
 type AnalyticsView = 'sales' | 'restaurants' | 'waiters' | 'orderTypes'
 
+interface RankingItem {
+  id: string
+  name: string
+  value: number
+  previousValue?: number
+  percentage?: number
+  rank?: number
+  icon?: React.ReactNode
+  color?: string
+  orders?: number
+}
+
 // ============================================
-// API Functions - FIXED
+// 3. CONSTANTS
 // ============================================
 
-// Fetch restaurants from API
-const fetchRestaurantsFromAPI = async (): Promise<Restaurant[]> => {
-  try {
-    const response = await fetch('/api/restaurants')
-    const data = await response.json()
-    
-    if (data.success && Array.isArray(data.data)) {
-      return data.data
-        .filter((r: any) => r.isActive !== false)
-        .map((r: any) => ({
-          _id: r._id,
-          name: r.name,
-          shortName: r.name.includes('1') ? 'Restaurant 1' : (r.name.includes('2') ? 'Restaurant 2' : r.name.substring(0, 15)),
-          isActive: r.isActive,
-          branchCode: r.branchCode,
-          color: r.color
-        }))
-    }
-    return []
-  } catch (error) {
-    console.error("Error fetching restaurants:", error)
-    return []
-  }
+const ORDER_TYPES = [
+  { id: "dinein", name: "Dine In", icon: Home, color: "#10b981" },
+  { id: "delivery", name: "Delivery", icon: Truck, color: "#3b82f6" },
+  { id: "POS", name: "POS", icon: Package2, color: "#f59e0b" },
+  { id: "online", name: "Online", icon: ShoppingCart, color: "#8b5cf6" },
+]
+
+const STATUS_COLORS: Record<string, string> = {
+  PENDING: "bg-yellow-100 text-yellow-800",
+  CONFIRMED: "bg-blue-100 text-blue-800",
+  PREPARING: "bg-purple-100 text-purple-800",
+  PICKUP: "bg-indigo-100 text-indigo-800",
+  SERVED: "bg-green-100 text-green-800",
+  COMPLETED: "bg-teal-100 text-teal-800",
+  CANCELLED: "bg-red-100 text-red-800",
 }
 
-// Fetch waiters with restaurant info
-const fetchWaitressesWithRestaurants = async (): Promise<Waitress[]> => {
-  try {
-    const response = await fetch("/api/waitress")
-    const data = await response.json()
-    return data || []
-  } catch (error) {
-    console.error("Error fetching waitresses:", error)
-    return []
-  }
-}
+const CHART_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"]
 
-// FIXED: Fetch orders directly from the orders API
-const fetchOrdersFromAPI = async (startDate?: string, endDate?: string, restaurantId?: string): Promise<Order[]> => {
-  try {
-    const params = new URLSearchParams()
-    if (startDate) params.append('startDate', startDate)
-    if (endDate) params.append('endDate', endDate)
-    if (restaurantId && restaurantId !== 'all' && restaurantId !== 'unassigned') params.append('restaurantId', restaurantId)
-    
-    const url = `/api/order${params.toString() ? `?${params.toString()}` : ''}`
-    console.log("Fetching orders from:", url)
-    
-    const response = await fetch(url)
-    const data = await response.json()
-    console.log("Orders API response:", data)
-    
-    if (data.success && Array.isArray(data.data)) {
-      return data.data
-    } else if (Array.isArray(data)) {
-      return data
-    } else if (data.orders && Array.isArray(data.orders)) {
-      return data.orders
-    }
-    return []
-  } catch (error) {
-    console.error("Error fetching orders:", error)
-    return []
-  }
-}
+const menuItemsCache = new Map<string, { data: Map<string, MenuItem>; timestamp: number }>()
+const CACHE_DURATION = 5 * 60 * 1000
+const BATCH_SIZE_LIMIT = 100
 
-// FIXED: Fetch waiter report - now uses the proper endpoint
-const fetchWaiterReport = async (waiterId?: string, startDate?: string, endDate?: string, restaurantId?: string, limit?: number): Promise<WaiterReportResponse> => {
-  try {
-    // First try to get orders from the main orders endpoint
-    const orders = await fetchOrdersFromAPI(startDate, endDate, restaurantId)
-    
-    // Filter by waiter if specified
-    let filteredOrders = orders
-    if (waiterId && waiterId !== 'all') {
-      filteredOrders = orders.filter(order => order.waiterId === waiterId)
-    }
-    
-    // Calculate summary
-    const totalOrders = filteredOrders.length
-    const totalSales = filteredOrders.reduce((sum, order) => sum + (order.finalAmount || 0), 0)
-    const totalTax = filteredOrders.reduce((sum, order) => sum + (order.tax || 0), 0)
-    const totalDiscount = filteredOrders.reduce((sum, order) => sum + (order.discount || 0), 0)
-    const totalItems = filteredOrders.reduce((sum, order) => sum + (order.items?.length || 0), 0)
-    const totalGuests = filteredOrders.reduce((sum, order) => sum + (order.numberOfGuests || 0), 0)
-    const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0
-    
-    // Calculate breakdowns
-    const byStatus: Record<string, { count: number; total: number }> = {}
-    const byPayment: Record<string, { count: number; total: number }> = {}
-    
-    filteredOrders.forEach(order => {
-      const status = order.status || 'UNKNOWN'
-      if (!byStatus[status]) byStatus[status] = { count: 0, total: 0 }
-      byStatus[status].count += 1
-      byStatus[status].total += order.finalAmount || 0
-      
-      const payment = order.paymentMethod || 'CASH'
-      if (!byPayment[payment]) byPayment[payment] = { count: 0, total: 0 }
-      byPayment[payment].count += 1
-      byPayment[payment].total += order.finalAmount || 0
-    })
-    
-    // Calculate top items
-    const itemMap = new Map<string, { name: string; quantity: number; revenue: number }>()
-    filteredOrders.forEach(order => {
-      (order.items || order.orderItems || []).forEach(item => {
-        const itemId = item.menuItemId || item.itemId || 'unknown'
-        const existing = itemMap.get(itemId) || { name: item.name || 'Unknown Item', quantity: 0, revenue: 0 }
-        existing.quantity += item.quantity || 0
-        existing.revenue += (item.subtotal || item.price || item.unitPrice || 0) * (item.quantity || 0)
-        itemMap.set(itemId, existing)
-      })
-    })
-    
-    const topItems = Array.from(itemMap.entries())
-      .map(([id, data]) => ({ id, ...data }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10)
-    
-    // Calculate daily sales
-    const dailyMap = new Map<string, { total: number; orders: number }>()
-    filteredOrders.forEach(order => {
-      if (order.createdAt) {
-        const date = new Date(order.createdAt).toISOString().split('T')[0]
-        const existing = dailyMap.get(date) || { total: 0, orders: 0 }
-        existing.total += order.finalAmount || 0
-        existing.orders += 1
-        dailyMap.set(date, existing)
-      }
-    })
-    
-    const dailySales = Array.from(dailyMap.entries())
-      .map(([date, data]) => ({
-        date,
-        total: data.total,
-        orders: data.orders,
-        averageOrderValue: data.orders > 0 ? data.total / data.orders : 0
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date))
-    
-    return {
-      success: true,
-      orders: filteredOrders,
-      summary: {
-        totalOrders,
-        totalSales,
-        totalTax,
-        totalDiscount,
-        totalItems,
-        totalGuests,
-        averageOrderValue
-      },
-      breakdown: {
-        byStatus,
-        byPayment
-      },
-      topItems,
-      dailySales
-    }
-  } catch (error) {
-    console.error("Error fetching waiter report:", error)
-    return {
-      success: false,
-      orders: [],
-      summary: {
-        totalOrders: 0,
-        totalSales: 0,
-        totalTax: 0,
-        totalDiscount: 0,
-        totalItems: 0,
-        totalGuests: 0,
-        averageOrderValue: 0
-      },
-      breakdown: {
-        byStatus: {},
-        byPayment: {}
-      },
-      topItems: [],
-      dailySales: []
-    }
-  }
-}
-
-// Helper function to get restaurant ID from order
-const getOrderRestaurantId = (
-  order: Order, 
-  waitersList: Waitress[], 
-  restaurantsList: Restaurant[]
-): string => {
-  // 1. Direct ID match from order data (priority)
-  if (order.restaurantId) {
-    return order.restaurantId
-  }
-  
-  // 2. Direct name match from order data
-  const rName = (order.restaurantName || "").toLowerCase()
-  if (rName) {
-    const match = restaurantsList.find(r => 
-      r.name.toLowerCase() === rName || 
-      r.name.toLowerCase().includes(rName) || 
-      rName.includes(r.name.toLowerCase())
-    )
-    if (match) return match._id
-  }
-  
-  // 3. Map by waiter's restaurant assignment
-  if (order.waiterId) {
-    const waiter = waitersList.find(w => w._id === order.waiterId)
-    if (waiter?.restaurantId) {
-      return waiter.restaurantId
-    }
-  }
-  
-  return "unassigned"
-}
-
-// Helper function to get restaurant display name
-const getRestaurantDisplayName = (
-  order: Order, 
-  waitersList: Waitress[], 
-  restaurantsList: Restaurant[]
-): string => {
-  const restaurantId = getOrderRestaurantId(order, waitersList, restaurantsList)
-  const restaurant = restaurantsList.find(r => r._id === restaurantId)
-  if (restaurant) return restaurant.name || restaurant.shortName
-  return order.restaurantName || "Unassigned"
-}
-
-// Filter orders by restaurant
-const filterOrdersByRestaurant = (
-  orders: Order[], 
-  restaurantId: string, 
-  waitersList: Waitress[], 
-  restaurantsList: Restaurant[]
-): Order[] => {
-  if (restaurantId === 'all') return orders
-  if (restaurantId === 'unassigned') {
-    return orders.filter(order => {
-      const orderRestaurantId = getOrderRestaurantId(order, waitersList, restaurantsList)
-      return orderRestaurantId === 'unassigned' || !orderRestaurantId
-    })
-  }
-  return orders.filter(order => {
-    const orderRestaurantId = getOrderRestaurantId(order, waitersList, restaurantsList)
-    return orderRestaurantId === restaurantId
-  })
-}
-
-const fetchWaitress = async (id: string): Promise<Waitress> => {
-  const response = await fetch(`/api/waitress/${id}`)
-  return response.json()
-}
+// ============================================
+// 4. API FUNCTIONS - FIXED
+// ============================================
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(amount || 0)
@@ -491,13 +255,15 @@ const getDateRangeForFilter = (filterType: DateFilterType): { start: Date; end: 
       end.setHours(23, 59, 59, 999)
       break
     case 'thisWeek':
-      start.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1))
+      const day = now.getDay() || 7
+      start.setDate(now.getDate() - day + 1)
       start.setHours(0, 0, 0, 0)
       end.setDate(start.getDate() + 6)
       end.setHours(23, 59, 59, 999)
       break
     case 'lastWeek':
-      start.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -13 : -6))
+      const lastWeekDay = now.getDay() || 7
+      start.setDate(now.getDate() - lastWeekDay - 6)
       start.setHours(0, 0, 0, 0)
       end.setDate(start.getDate() + 6)
       end.setHours(23, 59, 59, 999)
@@ -522,39 +288,258 @@ const getDateRangeForFilter = (filterType: DateFilterType): { start: Date; end: 
 }
 
 const getPreviousPeriodRange = (filterType: DateFilterType, currentStart: Date, currentEnd: Date): { start: Date; end: Date } => {
-  const daysDiff = differenceInDays(currentEnd, currentStart) + 1
+  const diff = differenceInDays(currentEnd, currentStart) + 1
 
   switch (filterType) {
     case 'today':
+      return { start: subDays(currentStart, 1), end: subDays(currentEnd, 1) }
     case 'yesterday':
       return { start: subDays(currentStart, 1), end: subDays(currentEnd, 1) }
     case 'last7days':
       return { start: subDays(currentStart, 7), end: subDays(currentEnd, 7) }
     case 'thisWeek':
+      return { start: subDays(currentStart, 7), end: subDays(currentEnd, 7) }
     case 'lastWeek':
       return { start: subDays(currentStart, 7), end: subDays(currentEnd, 7) }
     case 'thisMonth':
+      return { start: subMonths(currentStart, 1), end: subMonths(currentEnd, 1) }
     case 'lastMonth':
       return { start: subMonths(currentStart, 1), end: subMonths(currentEnd, 1) }
     default:
-      return { start: subDays(currentStart, daysDiff), end: subDays(currentEnd, daysDiff) }
+      return { start: subDays(currentStart, diff), end: subDays(currentEnd, diff) }
   }
 }
 
-// ============================================
-// 2. MetricsOverview Component
-// ============================================
-
-interface MetricsOverviewProps {
-  totalSales: number
-  totalOrders: number
-  averageOrderValue: number
-  salesComparison: ComparisonData
-  ordersComparison: ComparisonData
-  aovComparison: ComparisonData
-  isLoading?: boolean
+// ✅ FIXED: Fetch restaurants
+const fetchRestaurantsFromAPI = async (): Promise<Restaurant[]> => {
+  try {
+    const response = await fetch('/api/restaurants')
+    if (!response.ok) return []
+    const data = await response.json()
+    
+    let restaurants = []
+    if (data.success && data.data) {
+      restaurants = data.data
+    } else if (data.data && Array.isArray(data.data)) {
+      restaurants = data.data
+    } else if (Array.isArray(data)) {
+      restaurants = data
+    }
+    
+    return restaurants
+      .filter((r: any) => r.isActive !== false)
+      .map((r: any) => ({
+        _id: r._id,
+        name: r.name,
+        shortName: r.shortName || r.name?.substring(0, 15) || 'Restaurant',
+        isActive: r.isActive,
+        branchCode: r.branchCode,
+        color: r.color || '#8B5CF6'
+      }))
+  } catch (error) {
+    console.error("Error fetching restaurants:", error)
+    return []
+  }
 }
 
+// ✅ FIXED: Fetch waitresses
+const fetchWaitressesWithRestaurants = async (): Promise<Waitress[]> => {
+  try {
+    const response = await fetch("/api/waitress")
+    if (!response.ok) return []
+    const data = await response.json()
+    
+    if (data.success && data.data) {
+      return data.data
+    }
+    if (Array.isArray(data)) {
+      return data
+    }
+    return []
+  } catch (error) {
+    console.error("Error fetching waitresses:", error)
+    return []
+  }
+}
+
+// ✅ FIXED: Fetch single waitress
+const fetchWaitress = async (id: string): Promise<Waitress | null> => {
+  try {
+    const response = await fetch(`/api/waitress/${id}`)
+    if (!response.ok) return null
+    const data = await response.json()
+    return data.success && data.data ? data.data : null
+  } catch (error) {
+    console.error("Error fetching waitress:", error)
+    return null
+  }
+}
+
+// ✅ FIXED: Fetch items batch
+const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>> => {
+  if (itemIds.length === 0) return new Map()
+  
+  const uniqueIds = [...new Set(itemIds)]
+  const limitedIds = uniqueIds.slice(0, BATCH_SIZE_LIMIT)
+  const cacheKey = limitedIds.sort().join(',')
+  const cached = menuItemsCache.get(cacheKey)
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) return cached.data
+  
+  try {
+    const response = await fetch(`/api/items?ids=${limitedIds.join(',')}`)
+    if (!response.ok) return new Map()
+    const data = await response.json()
+    
+    const itemsMap = new Map<string, MenuItem>()
+    let items: any[] = []
+    
+    if (data.success && data.items) {
+      items = data.items
+    } else if (data.success && data.data) {
+      items = data.data
+    } else if (data.items && Array.isArray(data.items)) {
+      items = data.items
+    } else if (data.data && Array.isArray(data.data)) {
+      items = data.data
+    } else if (Array.isArray(data)) {
+      items = data
+    }
+    
+    items.forEach((item: any) => {
+      if (item?._id) {
+        itemsMap.set(item._id, {
+          ...item,
+          name: item.name || item.itemName || 'Unknown Item',
+          price: item.price || item.unitPrice || 0,
+        })
+      }
+    })
+    
+    menuItemsCache.set(cacheKey, { data: itemsMap, timestamp: Date.now() })
+    return itemsMap
+  } catch (error) {
+    console.error("Error fetching items batch:", error)
+    return new Map()
+  }
+}
+
+// ✅ FIXED: Fetch waiter report
+const fetchWaiterReport = async (
+  waiterId?: string, 
+  startDate?: string, 
+  endDate?: string, 
+  restaurantId?: string, 
+  limit?: number
+): Promise<WaiterReportResponse> => {
+  const params = new URLSearchParams()
+  if (startDate) params.append('startDate', startDate)
+  if (endDate) params.append('endDate', endDate)
+  if (waiterId && waiterId !== 'all') params.append('waiterId', waiterId)
+  if (restaurantId && restaurantId !== 'all' && restaurantId !== 'unassigned') params.append('restaurantId', restaurantId)
+  params.append('limit', limit?.toString() || '10000')
+  
+  try {
+    const response = await fetch(`/api/order/waiterreport?${params.toString()}`)
+    if (!response.ok) throw new Error(`API Error: ${response.status}`)
+    return await response.json()
+  } catch (error) {
+    console.error("Error fetching waiter report:", error)
+    return { success: false, orders: [] } as WaiterReportResponse
+  }
+}
+
+// ✅ FIXED: Get order restaurant ID
+const getOrderRestaurantId = (
+  order: Order, 
+  waitersList: Waitress[], 
+  restaurantsList: Restaurant[]
+): string => {
+  if (order.enrichedRestaurantId) {
+    const exists = restaurantsList.some(r => r._id === order.enrichedRestaurantId)
+    if (exists) return order.enrichedRestaurantId
+  }
+  
+  if (order.restaurantId) {
+    const exists = restaurantsList.some(r => r._id === order.restaurantId)
+    if (exists) return order.restaurantId
+  }
+  
+  const rName = (order.restaurantName || "").toLowerCase()
+  if (rName) {
+    const match = restaurantsList.find(r => {
+      const rNameLower = r.name.toLowerCase()
+      return rNameLower === rName || rNameLower.includes(rName) || rName.includes(rNameLower)
+    })
+    if (match) return match._id
+  }
+  
+  if (order.waiterId) {
+    const waiter = waitersList.find(w => w._id === order.waiterId)
+    if (waiter?.restaurantId) {
+      const exists = restaurantsList.some(r => r._id === waiter.restaurantId)
+      if (exists) return waiter.restaurantId
+    }
+  }
+  
+  if (rName) {
+    if (rName.includes("1") || rName.includes("gibi 1")) {
+      const match = restaurantsList.find(r => r._id === "manyazewal1" || r.name.includes("1"))
+      if (match) return match._id
+    }
+    if (rName.includes("2") || rName.includes("gibi 2")) {
+      const match = restaurantsList.find(r => r._id === "manyazewal2" || r.name.includes("2"))
+      if (match) return match._id
+    }
+    if (rName.includes("3") || rName.includes("gibi 3")) {
+      const match = restaurantsList.find(r => r._id === "manyazewal3" || r.name.includes("3"))
+      if (match) return match._id
+    }
+  }
+  
+  return "unassigned"
+}
+
+// ✅ FIXED: Get restaurant display name
+const getRestaurantDisplayName = (
+  order: Order, 
+  waitersList: Waitress[], 
+  restaurantsList: Restaurant[]
+): string => {
+  if (order.enrichedRestaurantName) {
+    return order.enrichedRestaurantName
+  }
+  
+  const restaurantId = getOrderRestaurantId(order, waitersList, restaurantsList)
+  const restaurant = restaurantsList.find(r => r._id === restaurantId)
+  if (restaurant) return restaurant.name || restaurant.shortName || 'Restaurant'
+  return order.restaurantName || "Unassigned"
+}
+
+// ✅ FIXED: Filter orders by restaurant
+const filterOrdersByRestaurant = (
+  orders: Order[], 
+  restaurantId: string, 
+  waitersList: Waitress[], 
+  restaurantsList: Restaurant[]
+): Order[] => {
+  if (restaurantId === 'all') return orders
+  if (restaurantId === 'unassigned') {
+    return orders.filter(order => {
+      const orderRestaurantId = getOrderRestaurantId(order, waitersList, restaurantsList)
+      return orderRestaurantId === 'unassigned'
+    })
+  }
+  return orders.filter(order => {
+    const orderRestaurantId = getOrderRestaurantId(order, waitersList, restaurantsList)
+    return orderRestaurantId === restaurantId
+  })
+}
+
+// ============================================
+// 5. COMPONENTS - MOBILE OPTIMIZED
+// ============================================
+
+// 5a. Metrics Overview - Mobile First
 function MetricsOverview({ 
   totalSales, 
   totalOrders, 
@@ -563,16 +548,24 @@ function MetricsOverview({
   ordersComparison, 
   aovComparison, 
   isLoading 
-}: MetricsOverviewProps) {
+}: {
+  totalSales: number
+  totalOrders: number
+  averageOrderValue: number
+  salesComparison: ComparisonData
+  ordersComparison: ComparisonData
+  aovComparison: ComparisonData
+  isLoading?: boolean
+}) {
   if (isLoading) {
     return (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         {[...Array(4)].map((_, i) => (
           <Card key={i} className="overflow-hidden">
-            <CardContent className="p-6">
-              <Skeleton className="h-4 w-24 mb-2" />
-              <Skeleton className="h-8 w-32 mb-2" />
-              <Skeleton className="h-3 w-20" />
+            <CardContent className="p-3 md:p-6">
+              <Skeleton className="h-3 md:h-4 w-16 md:w-24 mb-1 md:mb-2" />
+              <Skeleton className="h-6 md:h-8 w-20 md:w-32 mb-1 md:mb-2" />
+              <Skeleton className="h-2 md:h-3 w-12 md:w-20" />
             </CardContent>
           </Card>
         ))}
@@ -586,82 +579,71 @@ function MetricsOverview({
     const bgClass = comparison.isPositive ? "bg-green-50" : "bg-red-50"
     
     return (
-      <div className={`flex items-center gap-1 ${bgClass} px-2 py-1 rounded-full`}>
-        <Icon className={`h-3 w-3 ${colorClass}`} />
-        <span className={`text-xs font-medium ${colorClass}`}>
+      <div className={`flex items-center gap-0.5 md:gap-1 ${bgClass} px-1.5 md:px-2 py-0.5 md:py-1 rounded-full`}>
+        <Icon className={`h-2 w-2 md:h-3 md:w-3 ${colorClass}`} />
+        <span className={`text-[10px] md:text-xs font-medium ${colorClass}`}>
           {Math.abs(comparison.percentage).toFixed(1)}%
         </span>
       </div>
     )
   }
 
+  const metrics = [
+    {
+      title: "Total Sales",
+      value: formatCurrency(totalSales),
+      comparison: salesComparison,
+      icon: DollarSign,
+    },
+    {
+      title: "Total Orders",
+      value: totalOrders.toString(),
+      comparison: ordersComparison,
+      icon: ShoppingCart,
+    },
+    {
+      title: "Avg Order Value",
+      value: formatCurrency(averageOrderValue),
+      comparison: aovComparison,
+      icon: TrendingUp,
+    },
+    {
+      title: "Growth Rate",
+      value: `${salesComparison.isPositive ? '+' : ''}${salesComparison.percentage.toFixed(1)}%`,
+      comparison: salesComparison,
+      icon: TrendingUp,
+      valueColor: salesComparison.isPositive ? "text-green-600" : "text-red-600"
+    }
+  ]
+
   return (
-    <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-      <Card className="overflow-hidden transition-all hover:shadow-lg">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Total Sales</p>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <h3 className="text-xl sm:text-2xl font-bold">{formatCurrency(totalSales)}</h3>
-            {renderComparison(salesComparison)}
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">vs previous period</p>
-        </CardContent>
-      </Card>
-
-      <Card className="overflow-hidden transition-all hover:shadow-lg">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Total Orders</p>
-            <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <h3 className="text-xl sm:text-2xl font-bold">{totalOrders}</h3>
-            {renderComparison(ordersComparison)}
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">vs previous period</p>
-        </CardContent>
-      </Card>
-
-      <Card className="overflow-hidden transition-all hover:shadow-lg">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Average Order Value</p>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <h3 className="text-xl sm:text-2xl font-bold">{formatCurrency(averageOrderValue)}</h3>
-            {renderComparison(aovComparison)}
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">vs previous period</p>
-        </CardContent>
-      </Card>
-
-      <Card className="overflow-hidden transition-all hover:shadow-lg">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Growth Rate</p>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="mt-1">
-            <h3 className={`text-xl sm:text-2xl font-bold ${salesComparison.isPositive ? 'text-green-600' : 'text-red-600'}`}>
-              {salesComparison.isPositive ? '+' : ''}{salesComparison.percentage.toFixed(1)}%
-            </h3>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">sales vs previous period</p>
-        </CardContent>
-      </Card>
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+      {metrics.map((metric, index) => {
+        const Icon = metric.icon
+        return (
+          <Card key={index} className="overflow-hidden transition-all hover:shadow-lg">
+            <CardContent className="p-3 md:p-6">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] md:text-sm font-medium text-muted-foreground truncate">{metric.title}</p>
+                <Icon className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground flex-shrink-0" />
+              </div>
+              <div className="mt-1 md:mt-2 flex items-baseline gap-1 md:gap-2 flex-wrap">
+                <h3 className={`text-sm md:text-2xl font-bold ${metric.valueColor || ''} truncate`}>
+                  {metric.value}
+                </h3>
+                {metric.comparison && renderComparison(metric.comparison)}
+              </div>
+              <p className="text-[8px] md:text-xs text-muted-foreground mt-0.5 md:mt-2">vs previous period</p>
+            </CardContent>
+          </Card>
+        )
+      })}
     </div>
   )
 }
 
-// ============================================
-// 3. AnalyticsFilterCards Component
-// ============================================
-
-interface AnalyticsFilterCardsProps {
+// 5b. Analytics Filter Cards - Mobile First
+function AnalyticsFilterCards({ activeView, onViewChange, counts }: {
   activeView: AnalyticsView
   onViewChange: (view: AnalyticsView) => void
   counts?: {
@@ -670,14 +652,12 @@ interface AnalyticsFilterCardsProps {
     waiters: number
     orderTypes: number
   }
-}
-
-function AnalyticsFilterCards({ activeView, onViewChange, counts }: AnalyticsFilterCardsProps) {
+}) {
   const filters = [
-    { id: 'sales' as AnalyticsView, label: 'All Sales', icon: LayoutDashboard, color: 'blue', count: counts?.sales },
+    { id: 'sales' as AnalyticsView, label: 'Sales', icon: LayoutDashboard, color: 'blue', count: counts?.sales },
     { id: 'restaurants' as AnalyticsView, label: 'Restaurants', icon: Store, color: 'green', count: counts?.restaurants },
     { id: 'waiters' as AnalyticsView, label: 'Waiters', icon: Users, color: 'purple', count: counts?.waiters },
-    { id: 'orderTypes' as AnalyticsView, label: 'Order Types', icon: UtensilsCrossed, color: 'orange', count: counts?.orderTypes },
+    { id: 'orderTypes' as AnalyticsView, label: 'Types', icon: ShoppingCart, color: 'orange', count: counts?.orderTypes },
   ]
 
   const colorClasses = {
@@ -688,7 +668,7 @@ function AnalyticsFilterCards({ activeView, onViewChange, counts }: AnalyticsFil
   }
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
       {filters.map((filter) => {
         const Icon = filter.icon
         const isActive = activeView === filter.id
@@ -699,20 +679,20 @@ function AnalyticsFilterCards({ activeView, onViewChange, counts }: AnalyticsFil
             key={filter.id}
             onClick={() => onViewChange(filter.id)}
             className={`
-              flex items-center justify-between p-4 rounded-xl border-2 transition-all duration-200
+              flex items-center justify-between p-2 md:p-4 rounded-xl border-2 transition-all duration-200
               ${isActive ? colors.active : `bg-white border-gray-200 ${colors.inactive}`}
             `}
           >
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${isActive ? 'bg-white/50' : 'bg-gray-50'}`}>
-                <Icon className={`h-5 w-5 ${isActive ? colors.icon : 'text-gray-400'}`} />
+            <div className="flex items-center gap-1.5 md:gap-3">
+              <div className={`p-1.5 md:p-2 rounded-lg ${isActive ? 'bg-white/50' : 'bg-gray-50'}`}>
+                <Icon className={`h-4 w-4 md:h-5 md:w-5 ${isActive ? colors.icon : 'text-gray-400'}`} />
               </div>
-              <span className={`font-medium ${isActive ? 'text-gray-900' : 'text-gray-600'}`}>
+              <span className={`text-xs md:text-sm font-medium ${isActive ? 'text-gray-900' : 'text-gray-600'}`}>
                 {filter.label}
               </span>
             </div>
             {filter.count !== undefined && filter.count > 0 && (
-              <Badge variant={isActive ? "default" : "secondary"} className="rounded-full">
+              <Badge variant={isActive ? "default" : "secondary"} className="rounded-full text-[10px] md:text-xs">
                 {filter.count}
               </Badge>
             )}
@@ -723,38 +703,31 @@ function AnalyticsFilterCards({ activeView, onViewChange, counts }: AnalyticsFil
   )
 }
 
-// ============================================
-// 4. SalesBarChart Component
-// ============================================
-
-interface SalesBarChartProps {
-  data: ChartDataPoint[]
-  title: string
-  description?: string
-  valuePrefix?: string
-  showComparison?: boolean
-  height?: number
-  isLoading?: boolean
-}
-
+// 5c. SalesBarChart - Mobile First
 function SalesBarChart({ 
   data, 
   title, 
   description, 
-  valuePrefix = "ETB", 
   showComparison = false, 
-  height = 400,
+  height = 300,
   isLoading 
-}: SalesBarChartProps) {
+}: {
+  data: ChartDataPoint[]
+  title: string
+  description?: string
+  showComparison?: boolean
+  height?: number
+  isLoading?: boolean
+}) {
   if (isLoading) {
     return (
       <Card>
-        <CardHeader>
-          <Skeleton className="h-6 w-48 mb-2" />
-          <Skeleton className="h-4 w-64" />
+        <CardHeader className="p-3 md:p-6">
+          <Skeleton className="h-5 md:h-6 w-32 md:w-48 mb-1 md:mb-2" />
+          <Skeleton className="h-3 md:h-4 w-40 md:w-64" />
         </CardHeader>
-        <CardContent>
-          <Skeleton className="h-[350px] w-full" />
+        <CardContent className="p-3 md:p-6">
+          <Skeleton className="h-[200px] md:h-[350px] w-full" />
         </CardContent>
       </Card>
     )
@@ -763,14 +736,14 @@ function SalesBarChart({
   if (!data || data.length === 0) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        <CardHeader className="p-3 md:p-6">
+          <CardTitle className="text-base md:text-xl">{title}</CardTitle>
+          {description && <p className="text-xs md:text-sm text-muted-foreground">{description}</p>}
         </CardHeader>
-        <CardContent className="h-[350px] flex items-center justify-center">
+        <CardContent className="h-[200px] md:h-[350px] flex items-center justify-center">
           <div className="text-center">
-            <BarChart className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">No data available for this period</p>
+            <BarChart className="h-8 w-8 md:h-12 md:w-12 text-muted-foreground mx-auto mb-2 md:mb-3" />
+            <p className="text-xs md:text-sm text-muted-foreground">No data available for this period</p>
           </div>
         </CardContent>
       </Card>
@@ -780,15 +753,15 @@ function SalesBarChart({
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200">
-          <p className="font-semibold text-sm mb-2">{label}</p>
+        <div className="bg-white p-2 md:p-3 rounded-lg shadow-lg border border-gray-200 text-xs md:text-sm">
+          <p className="font-semibold text-xs md:text-sm mb-1 md:mb-2">{label}</p>
           {payload.map((p: any, idx: number) => (
-            <p key={idx} className="text-sm" style={{ color: p.color }}>
-              {p.name}: {valuePrefix === "ETB" ? formatCurrency(p.value) : p.value.toLocaleString()}
+            <p key={idx} className="text-xs md:text-sm" style={{ color: p.color }}>
+              {p.name}: {formatCurrency(p.value)}
             </p>
           ))}
           {showComparison && payload[0]?.payload?.percentage && (
-            <p className="text-xs text-muted-foreground mt-1 pt-1 border-t">
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-1 pt-1 border-t">
               Change: {payload[0].payload.percentage > 0 ? '+' : ''}{payload[0].payload.percentage.toFixed(1)}%
             </p>
           )}
@@ -798,54 +771,57 @@ function SalesBarChart({
     return null
   }
 
-  const CHART_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"]
+  // Mobile responsive height
+  const chartHeight = typeof window !== 'undefined' && window.innerWidth < 768 ? Math.min(height, 250) : height
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader>
-        <div className="flex items-center justify-between">
+      <CardHeader className="p-3 md:p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
           <div>
-            <CardTitle className="text-xl font-semibold">{title}</CardTitle>
-            {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
+            <CardTitle className="text-base md:text-xl font-semibold">{title}</CardTitle>
+            {description && <p className="text-xs md:text-sm text-muted-foreground mt-0.5 md:mt-1">{description}</p>}
           </div>
           {showComparison && data[0]?.percentage !== undefined && (
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-full ${data[0].percentage >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-full self-start md:self-auto ${data[0].percentage >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
               {data[0].percentage >= 0 ? (
                 <ArrowUpRight className="h-3 w-3 text-green-600" />
               ) : (
                 <ArrowDownRight className="h-3 w-3 text-red-600" />
               )}
-              <span className={`text-xs font-medium ${data[0].percentage >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {Math.abs(data[0].percentage).toFixed(1)}% vs previous period
+              <span className={`text-[10px] md:text-xs font-medium ${data[0].percentage >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {Math.abs(data[0].percentage).toFixed(1)}% vs previous
               </span>
             </div>
           )}
         </div>
       </CardHeader>
-      <CardContent>
-        <ResponsiveContainer width="100%" height={height}>
-          <ReBarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+      <CardContent className="p-2 md:p-6">
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <ReBarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis 
               dataKey="name" 
               stroke="#888888" 
-              fontSize={12} 
+              fontSize={10} 
               tickLine={false} 
               axisLine={false}
               angle={-45}
               textAnchor="end"
-              height={60}
+              height={50}
               interval={0}
+              tick={{ fontSize: 8 }}
             />
             <YAxis
               stroke="#888888"
-              fontSize={12}
+              fontSize={10}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(value) => valuePrefix === "ETB" ? `${formatCurrency(value)}` : `${value}`}
+              tickFormatter={(value) => formatCurrency(value)}
+              width={50}
             />
             <Tooltip content={<CustomTooltip />} />
-            <Legend />
+            <Legend wrapperStyle={{ fontSize: '10px' }} />
             <Bar 
               dataKey="sales" 
               name="Sales" 
@@ -861,7 +837,7 @@ function SalesBarChart({
             {showComparison && (
               <Bar 
                 dataKey="previousSales" 
-                name="Previous Period" 
+                name="Previous" 
                 fill="#94a3b8" 
                 radius={[4, 4, 0, 0]}
                 animationDuration={500}
@@ -875,51 +851,30 @@ function SalesBarChart({
   )
 }
 
-// ============================================
-// 5. RankingAndComparisonPanel Component
-// ============================================
-
-interface RankingItem {
-  id: string
-  name: string
-  value: number
-  previousValue?: number
-  percentage?: number
-  rank?: number
-  icon?: React.ReactNode
-  color?: string
-  orders?: number
-}
-
-interface RankingAndComparisonPanelProps {
-  title: string
-  items: RankingItem[]
-  valuePrefix?: string
-  maxItems?: number
-  showRanking?: boolean
-  showComparison?: boolean
-  isLoading?: boolean
-}
-
+// 5d. RankingAndComparisonPanel - Mobile First
 function RankingAndComparisonPanel({ 
   title, 
   items, 
-  valuePrefix = "ETB", 
-  maxItems = 10, 
-  showRanking = true, 
-  showComparison = true,
+  maxItems = 5, 
+  showRanking = true,
   isLoading 
-}: RankingAndComparisonPanelProps) {
+}: {
+  title: string
+  items: RankingItem[]
+  maxItems?: number
+  showRanking?: boolean
+  isLoading?: boolean
+}) {
   if (isLoading) {
     return (
       <Card>
-        <CardHeader>
-          <Skeleton className="h-6 w-40 mb-2" />
-          <Skeleton className="h-4 w-56" />
+        <CardHeader className="p-3 md:p-6">
+          <Skeleton className="h-5 md:h-6 w-28 md:w-40 mb-1 md:mb-2" />
+          <Skeleton className="h-3 md:h-4 w-36 md:w-56" />
         </CardHeader>
-        <CardContent className="space-y-4">
-          {[...Array(5)].map((_, i) => (
-            <Skeleton key={i} className="h-16 w-full" />
+        <CardContent className="p-3 md:p-6 space-y-3 md:space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <Skeleton key={i} className="h-12 md:h-16 w-full" />
           ))}
         </CardContent>
       </Card>
@@ -929,29 +884,27 @@ function RankingAndComparisonPanel({
   const displayItems = items.slice(0, maxItems)
   const maxValue = Math.max(...displayItems.map(i => i.value), 1)
 
-  const CHART_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"]
-
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-xl font-semibold">{title}</CardTitle>
-        <p className="text-sm text-muted-foreground">
+      <CardHeader className="p-3 md:p-6">
+        <CardTitle className="text-base md:text-xl font-semibold">{title}</CardTitle>
+        <p className="text-xs md:text-sm text-muted-foreground">
           {showRanking ? "Ranked by sales performance" : "Performance comparison"}
         </p>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
+      <CardContent className="p-3 md:p-6">
+        <div className="space-y-3 md:space-y-4">
           {displayItems.map((item, index) => {
             const percentageOfMax = (item.value / maxValue) * 100
             const barColor = item.color || CHART_COLORS[index % CHART_COLORS.length]
             
             return (
               <div key={item.id} className="group">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between mb-0.5 md:mb-1">
+                  <div className="flex items-center gap-1.5 md:gap-3 min-w-0 flex-1">
                     {showRanking && (
                       <div className={`
-                        w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold
+                        w-5 h-5 md:w-7 md:h-7 rounded-full flex items-center justify-center text-[8px] md:text-xs font-bold flex-shrink-0
                         ${index === 0 ? 'bg-yellow-100 text-yellow-700' : 
                           index === 1 ? 'bg-gray-100 text-gray-600' : 
                           index === 2 ? 'bg-orange-100 text-orange-700' : 
@@ -960,43 +913,29 @@ function RankingAndComparisonPanel({
                         #{item.rank || index + 1}
                       </div>
                     )}
-                    {item.icon && <span className="text-gray-500">{item.icon}</span>}
-                    <div>
-                      <span className="font-medium text-sm">{item.name}</span>
+                    {item.icon && <span className="text-gray-500 flex-shrink-0">{item.icon}</span>}
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium text-xs md:text-sm truncate block">{item.name}</span>
                       {item.orders !== undefined && (
-                        <p className="text-xs text-muted-foreground">{item.orders} orders</p>
+                        <p className="text-[8px] md:text-xs text-muted-foreground">{item.orders} orders</p>
                       )}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-semibold text-sm">
-                      {valuePrefix === "ETB" ? formatCurrency(item.value) : `${item.value.toLocaleString()}`}
+                  <div className="text-right flex-shrink-0 ml-2">
+                    <span className="font-semibold text-xs md:text-sm">
+                      {formatCurrency(item.value)}
                     </span>
-                    {showComparison && item.percentage !== undefined && (
-                      <span className={`text-xs ml-2 ${item.percentage >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {item.percentage >= 0 ? '+' : ''}{item.percentage.toFixed(1)}%
-                      </span>
-                    )}
                   </div>
                 </div>
-                <div className="relative h-8 w-full bg-gray-100 rounded-full overflow-hidden">
+                <div className="relative h-5 md:h-8 w-full bg-gray-100 rounded-full overflow-hidden">
                   <div 
                     className="absolute left-0 top-0 h-full rounded-full transition-all duration-700 ease-out"
                     style={{ 
-                      width: `${percentageOfMax}%`, 
+                      width: `${Math.max(percentageOfMax, 2)}%`, 
                       backgroundColor: barColor,
                       opacity: 0.85
                     }}
                   />
-                  {showComparison && item.previousValue !== undefined && (
-                    <div 
-                      className="absolute left-0 top-0 h-full rounded-full border-2 border-gray-400"
-                      style={{ 
-                        width: `${(item.previousValue / maxValue) * 100}%`,
-                        backgroundColor: 'transparent'
-                      }}
-                    />
-                  )}
                 </div>
               </div>
             )
@@ -1007,31 +946,8 @@ function RankingAndComparisonPanel({
   )
 }
 
-// ============================================
-// 6. DashboardHeader Component
-// ============================================
-
-interface DashboardHeaderProps {
-  currentRestaurantName: string
-  currentWaiterName: string
-  orderCount: number
-  selectedRestaurant: string
-  selectedWaiter: string
-  onRestaurantChange: (value: string) => void
-  onWaiterChange: (value: string) => void
-  waitresses: Waitress[]
-  restaurants: Restaurant[]
-  onRefresh: () => void
-  isRefreshing: boolean
-  dateRangeLabel: string
-  dateFilterType: DateFilterType
-  onDateFilterChange: (filter: DateFilterType, customStart?: Date, customEnd?: Date) => void
-  customStartDate?: Date | null
-  customEndDate?: Date | null
-  onCustomDateChange?: (start: Date | null, end: Date | null) => void
-}
-
-function DashboardHeader({ 
+// 5e. DashboardHeader - Mobile First with Fixed Date Filter
+function DashboardHeader({
   currentRestaurantName,
   currentWaiterName,
   orderCount,
@@ -1046,23 +962,45 @@ function DashboardHeader({
   dateRangeLabel,
   dateFilterType,
   onDateFilterChange,
-  customStartDate,
-  customEndDate,
-}: DashboardHeaderProps) {
+}: {
+  currentRestaurantName: string
+  currentWaiterName: string
+  orderCount: number
+  selectedRestaurant: string
+  selectedWaiter: string
+  onRestaurantChange: (value: string) => void
+  onWaiterChange: (value: string) => void
+  waitresses: Waitress[]
+  restaurants: Restaurant[]
+  onRefresh: () => void
+  isRefreshing: boolean
+  dateRangeLabel: string
+  dateFilterType: DateFilterType
+  onDateFilterChange: (filter: DateFilterType, customStart?: Date, customEnd?: Date) => void
+}) {
   const [showCustomPicker, setShowCustomPicker] = useState(false)
-  const [localStartDate, setLocalStartDate] = useState<string>(customStartDate?.toISOString().split('T')[0] || '')
-  const [localEndDate, setLocalEndDate] = useState<string>(customEndDate?.toISOString().split('T')[0] || '')
+  const [localStartDate, setLocalStartDate] = useState('')
+  const [localEndDate, setLocalEndDate] = useState('')
 
   const dateFilters: { label: string; value: DateFilterType }[] = [
     { label: "Today", value: "today" },
     { label: "Yesterday", value: "yesterday" },
-    { label: "Last 7 Days", value: "last7days" },
+    { label: "7 Days", value: "last7days" },
     { label: "This Week", value: "thisWeek" },
     { label: "Last Week", value: "lastWeek" },
     { label: "This Month", value: "thisMonth" },
     { label: "Last Month", value: "lastMonth" },
     { label: "Custom", value: "custom" },
   ]
+
+  const handleFilterClick = (filter: DateFilterType) => {
+    if (filter === 'custom') {
+      setShowCustomPicker(!showCustomPicker)
+    } else {
+      onDateFilterChange(filter)
+      setShowCustomPicker(false)
+    }
+  }
 
   const handleApplyCustom = () => {
     if (localStartDate && localEndDate) {
@@ -1072,21 +1010,21 @@ function DashboardHeader({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-3 md:space-y-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 md:gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+          <h1 className="text-xl md:text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
             Sales Analytics
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-[10px] md:text-sm text-muted-foreground mt-0.5 md:mt-1 truncate max-w-[280px] md:max-w-none">
             {currentRestaurantName} • {currentWaiterName} • {orderCount} orders • {dateRangeLabel}
           </p>
         </div>
         
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select value={selectedRestaurant} onValueChange={onRestaurantChange}>
-            <SelectTrigger className="w-full sm:w-[200px]">
-              <Store className="h-4 w-4 mr-2 text-gray-500" />
+            <SelectTrigger className="w-[140px] md:w-[200px] h-8 md:h-10 text-xs md:text-sm">
+              <Store className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
               <SelectValue placeholder="Restaurant" />
             </SelectTrigger>
             <SelectContent>
@@ -1101,8 +1039,8 @@ function DashboardHeader({
           </Select>
           
           <Select value={selectedWaiter} onValueChange={onWaiterChange}>
-            <SelectTrigger className="w-full sm:w-[180px]">
-              <Users className="h-4 w-4 mr-2 text-gray-500" />
+            <SelectTrigger className="w-[130px] md:w-[180px] h-8 md:h-10 text-xs md:text-sm">
+              <Users className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
               <SelectValue placeholder="Waiter" />
             </SelectTrigger>
             <SelectContent>
@@ -1115,59 +1053,64 @@ function DashboardHeader({
             </SelectContent>
           </Select>
           
-          <Button variant="outline" size="icon" onClick={onRefresh} disabled={isRefreshing} className="hidden sm:inline-flex">
-            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          <Button variant="outline" size="icon" onClick={onRefresh} disabled={isRefreshing} className="h-8 w-8 md:h-10 md:w-10">
+            <RefreshCw className={`h-3 w-3 md:h-4 md:w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </Button>
         </div>
       </div>
 
-      {/* Date Filter Chips */}
-      <div className="pb-2">
-        <div className="grid grid-cols-4 gap-2">
-          {dateFilters.map((filter) => (
-            <button
-              key={filter.value}
-              onClick={() => {
-                if (filter.value === 'custom') {
-                  setShowCustomPicker(!showCustomPicker);
-                } else {
-                  onDateFilterChange(filter.value);
-                  setShowCustomPicker(false);
-                }
-              }}
-              className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all duration-200 ${dateFilterType === filter.value && filter.value !== 'custom' ? 'bg-blue-600 text-white shadow-md' : filter.value === 'custom' && showCustomPicker ? 'bg-gray-200 text-gray-900' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-            >
-              {filter.label}
-              {filter.value === 'custom' && showCustomPicker && <ChevronDown className="inline ml-1 h-3 w-3" />}
-            </button>
-          ))}
-        </div>
+      {/* Date Filter Chips - Scrollable on mobile */}
+      <div className="flex flex-wrap gap-1.5 md:gap-2">
+        {dateFilters.map((filter) => (
+          <button
+            key={filter.value}
+            onClick={() => handleFilterClick(filter.value)}
+            className={`
+              px-2.5 py-1 md:px-4 md:py-2 rounded-full text-[10px] md:text-sm font-medium transition-all duration-200 whitespace-nowrap
+              ${dateFilterType === filter.value && filter.value !== 'custom'
+                ? 'bg-blue-600 text-white shadow-md'
+                : filter.value === 'custom' && showCustomPicker
+                ? 'bg-gray-200 text-gray-900'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }
+            `}
+          >
+            {filter.label}
+            {filter.value === 'custom' && showCustomPicker && <ChevronDown className="inline ml-0.5 md:ml-1 h-2 w-2 md:h-3 md:w-3" />}
+          </button>
+        ))}
       </div>
 
       {/* Custom Date Picker */}
       {showCustomPicker && (
-        <Card className="mt-2 p-4">
-          <div className="grid grid-cols-2 gap-4">
+        <Card className="mt-1 md:mt-2 p-3 md:p-4">
+          <div className="grid grid-cols-2 gap-2 md:gap-4">
             <div>
-              <Label>Start Date</Label>
+              <Label className="text-xs md:text-sm">Start Date</Label>
               <Input
                 type="date"
                 value={localStartDate}
                 onChange={(e) => setLocalStartDate(e.target.value)}
+                className="h-8 md:h-10 text-xs md:text-sm"
               />
             </div>
             <div>
-              <Label>End Date</Label>
+              <Label className="text-xs md:text-sm">End Date</Label>
               <Input
                 type="date"
                 value={localEndDate}
                 onChange={(e) => setLocalEndDate(e.target.value)}
+                className="h-8 md:h-10 text-xs md:text-sm"
               />
             </div>
           </div>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" onClick={() => setShowCustomPicker(false)}>Cancel</Button>
-            <Button onClick={handleApplyCustom}>Apply</Button>
+          <div className="flex justify-end gap-2 mt-2 md:mt-4">
+            <Button variant="outline" size="sm" onClick={() => setShowCustomPicker(false)} className="text-xs md:text-sm">
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleApplyCustom} className="text-xs md:text-sm">
+              Apply
+            </Button>
           </div>
         </Card>
       )}
@@ -1176,51 +1119,8 @@ function DashboardHeader({
 }
 
 // ============================================
-// 7. Main Dashboard Component (Refactored with FIXED API integration)
+// 6. MAIN DASHBOARD COMPONENT
 // ============================================
-
-const ORDER_TYPES = [
-  { id: "dinein", name: "Dine In", icon: Home, color: "#10b981" },
-  { id: "delivery", name: "Delivery", icon: Truck, color: "#3b82f6" },
-  { id: "POS", name: "POS", icon: Package2, color: "#f59e0b" },
-  { id: "online", name: "Online", icon: Smartphone, color: "#8b5cf6" },
-]
-
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-800",
-  CONFIRMED: "bg-blue-100 text-blue-800",
-  PREPARING: "bg-purple-100 text-purple-800",
-  PICKUP: "bg-indigo-100 text-indigo-800",
-  SERVED: "bg-green-100 text-green-800",
-  COMPLETED: "bg-teal-100 text-teal-800",
-  CANCELLED: "bg-red-100 text-red-800",
-}
-
-const menuItemsCache = new Map<string, { data: Map<string, MenuItem>; timestamp: number }>()
-const CACHE_DURATION = 5 * 60 * 1000
-const BATCH_SIZE_LIMIT = 100
-
-const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>> => {
-  if (itemIds.length === 0) return new Map()
-  const uniqueIds = [...new Set(itemIds)]
-  const limitedIds = uniqueIds.slice(0, BATCH_SIZE_LIMIT)
-  const cacheKey = limitedIds.sort().join(',')
-  const cached = menuItemsCache.get(cacheKey)
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) return cached.data
-  try {
-    const response = await fetch(`/api/items?ids=${limitedIds.join(',')}`)
-    if (!response.ok) throw new Error("Failed to fetch items")
-    const data = await response.json()
-    const itemsMap = new Map<string, MenuItem>()
-    const items = data.items || data || []
-    items.forEach((item: MenuItem) => { if (item?._id) itemsMap.set(item._id, item) })
-    menuItemsCache.set(cacheKey, { data: itemsMap, timestamp: Date.now() })
-    return itemsMap
-  } catch (error) {
-    console.error("Error fetching items batch:", error)
-    return new Map()
-  }
-}
 
 export default function DashboardPage() {
   // State
@@ -1232,7 +1132,10 @@ export default function DashboardPage() {
   const [selectedRestaurant, setSelectedRestaurant] = useState<string>('all')
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([])
   const [filteredOverviewOrders, setFilteredOverviewOrders] = useState<Order[]>([])
-  const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>(() => getDateRangeForFilter('today'))
+  const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>(() => {
+    const range = getDateRangeForFilter('today')
+    return range
+  })
   const [filterType, setFilterType] = useState<DateFilterType>('today')
   const [activeAnalyticsView, setActiveAnalyticsView] = useState<AnalyticsView>('sales')
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
@@ -1251,12 +1154,222 @@ export default function DashboardPage() {
   })
 
   const initialFetchDone = useRef(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const isMounted = useRef(true)
+
+  // Cleanup
+  useEffect(() => {
+    isMounted.current = true
+    return () => {
+      isMounted.current = false
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
+
+  // ============================================
+  // 6a. DATA LOADING - FIXED
+  // ============================================
+
+  const loadData = useCallback(async (showLoading = true, customDateRange?: { start: Date; end: Date }) => {
+    if (!isMounted.current) return
+    
+    if (showLoading) setIsLoading(true)
+    
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+
+    try {
+      const range = customDateRange || dateRange
+      const startDateStr = format(range.start, 'yyyy-MM-dd')
+      const endDateStr = format(range.end, 'yyyy-MM-dd')
+      const apiRestaurantId = selectedRestaurant === 'unassigned' ? 'all' : selectedRestaurant
+
+      // Fetch data in parallel
+      const [reportData, restaurantsData, waitressesData] = await Promise.all([
+        fetchWaiterReport(selectedWaiter, startDateStr, endDateStr, apiRestaurantId, 10000),
+        fetchRestaurantsFromAPI(),
+        fetchWaitressesWithRestaurants(),
+      ])
+
+      if (!isMounted.current) return
+
+      setRestaurants(restaurantsData)
+      setWaitresses(waitressesData)
+
+      // Fetch previous period data for comparison
+      const previousRange = getPreviousPeriodRange(filterType, range.start, range.end)
+      const previousStartStr = format(previousRange.start, 'yyyy-MM-dd')
+      const previousEndStr = format(previousRange.end, 'yyyy-MM-dd')
+      
+      const previousReportData = await fetchWaiterReport(
+        selectedWaiter, 
+        previousStartStr, 
+        previousEndStr, 
+        apiRestaurantId, 
+        10000
+      )
+
+      if (!isMounted.current) return
+
+      if (reportData.success) {
+        let ordersData = reportData.orders || []
+        let previousOrdersData = previousReportData.success ? previousReportData.orders || [] : []
+
+        // Apply restaurant filter
+        ordersData = filterOrdersByRestaurant(ordersData, selectedRestaurant, waitressesData, restaurantsData)
+        previousOrdersData = filterOrdersByRestaurant(previousOrdersData, selectedRestaurant, waitressesData, restaurantsData)
+
+        // Collect all item IDs
+        const allItemIds = new Set<string>()
+        ordersData.forEach(order => {
+          (order.items || []).forEach((item: any) => {
+            const itemId = item.itemId || item.menuItemId
+            if (itemId) allItemIds.add(itemId)
+          })
+        })
+
+        const itemsMapData = await fetchItemsBatch(Array.from(allItemIds))
+        setGlobalItemsMap(itemsMapData)
+
+        // Enhance orders
+        const enhancedOrders = ordersData.map(order => {
+          const enhancedItems = (order.items || []).map((item: any) => {
+            const itemId = item.itemId || item.menuItemId
+            const menuItem = itemsMapData.get(itemId)
+            return {
+              ...item,
+              name: item.itemName || item.name || menuItem?.name || 'Unknown Item',
+              price: item.price || item.unitPrice || menuItem?.price || 0,
+            }
+          })
+
+          const waiter = waitressesData.find(w => w._id === order.waiterId)
+          return {
+            ...order,
+            items: enhancedItems,
+            waiterName: order.waiterName || waiter?.name || 'Unknown',
+            restaurantName: order.enrichedRestaurantName || order.restaurantName || 'Unknown',
+            restaurantId: order.enrichedRestaurantId || order.restaurantId || 'unassigned',
+          }
+        })
+
+        // Enhance previous orders
+        const enhancedPreviousOrders = previousOrdersData.map(order => {
+          const enhancedItems = (order.items || []).map((item: any) => {
+            const itemId = item.itemId || item.menuItemId
+            const menuItem = itemsMapData.get(itemId)
+            return {
+              ...item,
+              name: item.itemName || item.name || menuItem?.name || 'Unknown Item',
+              price: item.price || item.unitPrice || menuItem?.price || 0,
+            }
+          })
+
+          const waiter = waitressesData.find(w => w._id === order.waiterId)
+          return {
+            ...order,
+            items: enhancedItems,
+            waiterName: order.waiterName || waiter?.name || 'Unknown',
+            restaurantName: order.enrichedRestaurantName || order.restaurantName || 'Unknown',
+            restaurantId: order.enrichedRestaurantId || order.restaurantId || 'unassigned',
+          }
+        })
+
+        setFilteredOrders(enhancedOrders)
+        setFilteredOverviewOrders(enhancedOrders)
+
+        // Generate daily sales data
+        const dailySalesMap = new Map<string, { total: number; orders: number }>()
+        enhancedOrders.forEach(order => {
+          const date = new Date(order.createdAt).toLocaleDateString()
+          const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
+          dailySalesMap.set(date, {
+            total: existing.total + (order.finalAmount || 0),
+            orders: existing.orders + 1
+          })
+        })
+
+        const dailySalesArray = Array.from(dailySalesMap.entries())
+          .map(([date, data]) => ({ name: date, sales: data.total, orders: data.orders }))
+          .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime())
+
+        setDailySalesData(dailySalesArray)
+
+        // Generate previous period daily sales
+        const previousDailyMap = new Map<string, { total: number; orders: number }>()
+        enhancedPreviousOrders.forEach(order => {
+          const date = new Date(order.createdAt).toLocaleDateString()
+          const existing = previousDailyMap.get(date) || { total: 0, orders: 0 }
+          previousDailyMap.set(date, {
+            total: existing.total + (order.finalAmount || 0),
+            orders: existing.orders + 1
+          })
+        })
+
+        const previousDailyArray = Array.from(previousDailyMap.entries())
+          .map(([date, data]) => ({ name: date, sales: data.total, orders: data.orders }))
+          .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime())
+
+        setPreviousPeriodSalesData(previousDailyArray)
+
+        // Calculate comparisons
+        const currentSales = enhancedOrders.reduce((sum, o) => sum + (o.finalAmount || 0), 0)
+        const previousSales = enhancedPreviousOrders.reduce((sum, o) => sum + (o.finalAmount || 0), 0)
+        const currentOrderCount = enhancedOrders.length
+        const previousOrderCount = enhancedPreviousOrders.length
+        const currentAOV = currentOrderCount > 0 ? currentSales / currentOrderCount : 0
+        const previousAOV = previousOrderCount > 0 ? previousSales / previousOrderCount : 0
+
+        setComparisons({
+          sales: {
+            current: currentSales,
+            previous: previousSales,
+            percentage: calculatePercentageChange(currentSales, previousSales),
+            isPositive: currentSales >= previousSales,
+          },
+          orders: {
+            current: currentOrderCount,
+            previous: previousOrderCount,
+            percentage: calculatePercentageChange(currentOrderCount, previousOrderCount),
+            isPositive: currentOrderCount >= previousOrderCount,
+          },
+          aov: {
+            current: currentAOV,
+            previous: previousAOV,
+            percentage: calculatePercentageChange(currentAOV, previousAOV),
+            isPositive: currentAOV >= previousAOV,
+          },
+        })
+      }
+    } catch (error: any) {
+      if (error.name !== 'AbortError' && isMounted.current) {
+        console.error('Error loading data:', error)
+      }
+    } finally {
+      if (isMounted.current) {
+        if (showLoading) setIsLoading(false)
+        abortControllerRef.current = null
+      }
+    }
+  }, [dateRange, selectedRestaurant, selectedWaiter, filterType])
+
+  // Initial load
+  useEffect(() => {
+    if (!initialFetchDone.current) {
+      initialFetchDone.current = true
+      loadData(true)
+    }
+  }, [loadData])
 
   // Fetch restaurants on mount
   useEffect(() => {
     const loadRestaurants = async () => {
       const restaurantData = await fetchRestaurantsFromAPI()
-      setRestaurants(restaurantData)
+      if (isMounted.current) setRestaurants(restaurantData)
     }
     loadRestaurants()
   }, [])
@@ -1265,434 +1378,22 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadWaitresses = async () => {
       const data = await fetchWaitressesWithRestaurants()
-      setWaitresses(data)
+      if (isMounted.current) setWaitresses(data)
     }
     loadWaitresses()
   }, [])
 
-  // Fetch initial data when restaurants and waitresses are loaded
-  useEffect(() => {
-    if (restaurants.length > 0 && waitresses.length > 0 && !initialFetchDone.current) {
-      initialFetchDone.current = true
-      loadData()
-    }
-  }, [restaurants, waitresses])
+  // ============================================
+  // 6b. MEMOIZED COMPUTATIONS
+  // ============================================
 
-  // Enhance orders with menu item data
-  const enhanceOrdersWithMenuItems = useCallback((orders: Order[], itemsMap: Map<string, MenuItem>): Order[] => {
-    return orders.map(order => {
-      const items = order.orderItems || order.items || []
-      const enhancedItems = items.map(item => {
-        const itemId = item.menuItemId || item.itemId
-        const menuItem = itemsMap.get(itemId || '')
-        return {
-          ...item,
-          name: menuItem?.name || item.name || 'Unknown Item',
-          price: menuItem?.price || item.price || item.unitPrice || 0,
-          unitPrice: menuItem?.price || item.price || item.unitPrice || 0,
-          subtotal: (menuItem?.price || item.price || item.unitPrice || 0) * (item.quantity || 0),
-        }
-      })
-      return { ...order, items: enhancedItems, orderItems: enhancedItems }
-    })
-  }, [])
-
-  // Fetch menu items for orders
-  const fetchMenuItemsForOrders = useCallback(async (orders: Order[]) => {
-    const allItemIds = new Set<string>()
-    orders.forEach(order => {
-      const items = order.orderItems || order.items || []
-      items.forEach(item => {
-        const itemId = item.menuItemId || item.itemId
-        if (itemId) allItemIds.add(itemId)
-      })
-    })
-    if (allItemIds.size > 0) {
-      const itemsMap = await fetchItemsBatch(Array.from(allItemIds))
-      setGlobalItemsMap(itemsMap)
-      return itemsMap
-    }
-    return new Map<string, MenuItem>()
-  }, [])
-
-  // Calculate comparisons
-  const calculateComparisons = useCallback((currentOrders: Order[], previousOrders: Order[]) => {
-    const currentSales = currentOrders.reduce((sum, o) => sum + (o.finalAmount || 0), 0)
-    const previousSales = previousOrders.reduce((sum, o) => sum + (o.finalAmount || 0), 0)
-    const currentOrderCount = currentOrders.length
-    const previousOrderCount = previousOrders.length
-    const currentAOV = currentOrderCount > 0 ? currentSales / currentOrderCount : 0
-    const previousAOV = previousOrderCount > 0 ? previousSales / previousOrderCount : 0
-
-    setComparisons({
-      sales: {
-        current: currentSales,
-        previous: previousSales,
-        percentage: calculatePercentageChange(currentSales, previousSales),
-        isPositive: currentSales >= previousSales,
-      },
-      orders: {
-        current: currentOrderCount,
-        previous: previousOrderCount,
-        percentage: calculatePercentageChange(currentOrderCount, previousOrderCount),
-        isPositive: currentOrderCount >= previousOrderCount,
-      },
-      aov: {
-        current: currentAOV,
-        previous: previousAOV,
-        percentage: calculatePercentageChange(currentAOV, previousAOV),
-        isPositive: currentAOV >= previousAOV,
-      },
-    })
-  }, [])
-
-  // Load main data - FIXED to handle empty data properly
-  const loadData = async () => {
-    setIsLoading(true)
-    try {
-      const startDateStr = format(dateRange.start, 'yyyy-MM-dd')
-      const endDateStr = format(dateRange.end, 'yyyy-MM-dd')
-      const apiRestaurantId = selectedRestaurant === 'unassigned' ? 'all' : selectedRestaurant
-
-      console.log("Loading data with params:", { startDateStr, endDateStr, selectedWaiter, apiRestaurantId })
-      
-      const reportData = await fetchWaiterReport(selectedWaiter, startDateStr, endDateStr, apiRestaurantId, 10000)
-      console.log("Report data received:", reportData)
-      
-      setWaiterReportData(reportData)
-
-      if (reportData.success) {
-        let orders = reportData.orders || []
-        console.log(`Loaded ${orders.length} orders from API`)
-        
-        // Only apply restaurant filter if we have orders
-        if (orders.length > 0) {
-          orders = filterOrdersByRestaurant(orders, selectedRestaurant, waitresses, restaurants)
-          console.log(`After restaurant filter: ${orders.length} orders`)
-        }
-
-        const itemsMap = await fetchMenuItemsForOrders(orders)
-        const enhancedOrders = enhanceOrdersWithMenuItems(orders, itemsMap)
-        const enrichedOrders = enhancedOrders.map(order => ({
-          ...order,
-          waiterName: order.waiterName || waitresses.find(w => w._id === order.waiterId)?.name || 'Unknown'
-        }))
-
-        setFilteredOrders(enrichedOrders)
-        setFilteredOverviewOrders(enrichedOrders)
-
-        // Generate daily sales data
-        const dailySalesMap = new Map<string, { total: number; orders: number }>()
-        enrichedOrders.forEach(order => {
-          if (order.createdAt) {
-            const date = new Date(order.createdAt).toLocaleDateString()
-            const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
-            existing.total += order.finalAmount || 0
-            existing.orders += 1
-            dailySalesMap.set(date, existing)
-          }
-        })
-
-        const dailySalesArray = Array.from(dailySalesMap.entries())
-          .map(([date, data]) => ({ name: date, sales: data.total, orders: data.orders }))
-          .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime())
-
-        setDailySalesData(dailySalesArray)
-        console.log("Daily sales data generated:", dailySalesArray)
-
-        // Fetch previous period data for comparisons
-        const previousRange = getPreviousPeriodRange(filterType, dateRange.start, dateRange.end)
-        const previousStartStr = format(previousRange.start, 'yyyy-MM-dd')
-        const previousEndStr = format(previousRange.end, 'yyyy-MM-dd')
-        
-        const previousReportData = await fetchWaiterReport(selectedWaiter, previousStartStr, previousEndStr, apiRestaurantId, 10000)
-        if (previousReportData.success) {
-          let previousOrders = previousReportData.orders || []
-          previousOrders = filterOrdersByRestaurant(previousOrders, selectedRestaurant, waitresses, restaurants)
-          
-          const previousItemsMap = await fetchMenuItemsForOrders(previousOrders)
-          const enhancedPreviousOrders = enhanceOrdersWithMenuItems(previousOrders, previousItemsMap)
-          const enrichedPreviousOrders = enhancedPreviousOrders.map(order => ({
-            ...order,
-            waiterName: order.waiterName || waitresses.find(w => w._id === order.waiterId)?.name || 'Unknown'
-          }))
-          
-          calculateComparisons(enrichedOrders, enrichedPreviousOrders)
-          
-          // Generate previous period daily sales
-          const previousDailyMap = new Map<string, { total: number }>()
-          enrichedPreviousOrders.forEach(order => {
-            if (order.createdAt) {
-              const date = new Date(order.createdAt).toLocaleDateString()
-              const existing = previousDailyMap.get(date) || { total: 0 }
-              existing.total += order.finalAmount || 0
-              previousDailyMap.set(date, existing)
-            }
-          })
-          
-          const previousDailyArray = Array.from(previousDailyMap.entries())
-            .map(([date, data]) => ({ name: date, sales: data.total, orders: 0 }))
-            .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime())
-          
-          setPreviousPeriodSalesData(previousDailyArray)
-        }
-      } else {
-        console.error("Report data not successful:", reportData)
-        // Set empty states
-        setFilteredOrders([])
-        setFilteredOverviewOrders([])
-        setDailySalesData([])
-        setPreviousPeriodSalesData([])
-      }
-    } catch (error) {
-      console.error('Error loading data:', error)
-      // Set empty states on error
-      setFilteredOrders([])
-      setFilteredOverviewOrders([])
-      setDailySalesData([])
-      setPreviousPeriodSalesData([])
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // Handle date filter change
-  const handleDateFilterChange = async (type: DateFilterType, customStart?: Date, customEnd?: Date) => {
-    setFilterType(type)
-    let newStart: Date, newEnd: Date
-    
-    if (type === 'custom' && customStart && customEnd) {
-      newStart = customStart
-      newEnd = customEnd
-    } else {
-      const range = getDateRangeForFilter(type)
-      newStart = range.start
-      newEnd = range.end
-    }
-    
-    setDateRange({ start: newStart, end: newEnd })
-    setIsLoading(true)
-    
-    try {
-      const startDateStr = format(newStart, 'yyyy-MM-dd')
-      const endDateStr = format(newEnd, 'yyyy-MM-dd')
-      const apiRestaurantId = selectedRestaurant === 'unassigned' ? 'all' : selectedRestaurant
-
-      const reportData = await fetchWaiterReport(selectedWaiter, startDateStr, endDateStr, apiRestaurantId, 10000)
-      setWaiterReportData(reportData)
-
-      if (reportData.success) {
-        let orders = reportData.orders || []
-        orders = filterOrdersByRestaurant(orders, selectedRestaurant, waitresses, restaurants)
-
-        const itemsMap = await fetchMenuItemsForOrders(orders)
-        const enhancedOrders = enhanceOrdersWithMenuItems(orders, itemsMap)
-        const enrichedOrders = enhancedOrders.map(order => ({
-          ...order,
-          waiterName: order.waiterName || waitresses.find(w => w._id === order.waiterId)?.name || 'Unknown'
-        }))
-
-        setFilteredOrders(enrichedOrders)
-        setFilteredOverviewOrders(enrichedOrders)
-
-        const dailySalesMap = new Map<string, { total: number; orders: number }>()
-        enrichedOrders.forEach(order => {
-          if (order.createdAt) {
-            const date = new Date(order.createdAt).toLocaleDateString()
-            const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
-            existing.total += order.finalAmount || 0
-            existing.orders += 1
-            dailySalesMap.set(date, existing)
-          }
-        })
-
-        const dailySalesArray = Array.from(dailySalesMap.entries())
-          .map(([date, data]) => ({ name: date, sales: data.total, orders: data.orders }))
-          .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime())
-
-        setDailySalesData(dailySalesArray)
-
-        // Fetch previous period data
-        const previousRange = getPreviousPeriodRange(type, newStart, newEnd)
-        const previousStartStr = format(previousRange.start, 'yyyy-MM-dd')
-        const previousEndStr = format(previousRange.end, 'yyyy-MM-dd')
-        
-        const previousReportData = await fetchWaiterReport(selectedWaiter, previousStartStr, previousEndStr, apiRestaurantId, 10000)
-        if (previousReportData.success) {
-          let previousOrders = previousReportData.orders || []
-          previousOrders = filterOrdersByRestaurant(previousOrders, selectedRestaurant, waitresses, restaurants)
-          
-          const previousItemsMap = await fetchMenuItemsForOrders(previousOrders)
-          const enhancedPreviousOrders = enhanceOrdersWithMenuItems(previousOrders, previousItemsMap)
-          const enrichedPreviousOrders = enhancedPreviousOrders.map(order => ({
-            ...order,
-            waiterName: order.waiterName || waitresses.find(w => w._id === order.waiterId)?.name || 'Unknown'
-          }))
-          
-          calculateComparisons(enrichedOrders, enrichedPreviousOrders)
-          
-          const previousDailyMap = new Map<string, { total: number }>()
-          enrichedPreviousOrders.forEach(order => {
-            if (order.createdAt) {
-              const date = new Date(order.createdAt).toLocaleDateString()
-              const existing = previousDailyMap.get(date) || { total: 0 }
-              existing.total += order.finalAmount || 0
-              previousDailyMap.set(date, existing)
-            }
-          })
-          
-          const previousDailyArray = Array.from(previousDailyMap.entries())
-            .map(([date, data]) => ({ name: date, sales: data.total, orders: 0 }))
-            .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime())
-          
-          setPreviousPeriodSalesData(previousDailyArray)
-        }
-      }
-    } catch (error) {
-      console.error('Error loading data:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // Handle restaurant change
-  const handleRestaurantChange = async (restaurantId: string) => {
-    setSelectedRestaurant(restaurantId)
-    setIsRefreshing(true)
-    try {
-      const startDateStr = format(dateRange.start, 'yyyy-MM-dd')
-      const endDateStr = format(dateRange.end, 'yyyy-MM-dd')
-      const apiRestaurantId = restaurantId === 'unassigned' ? 'all' : restaurantId
-
-      const reportData = await fetchWaiterReport(selectedWaiter, startDateStr, endDateStr, apiRestaurantId, 10000)
-      setWaiterReportData(reportData)
-
-      if (reportData.success) {
-        let orders = reportData.orders || []
-        orders = filterOrdersByRestaurant(orders, restaurantId, waitresses, restaurants)
-
-        const itemsMap = await fetchMenuItemsForOrders(orders)
-        const enhancedOrders = enhanceOrdersWithMenuItems(orders, itemsMap)
-        const enrichedOrders = enhancedOrders.map(order => ({
-          ...order,
-          waiterName: order.waiterName || waitresses.find(w => w._id === order.waiterId)?.name || 'Unknown'
-        }))
-
-        setFilteredOrders(enrichedOrders)
-        setFilteredOverviewOrders(enrichedOrders)
-
-        const dailySalesMap = new Map<string, { total: number; orders: number }>()
-        enrichedOrders.forEach(order => {
-          if (order.createdAt) {
-            const date = new Date(order.createdAt).toLocaleDateString()
-            const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
-            existing.total += order.finalAmount || 0
-            existing.orders += 1
-            dailySalesMap.set(date, existing)
-          }
-        })
-
-        const dailySalesArray = Array.from(dailySalesMap.entries())
-          .map(([date, data]) => ({ name: date, sales: data.total, orders: data.orders }))
-          .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime())
-
-        setDailySalesData(dailySalesArray)
-      }
-    } catch (error) {
-      console.error('Error loading restaurant data:', error)
-    } finally {
-      setIsRefreshing(false)
-    }
-  }
-
-  // Handle waiter change
-  const handleWaiterChange = async (waiterId: string) => {
-    setSelectedWaiter(waiterId)
-    setIsRefreshing(true)
-    try {
-      const startDateStr = format(dateRange.start, 'yyyy-MM-dd')
-      const endDateStr = format(dateRange.end, 'yyyy-MM-dd')
-      const apiRestaurantId = selectedRestaurant === 'unassigned' ? 'all' : selectedRestaurant
-
-      const reportData = await fetchWaiterReport(waiterId, startDateStr, endDateStr, apiRestaurantId, 10000)
-      setWaiterReportData(reportData)
-
-      if (reportData.success) {
-        let orders = reportData.orders || []
-        orders = filterOrdersByRestaurant(orders, selectedRestaurant, waitresses, restaurants)
-
-        const itemsMap = await fetchMenuItemsForOrders(orders)
-        const enhancedOrders = enhanceOrdersWithMenuItems(orders, itemsMap)
-        const enrichedOrders = enhancedOrders.map(order => ({
-          ...order,
-          waiterName: order.waiterName || waitresses.find(w => w._id === order.waiterId)?.name || 'Unknown'
-        }))
-
-        setFilteredOrders(enrichedOrders)
-        setFilteredOverviewOrders(enrichedOrders)
-
-        const dailySalesMap = new Map<string, { total: number; orders: number }>()
-        enrichedOrders.forEach(order => {
-          if (order.createdAt) {
-            const date = new Date(order.createdAt).toLocaleDateString()
-            const existing = dailySalesMap.get(date) || { total: 0, orders: 0 }
-            existing.total += order.finalAmount || 0
-            existing.orders += 1
-            dailySalesMap.set(date, existing)
-          }
-        })
-
-        const dailySalesArray = Array.from(dailySalesMap.entries())
-          .map(([date, data]) => ({ name: date, sales: data.total, orders: data.orders }))
-          .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime())
-
-        setDailySalesData(dailySalesArray)
-      }
-    } catch (error) {
-      console.error('Error loading waiter data:', error)
-    } finally {
-      setIsRefreshing(false)
-    }
-  }
-
-  // Handle refresh
-  const handleRefresh = async () => {
-    setIsRefreshing(true)
-    await loadData()
-    setIsRefreshing(false)
-  }
-
-  // Handle view order details
-  const handleViewDetails = async (order: Order) => {
-    setSelectedOrder(order)
-    setLoadingOrderDetails(true)
-    try {
-      const waitress = await fetchWaitress(order.waiterId)
-      setSelectedWaitress(waitress)
-
-      const items = order.items || order.orderItems || []
-      const itemIds = items.map((item) => item.menuItemId || item.itemId).filter(id => id)
-      
-      if (itemIds.length > 0) {
-        const itemsMap = await fetchItemsBatch(itemIds)
-        setSelectedItemsMap(itemsMap)
-      }
-    } catch (error) {
-      console.error('Error fetching order details:', error)
-    } finally {
-      setLoadingOrderDetails(false)
-    }
-  }
-
-  // Calculate metrics
   const overviewMetrics = useMemo(() => {
     const totalSales = filteredOverviewOrders.reduce((sum, order) => sum + (order.finalAmount || 0), 0)
     const orderCount = filteredOverviewOrders.length
     const averageOrderValue = orderCount > 0 ? totalSales / orderCount : 0
-    return { totalSales, orderCount, averageOrderValue, totalTax: 0, totalDiscounts: 0 }
+    return { totalSales, orderCount, averageOrderValue }
   }, [filteredOverviewOrders])
 
-  // Prepare restaurant ranking data
   const restaurantRankingData = useMemo((): RankingItem[] => {
     const restaurantSales = new Map<string, { name: string; sales: number; orders: number }>()
     
@@ -1719,12 +1420,11 @@ export default function DashboardPage() {
       .sort((a, b) => b.value - a.value)
   }, [filteredOverviewOrders, waitresses, restaurants])
 
-  // Prepare waiter ranking data
   const waiterRankingData = useMemo((): RankingItem[] => {
     const waiterSales = new Map<string, { name: string; sales: number; orders: number }>()
     
     filteredOverviewOrders.forEach(order => {
-      const waiterId = order.waiterId
+      const waiterId = order.waiterId || 'unknown'
       const waiterName = order.waiterName || 'Unknown'
       const existing = waiterSales.get(waiterId) || { name: waiterName, sales: 0, orders: 0 }
       waiterSales.set(waiterId, {
@@ -1745,7 +1445,6 @@ export default function DashboardPage() {
       .sort((a, b) => b.value - a.value)
   }, [filteredOverviewOrders])
 
-  // Prepare order type ranking data
   const orderTypeRankingData = useMemo((): RankingItem[] => {
     const typeSales = new Map<string, { name: string; sales: number; orders: number; icon?: React.ReactNode }>()
     
@@ -1758,7 +1457,8 @@ export default function DashboardPage() {
         name: typeName, 
         sales: 0, 
         orders: 0,
-        icon: typeConfig ? <typeConfig.icon className="h-4 w-4" /> : null      }
+        icon: typeConfig ? <typeConfig.icon className="h-4 w-4" /> : null
+      }
       typeSales.set(orderType, {
         name: typeName,
         sales: existing.sales + (order.finalAmount || 0),
@@ -1780,7 +1480,6 @@ export default function DashboardPage() {
       .sort((a, b) => b.value - a.value)
   }, [filteredOverviewOrders])
 
-  // Prepare chart data with comparison
   const chartDataWithComparison = useMemo((): ChartDataPoint[] => {
     if (!dailySalesData.length) return []
     
@@ -1794,7 +1493,76 @@ export default function DashboardPage() {
     })
   }, [dailySalesData, previousPeriodSalesData])
 
-  // Get current view chart data
+  // ============================================
+  // 6c. HANDLERS - FIXED for instant response
+  // ============================================
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    await loadData(false)
+    setIsRefreshing(false)
+  }, [loadData])
+
+  const handleDateFilterChange = useCallback(async (type: DateFilterType, customStart?: Date, customEnd?: Date) => {
+    setFilterType(type)
+    
+    let newStart: Date, newEnd: Date
+    
+    if (type === 'custom' && customStart && customEnd) {
+      newStart = customStart
+      newEnd = customEnd
+    } else {
+      const range = getDateRangeForFilter(type)
+      newStart = range.start
+      newEnd = range.end
+    }
+    
+    // Update date range immediately
+    setDateRange({ start: newStart, end: newEnd })
+    
+    // Load data with new range
+    await loadData(true, { start: newStart, end: newEnd })
+  }, [loadData])
+
+  const handleRestaurantChange = useCallback(async (restaurantId: string) => {
+    setSelectedRestaurant(restaurantId)
+    setIsRefreshing(true)
+    await loadData(false)
+    setIsRefreshing(false)
+  }, [loadData])
+
+  const handleWaiterChange = useCallback(async (waiterId: string) => {
+    setSelectedWaiter(waiterId)
+    setIsRefreshing(true)
+    await loadData(false)
+    setIsRefreshing(false)
+  }, [loadData])
+
+  const handleViewDetails = useCallback(async (order: Order) => {
+    setSelectedOrder(order)
+    setLoadingOrderDetails(true)
+    try {
+      const waitress = await fetchWaitress(order.waiterId)
+      setSelectedWaitress(waitress)
+
+      const items = order.items || []
+      const itemIds = items.map((item) => item.itemId || item.menuItemId).filter(id => id)
+      
+      if (itemIds.length > 0) {
+        const itemsMap = await fetchItemsBatch(itemIds)
+        setSelectedItemsMap(itemsMap)
+      }
+    } catch (error) {
+      console.error('Error fetching order details:', error)
+    } finally {
+      setLoadingOrderDetails(false)
+    }
+  }, [])
+
+  // ============================================
+  // 6d. RENDER HELPERS
+  // ============================================
+
   const getCurrentViewChartData = useCallback((): ChartDataPoint[] => {
     switch (activeAnalyticsView) {
       case 'sales':
@@ -1810,7 +1578,7 @@ export default function DashboardPage() {
     }
   }, [activeAnalyticsView, chartDataWithComparison, restaurantRankingData, waiterRankingData, orderTypeRankingData])
 
-  const getCurrentViewTitle = (): string => {
+  const getCurrentViewTitle = useCallback((): string => {
     switch (activeAnalyticsView) {
       case 'sales': return 'Sales Performance Over Time'
       case 'restaurants': return 'Restaurant Sales Ranking'
@@ -1818,9 +1586,9 @@ export default function DashboardPage() {
       case 'orderTypes': return 'Order Type Distribution'
       default: return 'Sales Analytics'
     }
-  }
+  }, [activeAnalyticsView])
 
-  const getCurrentViewDescription = (): string => {
+  const getCurrentViewDescription = useCallback((): string => {
     switch (activeAnalyticsView) {
       case 'sales': return `Daily sales performance for ${currentRestaurantName}`
       case 'restaurants': return 'Sales breakdown by restaurant location'
@@ -1828,40 +1596,51 @@ export default function DashboardPage() {
       case 'orderTypes': return 'Sales distribution by order type'
       default: return ''
     }
-  }
+  }, [activeAnalyticsView])
 
-  const currentRestaurantName = selectedRestaurant === 'all'
-    ? 'All Restaurants'
-    : selectedRestaurant === 'unassigned'
-    ? 'Unassigned Orders'
-    : restaurants.find(r => r._id === selectedRestaurant)?.name || 'Selected Restaurant'
-  
-  const currentWaiterName = selectedWaiter === 'all'
-    ? 'All Waiters'
-    : waitresses.find(w => w._id === selectedWaiter)?.name || 'Selected Waiter'
+  const currentRestaurantName = useMemo(() => {
+    if (selectedRestaurant === 'all') return 'All Restaurants'
+    if (selectedRestaurant === 'unassigned') return 'Unassigned Orders'
+    return restaurants.find(r => r._id === selectedRestaurant)?.name || 'Selected Restaurant'
+  }, [selectedRestaurant, restaurants])
 
-  const dateRangeLabel = `${format(dateRange.start, 'MMM d, yyyy')} - ${format(dateRange.end, 'MMM d, yyyy')}`
+  const currentWaiterName = useMemo(() => {
+    if (selectedWaiter === 'all') return 'All Waiters'
+    return waitresses.find(w => w._id === selectedWaiter)?.name || 'Selected Waiter'
+  }, [selectedWaiter, waitresses])
+
+  const dateRangeLabel = useMemo(() => {
+    return `${format(dateRange.start, 'MMM d, yyyy')} - ${format(dateRange.end, 'MMM d, yyyy')}`
+  }, [dateRange])
+
+  // ============================================
+  // 6e. LOADING STATE
+  // ============================================
 
   if (isLoading && !salesData && !waiterReportData) {
     return (
       <div className="flex-col md:flex">
-        <div className="flex-1 space-y-4 p-8 pt-6">
-          <Skeleton className="w-[250px] h-[36px]" />
-          <Skeleton className="w-[200px] h-[40px]" />
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="flex-1 space-y-3 md:space-y-4 p-3 md:p-8 pt-4 md:pt-6">
+          <Skeleton className="h-6 md:h-[36px] w-40 md:w-[250px]" />
+          <Skeleton className="h-8 md:h-[40px] w-full" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             {[...Array(4)].map((_, i) => (
-              <Skeleton key={i} className="h-[125px] w-full" />
+              <Skeleton key={i} className="h-[80px] md:h-[125px] w-full" />
             ))}
           </div>
-          <Skeleton className="h-[400px] w-full" />
+          <Skeleton className="h-[250px] md:h-[400px] w-full" />
         </div>
       </div>
     )
   }
 
+  // ============================================
+  // 6f. MAIN RENDER - Mobile First
+  // ============================================
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="flex-1 space-y-6 p-6 lg:p-8">
+      <div className="flex-1 space-y-3 md:space-y-6 p-3 md:p-6 lg:p-8">
         {/* Dashboard Header */}
         <DashboardHeader
           currentRestaurantName={currentRestaurantName}
@@ -1903,127 +1682,120 @@ export default function DashboardPage() {
           }}
         />
 
-        {/* Main Chart - Bar Chart for all views */}
+        {/* Main Chart */}
         <SalesBarChart
           data={getCurrentViewChartData()}
           title={getCurrentViewTitle()}
           description={getCurrentViewDescription()}
-          valuePrefix="ETB"
           showComparison={activeAnalyticsView === 'sales'}
-          height={400}
+          height={300}
           isLoading={isLoading}
         />
 
-        {/* Ranking Panel - Shows additional insights */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Top Restaurants */}
+        {/* Ranking Panels */}
+        <div className="grid gap-3 md:gap-6 lg:grid-cols-2">
           {activeAnalyticsView !== 'restaurants' && restaurantRankingData.length > 0 && (
             <RankingAndComparisonPanel
               title="Top Restaurants"
               items={restaurantRankingData.slice(0, 5)}
-              valuePrefix="ETB"
               maxItems={5}
               showRanking={true}
-              showComparison={false}
               isLoading={isLoading}
             />
           )}
 
-          {/* Top Waiters */}
           {activeAnalyticsView !== 'waiters' && waiterRankingData.length > 0 && (
             <RankingAndComparisonPanel
               title="Top Performing Waiters"
               items={waiterRankingData.slice(0, 5)}
-              valuePrefix="ETB"
               maxItems={5}
               showRanking={true}
-              showComparison={false}
               isLoading={isLoading}
             />
           )}
 
-          {/* Order Type Distribution */}
           {activeAnalyticsView !== 'orderTypes' && orderTypeRankingData.length > 0 && (
             <RankingAndComparisonPanel
               title="Order Type Distribution"
               items={orderTypeRankingData}
-              valuePrefix="ETB"
               maxItems={4}
               showRanking={true}
-              showComparison={false}
               isLoading={isLoading}
             />
           )}
         </div>
 
-        {/* Recent Orders Table */}
+        {/* Recent Orders Table - Mobile Optimized */}
         <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xl font-semibold">Recent Orders</CardTitle>
+          <CardHeader className="p-3 md:p-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <CardTitle className="text-base md:text-xl font-semibold">Recent Orders</CardTitle>
               <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="text-sm">
+                <Badge variant="secondary" className="text-[10px] md:text-sm">
                   Total: {filteredOverviewOrders.length} orders
                 </Badge>
-                <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
-                  <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing} className="h-7 md:h-9 text-xs md:text-sm">
+                  <RefreshCw className={`mr-1 md:mr-2 h-3 w-3 md:h-4 md:w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                   Refresh
                 </Button>
               </div>
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="rounded-md border overflow-hidden">
-              <Table className="hidden md:table">
+          <CardContent className="p-0 md:p-6">
+            <div className="overflow-x-auto">
+              <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Order #</TableHead>
-                    <TableHead>Restaurant</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Waiter</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead></TableHead>
+                    <TableHead className="text-[10px] md:text-sm">Order #</TableHead>
+                    <TableHead className="text-[10px] md:text-sm hidden sm:table-cell">Restaurant</TableHead>
+                    <TableHead className="text-[10px] md:text-sm">Type</TableHead>
+                    <TableHead className="text-[10px] md:text-sm hidden xs:table-cell">Waiter</TableHead>
+                    <TableHead className="text-[10px] md:text-sm hidden lg:table-cell">Items</TableHead>
+                    <TableHead className="text-right text-[10px] md:text-sm">Amount</TableHead>
+                    <TableHead className="text-[10px] md:text-sm hidden xl:table-cell">Status</TableHead>
+                    <TableHead className="text-[10px] md:text-sm hidden md:table-cell">Date</TableHead>
+                    <TableHead className="text-center text-[10px] md:text-sm"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredOverviewOrders.slice(0, 50).map((order) => {
+                  {filteredOverviewOrders.map((order) => {
                     const restaurantName = getRestaurantDisplayName(order, waitresses, restaurants)
                     const orderType = order.inTable === true 
-                      ? { icon: <Home className="h-3 w-3" />, label: "Dine In", color: "bg-green-100 text-green-800" }
+                      ? { icon: <Home className="h-2 w-2 md:h-3 md:w-3" />, label: "Dine In", color: "bg-green-100 text-green-800" }
                       : order.delivery === true
-                      ? { icon: <Truck className="h-3 w-3" />, label: "Delivery", color: "bg-blue-100 text-blue-800" }
-                      : { icon: <Package2 className="h-3 w-3" />, label: "POS", color: "bg-purple-100 text-purple-800" }
+                      ? { icon: <Truck className="h-2 w-2 md:h-3 md:w-3" />, label: "Delivery", color: "bg-blue-100 text-blue-800" }
+                      : { icon: <Package2 className="h-2 w-2 md:h-3 md:w-3" />, label: "POS", color: "bg-purple-100 text-purple-800" }
                     
                     return (
                       <TableRow key={order._id} className="cursor-pointer hover:bg-gray-50">
-                        <TableCell className="font-medium">{order.orderNumber}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-indigo-50">
-                            <Building2 className="h-3 w-3 mr-1" />
-                            {restaurantName}
+                        <TableCell className="font-medium text-[10px] md:text-sm">{order.orderNumber}</TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          <Badge variant="outline" className="bg-indigo-50 text-[8px] md:text-xs">
+                            <Building2 className="h-2 w-2 md:h-3 md:w-3 mr-0.5 md:mr-1" />
+                            <span className="hidden sm:inline">{restaurantName}</span>
+                            <span className="sm:hidden truncate max-w-[40px]">{restaurantName.substring(0, 8)}</span>
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge className={orderType.color}>
+                          <Badge className={`${orderType.color} text-[8px] md:text-xs`}>
                             {orderType.icon}
-                            <span className="ml-1">{orderType.label}</span>
+                            <span className="ml-0.5 md:ml-1 hidden xs:inline">{orderType.label}</span>
                           </Badge>
                         </TableCell>
-                        <TableCell>{order.waiterName || 'Unknown'}</TableCell>
-                        <TableCell className="max-w-[200px] truncate">
-                          {order.items?.map(item => `${item.name} (${item.quantity})`).join(', ') || '-'}
+                        <TableCell className="hidden xs:table-cell text-[10px] md:text-sm">{order.waiterName || 'Unknown'}</TableCell>
+                        <TableCell className="hidden lg:table-cell max-w-[120px] md:max-w-[200px] truncate text-[10px] md:text-sm">
+                          {order.items?.slice(0, 2).map(item => `${item.name} (${item.quantity})`).join(', ')}
+                          {order.items?.length > 2 && ` +${order.items.length - 2} more`}
+                          {!order.items?.length && '-'}
                         </TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(order.finalAmount)}</TableCell>
-                        <TableCell>
-                          <Badge className={STATUS_COLORS[order.status] || "bg-gray-100"}>{order.status}</Badge>
+                        <TableCell className="text-right font-medium text-[10px] md:text-sm">{formatCurrency(order.finalAmount)}</TableCell>
+                        <TableCell className="hidden xl:table-cell">
+                          <Badge className={STATUS_COLORS[order.status] || "bg-gray-100 text-[8px] md:text-xs"}>{order.status}</Badge>
                         </TableCell>
-                        <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm" onClick={() => handleViewDetails(order)}>
-                            <Eye className="h-4 w-4" />
+                        <TableCell className="hidden md:table-cell text-[10px] md:text-sm">{new Date(order.createdAt).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-center">
+                          <Button variant="ghost" size="sm" onClick={() => handleViewDetails(order)} className="h-6 w-6 md:h-8 md:w-8 p-0">
+                            <Eye className="h-3 w-3 md:h-4 md:w-4" />
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -2031,135 +1803,79 @@ export default function DashboardPage() {
                   })}
                   {filteredOverviewOrders.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-6 md:py-8 text-muted-foreground text-xs md:text-sm">
                         No orders found for the selected criteria
                       </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
               </Table>
-
-              {/* Mobile Card View */}
-              <div className="md:hidden space-y-3 p-2 bg-gray-50">
-                {filteredOverviewOrders.slice(0, 50).map((order) => {
-                  const restaurantName = getRestaurantDisplayName(order, waitresses, restaurants)
-                  const orderType = order.inTable === true 
-                    ? { icon: <Home className="h-3 w-3" />, label: "Dine In", color: "bg-green-100 text-green-800" }
-                    : order.delivery === true
-                    ? { icon: <Truck className="h-3 w-3" />, label: "Delivery", color: "bg-blue-100 text-blue-800" }
-                    : { icon: <Package2 className="h-3 w-3" />, label: "POS", color: "bg-purple-100 text-purple-800" }
-                  
-                  return (
-                    <div key={order._id} className="bg-white rounded-lg shadow-sm p-4" onClick={() => handleViewDetails(order)}>
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-bold text-sm text-gray-800">#{order.orderNumber}</p>
-                          <p className="text-xs text-gray-500">{new Date(order.createdAt).toLocaleString()}</p>
-                        </div>
-                        <Badge className={STATUS_COLORS[order.status] || "bg-gray-100"}>{order.status}</Badge>
-                      </div>
-
-                      <div className="mt-3 space-y-2 text-sm text-gray-700">
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Amount</span>
-                          <span className="font-semibold">{formatCurrency(order.finalAmount)}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Waiter</span>
-                          <span>{order.waiterName || 'Unknown'}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Restaurant</span>
-                          <span>{restaurantName}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Type</span>
-                          <Badge className={`${orderType.color} font-normal`}>{orderType.label}</Badge>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {filteredOverviewOrders.length === 0 && (
-                <div className="md:hidden text-center py-12">
-                  <ShoppingCart className="mx-auto h-12 w-12 text-gray-300" />
-                  <p className="mt-4 text-sm text-gray-500">No orders found</p>
-                </div>
-              )}
-
-              {filteredOverviewOrders.length === 0 && (
-                <Table className="hidden md:table">
-                  <TableBody><TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No orders found for the selected criteria</TableCell></TableRow></TableBody>
-                </Table>
-              )}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Order Details Dialog */}
+      {/* Order Details Dialog - Mobile Optimized */}
       <Dialog open={!!selectedOrder} onOpenChange={() => {
         setSelectedOrder(null)
         setSelectedItemsMap(new Map())
       }}>
-        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold">Order Details</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto p-3 md:p-6">
+          <DialogHeader className="space-y-1 md:space-y-2">
+            <DialogTitle className="text-lg md:text-2xl font-bold">Order Details</DialogTitle>
+            <DialogDescription className="text-xs md:text-sm">
               Full details for order #{selectedOrder?.orderNumber}
             </DialogDescription>
           </DialogHeader>
           
           {loadingOrderDetails ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span className="ml-2">Loading order details...</span>
+            <div className="flex items-center justify-center py-8 md:py-12">
+              <Loader2 className="h-6 w-6 md:h-8 md:w-8 animate-spin text-primary" />
+              <span className="ml-2 text-sm md:text-base">Loading order details...</span>
             </div>
           ) : (
-            <ScrollArea className="mt-4 max-h-[70vh]">
+            <ScrollArea className="mt-2 md:mt-4 max-h-[70vh]">
               {selectedOrder && selectedWaitress && (
-                <div className="space-y-6">
-                  <div className="flex items-center space-x-4 p-4 bg-muted/30 rounded-lg">
+                <div className="space-y-4 md:space-y-6">
+                  <div className="flex items-center space-x-3 md:space-x-4 p-3 md:p-4 bg-muted/30 rounded-lg">
                     {selectedOrder.delivery ? (
                       <>
-                        <Avatar className="h-16 w-16">
-                          <AvatarFallback><Truck className="h-8 w-8" /></AvatarFallback>
+                        <Avatar className="h-12 w-12 md:h-16 md:w-16">
+                          <AvatarFallback><Truck className="h-6 w-6 md:h-8 md:w-8" /></AvatarFallback>
                         </Avatar>
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold">Delivery Order</h3>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-base md:text-lg font-semibold">Delivery Order</h3>
                           {selectedOrder.deliveryInfo ? (
                             <>
-                              <p className="text-sm font-medium">{selectedOrder.deliveryInfo.fullName}</p>
-                              <p className="text-sm text-muted-foreground flex items-center gap-1">
-                                <Phone className="h-3 w-3" />
+                              <p className="text-xs md:text-sm font-medium truncate">{selectedOrder.deliveryInfo.fullName}</p>
+                              <p className="text-[10px] md:text-sm text-muted-foreground flex items-center gap-1">
+                                <Phone className="h-2 w-2 md:h-3 md:w-3" />
                                 {selectedOrder.deliveryInfo.phoneNumber}
                               </p>
-                              <p className="text-sm text-muted-foreground flex items-center gap-1">
-                                <MapPin className="h-3 w-3" />
-                                {selectedOrder.deliveryInfo.address}, {selectedOrder.deliveryInfo.city}
+                              <p className="text-[10px] md:text-sm text-muted-foreground flex items-center gap-1 truncate">
+                                <MapPin className="h-2 w-2 md:h-3 md:w-3 flex-shrink-0" />
+                                <span className="truncate">{selectedOrder.deliveryInfo.address}, {selectedOrder.deliveryInfo.city}</span>
                               </p>
                             </>
                           ) : (
-                            <p className="text-sm text-muted-foreground">No delivery information available</p>
+                            <p className="text-xs md:text-sm text-muted-foreground">No delivery information available</p>
                           )}
                         </div>
                       </>
                     ) : (
                       <>
-                        <Avatar className="h-16 w-16">
-                          <AvatarFallback>
+                        <Avatar className="h-12 w-12 md:h-16 md:w-16">
+                          <AvatarFallback className="text-xs md:text-base">
                             {selectedWaitress?.name?.split(" ").map((n) => n[0]).join("") || "W"}
                           </AvatarFallback>
                         </Avatar>
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold">{selectedWaitress?.name || "Unknown Waitress"}</h3>
-                          <p className="text-sm text-muted-foreground flex items-center gap-1">
-                            <Phone className="h-3 w-3" />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-base md:text-lg font-semibold truncate">{selectedWaitress?.name || "Unknown Waitress"}</h3>
+                          <p className="text-[10px] md:text-sm text-muted-foreground flex items-center gap-1">
+                            <Phone className="h-2 w-2 md:h-3 md:w-3" />
                             {selectedWaitress?.phone || "No phone number"}
                           </p>
-                          <Badge variant="outline" className="mt-1">
+                          <Badge variant="outline" className="mt-0.5 md:mt-1 text-[8px] md:text-xs">
                             {selectedWaitress?.shift || "Unknown"} Shift
                           </Badge>
                         </div>
@@ -2169,51 +1885,51 @@ export default function DashboardPage() {
 
                   <Separator />
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-2 md:gap-4 text-xs md:text-sm">
                     <div>
-                      <h4 className="font-medium text-sm text-muted-foreground">Order Number</h4>
-                      <p className="font-medium">{selectedOrder.orderNumber}</p>
+                      <h4 className="font-medium text-[10px] md:text-sm text-muted-foreground">Order Number</h4>
+                      <p className="font-medium text-xs md:text-sm break-all">{selectedOrder.orderNumber}</p>
                     </div>
                     <div>
-                      <h4 className="font-medium text-sm text-muted-foreground">Restaurant</h4>
-                      <p>{getRestaurantDisplayName(selectedOrder, waitresses, restaurants)}</p>
+                      <h4 className="font-medium text-[10px] md:text-sm text-muted-foreground">Restaurant</h4>
+                      <p className="text-xs md:text-sm truncate">{getRestaurantDisplayName(selectedOrder, waitresses, restaurants)}</p>
                     </div>
                     <div>
-                      <h4 className="font-medium text-sm text-muted-foreground">Table Number</h4>
-                      <p>{selectedOrder.tableNumber}</p>
+                      <h4 className="font-medium text-[10px] md:text-sm text-muted-foreground">Table Number</h4>
+                      <p className="text-xs md:text-sm">{selectedOrder.tableNumber}</p>
                     </div>
                     <div>
-                      <h4 className="font-medium text-sm text-muted-foreground">Number of Guests</h4>
-                      <p>{selectedOrder.numberOfGuests}</p>
+                      <h4 className="font-medium text-[10px] md:text-sm text-muted-foreground">Number of Guests</h4>
+                      <p className="text-xs md:text-sm">{selectedOrder.numberOfGuests}</p>
                     </div>
                     <div>
-                      <h4 className="font-medium text-sm text-muted-foreground">Payment Method</h4>
-                      <Badge variant="secondary">{selectedOrder.paymentMethod || "CASH"}</Badge>
+                      <h4 className="font-medium text-[10px] md:text-sm text-muted-foreground">Payment Method</h4>
+                      <Badge variant="secondary" className="text-[8px] md:text-xs">{selectedOrder.paymentMethod || "CASH"}</Badge>
                     </div>
                     <div>
-                      <h4 className="font-medium text-sm text-muted-foreground">Status</h4>
-                      <Badge className={STATUS_COLORS[selectedOrder.status] || "bg-gray-100"}>{selectedOrder.status}</Badge>
+                      <h4 className="font-medium text-[10px] md:text-sm text-muted-foreground">Status</h4>
+                      <Badge className={`${STATUS_COLORS[selectedOrder.status] || "bg-gray-100"} text-[8px] md:text-xs`}>{selectedOrder.status}</Badge>
                     </div>
-                    <div>
-                      <h4 className="font-medium text-sm text-muted-foreground">Created At</h4>
-                      <p>{new Date(selectedOrder.createdAt).toLocaleString()}</p>
+                    <div className="col-span-2">
+                      <h4 className="font-medium text-[10px] md:text-sm text-muted-foreground">Created At</h4>
+                      <p className="text-xs md:text-sm">{new Date(selectedOrder.createdAt).toLocaleString()}</p>
                     </div>
                   </div>
 
                   <Separator />
 
                   <div>
-                    <h4 className="font-medium flex items-center mb-3">
-                      <Utensils className="mr-2 h-4 w-4" /> Order Items
+                    <h4 className="font-medium flex items-center mb-2 md:mb-3 text-sm md:text-base">
+                      <Utensils className="mr-1 md:mr-2 h-4 w-4 md:h-5 md:w-5" /> Order Items
                     </h4>
                     <div className="rounded-md border overflow-hidden">
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Item Name</TableHead>
-                            <TableHead className="text-center">Qty</TableHead>
-                            <TableHead className="text-right">Unit Price</TableHead>
-                            <TableHead className="text-right">Subtotal</TableHead>
+                            <TableHead className="text-[10px] md:text-sm">Item Name</TableHead>
+                            <TableHead className="text-center text-[10px] md:text-sm">Qty</TableHead>
+                            <TableHead className="text-right text-[10px] md:text-sm">Unit Price</TableHead>
+                            <TableHead className="text-right text-[10px] md:text-sm">Subtotal</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2222,23 +1938,23 @@ export default function DashboardPage() {
                             const menuItem = selectedItemsMap.get(itemId || '')
                             return (
                               <TableRow key={item.itemId || index}>
-                                <TableCell>
+                                <TableCell className="text-[10px] md:text-sm">
                                   <div>
-                                    <span className="font-medium">{menuItem?.name || item.name || 'Unknown Item'}</span>
+                                    <span className="font-medium text-xs md:text-sm">{menuItem?.name || item.name || 'Unknown Item'}</span>
                                     {item.specialInstructions && (
-                                      <p className="text-xs text-muted-foreground mt-0.5">
+                                      <p className="text-[8px] md:text-xs text-muted-foreground mt-0.5">
                                         Note: {item.specialInstructions}
                                       </p>
                                     )}
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-center">
-                                  <Badge variant="secondary" className="text-xs">{item.quantity}x</Badge>
+                                  <Badge variant="secondary" className="text-[8px] md:text-xs">{item.quantity}x</Badge>
                                 </TableCell>
-                                <TableCell className="text-right">
+                                <TableCell className="text-right text-[10px] md:text-sm">
                                   {formatCurrency(menuItem?.price || item.price || item.unitPrice || 0)}
                                 </TableCell>
-                                <TableCell className="text-right font-medium">
+                                <TableCell className="text-right font-medium text-[10px] md:text-sm">
                                   {formatCurrency((menuItem?.price || item.price || item.unitPrice || 0) * (item.quantity || 0))}
                                 </TableCell>
                               </TableRow>
@@ -2251,25 +1967,25 @@ export default function DashboardPage() {
 
                   <Separator />
 
-                  <div className="space-y-2 p-4 bg-muted/20 rounded-lg">
-                    <div className="flex justify-between text-sm">
+                  <div className="space-y-1 md:space-y-2 p-3 md:p-4 bg-muted/20 rounded-lg">
+                    <div className="flex justify-between text-xs md:text-sm">
                       <span className="text-muted-foreground">Subtotal:</span>
                       <span>{formatCurrency(selectedOrder.totalAmount)}</span>
                     </div>
                     {selectedOrder.discount > 0 && (
-                      <div className="flex justify-between text-sm text-red-600">
+                      <div className="flex justify-between text-xs md:text-sm text-red-600">
                         <span>Discount:</span>
                         <span>-{formatCurrency(selectedOrder.discount)}</span>
                       </div>
                     )}
                     {selectedOrder.tax > 0 && (
-                      <div className="flex justify-between text-sm">
+                      <div className="flex justify-between text-xs md:text-sm">
                         <span>Tax:</span>
                         <span>{formatCurrency(selectedOrder.tax)}</span>
                       </div>
                     )}
-                    <Separator className="my-2" />
-                    <div className="flex justify-between font-bold text-lg">
+                    <Separator className="my-1 md:my-2" />
+                    <div className="flex justify-between font-bold text-sm md:text-lg">
                       <span>Total Amount:</span>
                       <span className="text-primary">{formatCurrency(selectedOrder.finalAmount)}</span>
                     </div>
