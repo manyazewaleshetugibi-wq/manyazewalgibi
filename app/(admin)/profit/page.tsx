@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { 
   DollarSign, 
@@ -19,16 +19,8 @@ import {
   Pizza,
   Utensils,
   Grid3X3,
-  List,
-  PieChart as PieChartIcon,
-  Wine,
-  Soup,
-  Cake,
-  Sandwich,
-  Flame,
   Search,
   Clock,
-  X,
   ArrowUpDown
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -57,7 +49,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogClose,
 } from "@/components/ui/dialog"
 import {
   ResponsiveContainer,
@@ -136,6 +127,7 @@ interface OrderItem {
   price?: number
   name?: string
   subtotal?: number
+  itemName?: string
 }
 
 interface Order {
@@ -191,10 +183,10 @@ interface DailySummary {
 }
 
 // ============================================
-// API FUNCTIONS
+// API FUNCTIONS - FIXED
 // ============================================
 
-// Get today's completed orders only
+// ✅ FIXED: Get today's completed orders
 async function fetchTodayOrders(): Promise<Order[]> {
   const today = new Date()
   const startDate = format(startOfDay(today), "yyyy-MM-dd")
@@ -204,53 +196,96 @@ async function fetchTodayOrders(): Promise<Order[]> {
     const response = await fetch(`/api/order/waiterreport?startDate=${startDate}&endDate=${endDate}&limit=10000`)
     const data = await response.json()
     
+    // Handle different response structures
+    let orders = []
     if (data.success && data.orders) {
-      // Filter ONLY COMPLETED orders from today
-      return data.orders.filter((order: Order) => {
-        const orderDate = new Date(order.createdAt)
-        return order.status === 'COMPLETED' &&
-               orderDate >= startOfDay(today) && orderDate <= endOfDay(today)
-      })
+      orders = data.orders
+    } else if (data.data && Array.isArray(data.data)) {
+      orders = data.data
+    } else if (Array.isArray(data)) {
+      orders = data
     }
-    return []
+    
+    // Filter ONLY COMPLETED orders from today
+    return orders.filter((order: Order) => {
+      const orderDate = new Date(order.createdAt)
+      return order.status === 'COMPLETED' &&
+             orderDate >= startOfDay(today) && orderDate <= endOfDay(today)
+    })
   } catch (error) {
     console.error("Error fetching today's orders:", error)
     return []
   }
 }
 
+// ✅ FIXED: Fetch menu items
 async function fetchMenuItems(): Promise<MenuItem[]> {
-  const response = await fetch("/api/items")
-  if (!response.ok) throw new Error("Failed to fetch menu items")
-  const data = await response.json()
-  if (data.data) return data.data
-  if (data.items) return data.items
-  if (Array.isArray(data)) return data
-  return []
+  try {
+    const response = await fetch("/api/items")
+    if (!response.ok) throw new Error("Failed to fetch menu items")
+    const data = await response.json()
+    
+    // Handle different response structures
+    if (data.data) return data.data
+    if (data.items) return data.items
+    if (Array.isArray(data)) return data
+    return []
+  } catch (error) {
+    console.error("Error fetching menu items:", error)
+    return []
+  }
 }
 
+// ✅ FIXED: Fetch categories
 async function fetchCategories(): Promise<Category[]> {
-  const response = await fetch("/api/item-category?limit=100")
-  if (!response.ok) throw new Error("Failed to fetch categories")
-  const data = await response.json()
-  if (data.success && data.data) return data.data
-  return []
+  try {
+    const response = await fetch("/api/item-category?limit=100")
+    if (!response.ok) throw new Error("Failed to fetch categories")
+    const data = await response.json()
+    
+    if (data.success && data.data) return data.data
+    if (Array.isArray(data)) return data
+    return []
+  } catch (error) {
+    console.error("Error fetching categories:", error)
+    return []
+  }
 }
 
+// ✅ FIXED: Fetch stock items
 async function fetchStockItems(): Promise<StockItem[]> {
-  const response = await fetch("/api/stock")
-  if (!response.ok) throw new Error("Failed to fetch stock items")
-  const data = await response.json()
-  if (data.success && data.data) return data.data
-  return []
+  try {
+    const response = await fetch("/api/stock")
+    if (!response.ok) throw new Error("Failed to fetch stock items")
+    const data = await response.json()
+    
+    if (data.success && data.data) return data.data
+    if (Array.isArray(data)) return data
+    return []
+  } catch (error) {
+    console.error("Error fetching stock items:", error)
+    return []
+  }
 }
 
+// ✅ FIXED: Fetch purchases - handles both "data" and "purchases" fields
 async function fetchPurchases(): Promise<Purchase[]> {
-  const response = await fetch("/api/stock-purchase")
-  if (!response.ok) throw new Error("Failed to fetch purchases")
-  const data = await response.json()
-  if (data.success && data.purchases) return data.purchases
-  return []
+  try {
+    const response = await fetch("/api/stock-purchase")
+    if (!response.ok) throw new Error("Failed to fetch purchases")
+    const data = await response.json()
+    
+    // Handle different response structures
+    if (data.success && data.data) return data.data
+    if (data.success && data.purchases) return data.purchases
+    if (data.data && Array.isArray(data.data)) return data.data
+    if (data.purchases && Array.isArray(data.purchases)) return data.purchases
+    if (Array.isArray(data)) return data
+    return []
+  } catch (error) {
+    console.error("Error fetching purchases:", error)
+    return []
+  }
 }
 
 // ============================================
@@ -517,6 +552,12 @@ export default function DailyProfitPage() {
         fetchStockItems(),
         fetchPurchases()
       ])
+
+      console.log("📊 Orders fetched:", ordersData.length)
+      console.log("📦 Menu items fetched:", menuData.length)
+      console.log("📁 Categories fetched:", categoryData.length)
+      console.log("📦 Stock items fetched:", stockData.length)
+      console.log("🛒 Purchases fetched:", purchaseData.length)
 
       setOrders(ordersData)
       setMenuItems(menuData)
@@ -928,7 +969,7 @@ export default function DailyProfitPage() {
           </div>
         </div>
 
-        {/* Summary Stats Cards - Mobile First */}
+        {/* Summary Stats Cards */}
         {summary && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-8">
             <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg bg-gradient-to-br from-white to-purple-50/50">
@@ -997,7 +1038,7 @@ export default function DailyProfitPage() {
           </div>
         )}
 
-        {/* Second Row Stats - Mobile First */}
+        {/* Second Row Stats */}
         {summary && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-8">
             <Card className="rounded-xl md:rounded-2xl border-0 shadow-md bg-gradient-to-br from-white to-purple-50/50">
@@ -1049,7 +1090,7 @@ export default function DailyProfitPage() {
           </div>
         )}
 
-        {/* Filters - Mobile First */}
+        {/* Filters */}
         <Card className="mb-4 md:mb-6 rounded-xl md:rounded-2xl border-0 shadow-lg">
           <CardContent className="p-3 md:p-6">
             <div className="flex flex-col gap-2 md:gap-4">
@@ -1133,7 +1174,7 @@ export default function DailyProfitPage() {
           </CardContent>
         </Card>
 
-        {/* Charts - Mobile First */}
+        {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
           {chartData.length > 0 && (
             <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg">
@@ -1193,7 +1234,7 @@ export default function DailyProfitPage() {
           )}
         </div>
 
-        {/* Items Table - Mobile First */}
+        {/* Items Table */}
         <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg overflow-hidden">
           <CardHeader className="bg-purple-50/50 p-3 md:p-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">

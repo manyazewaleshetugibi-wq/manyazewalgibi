@@ -32,7 +32,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, Plus, Edit, Trash2, Clock, Star, Save, X, Tag, Loader2, Eye, ChefHat, Menu, Filter, Coffee, XCircle, AlertCircle, Package, Check } from 'lucide-react'
+import { Search, Plus, Edit, Trash2, Clock, Star, Save, X, Tag, Loader2, Eye, ChefHat, Menu, Filter, Coffee, XCircle, AlertCircle, Package, Check, Moon, Sun } from 'lucide-react'
 import { useDebouncedCallback } from "use-debounce"
 import { api } from "@/types/utils/api"
 import { Label } from "@/components/ui/label"
@@ -78,6 +78,7 @@ interface MenuItem {
   preparationTime?: number;
   isActive?: boolean;
   isFeatured?: boolean;
+  isFasting?: boolean; // Added fasting field
   createdAt?: string;
   updatedAt?: string;
 }
@@ -134,6 +135,7 @@ const ItemSchema = z.object({
     .optional(),
   isActive: z.boolean().optional(),
   isFeatured: z.boolean().optional(),
+  isFasting: z.boolean().optional(), // Added fasting field
 });
 
 type FormData = z.infer<typeof ItemSchema> & {
@@ -328,6 +330,7 @@ export default function RestaurantMenuManagement() {
   const [itemsPerPage] = useState(8)
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
+  const [fastingFilter, setFastingFilter] = useState<"all" | "fasting" | "non-fasting">("all") // Added fasting filter
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 10000])
   const [isLoading, setIsLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -370,6 +373,7 @@ export default function RestaurantMenuManagement() {
       nutritionalInfo: DEFAULT_NUTRITIONAL_INFO,
       isActive: true,
       isFeatured: false,
+      isFasting: false, // Added default
       preparationTime: 10,
       price: 0,
     },
@@ -427,6 +431,7 @@ export default function RestaurantMenuManagement() {
         preparationTime: getSafeValue(item.preparationTime, 10),
         isActive: getSafeValue(item.isActive, true),
         isFeatured: getSafeValue(item.isFeatured, false),
+        isFasting: getSafeValue(item.isFasting, false), // Added default
         price: getSafeValue(item.price, 0),
       }))
       setMenuItems(normalizedItems)
@@ -478,11 +483,15 @@ export default function RestaurantMenuManagement() {
       const matchesSearch = searchTerm === "" || (item.name?.toLowerCase() || '').includes(searchTerm.toLowerCase())
       const matchesCategory = categoryFilter === "all" || item.categoryId === categoryFilter
       const matchesPrice = (item.price || 0) >= priceRange[0] && (item.price || 0) <= priceRange[1]
-      return matchesSearch && matchesCategory && matchesPrice
+      // Added fasting filter
+      const matchesFasting = fastingFilter === "all" || 
+        (fastingFilter === "fasting" && item.isFasting === true) ||
+        (fastingFilter === "non-fasting" && item.isFasting === false)
+      return matchesSearch && matchesCategory && matchesPrice && matchesFasting
     })
     setFilteredItems(filtered)
     setCurrentPage(1)
-  }, [searchTerm, categoryFilter, priceRange, menuItems])
+  }, [searchTerm, categoryFilter, priceRange, fastingFilter, menuItems])
 
   const indexOfLastItem = currentPage * itemsPerPage
   const indexOfFirstItem = indexOfLastItem - itemsPerPage
@@ -624,6 +633,7 @@ export default function RestaurantMenuManagement() {
       formData.append("preparationTime", data.preparationTime?.toString() || "10")
       formData.append("isActive", (data.isActive ?? true).toString())
       formData.append("isFeatured", (data.isFeatured ?? false).toString())
+      formData.append("isFasting", (data.isFasting ?? false).toString()) // Added fasting field
       
       // Add nutritional info with defaults - preserve full precision
       const nutritionalInfo = data.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO
@@ -880,6 +890,7 @@ export default function RestaurantMenuManagement() {
       preparationTime: getSafeValue(item.preparationTime, 10),
       isActive: getSafeValue(item.isActive, true),
       isFeatured: getSafeValue(item.isFeatured, false),
+      isFasting: getSafeValue(item.isFasting, false), // Added default
       price: getSafeValue(item.price, 0),
       // Use cloudinaryData.url for imageUrl in the form
       imageUrl: item.cloudinaryData?.url || item.imageUrl,
@@ -905,6 +916,7 @@ export default function RestaurantMenuManagement() {
       nutritionalInfo: DEFAULT_NUTRITIONAL_INFO,
       isActive: true,
       isFeatured: false,
+      isFasting: false, // Added default
       price: 0,
       preparationTime: 10,
       name: "",
@@ -1058,6 +1070,28 @@ export default function RestaurantMenuManagement() {
                 </SelectContent>
               </Select>
               
+              {/* Fasting Filter */}
+              <Select value={fastingFilter} onValueChange={(value: "all" | "fasting" | "non-fasting") => setFastingFilter(value)} disabled={isLoading || networkStatus === 'offline'}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Filter by fasting" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Items</SelectItem>
+                  <SelectItem value="fasting">
+                    <span className="flex items-center gap-2">
+                      <Moon className="h-4 w-4 text-purple-600" />
+                      Fasting
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="non-fasting">
+                    <span className="flex items-center gap-2">
+                      <Sun className="h-4 w-4 text-orange-500" />
+                      Non-Fasting
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              
               <div className="flex flex-col space-y-1">
                 <Label className="text-sm font-medium">Price Range (ETB)</Label>
                 <div className="flex items-center space-x-2">
@@ -1091,7 +1125,9 @@ export default function RestaurantMenuManagement() {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {currentItems.length > 0 ? (
           currentItems.map((item) => (
-            <Card key={item._id || item.id} className="overflow-hidden hover:shadow-lg transition-shadow duration-300 group border border-gray-200">
+            <Card key={item._id || item.id} className={`overflow-hidden hover:shadow-lg transition-shadow duration-300 group border ${
+              item.isFasting ? 'border-purple-200' : 'border-orange-200'
+            }`}>
               <div className="relative">
                 <CardHeader className="p-0">
                   <img 
@@ -1114,6 +1150,29 @@ export default function RestaurantMenuManagement() {
                   className="absolute top-2 left-2"
                 >
                   {item.isActive ? "Active" : "Inactive"}
+                </Badge>
+                {/* Fasting Badge */}
+                <Badge 
+                  variant={item.isFasting ? "default" : "secondary"}
+                  className={`absolute bottom-2 left-2 ${
+                    item.isFasting 
+                      ? 'bg-purple-600 hover:bg-purple-700' 
+                      : 'bg-orange-500 hover:bg-orange-600'
+                  }`}
+                >
+                  <span className="flex items-center gap-1">
+                    {item.isFasting ? (
+                      <>
+                        <Moon className="h-3 w-3" />
+                        Fasting
+                      </>
+                    ) : (
+                      <>
+                        <Sun className="h-3 w-3" />
+                        Non-Fasting
+                      </>
+                    )}
+                  </span>
                 </Badge>
               </div>
               <CardContent className="p-4">
@@ -1402,6 +1461,48 @@ export default function RestaurantMenuManagement() {
                         </div>
                       </div>
                       
+                      {/* Fasting Toggle */}
+                      <div className="grid gap-2 pt-2">
+                        <Label className="text-sm font-medium">Fasting Status</Label>
+                        <div className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg">
+                          <Controller
+                            name="isFasting"
+                            control={control}
+                            render={({ field }) => (
+                              <div className="flex items-center space-x-4">
+                                <div className="flex items-center space-x-2">
+                                  <Switch
+                                    id="isFasting"
+                                    checked={field.value ?? false}
+                                    onCheckedChange={field.onChange}
+                                    disabled={isSubmitting || isUploading}
+                                    className={field.value ? 'bg-purple-600' : 'bg-orange-500'}
+                                  />
+                                  <Label htmlFor="isFasting" className="cursor-pointer flex items-center gap-2">
+                                    {field.value ? (
+                                      <>
+                                        <Moon className="h-4 w-4 text-purple-600" />
+                                        <span className="text-purple-700 font-medium">Fasting</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Sun className="h-4 w-4 text-orange-500" />
+                                        <span className="text-orange-600 font-medium">Non-Fasting</span>
+                                      </>
+                                    )}
+                                  </Label>
+                                </div>
+                                <span className="text-xs text-gray-500">
+                                  {field.value 
+                                    ? 'This item is suitable for fasting periods' 
+                                    : 'This item is not suitable for fasting periods'}
+                                </span>
+                              </div>
+                            )}
+                          />
+                        </div>
+                      </div>
+                      
                       {/* Image Preview */}
                       {(imagePreview || selectedItem?.imageUrl) && (
                         <div className="mt-2">
@@ -1669,11 +1770,28 @@ export default function RestaurantMenuManagement() {
                       target.src = "/placeholder.svg"
                     }}
                   />
-                  {selectedItem.isFeatured && (
-                    <Badge className="absolute top-2 right-2 bg-yellow-400 text-white border-none">
-                      <Star className="mr-1 h-3 w-3" /> Featured
+                  <div className="absolute top-2 right-2 flex gap-2">
+                    {selectedItem.isFeatured && (
+                      <Badge className="bg-yellow-400 text-white border-none">
+                        <Star className="mr-1 h-3 w-3" /> Featured
+                      </Badge>
+                    )}
+                    <Badge className={`${selectedItem.isFasting ? 'bg-purple-600' : 'bg-orange-500'} text-white border-none`}>
+                      <span className="flex items-center gap-1">
+                        {selectedItem.isFasting ? (
+                          <>
+                            <Moon className="h-3 w-3" />
+                            Fasting
+                          </>
+                        ) : (
+                          <>
+                            <Sun className="h-3 w-3" />
+                            Non-Fasting
+                          </>
+                        )}
+                      </span>
                     </Badge>
-                  )}
+                  </div>
                 </div>
                 
                 <div className="space-y-1">
