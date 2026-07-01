@@ -26,6 +26,7 @@ import {
   ClipboardCheck,
   SearchCheckIcon,
   DollarSign,
+  QrCode,
 } from "lucide-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -53,7 +54,8 @@ const ALL_ROUTES = {
     '/preparation', '/Sregister', '/standards', '/staffregister',
     '/waitress', '/restaurants', '/BirthDate', '/prizes',
     '/pos', '/search', '/daily-tasks', '/profile', '/change-password',
-    '/table-arrangement', '/feedback', '/edit', '/myorders', '/expenses'
+    '/table-arrangement', '/feedback', '/edit', '/myorders', '/expenses',
+    '/qr' // ✅ ADDED QR PAGE - ADMIN ONLY
   ],
   KITCHEN: [
     '/dashboard', '/orders', '/delivery', '/training',
@@ -190,17 +192,26 @@ const roleBasedNavigation = {
       },
       {
         title: "BirthDate",
-        url: "/birthdate",
+        url: "#",
         icon: Cake,
         items: [
           { title: "BirthDate", url: "/BirthDate" },
           { title: "Prizes", url: "/prizes" },
         ],
-      }
+      },
+      {
+        title: "QR Management", // ✅ NEW QR SECTION
+        url: "#",
+        icon: QrCode,
+        items: [
+          { title: "QR Generator", url: "/qr" },
+        ],
+      },
     ],
     projects: [
       { name: "Dashboard", url: "/dashboard", icon: Tag },
       { name: "POS", url: "/pos", icon: SquareTerminal },
+      { name: "QR Code", url: "/qr", icon: QrCode }, // ✅ ADD QR TO PROJECTS
       { name: "Search", url: "/search", icon: SearchCheckIcon },
       { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon }
     ],
@@ -606,6 +617,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     if (isPublicRoute(pathname)) return true;
     if (pathname === '/') return true;
     
+    const normalizedRole = normalizeRole(userRole);
     const allowedRoutes = ALL_ROUTES[normalizedRole as keyof typeof ALL_ROUTES] || ALL_ROUTES.DEFAULT;
     
     // Check exact match
@@ -621,7 +633,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
     
     return false;
-  }, [pathname, normalizedRole, isMounted]);
+  }, [pathname, userRole, isMounted]);
 
   // Client-side redirect for unauthorized access
   useEffect(() => {

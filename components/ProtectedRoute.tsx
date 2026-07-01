@@ -2,7 +2,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LoadingScreen } from "./LoadingScreen";
 
@@ -10,7 +10,7 @@ import { LoadingScreen } from "./LoadingScreen";
 const ALL_ROUTES = {
   ADMIN: [
     '/dashboard', '/stock', '/scategory', '/stockReport', '/purchase-request',
-    '/items', '/catagory', '/healthy-menu', '/menu-profitability',
+    '/items', '/catagory', '/healthy-menu', '/menu-profitability','/qr',
     '/orders', '/delivery', '/blog', '/contents', '/applications',
     '/sales', '/expe', '/profit', '/training', '/Pregister',
     '/preparation', '/Sregister', '/standards', '/staffregister',
@@ -75,7 +75,7 @@ const normalizeRole = (role: string | undefined): string => {
 };
 
 const isPublicRoute = (pathname: string): boolean => {
-  const publicRoutes = ['/', '/login', '/belog', '/register', '/home', '/about', '/blogs'];
+  const publicRoutes = ['/', '/login', '/belog', '/register', '/home', '/about', '/blogs', '/contact', '/contactus'];
   return publicRoutes.some(route => pathname === route || pathname.startsWith(route + '/'));
 };
 
@@ -96,6 +96,25 @@ const getDefaultRedirect = (role: string): string => {
   return defaults[role as keyof typeof defaults] || '/dashboard';
 };
 
+// Function to handle semicolon URL pattern
+const normalizePathname = (pathname: string): string => {
+  // If pathname contains semicolon, extract the path before it
+  if (pathname.includes(';')) {
+    const semicolonIndex = pathname.indexOf(';');
+    const beforeSemicolon = pathname.substring(0, semicolonIndex);
+    
+    // If before semicolon is empty or just '/', treat as root
+    if (!beforeSemicolon || beforeSemicolon === '/') {
+      return '/';
+    }
+    
+    // Otherwise, use the path before semicolon
+    return beforeSemicolon;
+  }
+  
+  return pathname;
+};
+
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
@@ -103,19 +122,36 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { data: session, status } = useSession();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [isClient, setIsClient] = useState(false);
+  const [normalizedPath, setNormalizedPath] = useState<string>('');
 
   useEffect(() => {
     setIsClient(true);
-  }, []);
+    
+    // Normalize the pathname to handle semicolon URLs
+    const normalized = normalizePathname(pathname);
+    setNormalizedPath(normalized);
+    
+    // Check if there's a table parameter in the URL
+    const tableParam = searchParams.get('table');
+    if (tableParam) {
+      console.log('Table parameter detected:', tableParam);
+      // You can handle the table parameter here if needed
+      // For example, store it in state or context
+    }
+  }, [pathname, searchParams]);
 
   useEffect(() => {
     if (!isClient) return;
     
+    // Use normalized path for route checking
+    const currentPath = normalizedPath || normalizePathname(pathname);
+    
     // Check if it's a public route
-    if (isPublicRoute(pathname)) {
+    if (isPublicRoute(currentPath)) {
       setIsAuthorized(true);
       return;
     }
@@ -138,9 +174,9 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
       const userRole = normalizeRole(session.user.role);
       const allowedRoutes = ALL_ROUTES[userRole as keyof typeof ALL_ROUTES] || ALL_ROUTES.DEFAULT;
       
-      // Check if current path is allowed
+      // Check if current normalized path is allowed
       const isAllowed = allowedRoutes.some(route => 
-        pathname === route || pathname.startsWith(route + '/')
+        currentPath === route || currentPath.startsWith(route + '/')
       );
 
       if (isAllowed) {
@@ -152,7 +188,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
         router.push(defaultPage + '?unauthorized=true');
       }
     }
-  }, [status, session, pathname, router, isClient]);
+  }, [status, session, pathname, normalizedPath, router, isClient]);
 
   // Show loading screen while checking authorization
   if (!isClient || status === 'loading' || isAuthorized === null) {

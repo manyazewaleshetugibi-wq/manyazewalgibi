@@ -1,4 +1,4 @@
-// hooks/useRoleProtection.ts
+// hooks/useRoleProtection.ts - UPDATED VERSION
 import { useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -12,7 +12,8 @@ const ALL_ROUTES = {
     '/preparation', '/Sregister', '/standards', '/staffregister',
     '/waitress', '/restaurants', '/BirthDate', '/prizes',
     '/pos', '/search', '/daily-tasks', '/profile', '/change-password',
-    '/table-arrangement', '/feedback', '/edit', '/myorders', '/expenses'
+    '/table-arrangement', '/feedback', '/edit', '/myorders', '/expenses',
+    '/qr' // ✅ ADDED
   ],
   KITCHEN: [
     '/dashboard', '/orders', '/delivery', '/training',
@@ -24,46 +25,70 @@ const ALL_ROUTES = {
     '/Pregister', '/Sregister', '/training', '/preparation',
     '/standards', '/daily-tasks', '/profile', '/change-password'
   ],
-  // ... add all other roles
+  MARKETING: [
+    '/dashboard', '/blog', '/contents', '/training',
+    '/feedback', '/standards', '/daily-tasks', '/profile',
+    '/change-password'
+  ],
+  FINANCE: [
+    '/dashboard', '/stock', '/scategory', '/stockReport',
+    '/purchase-request', '/sales', '/expe', '/profit',
+    '/training', '/expenses', '/standards', '/daily-tasks',
+    '/profile', '/change-password'
+  ],
+  STOCK_MANAGER: [
+    '/dashboard', '/stock', '/scategory', '/stockReport',
+    '/purchase-request', '/training', '/standards',
+    '/daily-tasks', '/profile', '/change-password'
+  ],
+  PURCHASING: [
+    '/dashboard', '/purchase-request', '/stock', '/stockReport',
+    '/training', '/standards', '/daily-tasks', '/profile',
+    '/change-password'
+  ],
+  DELIVERY: [
+    '/dashboard', '/delivery', '/training', '/standards',
+    '/daily-tasks', '/profile', '/change-password'
+  ],
+  POS: [
+    '/dashboard', '/pos', '/edit', '/myorders',
+    '/table-arrangement', '/training', '/standards',
+    '/daily-tasks', '/profile', '/change-password'
+  ],
+  WAITRESS: [
+    '/dashboard', '/pos', '/myorders', '/table-arrangement',
+    '/training', '/daily-tasks', '/profile', '/change-password'
+  ],
   DEFAULT: [
     '/dashboard', '/training', '/daily-tasks', '/profile',
     '/change-password'
   ]
 };
 
-export function useRoleProtection() {
-  const { data: session, status } = useSession();
-  const pathname = usePathname();
-  const router = useRouter();
+// Normalize role function
+const normalizeRole = (role: string | undefined): string => {
+  if (!role) return 'DEFAULT';
+  return role.toUpperCase().trim();
+};
 
-  useEffect(() => {
-    if (status === 'loading') return;
-
-    const userRole = session?.user?.role || 'DEFAULT';
-    const normalizedRole = userRole.toUpperCase().trim();
-    const allowedRoutes = ALL_ROUTES[normalizedRole as keyof typeof ALL_ROUTES] || ALL_ROUTES.DEFAULT;
-
-    // Check if current path is accessible
-    const isAccessible = allowedRoutes.some(route => 
-      pathname === route || pathname.startsWith(route + '/')
-    );
-
-    // If not accessible and not a public route, redirect
-    if (!isAccessible && !isPublicRoute(pathname)) {
-      console.warn(`🚫 ${normalizedRole} tried to access ${pathname} - Redirecting`);
-      const defaultPage = getDefaultRedirect(normalizedRole);
-      router.push(defaultPage);
+// Check if route is public
+const isPublicRoute = (pathname: string): boolean => {
+  const publicRoutes = [
+    '/', '/home', '/login', '/Register', '/register', 
+    '/belog', '/Contact', '/contactus', '/about', '/blogs', 
+    '/menu', '/auth/error', '/auth/signin', '/auth/signup'
+  ];
+  return publicRoutes.some(route => {
+    if (route === '/') {
+      return pathname === '/';
     }
-  }, [pathname, session, status, router]);
-}
+    return pathname === route || pathname.startsWith(route + '/');
+  });
+};
 
-function isPublicRoute(pathname: string): boolean {
-  const publicRoutes = ['/', '/login', '/belog', '/register', '/home', '/about', '/blogs'];
-  return publicRoutes.some(route => pathname === route || pathname.startsWith(route + '/'));
-}
-
-function getDefaultRedirect(role: string): string {
-  const defaults = {
+// Get default redirect for role
+const getDefaultRedirect = (role: string): string => {
+  const defaults: { [key: string]: string } = {
     ADMIN: '/dashboard',
     KITCHEN: '/orders',
     FB: '/items',
@@ -76,5 +101,93 @@ function getDefaultRedirect(role: string): string {
     WAITRESS: '/pos',
     DEFAULT: '/dashboard'
   };
-  return defaults[role as keyof typeof defaults] || '/dashboard';
+  return defaults[role] || '/dashboard';
+};
+
+export function useRoleProtection() {
+  const { data: session, status } = useSession();
+  const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    // Wait for session to load
+    if (status === 'loading') return;
+
+    // ✅ DEBUG: Log what's happening
+    console.log('=== useRoleProtection Debug ===');
+    console.log('Pathname:', pathname);
+    console.log('Session status:', status);
+    console.log('User role:', session?.user?.role);
+    
+    // Allow public routes without authentication
+    if (isPublicRoute(pathname)) {
+      console.log('✅ Public route, allowing access');
+      return;
+    }
+
+    // Check if user is authenticated
+    if (status === 'unauthenticated') {
+      console.log('❌ Unauthenticated, redirecting to login');
+      router.push('/login');
+      return;
+    }
+
+    // Get user role and normalize it
+    const userRole = session?.user?.role || 'DEFAULT';
+    const normalizedRole = normalizeRole(userRole);
+    const allowedRoutes = ALL_ROUTES[normalizedRole as keyof typeof ALL_ROUTES] || ALL_ROUTES.DEFAULT;
+
+    console.log('Normalized role:', normalizedRole);
+    console.log('Allowed routes:', allowedRoutes);
+
+    // ✅ SPECIAL CASE: Check if trying to access /qr
+    if (pathname === '/qr' || pathname.startsWith('/qr/')) {
+      const isAdmin = normalizedRole === 'ADMIN';
+      console.log(`🔍 /qr access check: isAdmin=${isAdmin}`);
+      if (isAdmin) {
+        console.log('✅ Admin accessing /qr - ALLOWED');
+        return;
+      } else {
+        console.log('❌ Non-admin accessing /qr - DENIED');
+        const defaultPage = getDefaultRedirect(normalizedRole);
+        router.push(defaultPage + '?unauthorized=true');
+        return;
+      }
+    }
+
+    // Check if current path is accessible
+    const isAccessible = allowedRoutes.some(route => {
+      // Exact match
+      if (pathname === route) return true;
+      // Starts with route + '/'
+      if (pathname.startsWith(route + '/')) return true;
+      return false;
+    });
+
+    console.log(`Is ${pathname} accessible?`, isAccessible);
+
+    // If not accessible, redirect to default page
+    if (!isAccessible) {
+      console.warn(`🚫 ${normalizedRole} tried to access ${pathname} - Redirecting`);
+      const defaultPage = getDefaultRedirect(normalizedRole);
+      router.push(defaultPage + '?unauthorized=true');
+    } else {
+      console.log(`✅ ${pathname} is accessible for ${normalizedRole}`);
+    }
+  }, [pathname, session, status, router]);
+}
+
+// Export helper functions
+export function getAllowedRoutes(role: string): string[] {
+  const normalizedRole = normalizeRole(role);
+  return ALL_ROUTES[normalizedRole as keyof typeof ALL_ROUTES] || ALL_ROUTES.DEFAULT;
+}
+
+export function hasRouteAccess(role: string, pathname: string): boolean {
+  const allowedRoutes = getAllowedRoutes(role);
+  return allowedRoutes.some(route => {
+    if (pathname === route) return true;
+    if (pathname.startsWith(route + '/')) return true;
+    return false;
+  });
 }

@@ -46,6 +46,7 @@ const ROLE_ROUTE_PERMISSIONS = {
       '/edit',
       '/myorders',
       '/expenses',
+      '/qr', // ✅ QR PAGE - ADMIN ONLY
     ],
     apiRoutes: [
       '/api/order',
@@ -85,6 +86,7 @@ const ROLE_ROUTE_PERMISSIONS = {
       '/api/feedback',
       '/api/edit',
       '/api/myorders',
+      '/api/qr', // ✅ QR API ROUTE - ADMIN ONLY
     ],
     defaultRedirect: '/dashboard'
   },
@@ -460,7 +462,69 @@ function getDefaultRedirect(role: string): string {
 
 export default async function proxy(req: NextRequest) {
   const url = req.nextUrl.clone();
-  const pathname = url.pathname;
+  let pathname = url.pathname;
+  
+  // ============================================
+  // 🆕 HANDLE SEMICOLON AS PATH SEPARATOR
+  // Convert URLs like: 192.168.76.77:3000;?table=table-6
+  // To: /?table=table-6 (root with query param)
+  // Or: /table-arrangement;?table=table-6 -> /table-arrangement?table=table-6
+  // ============================================
+  
+  // Check if the URL contains a semicolon in the path or hostname
+  const originalUrl = req.url;
+  const hasSemicolon = originalUrl.includes(';');
+  
+  if (hasSemicolon) {
+    // Parse the URL to handle semicolon as separator
+    const urlWithoutProtocol = originalUrl.replace(/^https?:\/\//, '');
+    const semicolonIndex = urlWithoutProtocol.indexOf(';');
+    
+    if (semicolonIndex !== -1) {
+      // Extract the part after semicolon (which contains query params)
+      const afterSemicolon = urlWithoutProtocol.substring(semicolonIndex + 1);
+      
+      // Check if after semicolon has query params
+      if (afterSemicolon.startsWith('?') || afterSemicolon.includes('?table=')) {
+        // This is a query parameter after semicolon
+        // Redirect to root with these query params
+        const queryString = afterSemicolon.startsWith('?') ? afterSemicolon : '?' + afterSemicolon;
+        url.pathname = '/';
+        url.search = queryString;
+        return NextResponse.redirect(url);
+      } else {
+        // Try to extract table value if it's in the format ;?table=table-6
+        const tableMatch = afterSemicolon.match(/[?&]table=([^&]+)/);
+        if (tableMatch) {
+          // Redirect to root with table parameter
+          url.pathname = '/';
+          url.search = '?table=' + tableMatch[1];
+          return NextResponse.redirect(url);
+        }
+      }
+    }
+  }
+
+  // Handle the specific pattern: /192.168.76.77:3000;?table=table-6
+  // This might be encoded as path
+  if (pathname.includes(';')) {
+    // Check if pathname contains semicolon
+    const semicolonIndex = pathname.indexOf(';');
+    const beforeSemicolon = pathname.substring(0, semicolonIndex);
+    const afterSemicolon = pathname.substring(semicolonIndex + 1);
+    
+    // Check if after semicolon contains table parameter
+    if (afterSemicolon.includes('table=')) {
+      // Extract table parameter
+      const tableMatch = afterSemicolon.match(/table=([^&]+)/);
+      if (tableMatch) {
+        // Redirect to root with table parameter
+        url.pathname = '/';
+        url.search = '?table=' + tableMatch[1];
+        return NextResponse.redirect(url);
+      }
+    }
+  }
   
   // Skip static assets
   if (shouldSkipAuth(pathname)) {

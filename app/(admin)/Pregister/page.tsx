@@ -956,67 +956,104 @@ export default function PreparationRegisterPage() {
       />
 
       {/* Add Ingredient Dialog */}
-      <Dialog open={showIngredientDialog} onOpenChange={setShowIngredientDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base text-gray-800">
-              <ShoppingCart className="h-4 w-4 text-purple-600" />
-              Add Ingredient to Step {currentStep + 1}
-            </DialogTitle>
-            <DialogDescription className="text-xs text-gray-500">
-              Select an ingredient and specify the required quantity
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs text-gray-700 mb-1 block">Ingredient</label>
-              <Select
-                value={selectedIngredientForStep?._id || ""}
-                onValueChange={(value) => {
-                  const ingredient = ingredients.find(i => i._id === value);
-                  setSelectedIngredientForStep(ingredient || null);
-                }}
+<Dialog open={showIngredientDialog} onOpenChange={setShowIngredientDialog}>
+  <DialogContent className="sm:max-w-md">
+    <DialogHeader>
+      <DialogTitle className="flex items-center gap-2 text-base text-gray-800">
+        <ShoppingCart className="h-4 w-4 text-purple-600" />
+        Add Ingredient to Step {currentStep + 1}
+      </DialogTitle>
+      <DialogDescription className="text-xs text-gray-500">
+        Search and select an ingredient, then specify the required quantity
+      </DialogDescription>
+    </DialogHeader>
+    <div className="space-y-4">
+      <div>
+        <label className="text-xs text-gray-700 mb-1 block">Search Ingredient</label>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <Input
+            placeholder="Search ingredients..."
+            value={ingredientSearchTerm}
+            onChange={(e) => setIngredientSearchTerm(e.target.value)}
+            className="pl-9 h-9 text-sm border-gray-300 focus:border-purple-500 focus:ring-purple-500"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs text-gray-700 mb-1 block">Select Ingredient</label>
+        <div className="border border-gray-300 rounded-md max-h-48 overflow-y-auto">
+          {filteredIngredients.length === 0 ? (
+            <div className="p-4 text-center text-sm text-gray-500">
+              {ingredientSearchTerm ? 'No ingredients found matching your search' : 'No ingredients available'}
+            </div>
+          ) : (
+            filteredIngredients.slice(0, 10).map((ingredient) => (
+              <div
+                key={ingredient._id}
+                className={`flex items-center justify-between p-2 cursor-pointer hover:bg-purple-50 transition-colors ${
+                  selectedIngredientForStep?._id === ingredient._id ? 'bg-purple-50 border-l-2 border-purple-500' : ''
+                }`}
+                onClick={() => setSelectedIngredientForStep(ingredient)}
               >
-                <SelectTrigger className="h-9 text-sm border-gray-300">
-                  <SelectValue placeholder="Choose ingredient..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {ingredients.map((ingredient) => (
-                    <SelectItem key={ingredient._id} value={ingredient._id}>
-                      <div className="flex items-center justify-between w-full">
-                        <span>{ingredient.name}</span>
-                        <Badge variant="outline" className="ml-2 text-xs">
-                          Stock: {ingredient.currentStock || ingredient.quantity || 0} {ingredient.unit}
-                        </Badge>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-800">{ingredient.name}</p>
+                  <p className="text-xs text-gray-500">Unit: {ingredient.unit}</p>
+                </div>
+                <Badge variant="outline" className="text-xs">
+                  Stock: {ingredient.currentStock || ingredient.quantity || 0}
+                </Badge>
+              </div>
+            ))
+          )}
+          {filteredIngredients.length > 10 && (
+            <div className="p-2 text-center text-xs text-gray-400 border-t border-gray-100">
+              Showing 10 of {filteredIngredients.length} ingredients. Refine your search for more.
             </div>
-            <div>
-              <label className="text-xs text-gray-700 mb-1 block">Quantity</label>
-              <Input
-                type="number"
-                min={0.1}
-                step={0.1}
-                value={ingredientQuantity}
-                onChange={(e) => setIngredientQuantity(parseFloat(e.target.value) || 0)}
-                className="h-9 text-sm border-gray-300"
-              />
-            </div>
-            <div className="flex gap-3 pt-2">
-              <Button onClick={handleAddIngredientToStep} className="flex-1 h-9 text-sm bg-purple-600 hover:bg-purple-700">
-                <Plus className="h-3.5 w-3.5 mr-2" />
-                Add to Step
-              </Button>
-              <Button variant="outline" onClick={() => setShowIngredientDialog(false)} className="flex-1 h-9 text-sm border-gray-300">
-                Cancel
-              </Button>
-            </div>
+          )}
+        </div>
+        {selectedIngredientForStep && (
+          <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded-md">
+            <p className="text-xs text-purple-700">
+              Selected: <span className="font-medium">{selectedIngredientForStep.name}</span>
+            </p>
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+      </div>
+      <div>
+        <label className="text-xs text-gray-700 mb-1 block">Quantity</label>
+        <Input
+          type="number"
+          min={0.1}
+          step={0.1}
+          value={ingredientQuantity}
+          onChange={(e) => setIngredientQuantity(parseFloat(e.target.value) || 0)}
+          className="h-9 text-sm border-gray-300"
+        />
+      </div>
+      <div className="flex gap-3 pt-2">
+        <Button 
+          onClick={handleAddIngredientToStep} 
+          className="flex-1 h-9 text-sm bg-purple-600 hover:bg-purple-700"
+          disabled={!selectedIngredientForStep || !ingredientQuantity || ingredientQuantity <= 0}
+        >
+          <Plus className="h-3.5 w-3.5 mr-2" />
+          Add to Step
+        </Button>
+        <Button 
+          variant="outline" 
+          onClick={() => {
+            setShowIngredientDialog(false);
+            setIngredientSearchTerm("");
+          }} 
+          className="flex-1 h-9 text-sm border-gray-300"
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  </DialogContent>
+</Dialog>
 
       {/* Existing Recipe Dialog */}
       <Dialog open={showExistingDialog} onOpenChange={setShowExistingDialog}>

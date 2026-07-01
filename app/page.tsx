@@ -1,16 +1,17 @@
-// app/menu/page.tsx - COMPLETE TWO-STEP NAVIGATION WITH VIEW TOGGLE & FASTING TABS
+// app/menu/page.tsx - COMPLETE TWO-STEP NAVIGATION WITH VIEW TOGGLE & FASTING TABS & TABLE DETECTION & CART PERSISTENCE
 
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Eye, Clock, Sparkles, Layers, ShoppingCart, RefreshCw,
   ChevronUp, ChevronDown, Grid, List, Star, Search,
   Filter, ArrowUpDown, X, TrendingUp, Flame, Crown,
-  ArrowLeft, ChevronRight, Plus, Minus, Heart
+  ArrowLeft, ChevronRight, Plus, Minus, Heart, Table,
+  User, Users, MapPin, Phone, Mail, CheckCircle
 } from 'lucide-react'
 
 import { Button } from "@/components/ui/button"
@@ -40,7 +41,7 @@ import { EnhancedDeliveryCalculator } from '@/types/utils/enhancedDeliveryCalcul
 
 import {
   Category, Item, Waiter, UserData,
-  DeliveryFeeDetails, PaymentScreenshot
+  DeliveryFeeDetails, PaymentScreenshot, CartItem
 } from '@/types'
 
 import {
@@ -55,6 +56,49 @@ import {
 
 import { getCategoryIcon } from '@/components/menu/MenuIcons'
 import { MenuCacheManager } from '@/lib/menu-cache-manager'
+
+// ========== CART PERSISTENCE UTILITIES ==========
+
+const CART_STORAGE_KEY = 'restaurant_cart_data'
+
+/**
+ * Save cart to localStorage
+ */
+const saveCartToLocalStorage = (items: CartItem[]): void => {
+  try {
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items))
+    console.log('💾 Cart saved to localStorage:', items.length, 'items')
+  } catch (error) {
+    console.error('Failed to save cart to localStorage:', error)
+  }
+}
+
+/**
+ * Load cart from localStorage
+ */
+const loadCartFromLocalStorage = (): CartItem[] | null => {
+  try {
+    const data = localStorage.getItem(CART_STORAGE_KEY)
+    if (!data) return null
+    
+    const parsed = JSON.parse(data)
+    if (!Array.isArray(parsed)) return null
+    
+    console.log('📦 Cart loaded from localStorage:', parsed.length, 'items')
+    return parsed
+  } catch (error) {
+    console.error('Failed to load cart from localStorage:', error)
+    return null
+  }
+}
+
+/**
+ * Clear cart from localStorage
+ */
+const clearCartFromLocalStorage = (): void => {
+  localStorage.removeItem(CART_STORAGE_KEY)
+  console.log('🗑️ Cart cleared from localStorage')
+}
 
 // ========== SECURITY UTILITIES ==========
 
@@ -640,17 +684,107 @@ const DesktopListViewItem = ({
 
 export default function MenuPage() {
   const router = useRouter()
+  const searchParams = useSearchParams() // Get search params from URL
   const { userData, isLoggedIn } = useUserData()
-  const {
-    cart,
-    addToCart,
-    removeFromCart,
-    updateQuantity,
-    clearCart,
-    subtotal: baseSubtotal,
-    totalItems,
-    isLoaded: cartLoaded,
-  } = useCart()
+  
+  // ========== CART STATE WITH LOCALSTORAGE PERSISTENCE ==========
+  const [cartItems, setCartItems] = useState<CartItem[]>([])
+  const [cartLoaded, setCartLoaded] = useState(false)
+
+  // Load cart from localStorage on mount
+  useEffect(() => {
+    const savedCart = loadCartFromLocalStorage()
+    if (savedCart && savedCart.length > 0) {
+      setCartItems(savedCart)
+      console.log('🛒 Restored cart from localStorage:', savedCart.length, 'items')
+    }
+    setCartLoaded(true)
+  }, [])
+
+  // Save cart to localStorage whenever it changes
+  useEffect(() => {
+    if (cartLoaded) {
+      saveCartToLocalStorage(cartItems)
+    }
+  }, [cartItems, cartLoaded])
+
+  // Cart functions
+  const addToCart = useCallback((item: Item, quantity: number = 1, specialInstructions: string = '') => {
+    setCartItems(prev => {
+      const existingItem = prev.find(cartItem => cartItem._id === item._id)
+      
+      if (existingItem) {
+        // Update quantity if item already exists
+        return prev.map(cartItem =>
+          cartItem._id === item._id
+            ? { 
+                ...cartItem, 
+                quantity: cartItem.quantity + quantity,
+                specialInstructions: specialInstructions || cartItem.specialInstructions
+              }
+            : cartItem
+        )
+      } else {
+        // Add new item
+        const newItem: CartItem = {
+          _id: item._id,
+          name: item.name,
+          price: item.price,
+          imageUrl: item.imageUrl,
+          categoryId: item.categoryId,
+          quantity: quantity,
+          specialInstructions: specialInstructions,
+          isFasting: item.isFasting || false,
+          preparationTime: item.preparationTime || 0
+        }
+        return [...prev, newItem]
+      }
+    })
+  }, [])
+
+  const removeFromCart = useCallback((itemId: string) => {
+    setCartItems(prev => prev.filter(item => item._id !== itemId))
+  }, [])
+
+  const updateQuantity = useCallback((itemId: string, quantity: number) => {
+    if (quantity <= 0) {
+      removeFromCart(itemId)
+      return
+    }
+    setCartItems(prev =>
+      prev.map(item =>
+        item._id === itemId
+          ? { ...item, quantity }
+          : item
+      )
+    )
+  }, [removeFromCart])
+
+  const clearCart = useCallback(() => {
+    setCartItems([])
+    clearCartFromLocalStorage()
+  }, [])
+
+  // Cart calculations
+  const totalItems = useMemo(() => {
+    return cartItems.reduce((sum, item) => sum + item.quantity, 0)
+  }, [cartItems])
+
+  const subtotal = useMemo(() => {
+    return cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+  }, [cartItems])
+
+  // Use the cart functions from useCart hook if available, otherwise use our local ones
+  // This allows compatibility with other components that might use the hook
+  const cartContext = useCart()
+  
+  // Sync our local cart with the hook's cart if needed
+  useEffect(() => {
+    if (cartContext && cartContext.isLoaded && cartContext.cart.length > 0 && cartItems.length === 0) {
+      // If the hook has items but we don't, use them
+      setCartItems(cartContext.cart)
+    }
+  }, [cartContext, cartItems])
 
   // Input validation hook
   const { validateAndSanitize: validateSearch, error: searchError, setError: setSearchError } = useInputValidation()
@@ -670,6 +804,10 @@ export default function MenuPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [imagesPreloaded, setImagesPreloaded] = useState(false)
   const [dataLoaded, setDataLoaded] = useState(false)
+
+  // ========== TABLE DETECTION STATE ==========
+  const [detectedTable, setDetectedTable] = useState<string | null>(null)
+  const [tableDetected, setTableDetected] = useState(false)
 
   // ========== TWO-STEP NAVIGATION STATE ==========
   // Mobile
@@ -718,24 +856,91 @@ export default function MenuPage() {
   // Initialize cache manager
   const cacheManager = MenuCacheManager.getInstance()
 
+  // ========== TABLE DETECTION FROM URL ==========
+  useEffect(() => {
+    // Get the table parameter from URL
+    const tableParam = searchParams.get('table')
+    
+    if (tableParam) {
+      // Sanitize the table parameter
+      const sanitizedTable = sanitizeInput(tableParam)
+      
+      // Extract just the table number from "table-7" format
+      let tableNumberDisplay = sanitizedTable
+      if (sanitizedTable.startsWith('table-')) {
+        tableNumberDisplay = sanitizedTable.replace('table-', '')
+      }
+      
+      // Validate that it's a valid table number
+      const tableNum = parseInt(tableNumberDisplay)
+      if (!isNaN(tableNum) && tableNum > 0) {
+        // Store in localStorage for persistence
+        localStorage.setItem('detectedTableNumber', tableNumberDisplay)
+        localStorage.setItem('tableDetected', 'true')
+        
+        setDetectedTable(tableNumberDisplay)
+        setTableDetected(true)
+        
+        // Set the table number in state
+        setTableNumber(tableNumberDisplay)
+        setOrderType('table')
+        
+        // Create a table data object
+        const tableData: TableData = {
+          number: tableNum,
+          capacity: 4, // Default capacity, can be adjusted
+          restaurantId: 'manyazewal1',
+          restaurantName: 'Manyazewal Restaurant',
+          floor: 'Ground Floor'
+        }
+        setSelectedTableData(tableData)
+        
+        // NO TOAST - Silent detection
+      }
+    } else {
+      // Check if we have a stored table number from before
+      const storedTable = localStorage.getItem('detectedTableNumber')
+      const storedDetected = localStorage.getItem('tableDetected')
+      
+      if (storedTable && storedDetected === 'true') {
+        const tableNum = parseInt(storedTable)
+        if (!isNaN(tableNum) && tableNum > 0) {
+          setDetectedTable(storedTable)
+          setTableDetected(true)
+          setTableNumber(storedTable)
+          setOrderType('table')
+          
+          const tableData: TableData = {
+            number: tableNum,
+            capacity: 4,
+            restaurantId: 'manyazewal1',
+            restaurantName: 'Manyazewal Restaurant',
+            floor: 'Ground Floor'
+          }
+          setSelectedTableData(tableData)
+        }
+      }
+    }
+  }, [searchParams])
+
   const packagingCharge = useMemo(() => {
-    return calculatePackagingCharge(cart, categories, orderType === 'delivery')
-  }, [cart, categories, orderType])
+    return calculatePackagingCharge(cartItems, categories, orderType === 'delivery')
+  }, [cartItems, categories, orderType])
 
   const categoryChargesTotal = useMemo(() => {
     if (orderType !== 'delivery') return 0
     
-    return cart.reduce((total, cartItem) => {
+    return cartItems.reduce((total, cartItem) => {
       const category = categories.find(c => c._id === cartItem.categoryId)
       const charge = getCategoryAdditionalCharge(category?.name || '', category?.type)
       return total + (charge * (cartItem.quantity || 1))
     }, 0)
-  }, [cart, categories, orderType])
+  }, [cartItems, categories, orderType])
 
   const adjustedSubtotal = useMemo(() => {
-    if (orderType !== 'delivery') return baseSubtotal
-    return baseSubtotal + categoryChargesTotal
-  }, [baseSubtotal, categoryChargesTotal, orderType])
+    if (orderType !== 'delivery') return subtotal
+    return subtotal + categoryChargesTotal
+  }, [subtotal, categoryChargesTotal, orderType])
 
   const calculatedTax = useMemo(() => {
     return adjustedSubtotal * 0.15
@@ -1046,6 +1251,9 @@ export default function MenuPage() {
       setSelectedTableData(null)
       setTableNumber('')
       setOrderType('')
+      // Remove from localStorage
+      localStorage.removeItem('detectedTableNumber')
+      localStorage.removeItem('tableDetected')
       toast.success('Table unselected')
       return
     }
@@ -1060,6 +1268,10 @@ export default function MenuPage() {
     setSelectedTableData(tableWithDetails)
     setTableNumber(table.number.toString())
     setOrderType('table')
+    
+    // Save to localStorage
+    localStorage.setItem('detectedTableNumber', table.number.toString())
+    localStorage.setItem('tableDetected', 'true')
     
     toast.success(`Table ${table.number} selected!`)
     
@@ -1149,7 +1361,7 @@ export default function MenuPage() {
   }
 
   const handlePlaceOrder = () => {
-    if (cart.length === 0) {
+    if (cartItems.length === 0) {
       toast.error('Please add items to your cart')
       return
     }
@@ -1207,7 +1419,7 @@ export default function MenuPage() {
       const assignedWaiterId = orderType === 'table' ? getAutoAssignedWaiter() : ''
       const assignedWaiterName = waiters.find(w => w._id === assignedWaiterId)?.name || ''
 
-      const orderItems = cart.map(cartItem => {
+      const orderItems = cartItems.map(cartItem => {
         const category = categories.find(c => c._id === cartItem.categoryId)
         const basePrice = Number(cartItem.price)
         const categoryCharge = orderType === 'delivery' && isLoggedIn
@@ -1266,7 +1478,7 @@ export default function MenuPage() {
         deliveryFee: deliveryFeeAmount,
         packagingCharge: packagingFeeAmount,
         categoryChargesTotal: orderType === 'delivery' && isLoggedIn ? categoryChargesTotal : 0,
-        subtotal: baseSubtotal,
+        subtotal: subtotal,
         adjustedSubtotal: adjustedSubtotal,
         tax: calculatedTax,
         totalAmount: adjustedSubtotal + calculatedTax,
@@ -1324,6 +1536,7 @@ export default function MenuPage() {
 
       if (!response.ok) throw new Error(result.error || result.message || 'Failed to place order')
       
+      // Clear cart and localStorage
       clearCart()
       
       setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`)
@@ -1848,6 +2061,9 @@ export default function MenuPage() {
       
       <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30 pb-20 md:pb-0">
         
+        {/* ========== TABLE DETECTION BANNER - REMOVED ========== */}
+        {/* No banner - table detection happens silently */}
+        
         {/* ========== MOBILE HEADER WITH FASTING TABS & VIEW TOGGLE ========== */}
         {/* Only show header when in items step - STICKY AT TOP */}
         {mobileStep === 'items' && (
@@ -2001,7 +2217,7 @@ export default function MenuPage() {
       <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
         <SheetContent side="right" className="w-full sm:max-w-lg p-0 bg-gradient-to-br from-white to-purple-50/30 border-l-0 shadow-2xl">
           <CartPanel 
-            cart={cart} 
+            cart={cartItems} 
             onClose={() => setIsCartOpen(false)} 
             onRemoveItem={removeFromCart} 
             onUpdateQuantity={updateQuantity} 
