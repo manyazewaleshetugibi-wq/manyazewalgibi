@@ -11,7 +11,7 @@ import {
     CheckCircle, XCircle, Home, Store, Building2, X,
     Eye, EyeOff, RefreshCw, Menu, Maximize2, Rows,
     Copy, Compass, LayoutGrid, Table, Grid3X3,
-    MapPin, Sparkles, Tag, FileText, MessageSquare, ChevronLeft, ChevronRight
+    MapPin, Sparkles, Tag, FileText, MessageSquare, ChevronLeft, ChevronRight, Loader2
 } from "lucide-react";
 
 // UI Components
@@ -55,13 +55,22 @@ import {
 } from "@/components/ui/sheet";
 import axios from "axios";
 
-// Restaurant Options
-const RESTAURANTS = [
-    { id: 'manyazewal1', name: 'Manyazewal Eshetu Gibi 1', icon: '🏠' },
-    { id: 'manyazewal2', name: 'Manyazewal Eshetu Gibi 2', icon: '🏢' },
-];
-
 // Types
+interface Restaurant {
+    _id: string;
+    name: string;
+    address: string;
+    phone: string;
+    email: string;
+    cuisine: string[];
+    isActive: boolean;
+    location?: {
+        lat: number;
+        lng: number;
+        address: string;
+    };
+}
+
 interface Table {
     id: string;
     number: number;
@@ -142,7 +151,6 @@ const TableIcon: React.FC<{
     onSelect, onMove, onDelete, onDuplicate, onCapacityChange
 }) => {
         const [isDragging, setIsDragging] = useState(false);
-        const [showMenu, setShowMenu] = useState(false);
         const dragStartRef = useRef({ x: 0, y: 0, tableX: 0, tableY: 0 });
         const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -471,8 +479,10 @@ function TableDetailPanel({
 export default function TableArrangementClient() {
     const router = useRouter();
 
-    // Restaurant State
-    const [selectedRestaurant, setSelectedRestaurant] = useState<string>('manyazewal1');
+    // Restaurant State - Dynamic from database
+    const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+    const [isLoadingRestaurants, setIsLoadingRestaurants] = useState(true);
+    const [selectedRestaurantId, setSelectedRestaurantId] = useState<string>('');
 
     // Setup State
     const [totalTables, setTotalTables] = useState<number>(20);
@@ -488,7 +498,7 @@ export default function TableArrangementClient() {
     const [selectedTable, setSelectedTable] = useState<Table | null>(null);
     const [selectedFloor, setSelectedFloor] = useState<string>('Ground Floor');
 
-    // Sidebar State - IMPROVED HANDLING
+    // Sidebar State
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
     const [isMobileSheetOpen, setIsMobileSheetOpen] = useState<boolean>(false);
 
@@ -521,6 +531,33 @@ export default function TableArrangementClient() {
         }
         return false;
     }, []);
+
+    // Fetch restaurants from database
+    useEffect(() => {
+        fetchRestaurants();
+    }, []);
+
+    const fetchRestaurants = async () => {
+        try {
+            setIsLoadingRestaurants(true);
+            const response = await axios.get('/api/restaurants');
+            
+            if (response.data.success && response.data.data) {
+                const activeRestaurants = response.data.data.filter((r: Restaurant) => r.isActive !== false);
+                setRestaurants(activeRestaurants);
+                
+                // Select first restaurant by default
+                if (activeRestaurants.length > 0) {
+                    setSelectedRestaurantId(activeRestaurants[0]._id);
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching restaurants:', error);
+            toast.error('Failed to load restaurants');
+        } finally {
+            setIsLoadingRestaurants(false);
+        }
+    };
 
     // Generate tables function
     const generateTables = useCallback((
@@ -619,16 +656,18 @@ export default function TableArrangementClient() {
         toast.success('Tables generated successfully!');
     }, [validateInputs, handleGenerate]);
 
-    // Fetch arrangement
+    // Fetch arrangement when restaurant or floor changes
     useEffect(() => {
-        fetchArrangement();
-    }, [selectedRestaurant, selectedFloor]);
+        if (selectedRestaurantId) {
+            fetchArrangement();
+        }
+    }, [selectedRestaurantId, selectedFloor]);
 
     const fetchArrangement = async () => {
         try {
             setIsLoading(true);
             const response = await axios.get('/api/tables/arrangement', {
-                params: { restaurantId: selectedRestaurant, floor: selectedFloor }
+                params: { restaurantId: selectedRestaurantId, floor: selectedFloor }
             });
 
             if (response.data.data) {
@@ -658,14 +697,13 @@ export default function TableArrangementClient() {
             toast.loading('Syncing tables with pending orders...');
             
             const response = await axios.put('/api/tables/arrangement', {
-                restaurantId: selectedRestaurant,
+                restaurantId: selectedRestaurantId,
                 floor: selectedFloor,
                 syncWithOrders: true
             });
             
             if (response.data.success) {
                 toast.success(response.data.message);
-                // Refresh the arrangement
                 await fetchArrangement();
             } else {
                 toast.error(response.data.message || 'Sync failed');
@@ -676,7 +714,7 @@ export default function TableArrangementClient() {
         } finally {
             setIsSyncing(false);
         }
-    }, [selectedRestaurant, selectedFloor]);
+    }, [selectedRestaurantId, selectedFloor]);
 
     // Update table with timestamp
     const updateTableWithTimestamp = useCallback((tableId: string, updates: Partial<Table>) => {
@@ -782,12 +820,12 @@ export default function TableArrangementClient() {
 
     // Save arrangement
     const saveArrangement = useCallback(async () => {
-        const restaurant = RESTAURANTS.find(r => r.id === selectedRestaurant);
+        const selectedRestaurant = restaurants.find(r => r._id === selectedRestaurantId);
         
         const dataToSave = {
-            restaurantId: selectedRestaurant,
-            restaurantName: restaurant?.name || selectedRestaurant,
-            name: `${restaurant?.name} - ${selectedFloor} Layout`,
+            restaurantId: selectedRestaurantId,
+            restaurantName: selectedRestaurant?.name || 'Unknown Restaurant',
+            name: `${selectedRestaurant?.name || 'Restaurant'} - ${selectedFloor} Layout`,
             floor: selectedFloor,
             layoutType,
             totalTables: tables.length,
@@ -816,14 +854,14 @@ export default function TableArrangementClient() {
             setIsSaving(true);
             const response = await axios.post('/api/tables/arrangement', dataToSave);
             setArrangement(response.data.data);
-            toast.success(`${restaurant?.name} arrangement saved!`);
+            toast.success(`${selectedRestaurant?.name} arrangement saved!`);
         } catch (error) {
             console.error('Error saving:', error);
             toast.error('Failed to save arrangement');
         } finally {
             setIsSaving(false);
         }
-    }, [tables, layoutType, selectedFloor, selectedRestaurant]);
+    }, [tables, layoutType, selectedFloor, selectedRestaurantId, restaurants]);
 
     const resetLayout = useCallback(() => {
         handleGenerate();
@@ -851,13 +889,12 @@ export default function TableArrangementClient() {
         totalCapacity: tables.reduce((sum, t) => sum + t.capacity, 0),
     }), [tables]);
 
-    const selectedRestaurantData = RESTAURANTS.find(r => r.id === selectedRestaurant);
+    const selectedRestaurantData = restaurants.find(r => r._id === selectedRestaurantId);
 
     // SIDEBAR HANDLING FUNCTIONS
     const openSidebar = useCallback((table: Table) => {
         setSelectedTable(table);
         
-        // Check if mobile
         if (typeof window !== 'undefined' && window.innerWidth < 1024) {
             setIsMobileSheetOpen(true);
         } else {
@@ -883,12 +920,11 @@ export default function TableArrangementClient() {
         }
     }, [isSidebarOpen, selectedTable, closeSidebar]);
 
-    // Handle table selection
     const handleTableSelect = useCallback((table: Table) => {
         openSidebar(table);
     }, [openSidebar]);
 
-    // Handle escape key to close sidebar
+    // Handle escape key
     useEffect(() => {
         const handleEscapeKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && (isSidebarOpen || isMobileSheetOpen)) {
@@ -900,7 +936,7 @@ export default function TableArrangementClient() {
         return () => document.removeEventListener('keydown', handleEscapeKey);
     }, [isSidebarOpen, isMobileSheetOpen, closeSidebar]);
 
-    // Handle click outside on desktop
+    // Handle click outside
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (typeof window !== 'undefined' && window.innerWidth >= 1024 && isSidebarOpen) {
@@ -916,12 +952,29 @@ export default function TableArrangementClient() {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isSidebarOpen, closeSidebar]);
 
-    if (isLoading) {
+    // Loading state
+    if (isLoadingRestaurants) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-50 flex items-center justify-center">
                 <div className="text-center">
-                    <RefreshCw className="w-12 h-12 text-purple-600 animate-spin mx-auto mb-4" />
-                    <p className="text-gray-600">Loading...</p>
+                    <Loader2 className="w-12 h-12 text-purple-600 animate-spin mx-auto mb-4" />
+                    <p className="text-gray-600">Loading restaurants...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // No restaurants found
+    if (restaurants.length === 0) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-50 flex items-center justify-center">
+                <div className="text-center max-w-md mx-auto p-6">
+                    <Store className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                    <h2 className="text-xl font-bold text-gray-700 mb-2">No Restaurants Found</h2>
+                    <p className="text-gray-500 mb-4">Please create a restaurant first before setting up table arrangements.</p>
+                    <Button onClick={() => router.push('/admin/restaurants/new')} className="bg-purple-600 hover:bg-purple-700">
+                        <Plus className="w-4 h-4 mr-2" /> Create Restaurant
+                    </Button>
                 </div>
             </div>
         );
@@ -929,7 +982,7 @@ export default function TableArrangementClient() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 overflow-x-hidden">
-            {/* Main Content - Adjusts width when desktop sidebar is open */}
+            {/* Main Content */}
             <div className={`transition-all duration-500 ease-in-out ${
                 isSidebarOpen && selectedTable && !isMobile ? 'lg:pr-80' : ''
             }`}>
@@ -955,14 +1008,18 @@ export default function TableArrangementClient() {
 
                         {/* Desktop Controls */}
                         <div className="hidden md:flex items-center gap-3 flex-wrap">
-                            <Select value={selectedRestaurant} onValueChange={setSelectedRestaurant}>
+                            {/* Dynamic Restaurant Selector */}
+                            <Select value={selectedRestaurantId} onValueChange={setSelectedRestaurantId}>
                                 <SelectTrigger className="w-56 lg:w-64">
                                     <Store className="w-4 h-4 mr-2" />
-                                    <SelectValue />
+                                    <SelectValue placeholder="Select Restaurant" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {RESTAURANTS.map((r) => (
-                                        <SelectItem key={r.id} value={r.id}>{r.icon} {r.name}</SelectItem>
+                                    {restaurants.map((r) => (
+                                        <SelectItem key={r._id} value={r._id}>
+                                            {r.name}
+                                            {!r.isActive && <Badge variant="destructive" className="ml-2 text-xs">Inactive</Badge>}
+                                        </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -989,7 +1046,6 @@ export default function TableArrangementClient() {
                                 {isSaving ? 'Saving...' : 'Save'}
                             </Button>
 
-                            {/* Toggle Sidebar Button (Desktop) */}
                             {selectedTable && (
                                 <Button 
                                     variant="outline" 
@@ -1004,13 +1060,15 @@ export default function TableArrangementClient() {
 
                         {/* Mobile Controls */}
                         <div className="flex md:hidden items-center gap-2 w-full justify-between">
-                            <Select value={selectedRestaurant} onValueChange={setSelectedRestaurant}>
-                                <SelectTrigger className="w-36">
-                                    <SelectValue />
+                            <Select value={selectedRestaurantId} onValueChange={setSelectedRestaurantId}>
+                                <SelectTrigger className="flex-1">
+                                    <SelectValue placeholder="Select" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {RESTAURANTS.map((r) => (
-                                        <SelectItem key={r.id} value={r.id}>{r.icon} {r.name.split(' ').pop()}</SelectItem>
+                                    {restaurants.map((r) => (
+                                        <SelectItem key={r._id} value={r._id}>
+                                            {r.name.substring(0, 20)}
+                                        </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -1043,7 +1101,12 @@ export default function TableArrangementClient() {
                         <Building2 className="h-3 w-3 sm:h-4 sm:w-4 text-purple-600" />
                         <AlertDescription className="text-purple-800 truncate">
                             <span className="hidden xs:inline">Editing: </span>
-                            <strong>{selectedRestaurantData?.name}</strong> - {selectedFloor}
+                            <strong>{selectedRestaurantData?.name || 'No restaurant selected'}</strong> - {selectedFloor}
+                            {selectedRestaurantData?.address && (
+                                <span className="hidden sm:inline ml-2 text-gray-500">
+                                    • {selectedRestaurantData.address}
+                                </span>
+                            )}
                         </AlertDescription>
                     </Alert>
 
@@ -1239,7 +1302,7 @@ export default function TableArrangementClient() {
                 </div>
             </div>
 
-            {/* Desktop Sidebar - Fixed right panel with improved animations */}
+            {/* Desktop Sidebar */}
             <AnimatePresence mode="wait">
                 {isSidebarOpen && selectedTable && typeof window !== 'undefined' && window.innerWidth >= 1024 && (
                     <motion.div
