@@ -6,7 +6,7 @@ import React, { memo, useState } from 'react';
 import { 
   ShoppingCart, X, Minus, Plus, MapPin, Home, Users, Receipt,
   Clock, AlertCircle, Navigation, Truck, ChevronRight, Armchair,
-  User, Phone, Mail, Map, UserPlus, ClipboardList, Lock, CreditCard
+  User, Phone, Mail, Map, UserPlus, ClipboardList, Lock, CreditCard, ScanLine
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CartItem, UserData, Waiter, DeliveryFeeDetails } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TableSelector } from '@/components/menu/TableSelector';
+import { QRScannerDialog } from '@/components/cart/QRScannerDialog';
 import { Input } from "@/components/ui/input";
 import { 
   Dialog, 
@@ -138,6 +139,7 @@ export const CartPanel = memo(({
   onGuestOrder,
 }: CartPanelProps) => {
   const [showTableSelector, setShowTableSelector] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
   const [showGuestInfoDialog, setShowGuestInfoDialog] = useState(false);
   const [guestInfo, setGuestInfo] = useState<GuestUserData>({
     firstName: '',
@@ -540,25 +542,47 @@ export const CartPanel = memo(({
                                   <div className="text-[9px] text-gray-600">{selectedTableData.capacity} seats</div>
                                 </div>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setShowTableSelector(true)}
-                                className="h-6 text-[10px] px-2 rounded-full"
-                              >
-                                Change
-                              </Button>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => setShowQRScanner(true)}
+                                  className="h-6 w-6 rounded-full text-purple-600 hover:bg-purple-100"
+                                  title="Scan QR Code"
+                                >
+                                  <ScanLine className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setShowTableSelector(true)}
+                                  className="h-6 text-[10px] px-2 rounded-full"
+                                >
+                                  Change
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         ) : (
-                          <Button
-                            variant="outline"
-                            className="w-full border border-purple-200 hover:border-purple-500 hover:bg-purple-50 rounded-md h-8 text-[10px]"
-                            onClick={() => setShowTableSelector(true)}
-                          >
-                            <Armchair className="w-3 h-3 mr-1.5" />
-                            Select a Table
-                          </Button>
+                          <div className="flex gap-1.5">
+                            <Button
+                              variant="outline"
+                              className="flex-1 border border-purple-200 hover:border-purple-500 hover:bg-purple-50 rounded-md h-8 text-[10px]"
+                              onClick={() => setShowTableSelector(true)}
+                            >
+                              <Armchair className="w-3 h-3 mr-1.5" />
+                              Select a Table
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => setShowQRScanner(true)}
+                              className="h-8 w-8 border border-purple-200 hover:border-purple-500 hover:bg-purple-50 rounded-md flex-shrink-0"
+                              title="Scan QR Code"
+                            >
+                              <ScanLine className="h-3.5 w-3.5 text-purple-700" />
+                            </Button>
+                          </div>
                         )}
                       </div>
                       
@@ -781,6 +805,17 @@ export const CartPanel = memo(({
             </Button>
           </motion.div>
         )}
+
+        {/* QR Scanner */}
+        <QRScannerDialog
+          open={showQRScanner}
+          onOpenChange={setShowQRScanner}
+          onScan={(tableNum) => {
+            onTableNumberChange(tableNum);
+            // Switch to table order type if not already
+            if (orderType !== 'table') onOrderTypeChange('table');
+          }}
+        />
 
         {/* Table Selector */}
         <TableSelector

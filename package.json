@@ -69,6 +69,7 @@
     "input-otp": "^1.4.2",
     "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.1",
+    "jsqr": "^1.4.0",
     "lodash.debounce": "^4.0.8",
     "lucide-react": "^0.475.0",
     "mongodb": "5.9.2",

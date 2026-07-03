@@ -20,17 +20,10 @@ export class EncryptionService {
   }
 
   private generateSecretKey(): string {
-    // Use a combination of factors for a more secure key
+    // Stable key — only env vars, never changes between sessions/days/devices
     const baseKey = process.env.NEXT_PUBLIC_ENCRYPTION_KEY || 'menu-app-secure-key-2024'
     const salt = process.env.NEXT_PUBLIC_ENCRYPTION_SALT || 'menu-app-salt'
-    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : ''
-    const timestamp = new Date().toDateString()
-    
-    // Create a unique key based on multiple factors
-    const combined = `${baseKey}:${salt}:${userAgent}:${timestamp}`
-    
-    // Hash it to create a consistent key
-    return CryptoJS.SHA256(combined).toString()
+    return CryptoJS.SHA256(`${baseKey}:${salt}`).toString()
   }
 
   // Encrypt data
@@ -52,22 +45,24 @@ export class EncryptionService {
   // Decrypt data
   decrypt(encryptedData: string): any {
     try {
-      // Check if it's encrypted (starts with our encryption pattern)
       if (!this.isEncrypted(encryptedData)) {
-        // Try to parse as JSON (legacy data)
-        try {
-          return JSON.parse(encryptedData)
-        } catch {
-          return null
-        }
+        try { return JSON.parse(encryptedData) } catch { return null }
       }
 
       const decrypted = CryptoJS.AES.decrypt(encryptedData, this.SECRET_KEY, {
         mode: CryptoJS.mode.CBC,
         padding: CryptoJS.pad.Pkcs7
       })
-      
-      const decryptedString = decrypted.toString(CryptoJS.enc.Utf8)
+
+      // toString(Utf8) throws "Malformed UTF-8" when key is wrong — catch it
+      let decryptedString: string
+      try {
+        decryptedString = decrypted.toString(CryptoJS.enc.Utf8)
+      } catch {
+        return null
+      }
+
+      if (!decryptedString) return null
       return JSON.parse(decryptedString)
     } catch (error) {
       console.error('Decryption error:', error)

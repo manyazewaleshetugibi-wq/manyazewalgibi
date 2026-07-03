@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
-import { validateItemCategoryData } from "@/models/Item";
+import { validateItemCategoryData } from "@/app/api/item-category/route";
 import { uploadImage } from "@/types/utils/uploadImages";
 import { ObjectId } from "mongodb";
 

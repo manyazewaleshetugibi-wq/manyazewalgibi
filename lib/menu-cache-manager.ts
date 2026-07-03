@@ -59,37 +59,30 @@ export class MenuCacheManager {
     version: string | null
     isValid: boolean
   }> {
+    const empty = { categories: [], items: [], waiters: [], timestamp: null, version: null, isValid: false }
     try {
       const keys = this.getKeys()
-      
-      // Load all data
-      const categories = this.storage.getItem<any[]>(keys.categories) || []
-      const items = this.storage.getItem<any[]>(keys.items) || []
+
+      const categories = this.storage.getItem<any[]>(keys.categories)
+      const items = this.storage.getItem<any[]>(keys.items)
+
+      // If either returned null it means decryption failed (corrupt/old key) — wipe and refetch
+      if (!Array.isArray(categories) || !Array.isArray(items)) {
+        console.warn('⚠️ Cache corrupt or key changed — clearing cache')
+        await this.clearCache()
+        return empty
+      }
+
       const waiters = this.storage.getItem<any[]>(keys.waiters) || []
       const timestamp = this.storage.getItem<number>(keys.timestamp) || null
       const version = this.storage.getItem<string>(keys.version) || null
-
-      // Check if cache is valid
       const isValid = this.isCacheValid(timestamp)
 
-      return {
-        categories,
-        items,
-        waiters,
-        timestamp,
-        version,
-        isValid
-      }
+      return { categories, items, waiters, timestamp, version, isValid }
     } catch (error) {
       console.error('Failed to load menu data:', error)
-      return {
-        categories: [],
-        items: [],
-        waiters: [],
-        timestamp: null,
-        version: null,
-        isValid: false
-      }
+      await this.clearCache()
+      return empty
     }
   }
 
