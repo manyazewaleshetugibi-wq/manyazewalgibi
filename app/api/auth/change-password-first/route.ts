@@ -8,9 +8,14 @@ export async function POST(request: NextRequest) {
   console.log('🔐 Change password API called');
   
   try {
+    const isProduction = process.env.NODE_ENV === 'production';
     const token = await getToken({ 
       req: request, 
-      secret: process.env.NEXTAUTH_SECRET || ''
+      secret: process.env.NEXTAUTH_SECRET || '',
+      secureCookie: isProduction,
+      cookieName: isProduction
+        ? '__Secure-next-auth.session-token'
+        : 'next-auth.session-token',
     });
 
     if (!token) {

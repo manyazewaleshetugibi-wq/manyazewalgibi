@@ -444,7 +444,14 @@ const fetchWaiterReport = async (
     return await response.json()
   } catch (error) {
     console.error("Error fetching waiter report:", error)
-    return { success: false, orders: [] } as WaiterReportResponse
+    return { 
+      success: false, 
+      orders: [],
+      summary: { totalOrders: 0, totalSales: 0, totalTax: 0, totalDiscount: 0, totalItems: 0, totalGuests: 0, averageOrderValue: 0 },
+      breakdown: { byStatus: {}, byPayment: {} },
+      topItems: [],
+      dailySales: []
+    }
   }
 }
 
@@ -1124,7 +1131,6 @@ function DashboardHeader({
 
 export default function DashboardPage() {
   // State
-  const [salesData, setSalesData] = useState<SalesData | null>(null)
   const [waiterReportData, setWaiterReportData] = useState<WaiterReportResponse | null>(null)
   const [waitresses, setWaitresses] = useState<Waitress[]>([])
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
@@ -1172,10 +1178,10 @@ export default function DashboardPage() {
   // 6a. DATA LOADING - FIXED
   // ============================================
 
-  const loadData = useCallback(async (showLoading = true, customDateRange?: { start: Date; end: Date }) => {
+  const loadData = useCallback(async (options: { showLoading?: boolean; customDateRange?: { start: Date; end: Date }; waiterId?: string; restaurantId?: string; } = {}) => {
     if (!isMounted.current) return
     
-    if (showLoading) setIsLoading(true)
+    if (options.showLoading !== false) setIsLoading(true)
     
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -1183,22 +1189,24 @@ export default function DashboardPage() {
     abortControllerRef.current = new AbortController()
 
     try {
-      const range = customDateRange || dateRange
+      const range = options.customDateRange || dateRange
       const startDateStr = format(range.start, 'yyyy-MM-dd')
       const endDateStr = format(range.end, 'yyyy-MM-dd')
-      const apiRestaurantId = selectedRestaurant === 'unassigned' ? 'all' : selectedRestaurant
+      const currentWaiterId = options.waiterId ?? selectedWaiter;
+      const currentRestaurantId = options.restaurantId ?? selectedRestaurant;
+      const apiRestaurantId = currentRestaurantId === 'unassigned' ? 'all' : currentRestaurantId
 
       // Fetch data in parallel
       const [reportData, restaurantsData, waitressesData] = await Promise.all([
-        fetchWaiterReport(selectedWaiter, startDateStr, endDateStr, apiRestaurantId, 10000),
+        fetchWaiterReport(currentWaiterId, startDateStr, endDateStr, apiRestaurantId),
         fetchRestaurantsFromAPI(),
         fetchWaitressesWithRestaurants(),
       ])
 
       if (!isMounted.current) return
 
-      setRestaurants(restaurantsData)
-      setWaitresses(waitressesData)
+      setRestaurants(restaurantsData);
+      setWaitresses(waitressesData);
 
       // Fetch previous period data for comparison
       const previousRange = getPreviousPeriodRange(filterType, range.start, range.end)
@@ -1206,11 +1214,10 @@ export default function DashboardPage() {
       const previousEndStr = format(previousRange.end, 'yyyy-MM-dd')
       
       const previousReportData = await fetchWaiterReport(
-        selectedWaiter, 
+        currentWaiterId, 
         previousStartStr, 
         previousEndStr, 
-        apiRestaurantId, 
-        10000
+        apiRestaurantId
       )
 
       if (!isMounted.current) return
@@ -1220,26 +1227,26 @@ export default function DashboardPage() {
         let previousOrdersData = previousReportData.success ? previousReportData.orders || [] : []
 
         // Apply restaurant filter
-        ordersData = filterOrdersByRestaurant(ordersData, selectedRestaurant, waitressesData, restaurantsData)
-        previousOrdersData = filterOrdersByRestaurant(previousOrdersData, selectedRestaurant, waitressesData, restaurantsData)
+        ordersData = filterOrdersByRestaurant(ordersData, currentRestaurantId, waitressesData, restaurantsData)
+        previousOrdersData = filterOrdersByRestaurant(previousOrdersData, currentRestaurantId, waitressesData, restaurantsData)
 
         // Collect all item IDs
         const allItemIds = new Set<string>()
         ordersData.forEach(order => {
-          (order.items || []).forEach((item: any) => {
+          (order.items || []).forEach((item: OrderItem) => {
             const itemId = item.itemId || item.menuItemId
             if (itemId) allItemIds.add(itemId)
           })
-        })
+        });
 
-        const itemsMapData = await fetchItemsBatch(Array.from(allItemIds))
+        const itemsMapData = await fetchItemsBatch(Array.from(allItemIds).filter(id => id))
         setGlobalItemsMap(itemsMapData)
 
         // Enhance orders
         const enhancedOrders = ordersData.map(order => {
-          const enhancedItems = (order.items || []).map((item: any) => {
+          const enhancedItems = (order.items || []).map((item: OrderItem) => {
             const itemId = item.itemId || item.menuItemId
-            const menuItem = itemsMapData.get(itemId)
+            const menuItem = itemId ? itemsMapData.get(itemId) : undefined
             return {
               ...item,
               name: item.itemName || item.name || menuItem?.name || 'Unknown Item',
@@ -1259,9 +1266,9 @@ export default function DashboardPage() {
 
         // Enhance previous orders
         const enhancedPreviousOrders = previousOrdersData.map(order => {
-          const enhancedItems = (order.items || []).map((item: any) => {
+          const enhancedItems = (order.items || []).map((item: OrderItem) => {
             const itemId = item.itemId || item.menuItemId
-            const menuItem = itemsMapData.get(itemId)
+            const menuItem = itemId ? itemsMapData.get(itemId) : undefined
             return {
               ...item,
               name: item.itemName || item.name || menuItem?.name || 'Unknown Item',
@@ -1351,19 +1358,19 @@ export default function DashboardPage() {
       }
     } finally {
       if (isMounted.current) {
-        if (showLoading) setIsLoading(false)
+        if (options.showLoading !== false) setIsLoading(false)
         abortControllerRef.current = null
       }
     }
-  }, [dateRange, selectedRestaurant, selectedWaiter, filterType])
+  }, [dateRange, selectedRestaurant, selectedWaiter, filterType]);
 
   // Initial load
   useEffect(() => {
     if (!initialFetchDone.current) {
       initialFetchDone.current = true
-      loadData(true)
+      loadData()
     }
-  }, [loadData])
+  }, [])
 
   // Fetch restaurants on mount
   useEffect(() => {
@@ -1388,7 +1395,7 @@ export default function DashboardPage() {
   // ============================================
 
   const overviewMetrics = useMemo(() => {
-    const totalSales = filteredOverviewOrders.reduce((sum, order) => sum + (order.finalAmount || 0), 0)
+    const totalSales = filteredOverviewOrders.reduce((sum: number, order: Order) => sum + (order.finalAmount || 0), 0)
     const orderCount = filteredOverviewOrders.length
     const averageOrderValue = orderCount > 0 ? totalSales / orderCount : 0
     return { totalSales, orderCount, averageOrderValue }
@@ -1398,10 +1405,10 @@ export default function DashboardPage() {
     const restaurantSales = new Map<string, { name: string; sales: number; orders: number }>()
     
     filteredOverviewOrders.forEach(order => {
-      const restaurantId = getOrderRestaurantId(order, waitresses, restaurants)
-      const restaurant = restaurants.find(r => r._id === restaurantId)
+      const restaurantId = getOrderRestaurantId(order, waitresses, restaurants);
+      const restaurant = restaurants.find((r: Restaurant) => r._id === restaurantId);
       const restaurantName = restaurant?.name || order.restaurantName || 'Unassigned'
-      const existing = restaurantSales.get(restaurantId) || { name: restaurantName, sales: 0, orders: 0 }
+      const existing = restaurantSales.get(restaurantId) || { name: restaurantName, sales: 0, orders: 0 };
       restaurantSales.set(restaurantId, {
         name: restaurantName,
         sales: existing.sales + (order.finalAmount || 0),
@@ -1498,49 +1505,37 @@ export default function DashboardPage() {
   // ============================================
 
   const handleRefresh = useCallback(async () => {
-    setIsRefreshing(true)
-    await loadData(false)
-    setIsRefreshing(false)
+    setIsRefreshing(true);
+    await loadData({ showLoading: false });
+    setIsRefreshing(false);
   }, [loadData])
 
   const handleDateFilterChange = useCallback(async (type: DateFilterType, customStart?: Date, customEnd?: Date) => {
-    setFilterType(type)
-    
-    let newStart: Date, newEnd: Date
-    
-    if (type === 'custom' && customStart && customEnd) {
-      newStart = customStart
-      newEnd = customEnd
-    } else {
-      const range = getDateRangeForFilter(type)
-      newStart = range.start
-      newEnd = range.end
-    }
-    
-    // Update date range immediately
-    setDateRange({ start: newStart, end: newEnd })
-    
-    // Load data with new range
-    await loadData(true, { start: newStart, end: newEnd })
+    setFilterType(type);
+    const range = type === 'custom' && customStart && customEnd 
+      ? { start: customStart, end: customEnd } 
+      : getDateRangeForFilter(type);
+    setDateRange(range);
+    await loadData({ customDateRange: range });
   }, [loadData])
 
   const handleRestaurantChange = useCallback(async (restaurantId: string) => {
-    setSelectedRestaurant(restaurantId)
-    setIsRefreshing(true)
-    await loadData(false)
-    setIsRefreshing(false)
+    setSelectedRestaurant(restaurantId);
+    setIsRefreshing(true);
+    await loadData({ showLoading: false, restaurantId });
+    setIsRefreshing(false);
   }, [loadData])
 
   const handleWaiterChange = useCallback(async (waiterId: string) => {
-    setSelectedWaiter(waiterId)
-    setIsRefreshing(true)
-    await loadData(false)
-    setIsRefreshing(false)
+    setSelectedWaiter(waiterId);
+    setIsRefreshing(true);
+    await loadData({ showLoading: false, waiterId });
+    setIsRefreshing(false);
   }, [loadData])
 
   const handleViewDetails = useCallback(async (order: Order) => {
     setSelectedOrder(order)
-    setLoadingOrderDetails(true)
+    setLoadingOrderDetails(true);
     try {
       const waitress = await fetchWaitress(order.waiterId)
       setSelectedWaitress(waitress)
@@ -1549,13 +1544,13 @@ export default function DashboardPage() {
       const itemIds = items.map((item) => item.itemId || item.menuItemId).filter(id => id)
       
       if (itemIds.length > 0) {
-        const itemsMap = await fetchItemsBatch(itemIds)
+        const itemsMap = await fetchItemsBatch(itemIds as string[]);
         setSelectedItemsMap(itemsMap)
       }
     } catch (error) {
       console.error('Error fetching order details:', error)
     } finally {
-      setLoadingOrderDetails(false)
+      setLoadingOrderDetails(false);
     }
   }, [])
 
@@ -1617,7 +1612,7 @@ export default function DashboardPage() {
   // 6e. LOADING STATE
   // ============================================
 
-  if (isLoading && !salesData && !waiterReportData) {
+  if (isLoading && !waiterReportData) {
     return (
       <div className="flex-col md:flex">
         <div className="flex-1 space-y-3 md:space-y-4 p-3 md:p-8 pt-4 md:pt-6">
@@ -1936,7 +1931,7 @@ export default function DashboardPage() {
                           {(selectedOrder.items || selectedOrder.orderItems || []).map((item, index) => {
                             const itemId = item.menuItemId || item.itemId
                             const menuItem = selectedItemsMap.get(itemId || '')
-                            return (
+                            return ( 
                               <TableRow key={item.itemId || index}>
                                 <TableCell className="text-[10px] md:text-sm">
                                   <div>
