@@ -8,26 +8,24 @@ export async function POST(request: NextRequest) {
   console.log('🔐 Change password API called');
   
   try {
-    const isProduction = process.env.NODE_ENV === 'production';
-    const token = await getToken({ 
-      req: request, 
-      secret: process.env.NEXTAUTH_SECRET || '',
-      secureCookie: isProduction,
-      cookieName: isProduction
-        ? '__Secure-next-auth.session-token'
-        : 'next-auth.session-token',
-    });
+    // Try proxy-injected headers first, fall back to getToken
+    let userId = request.headers.get('x-user-id');
+    let userEmail = request.headers.get('x-user-email');
 
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: 'Unauthorized' },
-        { status: 401 }
-      );
+    if (!userId) {
+      const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET || '' });
+      if (!token) {
+        return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+      }
+      userId = token.id as string;
+      userEmail = token.email as string;
     }
+
+    // Fake token shape for the rest of the handler
+    const token = { id: userId, email: userEmail };
 
     console.log('👤 User ID from token:', token.id);
     console.log('📧 User email from token:', token.email);
-    console.log('🔑 Current requiresPasswordChange in token:', token.requiresPasswordChange);
 
     const client = await clientPromise;
     const db = client.db('gold');
@@ -45,10 +43,10 @@ export async function POST(request: NextRequest) {
     }
     
     // Convert string ID to ObjectId
-    let userId;
+    let userObjectId;
     try {
-      userId = new ObjectId(token.id);
-      console.log('✅ User ID converted to ObjectId:', userId);
+      userObjectId = new ObjectId(token.id as string);
+      console.log('✅ User ID converted to ObjectId:', userObjectId);
     } catch (error) {
       console.error('❌ Invalid user ID format:', error);
       return NextResponse.json(
@@ -58,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Find user - search in users collection
-    const user = await db.collection("users").findOne({ _id: userId });
+    const user = await db.collection("users").findOne({ _id: userObjectId });
     
     if (!user) {
       console.log('❌ User not found with ID:', token.id);
@@ -157,7 +155,7 @@ export async function POST(request: NextRequest) {
     // CRITICAL: Update BOTH password AND requiresPasswordChange field to false
     console.log('💾 Updating user in database...');
     const updateResult = await db.collection(collectionName).updateOne(
-      { _id: userId },
+      { _id: userObjectId },
       { 
         $set: { 
           password: hashedNewPassword,

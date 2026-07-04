@@ -129,8 +129,7 @@ export async function GET(request: NextRequest) {
     
     const users = await usersCollection.find(query).sort({ createdAt: -1 }).toArray();
     
-    // Return only count as text, no user data
-    return new NextResponse(`Found ${users.length} staff members`, { status: 200 });
+    return NextResponse.json({ success: true, data: users }, { status: 200 });
     
   } catch (error: any) {
     console.error('Error fetching users:', error);
