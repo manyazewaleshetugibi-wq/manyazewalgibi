@@ -1,8 +1,8 @@
-// components/cart/CartPanel.tsx - COMPLETE FIXED VERSION
+// components/cart/CartPanel.tsx - COMPLETE FIXED VERSION (QR HIDDEN)
 
 'use client';
 
-import React, { memo, useState } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { 
   ShoppingCart, X, Minus, Plus, MapPin, Home, Users, Receipt,
   Clock, AlertCircle, Navigation, Truck, ChevronRight, Armchair,
@@ -28,14 +28,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { TableSelector } from '@/components/menu/TableSelector';
 import { QRScannerDialog } from '@/components/cart/QRScannerDialog';
 import { Input } from "@/components/ui/input";
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogDescription, 
-  DialogFooter 
-} from "@/components/ui/dialog";
 
 interface TableData {
   id: string;
@@ -47,6 +39,9 @@ interface TableData {
   description?: string;
   features?: string[];
   tags?: string[];
+  restaurantId?: string;
+  restaurantName?: string;
+  floor?: string;
 }
 
 // Guest user data interface
@@ -76,7 +71,7 @@ interface CartPanelProps {
   onTableNumberChange: (num: string) => void;
   
   selectedTableData?: TableData | null;
-  onTableSelect?: (table: TableData | null) => void;
+  onTableSelect?: (table: TableData | null, restaurantId?: string, floor?: string) => void;
   waiters: Waiter[];
   selectedWaiter: string;
   onWaiterChange: (id: string) => void;
@@ -100,6 +95,14 @@ interface CartPanelProps {
   floor?: string;
   arrangementId?: string;
   onGuestOrder?: (guestData: GuestUserData) => void;
+  tableFromQR?: boolean;
+  onQRDetected?: () => void;
+  onQRCleared?: () => void;
+  fullScreen?: boolean;
+  // Direct order handler for QR tables (bypass payment upload)
+  onPlaceOrderDirect?: () => void;
+  // Callback when table is selected manually (not QR)
+  onTableManuallySelected?: () => void;
 }
 
 export const CartPanel = memo(({
@@ -137,18 +140,34 @@ export const CartPanel = memo(({
   floor = 'Ground Floor',
   arrangementId,
   onGuestOrder,
+  tableFromQR = false,
+  onQRDetected,
+  onQRCleared,
+  fullScreen = false,
+  onPlaceOrderDirect,
+  onTableManuallySelected,
 }: CartPanelProps) => {
   const [showTableSelector, setShowTableSelector] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
-  const [showGuestInfoDialog, setShowGuestInfoDialog] = useState(false);
-  const [guestInfo, setGuestInfo] = useState<GuestUserData>({
-    firstName: '',
-    lastName: '',
-    phone: '',
-    email: '',
-    isGuest: true
-  });
-  const [guestInfoErrors, setGuestInfoErrors] = useState<Partial<GuestUserData>>({});
+  const [showGuestToast, setShowGuestToast] = useState(false);
+  // Track if table was selected manually (not QR)
+  const [isManualTableSelection, setIsManualTableSelection] = useState(false);
+
+  // Show guest toast for 3 seconds when cart opens (non-logged-in)
+  useEffect(() => {
+    if (!isUserLoggedIn) {
+      setShowGuestToast(true);
+      const t = setTimeout(() => setShowGuestToast(false), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [isUserLoggedIn]);
+
+  // Reset manual selection flag when tableFromQR changes
+  useEffect(() => {
+    if (tableFromQR) {
+      setIsManualTableSelection(false);
+    }
+  }, [tableFromQR]);
 
   const getImageSrc = (imageUrl?: string): string => {
     if (!imageUrl) return '/placeholder.svg';
@@ -172,71 +191,46 @@ export const CartPanel = memo(({
   const formattedTotal = formatCurrency(total);
   const formattedDeliveryFee = formatCurrency(deliveryFee?.fee);
 
-  // Validate guest information
-  const validateGuestInfo = (): boolean => {
-    const errors: Partial<GuestUserData> = {};
-    
-    if (!guestInfo.firstName.trim()) {
-      errors.firstName = 'First name is required';
-    }
-    if (!guestInfo.lastName.trim()) {
-      errors.lastName = 'Last name is required';
-    }
-    if (!guestInfo.phone.trim()) {
-      errors.phone = 'Phone number is required';
-    } else if (!/^[0-9+\-\s]{8,15}$/.test(guestInfo.phone)) {
-      errors.phone = 'Invalid phone number (e.g., 0912345678)';
-    }
-    if (guestInfo.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestInfo.email)) {
-      errors.email = 'Invalid email address';
-    }
-    
-    setGuestInfoErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  // Handle guest info submission - THIS WILL CLOSE DIALOG AND CALL onPlaceOrder
-  const handleGuestInfoSubmit = () => {
-    if (validateGuestInfo()) {
-      // Pass guest data to parent component
-      if (onGuestOrder) {
-        onGuestOrder(guestInfo);
-      }
-      // Close the guest info dialog
-      setShowGuestInfoDialog(false);
-      // Now proceed to payment verification
-      onPlaceOrder();
-    }
-  };
-
   // Check if order can be placed
   const canPlaceOrder = () => {
-    if (cart.length === 0) return false;
-    if (!orderType) return false;
-    
-    if (orderType === 'table') {
-      return selectedTableData !== null;
+    if (cart.length === 0) {
+      console.log('❌ Cart is empty');
+      return false;
     }
-    
-    if (orderType === 'delivery') {
-      if (!isUserLoggedIn) return false;
-      return true;
+    if (!orderType) {
+      console.log('❌ No order type selected');
+      return false;
     }
-    
+    if (orderType === 'delivery' && !isUserLoggedIn) {
+      console.log('❌ Delivery requires login');
+      return false;
+    }
+    // Table order must have a table selected
+    if (orderType === 'table' && !selectedTableData) {
+      console.log('❌ No table selected');
+      return false;
+    }
+    console.log('✅ Can place order');
     return true;
   };
 
-  // Handle place order click - shows guest info dialog for non-logged-in table orders
+  // Handle place order click - ALWAYS use regular onPlaceOrder
   const handlePlaceOrderClick = () => {
-    if (!canPlaceOrder()) return;
-    
-    // For table orders without login, show guest info dialog first
-    if (orderType === 'table' && !isUserLoggedIn) {
-      setShowGuestInfoDialog(true);
-    } else {
-      // For logged-in users or delivery, proceed directly to payment
-      onPlaceOrder();
+    console.log('🛒 Place Order clicked', {
+      cartLength: cart.length,
+      orderType,
+      selectedTableData: selectedTableData?.number,
+      isPlacingOrder
+    });
+
+    if (!canPlaceOrder()) {
+      console.log('❌ Cannot place order - conditions not met');
+      return;
     }
+    
+    // Always use regular onPlaceOrder - QR logic is handled in parent
+    console.log('📝 Placing order - calling onPlaceOrder');
+    onPlaceOrder();
   };
 
   // Handle order type change with login check
@@ -246,6 +240,104 @@ export const CartPanel = memo(({
       return;
     }
     onOrderTypeChange(type);
+  };
+
+  // Handle manual table selection from TableSelector
+  const handleManualTableSelect = (table: TableData | null, restaurantIdParam?: string, floorParam?: string) => {
+    if (!table || table === null) {
+      // Unselect table
+      onTableSelect?.(null);
+      onTableNumberChange('');
+      setIsManualTableSelection(false);
+      // Notify parent that table was unselected
+      if (onTableManuallySelected) {
+        onTableManuallySelected();
+      }
+      // Clear QR flag if it was set
+      if (onQRCleared) {
+        onQRCleared();
+      }
+      console.log('🪑 Table unselected');
+    } else {
+      // Select table manually
+      const tableWithDetails: TableData = {
+        ...table,
+        restaurantId: restaurantIdParam || table.restaurantId || restaurantId,
+        restaurantName: table.restaurantName || 'Manyazewal Restaurant',
+        floor: floorParam || table.floor || floor,
+      };
+      
+      onTableSelect?.(tableWithDetails, restaurantIdParam, floorParam);
+      onTableNumberChange(table.number.toString());
+      setIsManualTableSelection(true);
+      
+      // Notify parent that table was selected manually (not QR)
+      if (onTableManuallySelected) {
+        onTableManuallySelected();
+      }
+      
+      // Clear QR flag if it was set
+      if (onQRCleared) {
+        onQRCleared();
+      }
+      
+      console.log('🪑 Table selected manually:', table.number);
+    }
+    setShowTableSelector(false);
+  };
+
+  // Handle QR scan
+  const handleQRScan = (tableNum: string, qrUrl?: string) => {
+    onTableNumberChange(tableNum);
+    if (orderType !== 'table') onOrderTypeChange('table');
+    localStorage.setItem('qrcode', 'true');
+    
+    // Reset manual selection flag since this is QR
+    setIsManualTableSelection(false);
+    
+    // If full QR URL, extract all params and update table data
+    if (qrUrl && onTableSelect) {
+      try {
+        const url = new URL(qrUrl);
+        const p = url.searchParams;
+        const tNum = parseInt(p.get('table') || tableNum);
+        const tableId = p.get('tableId') || '';
+        const restaurantIdParam = p.get('restaurantId') || restaurantId;
+        const restaurantName = p.get('restaurant') || '';
+        const floorVal = p.get('floor') || floor;
+        const capacity = parseInt(p.get('capacity') || '4') || 4;
+        
+        if (!isNaN(tNum) && tNum > 0) {
+          const tableData: TableData = {
+            id: tableId,
+            number: tNum,
+            capacity,
+            status: 'available',
+            shape: 'circle',
+            restaurantId: restaurantIdParam,
+            restaurantName: restaurantName || 'Manyazewal Restaurant',
+            floor: floorVal,
+          };
+          
+          onTableSelect(tableData, restaurantIdParam, floorVal);
+          localStorage.setItem('detectedTableNumber', tNum.toString());
+          localStorage.setItem('tableDetected', 'true');
+          
+          // Notify parent that QR was detected
+          if (onQRDetected) {
+            onQRDetected();
+          }
+          
+          console.log('📱 QR Table detected:', tNum);
+        }
+      } catch (error) {
+        console.error('Error parsing QR URL:', error);
+        // Not a full URL, just use table number
+        if (onQRDetected) {
+          onQRDetected();
+        }
+      }
+    }
   };
 
   // Get user display name for logged-in users
@@ -276,9 +368,19 @@ export const CartPanel = memo(({
     return 'Place Order';
   };
 
+  // Determine if place order button should be disabled
+  const isPlaceOrderDisabled = () => {
+    if (cart.length === 0) return true;
+    if (!orderType) return true;
+    if (isPlacingOrder) return true;
+    if (orderType === 'table' && !selectedTableData) return true;
+    if (orderType === 'delivery' && !isUserLoggedIn) return true;
+    return false;
+  };
+
   return (
     <>
-      <div className="flex flex-col h-full bg-gradient-to-br from-white to-purple-50/30">
+      <div className="flex flex-col h-full bg-gradient-to-br from-white to-purple-50/30 relative">
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-2 border-b border-purple-100 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
           <motion.h3 
@@ -342,17 +444,21 @@ export const CartPanel = memo(({
           </div>
         )}
 
-        {/* Guest Mode Banner - For non-logged in users */}
-        {!isUserLoggedIn && (
-          <div className="bg-blue-50 border-b border-blue-200 px-3 py-1.5">
-            <div className="flex items-center gap-2">
-              <UserPlus className="h-3 w-3 text-blue-600" />
-              <p className="text-[9px] text-blue-700 flex-1">
-                You're ordering as a guest. For delivery, please login.
-              </p>
-            </div>
-          </div>
-        )}
+        {/* Guest Toast - 3 second popup, no permanent banner */}
+        <AnimatePresence>
+          {showGuestToast && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="absolute top-12 left-3 right-3 z-20 bg-blue-600 text-white rounded-lg px-3 py-2 flex items-center gap-2 shadow-lg"
+            >
+              <UserPlus className="h-3 w-3 flex-shrink-0" />
+              <p className="text-[10px]">Ordering as guest. Login to enable delivery.</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {cart.length > 0 ? (
           <>
@@ -392,9 +498,8 @@ export const CartPanel = memo(({
                                   </h4>
                                   <div className="flex items-center gap-1 mt-0.5">
                                     <span className="text-[9px] font-semibold text-purple-900">
-                                      {originalPrice.toFixed(2)}
+                                      {originalPrice.toFixed(2)} Birr
                                     </span>
-                                    <span className="text-[8px] text-gray-500">ETB</span>
                                     {item.preparationTime && (
                                       <span className="text-[8px] text-gray-500 flex items-center gap-0.5 ml-0.5">
                                         <Clock className="h-2 w-2" />
@@ -439,7 +544,7 @@ export const CartPanel = memo(({
                                 
                                 <div className="text-right">
                                   <span className="text-[10px] font-bold text-purple-900">
-                                    {itemTotalOriginal.toFixed(2)}
+                                    {itemTotalOriginal.toFixed(2)} Birr
                                   </span>
                                 </div>
                               </div>
@@ -534,12 +639,15 @@ export const CartPanel = memo(({
                         </div>
                         
                         {selectedTableData ? (
-                          <div className="bg-purple-50 border border-purple-200 rounded-md p-1.5">
+                          <div className="border rounded-md p-1.5 bg-purple-50 border-purple-200">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-1.5">
                                 <div>
                                   <div className="font-bold text-purple-900 text-[11px]">Table {selectedTableData.number}</div>
-                                  <div className="text-[9px] text-gray-600">{selectedTableData.capacity} seats</div>
+                                  <div className="text-[9px] text-gray-600">
+                                    {selectedTableData.capacity} seats
+                                    {selectedTableData.floor && ` • ${selectedTableData.floor}`}
+                                  </div>
                                 </div>
                               </div>
                               <div className="flex items-center gap-1">
@@ -548,7 +656,7 @@ export const CartPanel = memo(({
                                   size="icon"
                                   onClick={() => setShowQRScanner(true)}
                                   className="h-6 w-6 rounded-full text-purple-600 hover:bg-purple-100"
-                                  title="Scan QR Code"
+                                  title="Scan QR to change table"
                                 >
                                   <ScanLine className="h-3 w-3" />
                                 </Button>
@@ -564,23 +672,22 @@ export const CartPanel = memo(({
                             </div>
                           </div>
                         ) : (
-                          <div className="flex gap-1.5">
+                          <div className="grid grid-cols-2 gap-1.5">
                             <Button
                               variant="outline"
-                              className="flex-1 border border-purple-200 hover:border-purple-500 hover:bg-purple-50 rounded-md h-8 text-[10px]"
+                              className="w-full border border-purple-200 hover:border-purple-500 hover:bg-purple-50 rounded-md h-8 text-[10px]"
                               onClick={() => setShowTableSelector(true)}
                             >
                               <Armchair className="w-3 h-3 mr-1.5" />
-                              Select a Table
+                              Select Table
                             </Button>
                             <Button
                               variant="outline"
-                              size="icon"
+                              className="w-full border border-purple-200 hover:border-purple-500 hover:bg-purple-50 rounded-md h-8 text-[10px]"
                               onClick={() => setShowQRScanner(true)}
-                              className="h-8 w-8 border border-purple-200 hover:border-purple-500 hover:bg-purple-50 rounded-md flex-shrink-0"
-                              title="Scan QR Code"
                             >
-                              <ScanLine className="h-3.5 w-3.5 text-purple-700" />
+                              <ScanLine className="w-3.5 h-3.5 mr-1.5 text-purple-700" />
+                              Scan QR
                             </Button>
                           </div>
                         )}
@@ -703,16 +810,16 @@ export const CartPanel = memo(({
               <div className="px-3 py-1.5 space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="text-[9px] text-gray-500">Subtotal</span>
-                  <span className="text-[9px] font-medium text-purple-900">{formattedSubtotal}</span>
+                  <span className="text-[9px] font-medium text-purple-900">{formattedSubtotal} Birr</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-[9px] text-gray-500">VAT 15%</span>
-                  <span className="text-[9px] font-medium text-purple-900">{formattedTax}</span>
+                  <span className="text-[9px] font-medium text-purple-900">{formattedTax} Birr</span>
                 </div>
                 {orderType === 'delivery' && isUserLoggedIn && deliveryFee && deliveryFee.fee > 0 && (
                   <div className="flex justify-between items-center">
                     <span className="text-[9px] text-gray-500">Delivery Fee</span>
-                    <span className="text-[9px] font-medium text-purple-900">{formattedDeliveryFee}</span>
+                    <span className="text-[9px] font-medium text-purple-900">{formattedDeliveryFee} Birr</span>
                   </div>
                 )}
                 
@@ -721,38 +828,16 @@ export const CartPanel = memo(({
                 <div className="flex justify-between items-center">
                   <span className="text-[10px] font-bold text-gray-700">Total</span>
                   <span className="text-[11px] font-bold bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent">
-                    {formattedTotal}
+                    {formattedTotal} Birr
                   </span>
                 </div>
-                
-                <div className="flex justify-center">
-                  <Badge variant="outline" className="bg-purple-50 text-purple-900 border-purple-200 rounded-full text-[8px] px-1.5 py-0">
-                    Order #{orderNumber}
-                  </Badge>
-                </div>
-                
-                {/* Guest indicator for non-logged-in table orders */}
-                {!isUserLoggedIn && orderType === 'table' && (
-                  <div className="flex justify-center">
-                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 rounded-full text-[8px] px-1.5 py-0">
-                      <UserPlus className="h-2 w-2 mr-0.5" />
-                      Guest Order
-                    </Badge>
-                  </div>
-                )}
                 
                 {/* Place Order Button */}
                 <motion.div whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}>
                   <Button 
                     onClick={handlePlaceOrderClick} 
-                    className="w-full h-8 text-[11px] font-bold bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border-0 rounded-md shadow-sm hover:shadow-md transition-all"
-                    disabled={
-                      cart.length === 0 || 
-                      !orderType || 
-                      isPlacingOrder ||
-                      (orderType === 'table' && !selectedTableData) ||
-                      (orderType === 'delivery' && !isUserLoggedIn)
-                    }
+                    className="w-full h-8 text-[11px] font-bold text-white bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 border-0 rounded-md shadow-sm hover:shadow-md transition-all"
+                    disabled={isPlaceOrderDisabled()}
                   >
                     {isPlacingOrder ? (
                       <>
@@ -768,17 +853,17 @@ export const CartPanel = memo(({
                   </Button>
                 </motion.div>
                 
+                {/* Table not selected hint */}
+                {orderType === 'table' && !selectedTableData && (
+                  <p className="text-[8px] text-center text-amber-600 mt-1">
+                    Please select a table above to place your order
+                  </p>
+                )}
+                
                 {/* Login hint for delivery */}
                 {!isUserLoggedIn && orderType === 'delivery' && (
                   <p className="text-[8px] text-center text-amber-600 mt-1">
                     Please login to place delivery order
-                  </p>
-                )}
-                
-                {/* Guest info hint for table order */}
-                {!isUserLoggedIn && orderType === 'table' && (
-                  <p className="text-[8px] text-center text-blue-600 mt-1">
-                    You'll be asked to provide contact info
                   </p>
                 )}
               </div>
@@ -810,29 +895,16 @@ export const CartPanel = memo(({
         <QRScannerDialog
           open={showQRScanner}
           onOpenChange={setShowQRScanner}
-          onScan={(tableNum) => {
-            onTableNumberChange(tableNum);
-            // Switch to table order type if not already
-            if (orderType !== 'table') onOrderTypeChange('table');
-          }}
+          onScan={handleQRScan}
         />
 
-        {/* Table Selector */}
+        {/* Table Selector - Manual selection */}
         <TableSelector
           open={showTableSelector}
           onOpenChange={setShowTableSelector}
           restaurantId={restaurantId}
           floor={floor}
-          onTableSelect={(table, _restaurantId, _floor) => {
-            if (!table || table === null) {
-              onTableSelect?.(null);
-              onTableNumberChange('');
-            } else {
-              onTableSelect?.(table);
-              onTableNumberChange(table.number.toString());
-            }
-            setShowTableSelector(false);
-          }}
+          onTableSelect={handleManualTableSelect}
           selectedTable={selectedTableData}
           isUserLoggedIn={isUserLoggedIn}
           onLoginRequired={onLoginRequired}
@@ -842,126 +914,8 @@ export const CartPanel = memo(({
         />
       </div>
 
-      {/* Guest Information Dialog - FIXED WITH PROPER DialogTitle */}
-      <Dialog open={showGuestInfoDialog} onOpenChange={setShowGuestInfoDialog}>
-        <DialogContent className="sm:max-w-md rounded-xl p-0 overflow-hidden">
-          {/* Hidden DialogTitle for accessibility - Required by DialogContent */}
-          <DialogTitle className="sr-only">
-            Guest Information Required
-          </DialogTitle>
-          
-          <DialogHeader className="px-4 pt-4 pb-2 bg-gradient-to-r from-purple-50 to-white">
-            <div className="flex items-center gap-2 text-purple-900">
-              <UserPlus className="h-4 w-4" />
-              <span className="text-lg font-semibold">Guest Information Required</span>
-            </div>
-            <DialogDescription className="text-xs text-gray-600">
-              Please provide your contact information to complete your table order
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="px-4 py-4 space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-[10px] font-medium text-purple-900 flex items-center gap-1">
-                  First Name <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  value={guestInfo.firstName}
-                  onChange={(e) => {
-                    setGuestInfo({ ...guestInfo, firstName: e.target.value });
-                    if (guestInfoErrors.firstName) setGuestInfoErrors({ ...guestInfoErrors, firstName: undefined });
-                  }}
-                  placeholder="John"
-                  className={`h-8 text-[11px] rounded-md ${guestInfoErrors.firstName ? 'border-red-500' : 'border-purple-200'}`}
-                />
-                {guestInfoErrors.firstName && (
-                  <p className="text-[8px] text-red-500">{guestInfoErrors.firstName}</p>
-                )}
-              </div>
-              
-              <div className="space-y-1">
-                <Label className="text-[10px] font-medium text-purple-900 flex items-center gap-1">
-                  Last Name <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  value={guestInfo.lastName}
-                  onChange={(e) => {
-                    setGuestInfo({ ...guestInfo, lastName: e.target.value });
-                    if (guestInfoErrors.lastName) setGuestInfoErrors({ ...guestInfoErrors, lastName: undefined });
-                  }}
-                  placeholder="Doe"
-                  className={`h-8 text-[11px] rounded-md ${guestInfoErrors.lastName ? 'border-red-500' : 'border-purple-200'}`}
-                />
-                {guestInfoErrors.lastName && (
-                  <p className="text-[8px] text-red-500">{guestInfoErrors.lastName}</p>
-                )}
-              </div>
-            </div>
-            
-            <div className="space-y-1">
-              <Label className="text-[10px] font-medium text-purple-900 flex items-center gap-1">
-                Phone Number <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                value={guestInfo.phone}
-                onChange={(e) => {
-                  setGuestInfo({ ...guestInfo, phone: e.target.value });
-                  if (guestInfoErrors.phone) setGuestInfoErrors({ ...guestInfoErrors, phone: undefined });
-                }}
-                placeholder="0912345678"
-                className={`h-8 text-[11px] rounded-md ${guestInfoErrors.phone ? 'border-red-500' : 'border-purple-200'}`}
-              />
-              {guestInfoErrors.phone && (
-                <p className="text-[8px] text-red-500">{guestInfoErrors.phone}</p>
-              )}
-            </div>
-            
-            <div className="space-y-1">
-              <Label className="text-[10px] font-medium text-purple-900">Email (Optional)</Label>
-              <Input
-                value={guestInfo.email}
-                onChange={(e) => {
-                  setGuestInfo({ ...guestInfo, email: e.target.value });
-                  if (guestInfoErrors.email) setGuestInfoErrors({ ...guestInfoErrors, email: undefined });
-                }}
-                placeholder="john@example.com"
-                className={`h-8 text-[11px] rounded-md ${guestInfoErrors.email ? 'border-red-500' : 'border-purple-200'}`}
-              />
-              {guestInfoErrors.email && (
-                <p className="text-[8px] text-red-500">{guestInfoErrors.email}</p>
-              )}
-            </div>
-            
-            <div className="bg-blue-50 rounded-md p-2 mt-2">
-              <p className="text-[9px] text-blue-700 flex items-start gap-1">
-                <CreditCard className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                <span>After providing your information, you'll proceed to payment verification to complete your order.</span>
-              </p>
-            </div>
-          </div>
-          
-          <DialogFooter className="px-4 py-3 bg-gray-50 border-t border-gray-100">
-            <Button
-              variant="outline"
-              onClick={() => setShowGuestInfoDialog(false)}
-              className="h-8 text-[11px] rounded-md"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleGuestInfoSubmit}
-              className="h-8 text-[11px] bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 rounded-md"
-            >
-              Continue to Payment
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 });
 
 CartPanel.displayName = 'CartPanel';
-
-export default CartPanel;

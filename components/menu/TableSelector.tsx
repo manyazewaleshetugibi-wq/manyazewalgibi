@@ -1115,7 +1115,8 @@ export function TableSelector({
         restaurantId: selectedRestaurantId,
         floor: selectedFloor,
         tableId: targetTableId,
-        unselectTable: true
+        unselectTable: true,
+        ...(anonymousId ? { anonymousId, guestId: anonymousId } : {})
       }, getAxiosConfig());
       
       setActiveSelection(null);
@@ -1160,6 +1161,7 @@ export function TableSelector({
       
       if (!isUserLoggedIn && anonymousId) {
         requestBody.anonymousId = anonymousId;
+        requestBody.guestId = anonymousId;
       }
       
       // FIXED: Use the correct API endpoint with full URL
@@ -1284,6 +1286,7 @@ export function TableSelector({
       
       if (!isUserLoggedIn && anonymousId) {
         requestBody.anonymousId = anonymousId;
+        requestBody.guestId = anonymousId;
       }
       
       const response = await axios.patch('/api/tables/arrangement', requestBody, getAxiosConfig());
