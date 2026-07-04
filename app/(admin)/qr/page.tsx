@@ -175,7 +175,7 @@ export default function TableQRGenerator() {
     const availableFloors = ["Ground Floor", "First Floor", "Second Floor", "Rooftop", "Basement"];
 
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ;
-    const menuPath = process.env.NEXT_PUBLIC_MENU_PATH || "/menu";
+    const menuPath = process.env.NEXT_PUBLIC_MENU_PATH || "/";
 
     // Fetch restaurants
     useEffect(() => {

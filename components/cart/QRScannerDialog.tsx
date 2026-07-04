@@ -10,7 +10,7 @@ import jsQR from 'jsqr';
 interface QRScannerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onScan: (tableNumber: string) => void;
+  onScan: (tableNumber: string, qrUrl?: string) => void;
 }
 
 type Status = 'permission' | 'requesting' | 'scanning' | 'success' | 'error';
@@ -74,7 +74,7 @@ export function QRScannerDialog({ open, onOpenChange, onScan }: QRScannerDialogP
           setScannedTable(tableNum);
           setStatus('success');
           setTimeout(() => {
-            onScan(tableNum);
+            onScan(tableNum, code.data);
             onOpenChange(false);
           }, 900);
           return;

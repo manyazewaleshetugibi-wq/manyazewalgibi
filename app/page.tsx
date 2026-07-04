@@ -1,4 +1,4 @@
-// app/menu/page.tsx - COMPLETE TWO-STEP NAVIGATION WITH VIEW TOGGLE & FASTING TABS & TABLE DETECTION & CART PERSISTENCE
+// app/menu/page.tsx - COMPLETE WITH FULL-SCREEN MOBILE PAYMENT FLOW
 
 'use client'
 
@@ -11,7 +11,9 @@ import {
   ChevronUp, ChevronDown, Grid, List, Star, Search,
   Filter, ArrowUpDown, X, TrendingUp, Flame, Crown,
   ArrowLeft, ChevronRight, Plus, Minus, Heart, Table,
-  User, Users, MapPin, Phone, Mail, CheckCircle
+  User, Users, MapPin, Phone, Mail, CheckCircle, CreditCard,
+  Upload, FileImage, Trash2, AlertCircle, ScanLine, Home,
+  Truck, Receipt, Lock, UserPlus, Navigation, Armchair
 } from 'lucide-react'
 
 import { Button } from "@/components/ui/button"
@@ -23,6 +25,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 
 import { useUserData } from '@/providers/UserDataProvider'
 import { useCart } from '@/hooks/useCart'
@@ -104,74 +109,44 @@ const clearCartFromLocalStorage = (): void => {
 
 /**
  * Sanitize input to prevent XSS attacks
- * Removes HTML tags, scripts, and dangerous characters
  */
 const sanitizeInput = (input: string): string => {
   if (!input) return ''
-  
-  // Remove HTML tags
   let sanitized = input.replace(/<[^>]*>/g, '')
-  
-  // Remove script tags and their content
   sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-  
-  // Remove javascript: protocol
   sanitized = sanitized.replace(/javascript:/gi, '')
-  
-  // Remove on* event handlers
   sanitized = sanitized.replace(/\son\w+\s*=/gi, '')
-  
-  // Remove eval, alert, confirm, prompt
   sanitized = sanitized.replace(/\b(alert|confirm|prompt|eval|function)\s*\(/gi, '')
-  
-  // Remove special characters that could be used for injection
   sanitized = sanitized.replace(/[<>{}()\[\]\\;'"`]/g, '')
-  
-  // Trim extra spaces
   sanitized = sanitized.trim()
-  
   return sanitized
 }
 
 /**
- * Validate search input - only allow alphanumeric, spaces, and basic punctuation
+ * Validate search input
  */
 const validateSearchInput = (input: string): { isValid: boolean; sanitized: string } => {
   if (!input) return { isValid: true, sanitized: '' }
-  
-  // First sanitize
   const sanitized = sanitizeInput(input)
-  
-  // Allow: letters (including accented), numbers, spaces, hyphens, apostrophes, periods, commas
   const validPattern = /^[a-zA-Z0-9\s\-'.,\u00C0-\u017F]*$/
-  
   if (!validPattern.test(sanitized)) {
-    // Remove any remaining invalid characters
     const cleaned = sanitized.replace(/[^a-zA-Z0-9\s\-'.,\u00C0-\u017F]/g, '')
     return { isValid: true, sanitized: cleaned }
   }
-  
   return { isValid: true, sanitized }
 }
 
 /**
- * Validate text input for general use (comments, notes, etc.)
- * Less restrictive than search but still secure
+ * Validate text input
  */
 const validateTextInput = (input: string): { isValid: boolean; sanitized: string } => {
   if (!input) return { isValid: true, sanitized: '' }
-  
-  // First sanitize
   let sanitized = sanitizeInput(input)
-  
-  // Allow more characters for general text
   const validPattern = /^[a-zA-Z0-9\s\-'.,!?@#$%^&*()_+=:;<>\/\\|~`\u00C0-\u017F]*$/
-  
   if (!validPattern.test(sanitized)) {
     const cleaned = sanitized.replace(/[^a-zA-Z0-9\s\-'.,!?@#$%^&*()_+=:;<>\/\\|~`\u00C0-\u017F]/g, '')
     return { isValid: true, sanitized: cleaned }
   }
-  
   return { isValid: true, sanitized }
 }
 
@@ -180,83 +155,45 @@ const validateTextInput = (input: string): { isValid: boolean; sanitized: string
  */
 const containsMaliciousCode = (input: string): boolean => {
   if (!input) return false
-  
   const maliciousPatterns = [
-    /<script/i,
-    /javascript:/i,
-    /on\w+\s*=/i,
-    /alert\s*\(/i,
-    /confirm\s*\(/i,
-    /prompt\s*\(/i,
-    /eval\s*\(/i,
-    /document\./i,
-    /window\./i,
-    /<iframe/i,
-    /<object/i,
-    /<embed/i,
-    /<link/i,
-    /<meta/i,
-    /<style/i,
-    /<base/i,
-    /<form/i,
-    /<input/i,
-    /<button/i,
-    /<textarea/i,
-    /<select/i,
-    /<option/i,
-    /<svg/i,
-    /<math/i,
-    /&#/i, // HTML entities
-    /%3C/i, // URL encoded <
-    /%3E/i, // URL encoded >
-    /%22/i, // URL encoded "
-    /%27/i, // URL encoded '
-    /%3B/i, // URL encoded ;
-    /%2F/i, // URL encoded /
-    /%5C/i, // URL encoded \
-    /%3D/i, // URL encoded =
+    /<script/i, /javascript:/i, /on\w+\s*=/i, /alert\s*\(/i,
+    /confirm\s*\(/i, /prompt\s*\(/i, /eval\s*\(/i, /document\./i,
+    /window\./i, /<iframe/i, /<object/i, /<embed/i, /<link/i,
+    /<meta/i, /<style/i, /<base/i, /<form/i, /<input/i,
+    /<button/i, /<textarea/i, /<select/i, /<option/i, /<svg/i,
+    /<math/i, /&#/i, /%3C/i, /%3E/i, /%22/i, /%27/i, /%3B/i,
+    /%2F/i, /%5C/i, /%3D/i
   ]
-  
   return maliciousPatterns.some(pattern => pattern.test(input))
 }
 
 /**
- * Input validation hook for form fields
+ * Input validation hook
  */
 const useInputValidation = () => {
   const [error, setError] = useState<string | null>(null)
-  
   const validateAndSanitize = (value: string, type: 'search' | 'text' | 'number' = 'text'): string => {
     setError(null)
-    
-    // Check for malicious code first
     if (containsMaliciousCode(value)) {
       setError('Input contains potentially malicious content')
       return ''
     }
-    
     let result: { isValid: boolean; sanitized: string }
-    
     switch (type) {
       case 'search':
         result = validateSearchInput(value)
         break
       case 'number':
-        // For numbers, only allow digits and decimal points
-        const numSanitized = value.replace(/[^0-9.]/g, '')
-        return numSanitized
+        return value.replace(/[^0-9.]/g, '')
       default:
         result = validateTextInput(value)
     }
-    
     if (!result.isValid) {
       setError('Invalid input')
       return ''
     }
-    
     return result.sanitized
   }
-  
   return { validateAndSanitize, error, setError }
 }
 
@@ -286,7 +223,6 @@ interface TableData {
 const FOOD_PER_BATCH = 4
 const JUICE_PER_BATCH = 2
 
-// Category type detection
 const isFoodCategory = (categoryName: string): boolean => {
   const foodKeywords = [
     'pizza', 'burger', 'sandwich', 'pasta', 'salad', 'appetizer', 
@@ -312,11 +248,9 @@ const getTopPricedJuices = (items: Item[], categories: Category[]): Item[] => {
   const juiceCategoryIds = categories
     .filter(cat => isJuiceCategory(cat.name))
     .map(cat => cat._id)
-  
   const juiceItems = items.filter(item => 
     juiceCategoryIds.includes(item.categoryId) && item.isActive !== false
   )
-  
   return [...juiceItems].sort((a, b) => b.price - a.price)
 }
 
@@ -324,7 +258,6 @@ const getFoodItems = (items: Item[], categories: Category[]): Item[] => {
   const foodCategoryIds = categories
     .filter(cat => isFoodCategory(cat.name))
     .map(cat => cat._id)
-  
   return items.filter(item => 
     foodCategoryIds.includes(item.categoryId) && item.isActive !== false
   )
@@ -334,7 +267,6 @@ const getOtherItems = (items: Item[], categories: Category[]): Item[] => {
   const otherCategoryIds = categories
     .filter(cat => !isFoodCategory(cat.name) && !isJuiceCategory(cat.name))
     .map(cat => cat._id)
-  
   return items.filter(item => 
     otherCategoryIds.includes(item.categoryId) && item.isActive !== false
   )
@@ -349,9 +281,7 @@ const createMixedDisplayArray = (
   let foodIndex = 0
   let juiceIndex = 0
   const featuredAdded: string[] = []
-  
   const featuredItems = [...foodItems, ...juiceItems].filter(item => item.isFeatured)
-  
   featuredItems.slice(0, 3).forEach(item => {
     if (!featuredAdded.includes(item._id)) {
       result.push(item)
@@ -360,7 +290,6 @@ const createMixedDisplayArray = (
       if (juiceItems.find(j => j._id === item._id)) juiceIndex++
     }
   })
-  
   while (foodIndex < foodItems.length || juiceIndex < juiceItems.length) {
     for (let i = 0; i < FOOD_PER_BATCH && foodIndex < foodItems.length; i++) {
       const foodItem = foodItems[foodIndex]
@@ -369,7 +298,6 @@ const createMixedDisplayArray = (
       }
       foodIndex++
     }
-    
     for (let i = 0; i < JUICE_PER_BATCH && juiceIndex < juiceItems.length; i++) {
       const juiceItem = juiceItems[juiceIndex]
       if (!featuredAdded.includes(juiceItem._id)) {
@@ -378,7 +306,6 @@ const createMixedDisplayArray = (
       juiceIndex++
     }
   }
-  
   if (otherItems.length > 0) {
     otherItems.forEach(item => {
       if (!featuredAdded.includes(item._id)) {
@@ -386,7 +313,6 @@ const createMixedDisplayArray = (
       }
     })
   }
-  
   return result
 }
 
@@ -401,8 +327,6 @@ const sortCategoriesByPriority = (categories: Category[]): Category[] => {
 }
 
 // ========== MINIMAL ITEM CARD COMPONENT ==========
-// Ultra-minimal card: image (w-36 for desktop) + name + dot menu (opens details directly)
-// Name and three dots fit within image width
 const MinimalItemCard = ({ 
   item, 
   categoryName, 
@@ -420,13 +344,11 @@ const MinimalItemCard = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false)
 
-  // Handle image click - ADD TO CART
   const handleImageClick = () => {
     onAddToCart(item)
     toast.success(`Added ${item.name} to cart!`)
   }
 
-  // Handle three dots click - OPEN DETAILS DIRECTLY
   const handleDotsClick = (e: React.MouseEvent) => {
     e.stopPropagation()
     onViewDetails(item)
@@ -441,7 +363,6 @@ const MinimalItemCard = ({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Image - Click to add to cart */}
       <div 
         className={`
           aspect-square rounded-lg overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100/50 relative
@@ -467,8 +388,6 @@ const MinimalItemCard = ({
             <span className="text-2xl text-purple-300">🍽️</span>
           </div>
         )}
-        
-        {/* Add to cart overlay on hover */}
         <div className={`
           absolute inset-0 bg-purple-900/60 flex items-center justify-center 
           transition-opacity duration-200 rounded-lg
@@ -477,14 +396,10 @@ const MinimalItemCard = ({
           <ShoppingCart className="h-5 w-5 text-white" />
         </div>
       </div>
-
-      {/* Name and Dot Menu - fits within image width, no extra padding */}
       <div className="w-full flex items-center justify-between mt-1 px-0.5">
         <h3 className="text-xs font-medium text-gray-700 truncate flex-1 min-w-0">
           {item.name}
         </h3>
-        
-        {/* Three Dots - Click to open details directly */}
         <button
           onClick={handleDotsClick}
           className="p-0.5 rounded-full hover:bg-purple-50 transition-colors text-gray-400 hover:text-purple-900 flex-shrink-0"
@@ -501,8 +416,7 @@ const MinimalItemCard = ({
   )
 }
 
-// ========== LIST VIEW ITEM CARD (MOBILE) ==========
-// Image on left (w-16 h-16), Name + Price + Description on right (vertical, description 1 line)
+// ========== LIST VIEW ITEM CARD ==========
 const ListViewItemCard = ({
   item,
   categoryName,
@@ -529,7 +443,6 @@ const ListViewItemCard = ({
       className="flex items-center gap-3 p-2.5 bg-white rounded-xl shadow-sm border border-purple-100/50 hover:border-purple-300 hover:shadow-md transition-all cursor-pointer group"
       onClick={() => onViewDetails(item)}
     >
-      {/* Image - w-16 h-16, clickable to add to cart */}
       <div 
         className="w-16 h-16 rounded-lg overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100/50 flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-purple-400 transition-all"
         onClick={(e) => {
@@ -553,8 +466,6 @@ const ListViewItemCard = ({
           </div>
         )}
       </div>
-
-      {/* Right side: Name, Price, Description (vertical, description 1 line) */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1">
           <h3 className="text-sm font-medium text-gray-800 truncate flex-1">
@@ -564,21 +475,15 @@ const ListViewItemCard = ({
             ${item.price.toFixed(2)}
           </span>
         </div>
-        
-        {/* Description - one line only */}
         {item.description && (
           <p className="text-xs text-gray-500 truncate mt-0.5">
             {item.description}
           </p>
         )}
-        
-        {/* Category name - small */}
         <p className="text-[10px] text-gray-400 mt-0.5">
           {categoryName}
         </p>
       </div>
-
-      {/* Quick add button */}
       <button
         onClick={(e) => {
           e.stopPropagation()
@@ -593,7 +498,7 @@ const ListViewItemCard = ({
   )
 }
 
-// ========== LIST VIEW FOR DESKTOP (2 cards per row) ==========
+// ========== LIST VIEW FOR DESKTOP ==========
 const DesktopListViewItem = ({
   item,
   categoryName,
@@ -620,7 +525,6 @@ const DesktopListViewItem = ({
       className="flex items-center gap-4 p-3 bg-white rounded-xl shadow-sm border border-purple-100/50 hover:border-purple-300 hover:shadow-md transition-all cursor-pointer group"
       onClick={() => onViewDetails(item)}
     >
-      {/* Image - w-20 h-20 */}
       <div 
         className="w-20 h-20 rounded-lg overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100/50 flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-purple-400 transition-all"
         onClick={(e) => {
@@ -644,8 +548,6 @@ const DesktopListViewItem = ({
           </div>
         )}
       </div>
-
-      {/* Right side content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-base font-medium text-gray-800 truncate">
@@ -655,19 +557,15 @@ const DesktopListViewItem = ({
             ${item.price.toFixed(2)}
           </span>
         </div>
-        
         {item.description && (
           <p className="text-sm text-gray-500 truncate mt-0.5">
             {item.description}
           </p>
         )}
-        
         <p className="text-xs text-gray-400 mt-1">
           {categoryName}
         </p>
       </div>
-
-      {/* Quick add button */}
       <button
         onClick={(e) => {
           e.stopPropagation()
@@ -682,14 +580,580 @@ const DesktopListViewItem = ({
   )
 }
 
+// ========== MOBILE PAYMENT FLOW STEPS ==========
+type PaymentFlowStep = 'cart' | 'payment' | 'success'
+
+interface MobilePaymentFlowProps {
+  isOpen: boolean
+  onClose: () => void
+  cartItems: CartItem[]
+  onRemoveItem: (id: string) => void
+  onUpdateQuantity: (id: string, qty: number) => void
+  orderType: 'table' | 'delivery' | ''
+  onOrderTypeChange: (type: 'table' | 'delivery' | '') => void
+  tableNumber: string
+  onTableNumberChange: (num: string) => void
+  selectedTableData: TableData | null
+  onTableSelect: (table: TableData | null) => void
+  numberOfGuests: number
+  onGuestsChange: (num: number) => void
+  specialRequirements: string
+  onSpecialRequirementsChange: (req: string) => void
+  subtotal: number
+  tax: number
+  deliveryFee: DeliveryFeeDetails | null
+  total: number
+  onPlaceOrder: () => void
+  isPlacingOrder: boolean
+  isUserLoggedIn: boolean
+  userData: UserData | null
+  tableFromQR: boolean
+  onPlaceOrderDirect?: () => void
+  onPaymentScreenshotUpload: (file: File) => void
+  onPaymentScreenshotRemove: () => void
+  paymentScreenshot: PaymentScreenshot
+  transactionId: string
+  onTransactionIdChange: (id: string) => void
+  onFinalizeOrder: () => void
+  guestData: GuestUserData | null
+  onGuestOrder: (data: GuestUserData) => void
+  isQRTable: boolean
+}
+
+const MobilePaymentFlow: React.FC<MobilePaymentFlowProps> = ({
+  isOpen,
+  onClose,
+  cartItems,
+  onRemoveItem,
+  onUpdateQuantity,
+  orderType,
+  onOrderTypeChange,
+  tableNumber,
+  onTableNumberChange,
+  selectedTableData,
+  onTableSelect,
+  numberOfGuests,
+  onGuestsChange,
+  specialRequirements,
+  onSpecialRequirementsChange,
+  subtotal,
+  tax,
+  deliveryFee,
+  total,
+  onPlaceOrder,
+  isPlacingOrder,
+  isUserLoggedIn,
+  userData,
+  tableFromQR,
+  onPlaceOrderDirect,
+  onPaymentScreenshotUpload,
+  onPaymentScreenshotRemove,
+  paymentScreenshot,
+  transactionId,
+  onTransactionIdChange,
+  onFinalizeOrder,
+  guestData,
+  onGuestOrder,
+  isQRTable
+}) => {
+  const [currentStep, setCurrentStep] = useState<PaymentFlowStep>('cart')
+  const [showGuestForm, setShowGuestForm] = useState(false)
+  const [guestFormData, setGuestFormData] = useState<GuestUserData>({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    email: '',
+    isGuest: true
+  })
+
+  // Reset step when dialog opens
+  useEffect(() => {
+    if (isOpen) {
+      setCurrentStep('cart')
+    }
+  }, [isOpen])
+
+  // Handle proceed to payment
+  const handleProceedToPayment = () => {
+    if (cartItems.length === 0) return
+    if (!orderType) return
+    if (orderType === 'table' && !selectedTableData) return
+    
+    // If QR table, go directly to success
+    if (isQRTable && onPlaceOrderDirect) {
+      onPlaceOrderDirect()
+      setCurrentStep('success')
+      return
+    }
+    
+    // For non-QR table orders, go to payment step
+    setCurrentStep('payment')
+  }
+
+  // Handle payment submission
+  const handlePaymentSubmit = () => {
+    if (!paymentScreenshot.uploaded) {
+      toast.error('Please upload payment screenshot')
+      return
+    }
+    onFinalizeOrder()
+    setCurrentStep('success')
+  }
+
+  // Handle back to cart
+  const handleBackToCart = () => {
+    setCurrentStep('cart')
+  }
+
+  // Handle guest form submission
+  const handleGuestFormSubmit = () => {
+    if (!guestFormData.firstName || !guestFormData.phone) {
+      toast.error('Please fill in all required fields')
+      return
+    }
+    onGuestOrder(guestFormData)
+    setShowGuestForm(false)
+    handleProceedToPayment()
+  }
+
+  // Format currency
+  const formatCurrency = (value: number | undefined | null): string => {
+    if (value === undefined || value === null || isNaN(value)) return '0.00'
+    return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+
+  const formattedSubtotal = formatCurrency(subtotal)
+  const formattedTax = formatCurrency(tax)
+  const formattedTotal = formatCurrency(total)
+  const formattedDeliveryFee = formatCurrency(deliveryFee?.fee)
+
+  // Get image source
+  const getImageSrc = (imageUrl?: string): string => {
+    if (!imageUrl) return '/placeholder.svg'
+    if (imageUrl.startsWith('http')) return imageUrl
+    if (imageUrl.startsWith('/uploads')) return imageUrl
+    return `/uploads/${imageUrl}`
+  }
+
+  // Calculate price breakdown
+  const calculatePriceBreakdown = (priceWithTax: number, taxRate: number = 0.15) => {
+    const originalPrice = priceWithTax / (1 + taxRate)
+    const taxAmount = priceWithTax - originalPrice
+    return { originalPrice, taxAmount }
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <AnimatePresence mode="wait">
+      {/* Full Screen Overlay */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[100] bg-white"
+      >
+        {/* Step 1: Cart Review */}
+        {currentStep === 'cart' && (
+          <motion.div
+            key="cart-step"
+            initial={{ x: 0, opacity: 1 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -300, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex flex-col h-full"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-purple-100 bg-white sticky top-0 z-10">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onClose}
+                  className="h-8 w-8 rounded-full hover:bg-purple-50"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+                <h2 className="text-base font-bold text-purple-900">Review Order</h2>
+              </div>
+              <Badge className="bg-purple-100 text-purple-900">
+                {cartItems.length} items
+              </Badge>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4 pb-28">
+              {/* Cart Items */}
+              <div className="space-y-3">
+                {cartItems.map((item) => {
+                  const { originalPrice } = calculatePriceBreakdown(Number(item.price))
+                  return (
+                    <div key={item._id} className="flex gap-3 border border-purple-100 rounded-lg bg-white p-3">
+                      <div className="h-14 w-14 flex-shrink-0 rounded-lg overflow-hidden bg-purple-50">
+                        <img
+                          src={getImageSrc(item.imageUrl)}
+                          alt={item.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => (e.target as HTMLImageElement).src = '/placeholder.svg'}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between">
+                          <h4 className="font-medium text-sm text-gray-800 truncate">{item.name}</h4>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => onRemoveItem(item._id)}
+                            className="h-6 w-6 rounded-full text-red-400 hover:bg-red-50 hover:text-red-600"
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <div className="flex items-center border border-purple-100 rounded-md overflow-hidden">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onUpdateQuantity(item._id, item.quantity - 1)}
+                              className="h-6 w-6 p-0 rounded-none hover:bg-purple-50"
+                            >
+                              <Minus className="h-2.5 w-2.5" />
+                            </Button>
+                            <span className="w-6 text-center text-xs font-medium text-purple-900">
+                              {item.quantity}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onUpdateQuantity(item._id, item.quantity + 1)}
+                              className="h-6 w-6 p-0 rounded-none hover:bg-purple-50"
+                            >
+                              <Plus className="h-2.5 w-2.5" />
+                            </Button>
+                          </div>
+                          <span className="text-sm font-bold text-purple-900">
+                            {(originalPrice * item.quantity).toFixed(2)} Birr
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Order Summary */}
+              <div className="mt-4 space-y-2 bg-purple-50/50 rounded-lg p-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Subtotal</span>
+                  <span className="font-medium">{formattedSubtotal} Birr</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">VAT 15%</span>
+                  <span className="font-medium">{formattedTax} Birr</span>
+                </div>
+                {orderType === 'delivery' && deliveryFee && deliveryFee.fee > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Delivery Fee</span>
+                    <span className="font-medium">{formattedDeliveryFee} Birr</span>
+                  </div>
+                )}
+                <div className="border-t border-purple-200 pt-2">
+                  <div className="flex justify-between">
+                    <span className="font-bold text-gray-800">Total</span>
+                    <span className="font-bold text-purple-900 text-lg">{formattedTotal} Birr</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Order Type Info */}
+              <div className="mt-3 bg-white border border-purple-100 rounded-lg p-3">
+                <div className="flex items-center gap-2">
+                  {orderType === 'table' ? (
+                    <Home className="h-4 w-4 text-purple-600" />
+                  ) : (
+                    <Truck className="h-4 w-4 text-purple-600" />
+                  )}
+                  <span className="text-sm font-medium">
+                    {orderType === 'table' ? 'Dine In' : 'Delivery'}
+                  </span>
+                  {orderType === 'table' && selectedTableData && (
+                    <Badge variant="outline" className="ml-auto">
+                      Table {selectedTableData.number}
+                    </Badge>
+                  )}
+                </div>
+                {isQRTable && (
+                  <div className="mt-1 flex items-center gap-1 text-xs text-green-600">
+                    <ScanLine className="h-3 w-3" />
+                    QR Table • No payment upload required
+                  </div>
+                )}
+                {!isQRTable && orderType === 'table' && (
+                  <div className="mt-1 flex items-center gap-1 text-xs text-amber-600">
+                    <CreditCard className="h-3 w-3" />
+                    Payment upload required
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-purple-100 p-4">
+              <Button
+                onClick={handleProceedToPayment}
+                className="w-full h-12 text-sm font-bold bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white rounded-xl"
+                disabled={cartItems.length === 0 || !orderType || (orderType === 'table' && !selectedTableData)}
+              >
+                {isQRTable ? 'Place Order' : 'Proceed to Payment'}
+                <ChevronRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Step 2: Payment Upload */}
+        {currentStep === 'payment' && (
+          <motion.div
+            key="payment-step"
+            initial={{ x: 300, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 300, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex flex-col h-full"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-purple-100 bg-white sticky top-0 z-10">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleBackToCart}
+                  className="h-8 w-8 rounded-full hover:bg-purple-50"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <h2 className="text-base font-bold text-purple-900">Payment</h2>
+              </div>
+              <Badge className="bg-purple-100 text-purple-900">Step 2 of 2</Badge>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4 pb-28">
+              {/* Order Summary */}
+              <div className="bg-gradient-to-r from-purple-50 to-white rounded-lg p-4 border border-purple-100 mb-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Order Summary</h3>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span>{formattedSubtotal} Birr</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">VAT 15%</span>
+                    <span>{formattedTax} Birr</span>
+                  </div>
+                  <div className="border-t border-purple-200 pt-1 mt-1">
+                    <div className="flex justify-between font-bold">
+                      <span>Total</span>
+                      <span className="text-purple-900">{formattedTotal} Birr</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Upload */}
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Payment Screenshot</Label>
+                  <p className="text-xs text-gray-500 mt-1">Upload a screenshot of your payment confirmation</p>
+                </div>
+
+                {paymentScreenshot.uploaded ? (
+                  <div className="relative rounded-lg overflow-hidden border-2 border-green-200 bg-green-50 p-3">
+                    <img
+                      src={paymentScreenshot.previewUrl}
+                      alt="Payment screenshot"
+                      className="w-full max-h-48 object-contain rounded"
+                    />
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={onPaymentScreenshotRemove}
+                      className="absolute top-2 right-2 h-8 w-8 rounded-full p-0"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-purple-200 rounded-lg p-8 text-center hover:border-purple-400 transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) onPaymentScreenshotUpload(file)
+                      }}
+                      className="hidden"
+                      id="payment-upload"
+                    />
+                    <label htmlFor="payment-upload" className="cursor-pointer block">
+                      <Upload className="h-12 w-12 text-purple-400 mx-auto mb-2" />
+                      <p className="text-sm text-gray-600">Tap to upload screenshot</p>
+                      <p className="text-xs text-gray-400 mt-1">PNG, JPG, JPEG up to 5MB</p>
+                    </label>
+                  </div>
+                )}
+
+                {/* Transaction ID */}
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Transaction ID</Label>
+                  <Input
+                    placeholder="Enter transaction ID (optional)"
+                    value={transactionId}
+                    onChange={(e) => onTransactionIdChange(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+
+                {/* Guest Info (if not logged in) */}
+                {!isUserLoggedIn && !guestData && (
+                  <div>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowGuestForm(!showGuestForm)}
+                      className="w-full"
+                    >
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      {showGuestForm ? 'Hide Guest Info' : 'Add Guest Contact Info'}
+                    </Button>
+                    
+                    {showGuestForm && (
+                      <div className="mt-3 space-y-2 p-3 border border-purple-100 rounded-lg">
+                        <Input
+                          placeholder="First Name *"
+                          value={guestFormData.firstName}
+                          onChange={(e) => setGuestFormData({ ...guestFormData, firstName: e.target.value })}
+                        />
+                        <Input
+                          placeholder="Last Name"
+                          value={guestFormData.lastName}
+                          onChange={(e) => setGuestFormData({ ...guestFormData, lastName: e.target.value })}
+                        />
+                        <Input
+                          placeholder="Phone Number *"
+                          value={guestFormData.phone}
+                          onChange={(e) => setGuestFormData({ ...guestFormData, phone: e.target.value })}
+                        />
+                        <Input
+                          placeholder="Email"
+                          value={guestFormData.email}
+                          onChange={(e) => setGuestFormData({ ...guestFormData, email: e.target.value })}
+                        />
+                        <Button
+                          onClick={handleGuestFormSubmit}
+                          className="w-full bg-purple-600 hover:bg-purple-700"
+                        >
+                          Save Guest Info
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* QR Table indicator */}
+                {isQRTable && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
+                    <ScanLine className="h-4 w-4 text-green-600" />
+                    <span className="text-sm text-green-700">QR Table order - Direct placement</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-purple-100 p-4">
+              <Button
+                onClick={handlePaymentSubmit}
+                className="w-full h-12 text-sm font-bold bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white rounded-xl"
+                disabled={!paymentScreenshot.uploaded || isPlacingOrder}
+              >
+                {isPlacingOrder ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent mr-2" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="mr-2 h-4 w-4" />
+                    Confirm Payment & Place Order
+                  </>
+                )}
+              </Button>
+              <p className="text-xs text-center text-gray-500 mt-2">
+                By placing this order, you agree to our terms and conditions
+              </p>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Step 3: Success */}
+        {currentStep === 'success' && (
+          <motion.div
+            key="success-step"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.8, opacity: 0 }}
+            transition={{ duration: 0.4 }}
+            className="flex flex-col items-center justify-center h-full p-8 text-center"
+          >
+            <div className="relative">
+              <div className="absolute inset-0 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full blur-3xl opacity-20" />
+              <div className="relative h-24 w-24 rounded-full bg-gradient-to-r from-green-400 to-emerald-500 flex items-center justify-center mx-auto">
+                <CheckCircle className="h-12 w-12 text-white" />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-800 mt-4">Order Placed Successfully!</h2>
+            <p className="text-gray-600 mt-2 max-w-xs">
+              Your order has been received and is being prepared
+            </p>
+            <div className="mt-6 bg-purple-50 rounded-lg p-4 w-full max-w-sm">
+              <p className="text-sm text-gray-600">Order Number</p>
+              <p className="text-lg font-bold text-purple-900">{`ORD-${Date.now().toString().slice(-6)}`}</p>
+            </div>
+            <Button
+              onClick={() => {
+                setCurrentStep('cart')
+                onClose()
+              }}
+              className="mt-6 h-12 px-8 bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white rounded-xl"
+            >
+              Continue Browsing
+            </Button>
+          </motion.div>
+        )}
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
 export default function MenuPage() {
   const router = useRouter()
-  const searchParams = useSearchParams() // Get search params from URL
+  const searchParams = useSearchParams()
   const { userData, isLoggedIn } = useUserData()
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window !== 'undefined') return window.innerWidth >= 1024
+    return false
+  })
+
+  useEffect(() => {
+    const check = () => setIsDesktop(window.innerWidth >= 1024)
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
   
   // ========== CART STATE WITH LOCALSTORAGE PERSISTENCE ==========
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [cartLoaded, setCartLoaded] = useState(false)
+  const [showMobilePaymentFlow, setShowMobilePaymentFlow] = useState(false)
 
   // Load cart from localStorage on mount
   useEffect(() => {
@@ -712,20 +1176,13 @@ export default function MenuPage() {
   const addToCart = useCallback((item: Item, quantity: number = 1, specialInstructions: string = '') => {
     setCartItems(prev => {
       const existingItem = prev.find(cartItem => cartItem._id === item._id)
-      
       if (existingItem) {
-        // Update quantity if item already exists
         return prev.map(cartItem =>
           cartItem._id === item._id
-            ? { 
-                ...cartItem, 
-                quantity: cartItem.quantity + quantity,
-                specialInstructions: specialInstructions || cartItem.specialInstructions
-              }
+            ? { ...cartItem, quantity: cartItem.quantity + quantity, specialInstructions: specialInstructions || cartItem.specialInstructions }
             : cartItem
         )
       } else {
-        // Add new item
         const newItem: CartItem = {
           _id: item._id,
           name: item.name,
@@ -753,9 +1210,7 @@ export default function MenuPage() {
     }
     setCartItems(prev =>
       prev.map(item =>
-        item._id === itemId
-          ? { ...item, quantity }
-          : item
+        item._id === itemId ? { ...item, quantity } : item
       )
     )
   }, [removeFromCart])
@@ -773,18 +1228,6 @@ export default function MenuPage() {
   const subtotal = useMemo(() => {
     return cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0)
   }, [cartItems])
-
-  // Use the cart functions from useCart hook if available, otherwise use our local ones
-  // This allows compatibility with other components that might use the hook
-  const cartContext = useCart()
-  
-  // Sync our local cart with the hook's cart if needed
-  useEffect(() => {
-    if (cartContext && cartContext.isLoaded && cartContext.cart.length > 0 && cartItems.length === 0) {
-      // If the hook has items but we don't, use them
-      setCartItems(cartContext.cart)
-    }
-  }, [cartContext, cartItems])
 
   // Input validation hook
   const { validateAndSanitize: validateSearch, error: searchError, setError: setSearchError } = useInputValidation()
@@ -808,13 +1251,13 @@ export default function MenuPage() {
   // ========== TABLE DETECTION STATE ==========
   const [detectedTable, setDetectedTable] = useState<string | null>(null)
   const [tableDetected, setTableDetected] = useState(false)
+  const [isQRTable, setIsQRTable] = useState(false)
 
   // ========== TWO-STEP NAVIGATION STATE ==========
-  // Mobile
   const [mobileStep, setMobileStep] = useState<'categories' | 'items'>('categories')
   const [selectedCategoryForMobile, setSelectedCategoryForMobile] = useState<Category | null>(null)
   
-  // ========== FASTING FILTER STATE (MOBILE ONLY) ==========
+  // ========== FASTING FILTER STATE ==========
   type FastingFilter = 'all' | 'fasting' | 'non-fasting'
   const [fastingFilter, setFastingFilter] = useState<FastingFilter>('all')
   
@@ -858,58 +1301,74 @@ export default function MenuPage() {
 
   // ========== TABLE DETECTION FROM URL ==========
   useEffect(() => {
-    // Get the table parameter from URL
+    const decodeParam = (param: string | null): string => {
+      if (!param) return ''
+      let decoded = decodeURIComponent(param)
+      decoded = decoded.replace(/\+/g, ' ')
+      return decoded
+    }
+
     const tableParam = searchParams.get('table')
-    
+    const tableIdParam = searchParams.get('tableId')
+    const restaurantIdParam = searchParams.get('restaurantId')
+    const floorParam = searchParams.get('floor')
+    const restaurantNameParam = searchParams.get('restaurant')
+    const capacityParam = searchParams.get('capacity')
+
+    const isQRScan = !!(tableIdParam && restaurantIdParam)
+
     if (tableParam) {
-      // Sanitize the table parameter
-      const sanitizedTable = sanitizeInput(tableParam)
-      
-      // Extract just the table number from "table-7" format
+      const decodedTable = decodeParam(tableParam)
+      const sanitizedTable = sanitizeInput(decodedTable)
       let tableNumberDisplay = sanitizedTable
       if (sanitizedTable.startsWith('table-')) {
         tableNumberDisplay = sanitizedTable.replace('table-', '')
       }
-      
-      // Validate that it's a valid table number
+
       const tableNum = parseInt(tableNumberDisplay)
       if (!isNaN(tableNum) && tableNum > 0) {
-        // Store in localStorage for persistence
+        localStorage.setItem('qrcode', isQRScan ? 'true' : 'false')
         localStorage.setItem('detectedTableNumber', tableNumberDisplay)
         localStorage.setItem('tableDetected', 'true')
-        
+        localStorage.setItem('isQRTable', isQRScan ? 'true' : 'false')
+
         setDetectedTable(tableNumberDisplay)
         setTableDetected(true)
-        
-        // Set the table number in state
+        setIsQRTable(isQRScan)
         setTableNumber(tableNumberDisplay)
         setOrderType('table')
-        
-        // Create a table data object
+
         const tableData: TableData = {
+          id: sanitizeInput(decodeParam(tableIdParam || '')),
           number: tableNum,
-          capacity: 4, // Default capacity, can be adjusted
-          restaurantId: 'manyazewal1',
-          restaurantName: 'Manyazewal Restaurant',
-          floor: 'Ground Floor'
+          capacity: parseInt(sanitizeInput(decodeParam(capacityParam || '4'))) || 4,
+          restaurantId: sanitizeInput(decodeParam(restaurantIdParam || 'manyazewal1')),
+          restaurantName: sanitizeInput(decodeParam(restaurantNameParam || 'Manyazewal Restaurant')),
+          floor: sanitizeInput(decodeParam(floorParam || 'Ground Floor'))
         }
         setSelectedTableData(tableData)
         
-        // NO TOAST - Silent detection
+        console.log('✅ Table detected from URL:', {
+          tableNumber: tableNum,
+          isQR: isQRScan,
+          capacity: tableData.capacity,
+          restaurant: tableData.restaurantName
+        })
       }
     } else {
-      // Check if we have a stored table number from before
       const storedTable = localStorage.getItem('detectedTableNumber')
       const storedDetected = localStorage.getItem('tableDetected')
-      
+      const storedIsQR = localStorage.getItem('isQRTable')
+
       if (storedTable && storedDetected === 'true') {
         const tableNum = parseInt(storedTable)
         if (!isNaN(tableNum) && tableNum > 0) {
           setDetectedTable(storedTable)
           setTableDetected(true)
+          setIsQRTable(storedIsQR === 'true')
           setTableNumber(storedTable)
           setOrderType('table')
-          
+
           const tableData: TableData = {
             number: tableNum,
             capacity: 4,
@@ -918,6 +1377,8 @@ export default function MenuPage() {
             floor: 'Ground Floor'
           }
           setSelectedTableData(tableData)
+          
+          console.log('✅ Table restored from localStorage:', tableNum)
         }
       }
     }
@@ -929,7 +1390,6 @@ export default function MenuPage() {
 
   const categoryChargesTotal = useMemo(() => {
     if (orderType !== 'delivery') return 0
-    
     return cartItems.reduce((total, cartItem) => {
       const category = categories.find(c => c._id === cartItem.categoryId)
       const charge = getCategoryAdditionalCharge(category?.name || '', category?.type)
@@ -949,13 +1409,7 @@ export default function MenuPage() {
   // Load from encrypted cache
   const loadFromCache = useCallback(async () => {
     try {
-      const { 
-        categories: cachedCategories, 
-        items: cachedItems, 
-        waiters: cachedWaiters, 
-        isValid 
-      } = await cacheManager.loadMenuData()
-
+      const { categories: cachedCategories, items: cachedItems, waiters: cachedWaiters, isValid } = await cacheManager.loadMenuData()
       if (isValid && cachedCategories.length > 0 && cachedItems.length > 0) {
         setCategories(cachedCategories)
         setSortedCategories(sortCategoriesByPriority(cachedCategories))
@@ -1018,7 +1472,6 @@ export default function MenuPage() {
         if (Array.isArray(catData)) categoriesData = catData
         else if (catData?.data && Array.isArray(catData.data)) categoriesData = catData.data
         else if (catData?.categories && Array.isArray(catData.categories)) categoriesData = catData.categories
-        
         categoriesData = categoriesData.filter(cat => !shouldHideCategory(cat))
         setCategories(categoriesData)
         setSortedCategories(sortCategoriesByPriority(categoriesData))
@@ -1072,7 +1525,6 @@ export default function MenuPage() {
     } catch (err: any) {
       if (err.name === 'AbortError') return
       console.error('Fetch error:', err.message)
-      
       const cached = await loadFromCache()
       if (!cached) {
         toast.error('Unable to load menu. Please check your connection.')
@@ -1085,9 +1537,7 @@ export default function MenuPage() {
   // ========== SECURE SEARCH HANDLER ==========
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value
-    
     setSearchInputValue(rawValue)
-    
     if (containsMaliciousCode(rawValue)) {
       setSearchError('Invalid characters detected')
       toast.error('Search contains invalid characters')
@@ -1095,15 +1545,12 @@ export default function MenuPage() {
       setSearchTerm('')
       return
     }
-    
     const { isValid, sanitized } = validateSearchInput(rawValue)
-    
     if (!isValid) {
       setSearchError('Invalid input')
       toast.error('Invalid characters in search')
       return
     }
-    
     setSearchError(null)
     setSearchTerm(sanitized)
   }, [validateSearchInput, setSearchError])
@@ -1118,14 +1565,11 @@ export default function MenuPage() {
       toast.error(`${fieldName} contains invalid characters`)
       return
     }
-    
     const { isValid, sanitized } = validateTextInput(value)
-    
     if (!isValid) {
       toast.error(`Invalid ${fieldName}`)
       return
     }
-    
     setter(sanitized)
   }, [])
 
@@ -1135,7 +1579,6 @@ export default function MenuPage() {
       const foodItems = getFoodItems(items, categories)
       const juiceItems = getTopPricedJuices(items, categories)
       const otherItems = getOtherItems(items, categories)
-      
       const mixed = createMixedDisplayArray(foodItems, juiceItems, otherItems)
       setMixedDisplayItems(mixed)
     }
@@ -1159,12 +1602,10 @@ export default function MenuPage() {
       try {
         const hasOldCategories = localStorage.getItem('menu_categories') !== null
         const hasOldItems = localStorage.getItem('menu_items') !== null
-        
         if (hasOldCategories || hasOldItems) {
           console.log('🔄 Migrating old data to encrypted format...')
           await cacheManager.migrateOldData()
         }
-        
         const loaded = await loadFromCache()
         if (!loaded) {
           await fetchMenuData()
@@ -1174,9 +1615,7 @@ export default function MenuPage() {
         await fetchMenuData()
       }
     }
-
     initialize()
-    
     return () => {
       if (abortControllerRef.current) abortControllerRef.current.abort()
     }
@@ -1189,7 +1628,6 @@ export default function MenuPage() {
         .map(item => getImageSrc(item.imageUrl))
         .filter(url => url && url !== '/placeholder.svg')
         .slice(0, 8)
-
       if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
         (window as any).requestIdleCallback(() => preloadImages(imageUrls))
       } else {
@@ -1202,16 +1640,12 @@ export default function MenuPage() {
   // Filter items
   useEffect(() => {
     if (items.length === 0) return
-
     let result = [...items]
-
     const visibleCategoryIds = categories.map(c => c._id)
     result = result.filter(item => visibleCategoryIds.includes(item.categoryId))
-
     if (selectedCategory) {
       result = result.filter(item => item.categoryId === selectedCategory)
     }
-
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
       result = result.filter(item =>
@@ -1219,7 +1653,6 @@ export default function MenuPage() {
         (item.description?.toLowerCase() || '').includes(term)
       )
     }
-
     setFilteredItems(result)
   }, [items, categories, selectedCategory, searchTerm])
 
@@ -1228,10 +1661,7 @@ export default function MenuPage() {
     const fetchArrangementId = async () => {
       try {
         const response = await api.get('/api/tables/arrangement', {
-          params: { 
-            restaurantId: 'manyazewal1', 
-            floor: 'Ground Floor' 
-          },
+          params: { restaurantId: 'manyazewal1', floor: 'Ground Floor' },
           timeout: 5000
         })
         if (response.data?.data?._id) {
@@ -1251,30 +1681,30 @@ export default function MenuPage() {
       setSelectedTableData(null)
       setTableNumber('')
       setOrderType('')
-      // Remove from localStorage
+      setDetectedTable(null)
+      setTableDetected(false)
+      setIsQRTable(false)
       localStorage.removeItem('detectedTableNumber')
       localStorage.removeItem('tableDetected')
+      localStorage.removeItem('qrcode')
       toast.success('Table unselected')
       return
     }
-    
     const tableWithDetails: TableData = {
       ...table,
       restaurantId: restaurantId || table.restaurantId,
       restaurantName: table.restaurantName,
       floor: floor || table.floor
     }
-    
     setSelectedTableData(tableWithDetails)
     setTableNumber(table.number.toString())
     setOrderType('table')
-    
-    // Save to localStorage
+    setDetectedTable(table.number.toString())
+    setTableDetected(true)
+    setIsQRTable(false)
     localStorage.setItem('detectedTableNumber', table.number.toString())
     localStorage.setItem('tableDetected', 'true')
-    
     toast.success(`Table ${table.number} selected!`)
-    
     if (table.capacity && table.capacity < numberOfGuests) {
       setNumberOfGuests(table.capacity)
     }
@@ -1288,7 +1718,6 @@ export default function MenuPage() {
       email: guestData.email.replace(/[^a-zA-Z0-9@._-]/g, ''),
       isGuest: true
     }
-    
     setGuestUserData(sanitizedGuestData)
     sessionStorage.setItem('guestOrderData', JSON.stringify(sanitizedGuestData))
   }
@@ -1301,7 +1730,6 @@ export default function MenuPage() {
           setIsCalculatingDelivery(true)
           try {
             let feeDetails: DeliveryFeeDetails
-
             if (userData.location?.coordinates &&
               Array.isArray(userData.location.coordinates) &&
               userData.location.coordinates.length === 2) {
@@ -1331,7 +1759,6 @@ export default function MenuPage() {
       }
       calculateDeliveryFee()
     }, 500)
-
     return () => clearTimeout(timer)
   }, [orderType, isLoggedIn, userData, adjustedSubtotal, deliveryCalculator])
 
@@ -1360,6 +1787,9 @@ export default function MenuPage() {
     }
   }
 
+  // ========== PLACE ORDER HANDLERS ==========
+  
+  // Show payment upload dialog (for non-QR orders)
   const handlePlaceOrder = () => {
     if (cartItems.length === 0) {
       toast.error('Please add items to your cart')
@@ -1373,9 +1803,117 @@ export default function MenuPage() {
       toast.error('Please select a table')
       return
     }
+    
+    // On mobile, show the full-screen payment flow
+    if (!isDesktop) {
+      setShowMobilePaymentFlow(true)
+      setIsCartOpen(false)
+      return
+    }
+    
+    // On desktop, show the payment upload dialog
     setShowPaymentUpload(true)
   }
 
+  // Direct order for QR table users - no payment screenshot required
+  const handleDirectOrder = async () => {
+    if (cartItems.length === 0) return
+    if (!selectedTableData) return
+
+    setIsPlacingOrder(true)
+    const orderToast = toast.loading('Placing your order...')
+
+    try {
+      const assignedWaiterId = getAutoAssignedWaiter()
+      const assignedWaiterName = waiters.find(w => w._id === assignedWaiterId)?.name || ''
+
+      const orderItems = cartItems.map(cartItem => ({
+        itemId: cartItem._id,
+        itemName: sanitizeInput(cartItem.name),
+        quantity: cartItem.quantity,
+        notes: sanitizeInput(cartItem.specialInstructions || ''),
+        price: Number(cartItem.price),
+        total: Number(cartItem.price) * cartItem.quantity
+      }))
+
+      const isGuest = !isLoggedIn
+      const customerName = isLoggedIn
+        ? sanitizeInput(`${userData?.firstName || ''} ${userData?.lastName || ''}`.trim()) || 'Walk-in'
+        : guestUserData
+          ? sanitizeInput(`${guestUserData.firstName} ${guestUserData.lastName}`.trim())
+          : 'Guest User'
+      const customerPhone = isLoggedIn
+        ? userData?.phone?.replace(/[^0-9+]/g, '') || ''
+        : guestUserData?.phone?.replace(/[^0-9+]/g, '') || ''
+
+      const orderData = {
+        orderNumber: sanitizeInput(orderNumber),
+        orderType: 'table',
+        paymentMethod: 'CASH',
+        restaurantId: selectedTableData.restaurantId || 'manyazewal1',
+        restaurantName: sanitizeInput(selectedTableData.restaurantName || 'Manyazewal Restaurant'),
+        floor: sanitizeInput(selectedTableData.floor || 'Ground Floor'),
+        arrangementId: sanitizeInput(arrangementId),
+        numberOfGuests,
+        items: orderItems,
+        discount: 0,
+        specialRequirements: sanitizeInput(specialRequirements),
+        transactionId: `QR-${Date.now()}`,
+        customerId: isLoggedIn ? (userData?.id || userData?._id || 'walk-in') : 'guest',
+        customerName,
+        customerPhone,
+        subtotal,
+        adjustedSubtotal,
+        tax: calculatedTax,
+        totalAmount: adjustedSubtotal + calculatedTax,
+        finalAmount: finalTotal,
+        isGuestOrder: isGuest,
+        tableNumber: sanitizeInput(selectedTableData.number.toString()),
+        tableId: sanitizeInput(selectedTableData.id || ''),
+        tableCapacity: selectedTableData.capacity,
+        waiterId: sanitizeInput(assignedWaiterId),
+        waiterName: sanitizeInput(assignedWaiterName),
+        inTable: true,
+        delivery: false,
+        qrOrder: true
+      }
+
+      const formData = new FormData()
+      formData.append('orderData', JSON.stringify(orderData))
+
+      const response = await fetch('/api/order', { method: 'POST', body: formData })
+      const result = await response.json()
+
+      if (!response.ok) throw new Error(result.error || result.message || 'Failed to place order')
+
+      clearCart()
+      setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`)
+      setOrderType('')
+      setTableNumber('')
+      setSelectedTableData(null)
+      setSpecialRequirements('')
+      setIsCartOpen(false)
+      setShowMobilePaymentFlow(false)
+
+      toast.success('Order placed successfully!', { id: orderToast, duration: 5000 })
+
+      let progress = 0
+      const interval = setInterval(() => {
+        progress += 10
+        setOrderProgress(progress)
+        if (progress >= 100) {
+          clearInterval(interval)
+          setTimeout(() => setOrderProgress(0), 2000)
+        }
+      }, 300)
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to place order. Please try again.', { id: orderToast })
+    } finally {
+      setIsPlacingOrder(false)
+    }
+  }
+
+  // Handle payment screenshot upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -1392,11 +1930,16 @@ export default function MenuPage() {
         toast.error('File name contains invalid characters')
         return
       }
-      
       const previewUrl = URL.createObjectURL(file)
       setPaymentScreenshot({ file, previewUrl, uploaded: true })
       toast.success('Payment screenshot uploaded')
     }
+  }
+
+  const handlePaymentScreenshotUpload = (file: File) => {
+    const previewUrl = URL.createObjectURL(file)
+    setPaymentScreenshot({ file, previewUrl, uploaded: true })
+    toast.success('Payment screenshot uploaded')
   }
 
   const removePaymentScreenshot = () => {
@@ -1404,6 +1947,7 @@ export default function MenuPage() {
     setPaymentScreenshot({ file: null, previewUrl: '', uploaded: false })
   }
 
+  // Finalize order with payment
   const handleFinalizeOrder = async () => {
     if (!paymentScreenshot.uploaded || !paymentScreenshot.file) {
       toast.error('Please upload payment screenshot')
@@ -1426,7 +1970,6 @@ export default function MenuPage() {
           ? getCategoryAdditionalCharge(category?.name || '', category?.type)
           : 0
         const finalItemPrice = basePrice + categoryCharge
-        
         return {
           itemId: cartItem._id,
           itemName: sanitizeInput(cartItem.name),
@@ -1443,17 +1986,14 @@ export default function MenuPage() {
       const customerId = isLoggedIn 
         ? (userData?.id || userData?._id || 'walk-in')
         : (guestUserData ? 'guest' : 'walk-in')
-        
       const customerName = isLoggedIn 
         ? sanitizeInput(`${userData?.firstName || ''} ${userData?.lastName || ''}`.trim()) || 'Walk-in'
         : guestUserData 
           ? sanitizeInput(`${guestUserData.firstName} ${guestUserData.lastName}`.trim())
           : 'Guest User'
-          
       const customerPhone = isLoggedIn 
         ? userData?.phone?.replace(/[^0-9+]/g, '') || ''
         : guestUserData?.phone?.replace(/[^0-9+]/g, '') || ''
-        
       const customerEmail = isLoggedIn 
         ? userData?.email?.replace(/[^a-zA-Z0-9@._-]/g, '') || ''
         : guestUserData?.email?.replace(/[^a-zA-Z0-9@._-]/g, '') || ''
@@ -1511,7 +2051,6 @@ export default function MenuPage() {
           const [lng, lat] = userData.location.coordinates
           locationData = { type: "Point", coordinates: [lng, lat] }
         }
-        
         ;(orderData as any).deliveryInfo = {
           fullName: customerName,
           phoneNumber: customerPhone,
@@ -1536,9 +2075,7 @@ export default function MenuPage() {
 
       if (!response.ok) throw new Error(result.error || result.message || 'Failed to place order')
       
-      // Clear cart and localStorage
       clearCart()
-      
       setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`)
       setOrderType('')
       setTableNumber('')
@@ -1547,6 +2084,7 @@ export default function MenuPage() {
       setTransactionId('')
       setSpecialRequirements('')
       setShowPaymentUpload(false)
+      setShowMobilePaymentFlow(false)
       setIsCartOpen(false)
       
       if (isGuest) {
@@ -1603,28 +2141,40 @@ export default function MenuPage() {
   const hasActiveFilters = searchTerm !== '' || selectedCategory !== null || fastingFilter !== 'all'
 
   // ========== DESKTOP TWO-STEP NAVIGATION ==========
-  
-  // Step 1: Categories List - COMPLETELY CLEAN (No card, no background, no hover)
+
+  // Skeleton for desktop categories
+  const renderDesktopCategorySkeleton = () => (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+      <div className="flex justify-between items-center mb-3">
+        <Skeleton className="h-4 w-32 rounded" />
+        <Skeleton className="h-3 w-16 rounded" />
+      </div>
+      {[0, 1].map(row => (
+        <div key={row} className="grid grid-cols-3 gap-4">
+          {[0, 1, 2].map(col => (
+            <div key={col} className="flex flex-col items-center">
+              <Skeleton className="w-32 h-32 rounded-xl" />
+              <Skeleton className="h-4 w-24 mt-2 rounded" />
+            </div>
+          ))}
+        </div>
+      ))}
+    </motion.div>
+  )
+
+  // Step 1: Categories List - Desktop
   const renderDesktopCategories = () => {
+    if (loading || !dataLoaded) return renderDesktopCategorySkeleton()
+
     const categoriesWithItems = sortedCategories.filter(category => {
-      const categoryItems = items.filter(item => 
+      const categoryItems = items.filter(item =>
         item.categoryId === category._id && item.isActive !== false
       )
       return categoryItems.length > 0
     })
 
-    if (categoriesWithItems.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center py-12">
-          <div className="p-4 bg-purple-50 rounded-full mb-4">
-            <Layers className="h-8 w-8 text-purple-900" />
-          </div>
-          <p className="text-gray-500">No categories available</p>
-        </div>
-      )
-    }
+    if (categoriesWithItems.length === 0) return renderDesktopCategorySkeleton()
 
-    // Group categories into rows of 3
     const groupedCategories = []
     for (let i = 0; i < categoriesWithItems.length; i += 3) {
       groupedCategories.push(categoriesWithItems.slice(i, i + 3))
@@ -1657,11 +2207,10 @@ export default function MenuPage() {
                   onClick={() => {
                     setSelectedCategoryForDesktop(category)
                     setDesktopStep('items')
-                    setFastingFilter('all') // Reset fasting filter when selecting category
+                    setFastingFilter('all')
                   }}
                   className="flex flex-col items-center cursor-pointer"
                 >
-                  {/* Category Image - w-32 h-32, NO background, NO card */}
                   <div className="w-32 h-32 rounded-xl overflow-hidden">
                     {representativeItem && representativeItem.imageUrl ? (
                       <img
@@ -1678,8 +2227,6 @@ export default function MenuPage() {
                       </div>
                     )}
                   </div>
-                  
-                  {/* Category Name - 16px text */}
                   <div className="mt-2 text-center">
                     <h3 className="text-base font-medium text-gray-700 truncate max-w-[128px]">
                       {category.name}
@@ -1694,11 +2241,10 @@ export default function MenuPage() {
     )
   }
 
-  // Step 2: Items for selected category (Desktop) - WITH VIEW TOGGLE
+  // Step 2: Items for selected category (Desktop)
   const renderDesktopCategoryItems = () => {
     if (!selectedCategoryForDesktop) return null
 
-    // Filter items by category, search term, and fasting filter
     let categoryItems = items.filter(item => 
       item.categoryId === selectedCategoryForDesktop._id && item.isActive !== false
     )
@@ -1711,7 +2257,6 @@ export default function MenuPage() {
       )
     }
 
-    // Apply fasting filter
     if (fastingFilter === 'fasting') {
       categoryItems = categoryItems.filter(item => item.isFasting === true)
     } else if (fastingFilter === 'non-fasting') {
@@ -1726,7 +2271,6 @@ export default function MenuPage() {
         transition={{ duration: 0.3 }}
         className="space-y-4"
       >
-        {/* Category Header with View Toggle */}
         <div className="flex items-center justify-between bg-white/80 backdrop-blur-sm rounded-xl p-3 border border-purple-100 shadow-sm">
           <div className="flex items-center gap-3">
             <button
@@ -1742,7 +2286,6 @@ export default function MenuPage() {
             >
               <ArrowLeft className="h-4 w-4 text-purple-900" />
             </button>
-            
             <div>
               <h2 className="text-base font-semibold text-gray-800">
                 {selectedCategoryForDesktop.name}
@@ -1754,7 +2297,6 @@ export default function MenuPage() {
           </div>
           
           <div className="flex items-center gap-2">
-            {/* Search bar - small */}
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-500" size={13} />
               <Input
@@ -1784,7 +2326,41 @@ export default function MenuPage() {
               )}
             </div>
 
-            {/* View Toggle - Grid/List */}
+            {/* Fasting Filter Tabs - Desktop */}
+            <div className="flex items-center gap-1 bg-purple-50 rounded-lg p-1 border border-purple-100">
+              <button
+                onClick={() => setFastingFilter('all')}
+                className={`px-2 py-1 text-xs font-medium rounded-md transition-all ${
+                  fastingFilter === 'all'
+                    ? 'bg-white shadow-sm text-purple-900'
+                    : 'text-gray-400 hover:text-purple-600'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setFastingFilter('fasting')}
+                className={`px-2 py-1 text-xs font-medium rounded-md transition-all ${
+                  fastingFilter === 'fasting'
+                    ? 'bg-green-100 text-green-700'
+                    : 'text-gray-400 hover:text-green-600'
+                }`}
+              >
+                Fasting
+              </button>
+              <button
+                onClick={() => setFastingFilter('non-fasting')}
+                className={`px-2 py-1 text-xs font-medium rounded-md transition-all ${
+                  fastingFilter === 'non-fasting'
+                    ? 'bg-orange-100 text-orange-700'
+                    : 'text-gray-400 hover:text-orange-600'
+                }`}
+              >
+                Non-Fasting
+              </button>
+            </div>
+
+            {/* View Toggle */}
             <div className="flex items-center gap-1 bg-purple-50 rounded-lg p-1 border border-purple-100">
               <button
                 onClick={() => setViewMode('grid')}
@@ -1812,18 +2388,15 @@ export default function MenuPage() {
           </div>
         </div>
 
-        {/* Items Display - Grid or List */}
         {categoryItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 bg-white/50 rounded-2xl border border-purple-100">
             <p className="text-gray-500">No items in this category</p>
           </div>
         ) : viewMode === 'grid' ? (
-          // GRID VIEW: w-36 cards with auto-fit
           <div className="grid grid-cols-[repeat(auto-fill,minmax(144px,1fr))] gap-3">
             {categoryItems.map((item, index) => {
               const category = categories.find(c => c._id === item.categoryId)
               const categoryName = category?.name || 'Uncategorized'
-              
               return (
                 <MinimalItemCard
                   key={item._id}
@@ -1838,12 +2411,10 @@ export default function MenuPage() {
             })}
           </div>
         ) : (
-          // LIST VIEW: 2 cards per row
           <div className="grid grid-cols-2 gap-3">
             {categoryItems.map((item, index) => {
               const category = categories.find(c => c._id === item.categoryId)
               const categoryName = category?.name || 'Uncategorized'
-              
               return (
                 <DesktopListViewItem
                   key={item._id}
@@ -1862,26 +2433,35 @@ export default function MenuPage() {
   }
 
   // ========== MOBILE TWO-STEP NAVIGATION ==========
-  
-  // Step 1: Categories List - MINIMIZED CARDS FOR MOBILE
+
+  // Skeleton for mobile categories
+  const renderMobileCategorySkeleton = () => (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
+      {[...Array(6)].map((_, i) => (
+        <div key={i} className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-purple-100/50">
+          <Skeleton className="w-11 h-11 rounded-lg flex-shrink-0" />
+          <div className="flex-1 space-y-1.5">
+            <Skeleton className="h-3 w-28 rounded" />
+            <Skeleton className="h-2.5 w-16 rounded" />
+          </div>
+          <Skeleton className="w-4 h-4 rounded flex-shrink-0" />
+        </div>
+      ))}
+    </motion.div>
+  )
+
+  // Step 1: Categories List - Mobile
   const renderMobileCategories = () => {
+    if (loading || !dataLoaded) return renderMobileCategorySkeleton()
+
     const categoriesWithItems = sortedCategories.filter(category => {
-      const categoryItems = items.filter(item => 
+      const categoryItems = items.filter(item =>
         item.categoryId === category._id && item.isActive !== false
       )
       return categoryItems.length > 0
     })
 
-    if (categoriesWithItems.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center py-8">
-          <div className="p-3 bg-purple-50 rounded-full mb-3">
-            <Layers className="h-6 w-6 text-purple-900" />
-          </div>
-          <p className="text-gray-500 text-sm">No categories available</p>
-        </div>
-      )
-    }
+    if (categoriesWithItems.length === 0) return renderMobileCategorySkeleton()
 
     return (
       <motion.div 
@@ -1904,7 +2484,7 @@ export default function MenuPage() {
               onClick={() => {
                 setSelectedCategoryForMobile(category)
                 setMobileStep('items')
-                setFastingFilter('all') // Reset fasting filter when selecting category
+                setFastingFilter('all')
               }}
               className="flex items-center gap-3 p-2.5 bg-white rounded-xl shadow-sm border border-purple-100/50 active:bg-purple-50/50 transition-all cursor-pointer"
             >
@@ -1950,11 +2530,10 @@ export default function MenuPage() {
     )
   }
 
-  // Step 2: Items for selected category (Mobile) - WITH FASTING FILTER APPLIED
+  // Step 2: Items for selected category (Mobile)
   const renderMobileCategoryItems = () => {
     if (!selectedCategoryForMobile) return null
 
-    // Filter items by category and search term
     let categoryItems = items.filter(item => 
       item.categoryId === selectedCategoryForMobile._id && item.isActive !== false
     )
@@ -1967,7 +2546,6 @@ export default function MenuPage() {
       )
     }
 
-    // Apply fasting filter
     if (fastingFilter === 'fasting') {
       categoryItems = categoryItems.filter(item => item.isFasting === true)
     } else if (fastingFilter === 'non-fasting') {
@@ -2027,26 +2605,49 @@ export default function MenuPage() {
     )
   }
 
-  // Loading skeleton
+  // Top-level loading screen
   if (loading && !dataLoaded) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30">
         <NavBar />
-        <main className="container mx-auto px-4 py-8">
-          {loadingTimeout && (
-            <Alert className="bg-gradient-to-r from-purple-100 to-purple-200 border-purple-300 rounded-2xl shadow-lg mb-6">
-              <Clock className="h-5 w-5 text-purple-900" />
-              <AlertDescription className="text-purple-900 font-medium">
-                Loading menu...
-              </AlertDescription>
-            </Alert>
-          )}
-          
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
-            {[...Array(8)].map((_, i) => (
-              <div key={i} className="flex flex-col items-center">
-                <Skeleton className="w-full aspect-square rounded-lg" />
-                <Skeleton className="h-3 w-3/4 mt-1.5 rounded" />
+        <main className="container mx-auto px-3 md:px-4 py-3 md:py-4">
+          <div className="md:hidden space-y-2">
+            {[...Array(6)].map((_, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.06 }}
+                className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-purple-100/50"
+              >
+                <Skeleton className="w-11 h-11 rounded-lg flex-shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-3 w-28 rounded" />
+                  <Skeleton className="h-2.5 w-16 rounded" />
+                </div>
+                <Skeleton className="w-4 h-4 rounded flex-shrink-0" />
+              </motion.div>
+            ))}
+          </div>
+          <div className="hidden md:block space-y-4">
+            <div className="flex justify-between items-center mb-3">
+              <Skeleton className="h-4 w-32 rounded" />
+              <Skeleton className="h-3 w-16 rounded" />
+            </div>
+            {[0, 1].map(row => (
+              <div key={row} className="grid grid-cols-3 gap-4">
+                {[0, 1, 2].map(col => (
+                  <motion.div
+                    key={col}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: (row * 3 + col) * 0.07 }}
+                    className="flex flex-col items-center"
+                  >
+                    <Skeleton className="w-32 h-32 rounded-xl" />
+                    <Skeleton className="h-4 w-24 mt-2 rounded" />
+                  </motion.div>
+                ))}
               </div>
             ))}
           </div>
@@ -2061,17 +2662,11 @@ export default function MenuPage() {
       
       <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30 pb-20 md:pb-0">
         
-        {/* ========== TABLE DETECTION BANNER - REMOVED ========== */}
-        {/* No banner - table detection happens silently */}
-        
         {/* ========== MOBILE HEADER WITH FASTING TABS & VIEW TOGGLE ========== */}
-        {/* Only show header when in items step - STICKY AT TOP */}
         {mobileStep === 'items' && (
           <div className="md:hidden sticky top-0 z-50 w-full bg-white/95 backdrop-blur-xl shadow-sm border-b border-purple-100">
             <div className="px-3 py-2">
-              {/* Flex inline header: Back | Tabs | View Toggle */}
               <div className="flex items-center gap-2">
-                {/* Back Button - Left */}
                 <button
                   onClick={() => {
                     setMobileStep('categories')
@@ -2086,7 +2681,6 @@ export default function MenuPage() {
                   <ArrowLeft className="h-5 w-5 text-purple-900" />
                 </button>
 
-                {/* Fasting Tabs - Center (plain text with underline) */}
                 <div className="flex-1 flex items-center justify-center gap-1 min-w-0">
                   <button
                     onClick={() => setFastingFilter('all')}
@@ -2120,7 +2714,6 @@ export default function MenuPage() {
                   </button>
                 </div>
 
-                {/* View Toggle - Grid/List - Right */}
                 <div className="flex items-center gap-0.5 bg-purple-50 rounded-lg p-1 border border-purple-100 flex-shrink-0">
                   <button
                     onClick={() => setViewMode('grid')}
@@ -2150,7 +2743,7 @@ export default function MenuPage() {
           </div>
         )}
 
-        {/* Main Content - Natural page scroll */}
+        {/* Main Content */}
         <main className="container mx-auto px-3 md:px-4 py-3 md:py-4">
           {/* ========== DESKTOP VIEW ========== */}
           <div className="hidden md:block">
@@ -2213,61 +2806,142 @@ export default function MenuPage() {
         </Sheet>
       </div>
 
-      {/* Cart Sheet */}
-      <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-lg p-0 bg-gradient-to-br from-white to-purple-50/30 border-l-0 shadow-2xl">
-          <CartPanel 
-            cart={cartItems} 
-            onClose={() => setIsCartOpen(false)} 
-            onRemoveItem={removeFromCart} 
-            onUpdateQuantity={updateQuantity} 
-            orderType={orderType} 
-            onOrderTypeChange={handleOrderTypeChange}
-            tableNumber={tableNumber} 
-            onTableNumberChange={setTableNumber} 
-            selectedTableData={selectedTableData} 
-            onTableSelect={handleTableSelect} 
-            waiters={waiters} 
-            selectedWaiter={getAutoAssignedWaiter()} 
-            onWaiterChange={() => {}} 
-            numberOfGuests={numberOfGuests} 
-            onGuestsChange={setNumberOfGuests} 
-            specialRequirements={specialRequirements} 
-            onSpecialRequirementsChange={(value) => handleTextInputChange(value, setSpecialRequirements, 'Special requirements')}
-            subtotal={adjustedSubtotal} 
-            tax={calculatedTax} 
-            deliveryFee={deliveryFee} 
-            total={finalTotal} 
-            orderNumber={orderNumber} 
-            onPlaceOrder={handlePlaceOrder} 
-            isPlacingOrder={isPlacingOrder} 
-            isUserLoggedIn={isLoggedIn}
-            onLoginRequired={() => {}} // No-op since we removed login requirement
-            userData={userData as UserData | null}
-            onNavigateToProfile={handleNavigateToProfile} 
-            isCalculatingDelivery={isCalculatingDelivery} 
-            restaurantId="manyazewal1" 
-            floor="Ground Floor" 
-            arrangementId={arrangementId}
-            onGuestOrder={handleGuestOrder}
-          />
-        </SheetContent>
-      </Sheet>
-
-      {/* Item Detail Dialog */}
-      {selectedItem && (
-        <ItemDetailDialog 
-          item={selectedItem} 
-          categoryName={categories.find(c => c._id === selectedItem.categoryId)?.name || 'Uncategorized'} 
-          isOpen={showItemDetail} 
-          onOpenChange={setShowItemDetail} 
-          onAddToCart={addToCart} 
-          isUserLoggedIn={true} // Always true to bypass login checks in dialog
-          onLoginRequired={() => {}} // No-op
-        />
+      {/* Desktop Full-Screen Cart */}
+      {isCartOpen && isDesktop && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsCartOpen(false)} />
+          <div className="relative w-[96vw] h-[93vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <CartPanel 
+              cart={cartItems} 
+              onClose={() => setIsCartOpen(false)} 
+              onRemoveItem={removeFromCart} 
+              onUpdateQuantity={updateQuantity} 
+              orderType={orderType} 
+              onOrderTypeChange={handleOrderTypeChange}
+              tableNumber={tableNumber} 
+              onTableNumberChange={setTableNumber} 
+              selectedTableData={selectedTableData} 
+              onTableSelect={handleTableSelect} 
+              waiters={waiters} 
+              selectedWaiter={getAutoAssignedWaiter()} 
+              onWaiterChange={() => {}} 
+              numberOfGuests={numberOfGuests} 
+              onGuestsChange={setNumberOfGuests} 
+              specialRequirements={specialRequirements} 
+              onSpecialRequirementsChange={(value) => handleTextInputChange(value, setSpecialRequirements, 'Special requirements')}
+              subtotal={adjustedSubtotal} 
+              tax={calculatedTax} 
+              deliveryFee={deliveryFee} 
+              total={finalTotal} 
+              orderNumber={orderNumber} 
+              onPlaceOrder={handlePlaceOrder} 
+              isPlacingOrder={isPlacingOrder} 
+              isUserLoggedIn={isLoggedIn}
+              onLoginRequired={() => {}}
+              userData={userData as UserData | null}
+              onNavigateToProfile={handleNavigateToProfile} 
+              isCalculatingDelivery={isCalculatingDelivery} 
+              restaurantId="manyazewal1" 
+              floor="Ground Floor" 
+              arrangementId={arrangementId}
+              onGuestOrder={handleGuestOrder}
+              tableFromQR={isQRTable}
+              onPlaceOrderDirect={isQRTable ? handleDirectOrder : undefined}
+              onQRDetected={() => setIsQRTable(true)}
+              fullScreen
+            />
+          </div>
+        </div>
       )}
-      
-      {/* Payment Upload Dialog */}
+
+      {/* Mobile Cart Sheet */}
+      {!isDesktop && (
+        <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
+          <SheetContent side="right" className="w-full sm:max-w-lg p-0 bg-gradient-to-br from-white to-purple-50/30 border-l-0 shadow-2xl">
+            <CartPanel 
+              cart={cartItems} 
+              onClose={() => setIsCartOpen(false)} 
+              onRemoveItem={removeFromCart} 
+              onUpdateQuantity={updateQuantity} 
+              orderType={orderType} 
+              onOrderTypeChange={handleOrderTypeChange}
+              tableNumber={tableNumber} 
+              onTableNumberChange={setTableNumber} 
+              selectedTableData={selectedTableData} 
+              onTableSelect={handleTableSelect} 
+              waiters={waiters} 
+              selectedWaiter={getAutoAssignedWaiter()} 
+              onWaiterChange={() => {}} 
+              numberOfGuests={numberOfGuests} 
+              onGuestsChange={setNumberOfGuests} 
+              specialRequirements={specialRequirements} 
+              onSpecialRequirementsChange={(value) => handleTextInputChange(value, setSpecialRequirements, 'Special requirements')}
+              subtotal={adjustedSubtotal} 
+              tax={calculatedTax} 
+              deliveryFee={deliveryFee} 
+              total={finalTotal} 
+              orderNumber={orderNumber} 
+              onPlaceOrder={handlePlaceOrder} 
+              isPlacingOrder={isPlacingOrder} 
+              isUserLoggedIn={isLoggedIn}
+              onLoginRequired={() => {}}
+              userData={userData as UserData | null}
+              onNavigateToProfile={handleNavigateToProfile} 
+              isCalculatingDelivery={isCalculatingDelivery} 
+              restaurantId="manyazewal1" 
+              floor="Ground Floor" 
+              arrangementId={arrangementId}
+              onGuestOrder={handleGuestOrder}
+              tableFromQR={isQRTable}
+              onPlaceOrderDirect={isQRTable ? handleDirectOrder : undefined}
+              onQRDetected={() => setIsQRTable(true)}
+            />
+          </SheetContent>
+        </Sheet>
+      )}
+
+      {/* Mobile Full-Screen Payment Flow */}
+      <MobilePaymentFlow
+        isOpen={showMobilePaymentFlow}
+        onClose={() => {
+          setShowMobilePaymentFlow(false)
+          setIsCartOpen(true)
+        }}
+        cartItems={cartItems}
+        onRemoveItem={removeFromCart}
+        onUpdateQuantity={updateQuantity}
+        orderType={orderType}
+        onOrderTypeChange={handleOrderTypeChange}
+        tableNumber={tableNumber}
+        onTableNumberChange={setTableNumber}
+        selectedTableData={selectedTableData}
+        onTableSelect={handleTableSelect}
+        numberOfGuests={numberOfGuests}
+        onGuestsChange={setNumberOfGuests}
+        specialRequirements={specialRequirements}
+        onSpecialRequirementsChange={(value) => handleTextInputChange(value, setSpecialRequirements, 'Special requirements')}
+        subtotal={adjustedSubtotal}
+        tax={calculatedTax}
+        deliveryFee={deliveryFee}
+        total={finalTotal}
+        onPlaceOrder={handlePlaceOrder}
+        isPlacingOrder={isPlacingOrder}
+        isUserLoggedIn={isLoggedIn}
+        userData={userData as UserData | null}
+        tableFromQR={isQRTable}
+        onPlaceOrderDirect={isQRTable ? handleDirectOrder : undefined}
+        onPaymentScreenshotUpload={handlePaymentScreenshotUpload}
+        onPaymentScreenshotRemove={removePaymentScreenshot}
+        paymentScreenshot={paymentScreenshot}
+        transactionId={transactionId}
+        onTransactionIdChange={(value) => handleTextInputChange(value, setTransactionId, 'Transaction ID')}
+        onFinalizeOrder={handleFinalizeOrder}
+        guestData={guestUserData}
+        onGuestOrder={handleGuestOrder}
+        isQRTable={isQRTable}
+      />
+
+      {/* Desktop Payment Upload Dialog */}
       <PaymentUploadDialog 
         open={showPaymentUpload} 
         onOpenChange={setShowPaymentUpload} 
@@ -2282,8 +2956,24 @@ export default function MenuPage() {
         deliveryFee={orderType === 'delivery' && isLoggedIn ? deliveryFee?.fee || 0 : 0} 
         total={finalTotal} 
         onFinalizeOrder={handleFinalizeOrder} 
-        isPlacingOrder={isPlacingOrder} 
+        isPlacingOrder={isPlacingOrder}
+        isUserLoggedIn={isLoggedIn}
+        onGuestOrder={handleGuestOrder}
+        guestData={guestUserData}
       />
+      
+      {/* Item Detail Dialog */}
+      {selectedItem && (
+        <ItemDetailDialog 
+          item={selectedItem} 
+          categoryName={categories.find(c => c._id === selectedItem.categoryId)?.name || 'Uncategorized'} 
+          isOpen={showItemDetail} 
+          onOpenChange={setShowItemDetail} 
+          onAddToCart={addToCart} 
+          isUserLoggedIn={true}
+          onLoginRequired={() => {}}
+        />
+      )}
       
       {/* Order Progress Indicator */}
       <OrderProgressIndicator progress={orderProgress} orderType={orderType} />

@@ -1,4 +1,4 @@
-// app/api/tables/arrangement/route.ts - COMPLETE FIXED VERSION
+// app/api/tables/arrangement/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
@@ -17,14 +17,9 @@ const activeSelections = new Map<string, {
   expiresAt: Date;
   orderId?: string;
   isGuest?: boolean;
-  guestInfo?: {
-    name: string;
-    phone?: string;
-    email?: string;
-  };
+  guestInfo?: { name: string; phone?: string; email?: string };
 }>();
 
-// Guest session store
 const guestSessions = new Map<string, {
   guestId: string;
   name: string;
@@ -34,77 +29,60 @@ const guestSessions = new Map<string, {
   expiresAt: Date;
 }>();
 
-// Cleanup expired selections every 30 seconds
 setInterval(() => {
   const now = new Date();
-  
-  for (const [key, selection] of activeSelections.entries()) {
-    if (selection.expiresAt < now) {
-      activeSelections.delete(key);
-    }
-  }
-  
-  for (const [key, session] of guestSessions.entries()) {
-    if (session.expiresAt < now) {
-      guestSessions.delete(key);
-    }
-  }
+  for (const [key, s] of activeSelections.entries()) if (s.expiresAt < now) activeSelections.delete(key);
+  for (const [key, s] of guestSessions.entries()) if (s.expiresAt < now) guestSessions.delete(key);
 }, 30000);
 
 async function ensureConnection() {
-  if (mongoose.connection.readyState === 0) {
-    const client = await clientPromise;
-    await mongoose.connect(process.env.MONGODB_URI!);
+  try {
+    if (mongoose.connection.readyState === 1) return mongoose.connection;
+    await clientPromise;
+    if (mongoose.connection.readyState === 0) await mongoose.connect(process.env.MONGODB_URI!);
+    return mongoose.connection;
+  } catch (error) {
+    console.error('DB connection error:', error);
+    throw error;
   }
-  return mongoose.connection;
 }
 
-function getSelectionKey(restaurantId: string, floor: string): string {
+function getSelectionKey(restaurantId: string, floor: string) {
   return `${restaurantId}:${floor}`;
 }
 
-function generateGuestId(): string {
+function generateGuestId() {
   return `guest_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
 function getOrCreateGuestSession(guestInfo?: { name?: string; phone?: string; email?: string }) {
-  const guestName = guestInfo?.name || `Guest_${Math.floor(Math.random() * 10000)}`;
   const guestId = generateGuestId();
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + 24);
-  
   const session = {
     guestId,
-    name: guestName,
+    name: guestInfo?.name || `Guest_${Math.floor(Math.random() * 10000)}`,
     phone: guestInfo?.phone,
     email: guestInfo?.email,
     createdAt: new Date(),
-    expiresAt
+    expiresAt,
   };
-  
   guestSessions.set(guestId, session);
   return session;
 }
 
 function validateGuestSession(guestId?: string): { valid: boolean; session?: any } {
   if (!guestId) return { valid: false };
-  
   const session = guestSessions.get(guestId);
   if (!session) return { valid: false };
-  
-  if (session.expiresAt < new Date()) {
-    guestSessions.delete(guestId);
-    return { valid: false };
-  }
-  
+  if (session.expiresAt < new Date()) { guestSessions.delete(guestId); return { valid: false }; }
   return { valid: true, session };
 }
 
-// FIXED: GET handler
+// ─── GET ────────────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
     await ensureConnection();
-    
     const { searchParams } = new URL(req.url);
     const restaurantId = searchParams.get('restaurantId');
     const floor = searchParams.get('floor');
@@ -112,7 +90,6 @@ export async function GET(req: NextRequest) {
     const includeSelections = searchParams.get('includeSelections') === 'true';
     const skipSync = searchParams.get('skipSync') === 'true';
 
-    // If fetchAll is true, return all arrangements
     if (fetchAll) {
       const arrangements = await TableArrangement.find({ isActive: true })
         .select('_id restaurantId restaurantName floor name layoutType totalTables availableTables occupiedTables totalCapacity updatedAt')
@@ -121,40 +98,27 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, data: arrangements });
     }
 
-    // Otherwise, fetch specific arrangement
     if (!restaurantId || !floor) {
-      return NextResponse.json(
-        { success: false, error: 'restaurantId and floor are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: 'restaurantId and floor are required' }, { status: 400 });
     }
 
-    const query: any = { restaurantId, floor, isActive: true };
-    let arrangement = await TableArrangement.findOne(query).sort({ updatedAt: -1 });
+    let arrangement = await TableArrangement.findOne({ restaurantId, floor, isActive: true }).sort({ updatedAt: -1 });
 
-    // Sync with pending orders if needed
     if (arrangement && !skipSync) {
       try {
         const syncResult = await syncTablesWithPendingOrders(restaurantId, floor);
-        if (syncResult.success && syncResult.data?.arrangement) {
-          arrangement = syncResult.data.arrangement;
-        }
+        if (syncResult.success && syncResult.data?.arrangement) arrangement = syncResult.data.arrangement;
       } catch (syncError) {
         console.error('Sync error (non-critical):', syncError);
       }
     }
 
     if (!arrangement) {
-      return NextResponse.json({ 
-        success: true, 
-        data: null,
-        message: 'No arrangement found'
-      });
+      return NextResponse.json({ success: true, data: null, message: 'No arrangement found' });
     }
 
     const response: any = { success: true, data: arrangement };
 
-    // Include active selection if requested
     if (includeSelections) {
       const selectionKey = getSelectionKey(arrangement.restaurantId, arrangement.floor);
       const activeSelection = activeSelections.get(selectionKey);
@@ -166,9 +130,9 @@ export async function GET(req: NextRequest) {
           selectedByName: activeSelection.isGuest ? 'Guest' : activeSelection.selectedByName,
           selectedAt: activeSelection.selectedAt.toISOString(),
           expiresAt: activeSelection.expiresAt.toISOString(),
-          isGuest: activeSelection.isGuest
+          isGuest: activeSelection.isGuest,
         };
-      } else if (activeSelection && activeSelection.expiresAt <= new Date()) {
+      } else if (activeSelection) {
         activeSelections.delete(selectionKey);
       }
     }
@@ -176,414 +140,281 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(response);
   } catch (error) {
     console.error('Error fetching table arrangement:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to fetch table arrangement' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Failed to fetch table arrangement' }, { status: 500 });
   }
 }
 
-// FIXED: PATCH handler - This is the main one being called
+// ─── PATCH ───────────────────────────────────────────────────────────────────
+// Uses findOneAndUpdate with $set to avoid Mongoose VersionError on concurrent saves
 export async function PATCH(req: NextRequest) {
   try {
     await ensureConnection();
-    
+
     const body = await req.json();
-    const { 
-      restaurantId,
-      floor,
-      tableId, 
-      selectTable,
-      unselectTable,
-      switchTable,
-      duration = 3,
-      guestInfo,
-      guestId
+    const {
+      restaurantId, floor, tableId,
+      selectTable, unselectTable, switchTable,
+      duration = 3, guestInfo, guestId,
+      anonymousId: bodyAnonymousId,
     } = body;
 
-    // Validate required fields
     if (!restaurantId || !floor) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields: restaurantId and floor are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: 'Missing required fields: restaurantId and floor are required' }, { status: 400 });
     }
 
     const selectionKey = getSelectionKey(restaurantId, floor);
     let existingSelection = activeSelections.get(selectionKey);
-    
     if (existingSelection && existingSelection.expiresAt < new Date()) {
       activeSelections.delete(selectionKey);
-      existingSelection = null;
+      existingSelection = undefined;
     }
 
-    // Get user info
-    const session = await auth();
-    const anonymousId = req.headers.get('X-Anonymous-Id') || guestId;
+    let session: any = null;
+    try { session = await auth(); } catch { session = null; }
+
+    const anonymousId = req.headers.get('X-Anonymous-Id') || bodyAnonymousId || guestId;
     const userEmail = session?.user?.email;
-    
+
     let selectedBy = '';
     let selectedByName = '';
     let isGuest = false;
-    let guestSessionData = null;
-    
+    let guestSessionData: any = null;
+
     if (userEmail) {
       selectedBy = userEmail;
       selectedByName = session?.user?.name || userEmail.split('@')[0];
     } else if (anonymousId) {
-      let existingGuestSession = guestSessions.get(anonymousId);
-      
+      const existingGuestSession = guestSessions.get(anonymousId);
       if (!existingGuestSession) {
-        const guestName = guestInfo?.name || `Guest_${Math.floor(Math.random() * 10000)}`;
-        guestSessionData = getOrCreateGuestSession({
-          name: guestName,
-          phone: guestInfo?.phone,
-          email: guestInfo?.email
-        });
+        guestSessionData = getOrCreateGuestSession({ name: guestInfo?.name, phone: guestInfo?.phone, email: guestInfo?.email });
         selectedBy = guestSessionData.guestId;
         selectedByName = guestSessionData.name;
-        isGuest = true;
       } else {
         selectedBy = existingGuestSession.guestId;
         selectedByName = existingGuestSession.name;
-        isGuest = true;
         guestSessionData = existingGuestSession;
       }
+      isGuest = true;
     } else {
-      return NextResponse.json(
-        { success: false, error: 'Please login or provide guest information' },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: 'Please login or provide guest information' }, { status: 401 });
     }
 
-    // Handle UN-SELECT TABLE
+    const baseQuery = { restaurantId, floor, isActive: true };
+
+    // ── UNSELECT ──────────────────────────────────────────────────────────────
     if (unselectTable && tableId) {
-      // If no existing selection, return success
       if (!existingSelection) {
-        return NextResponse.json({ 
-          success: true,
-          message: 'No active selection to clear'
-        });
+        return NextResponse.json({ success: true, message: 'No active selection to clear' });
       }
-      
-      // Check authorization
-      let isAuthorized = false;
-      if (userEmail && existingSelection.selectedBy === userEmail) {
-        isAuthorized = true;
-      } else if (anonymousId && existingSelection.selectedBy === anonymousId) {
-        isAuthorized = true;
-      } else if (existingSelection.isGuest && anonymousId) {
-        const guestCheck = validateGuestSession(anonymousId);
-        if (guestCheck.valid && existingSelection.selectedBy === anonymousId) {
-          isAuthorized = true;
-        }
-      }
-      
+
+      let isAuthorized =
+        (userEmail && existingSelection.selectedBy === userEmail) ||
+        (anonymousId && existingSelection.selectedBy === anonymousId) ||
+        (existingSelection.isGuest && anonymousId && validateGuestSession(anonymousId).valid && existingSelection.selectedBy === anonymousId);
+
       if (!isAuthorized) {
-        return NextResponse.json(
-          { success: false, error: 'Unauthorized - You did not select this table' },
-          { status: 401 }
-        );
+        return NextResponse.json({ success: false, error: 'Unauthorized - You did not select this table' }, { status: 401 });
       }
-      
-      // Clear selection from memory
+
       activeSelections.delete(selectionKey);
-      
-      // Update database
-      const arrangement = await TableArrangement.findOne({
-        restaurantId,
-        floor,
-        isActive: true
-      });
-      
-      if (arrangement) {
-        const tableIndex = arrangement.tables.findIndex((t: ITable) => t.id === tableId);
-        if (tableIndex !== -1 && arrangement.tables[tableIndex].status === 'reserved') {
-          arrangement.tables[tableIndex].status = 'available';
-          arrangement.tables[tableIndex].reservationInfo = null;
-          arrangement.tables[tableIndex].lastUpdated = new Date();
-          arrangement.updatedAt = new Date();
-          
-          arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
-          arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
-          
-          await arrangement.save({ validateBeforeSave: false });
+
+      // Use findOne + atomic $set to avoid version conflicts
+      const arr = await TableArrangement.findOne(baseQuery).lean() as any;
+      if (arr) {
+        const idx = arr.tables.findIndex((t: any) => t.id === tableId);
+        if (idx !== -1 && arr.tables[idx].status === 'reserved') {
+          const updatePath: any = {};
+          updatePath[`tables.${idx}.status`] = 'available';
+          updatePath[`tables.${idx}.reservationInfo`] = null;
+          updatePath[`tables.${idx}.lastUpdated`] = new Date();
+          updatePath['updatedAt'] = new Date();
+
+          const allTables = arr.tables.map((t: any, i: number) =>
+            i === idx ? { ...t, status: 'available', reservationInfo: null } : t
+          );
+          updatePath['availableTables'] = allTables.filter((t: any) => t.status === 'available').length;
+          updatePath['reservedTables'] = allTables.filter((t: any) => t.status === 'reserved').length;
+
+          await TableArrangement.findOneAndUpdate(baseQuery, { $set: updatePath }, { new: true });
         }
       }
-      
-      return NextResponse.json({ 
-        success: true,
-        message: 'Table unselected successfully'
-      });
+
+      return NextResponse.json({ success: true, message: 'Table unselected successfully' });
     }
 
-    // Handle SWITCH TABLE (auto-switch)
+    // ── SWITCH TABLE ──────────────────────────────────────────────────────────
     if (switchTable && tableId) {
-      // Fetch arrangement
-      const arrangement = await TableArrangement.findOne({
-        restaurantId,
-        floor,
-        isActive: true
-      });
-      
-      if (!arrangement) {
-        return NextResponse.json(
-          { success: false, error: 'Arrangement not found' }, 
-          { status: 404 }
-        );
-      }
-      
-      const newTableIndex = arrangement.tables.findIndex((t: ITable) => t.id === tableId);
-      if (newTableIndex === -1) {
-        return NextResponse.json(
-          { success: false, error: 'Table not found' }, 
-          { status: 404 }
-        );
-      }
-      
-      const newTable = arrangement.tables[newTableIndex];
-      
+      const arr = await TableArrangement.findOne(baseQuery).lean() as any;
+      if (!arr) return NextResponse.json({ success: false, error: 'Arrangement not found' }, { status: 404 });
+
+      const newIdx = arr.tables.findIndex((t: any) => t.id === tableId);
+      if (newIdx === -1) return NextResponse.json({ success: false, error: 'Table not found' }, { status: 404 });
+
+      const newTable = arr.tables[newIdx];
       if (newTable.status !== 'available') {
-        return NextResponse.json(
-          { success: false, error: `Table ${newTable.number} is currently ${newTable.status}` },
-          { status: 400 }
-        );
+        return NextResponse.json({ success: false, error: `Table ${newTable.number} is currently ${newTable.status}` }, { status: 400 });
       }
-      
-      // If there's an existing selection, clear it first
+
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + duration);
+
+      const updatePath: any = {};
       let previousTableId = null;
       let previousTableNumber = null;
-      
+
+      // Clear old table if exists
       if (existingSelection) {
-        const oldTableIndex = arrangement.tables.findIndex((t: ITable) => t.id === existingSelection.tableId);
-        if (oldTableIndex !== -1) {
-          previousTableId = arrangement.tables[oldTableIndex].id;
-          previousTableNumber = arrangement.tables[oldTableIndex].number;
-          arrangement.tables[oldTableIndex].status = 'available';
-          arrangement.tables[oldTableIndex].reservationInfo = null;
-          arrangement.tables[oldTableIndex].lastUpdated = new Date();
+        const oldIdx = arr.tables.findIndex((t: any) => t.id === existingSelection!.tableId);
+        if (oldIdx !== -1) {
+          previousTableId = arr.tables[oldIdx].id;
+          previousTableNumber = arr.tables[oldIdx].number;
+          updatePath[`tables.${oldIdx}.status`] = 'available';
+          updatePath[`tables.${oldIdx}.reservationInfo`] = null;
+          updatePath[`tables.${oldIdx}.lastUpdated`] = new Date();
         }
         activeSelections.delete(selectionKey);
       }
-      
-      // Create new selection
-      const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + duration);
-      
+
+      // Set new table
+      updatePath[`tables.${newIdx}.status`] = 'reserved';
+      updatePath[`tables.${newIdx}.reservationInfo`] = { reservedBy: selectedBy, reservedByName: selectedByName, reservedAt: new Date(), expiresAt };
+      updatePath[`tables.${newIdx}.lastUpdated`] = new Date();
+      updatePath['updatedAt'] = new Date();
+
+      // Recalculate counts from current data
+      const simulatedTables = arr.tables.map((t: any, i: number) => {
+        if (existingSelection && t.id === existingSelection.tableId) return { ...t, status: 'available' };
+        if (i === newIdx) return { ...t, status: 'reserved' };
+        return t;
+      });
+      updatePath['availableTables'] = simulatedTables.filter((t: any) => t.status === 'available').length;
+      updatePath['reservedTables'] = simulatedTables.filter((t: any) => t.status === 'reserved').length;
+
+      const updated = await TableArrangement.findOneAndUpdate(baseQuery, { $set: updatePath }, { new: true });
+      if (!updated) return NextResponse.json({ success: false, error: 'Failed to update arrangement' }, { status: 500 });
+
       const newSelection = {
-        tableId: newTable.id,
-        tableNumber: newTable.number,
-        selectedBy: selectedBy,
-        selectedByName: selectedByName,
-        selectedAt: new Date(),
-        expiresAt,
-        isGuest: isGuest,
-        guestInfo: isGuest ? {
-          name: selectedByName,
-          phone: guestInfo?.phone,
-          email: guestInfo?.email
-        } : undefined
+        tableId: newTable.id, tableNumber: newTable.number,
+        selectedBy, selectedByName, selectedAt: new Date(), expiresAt, isGuest,
+        guestInfo: isGuest ? { name: selectedByName, phone: guestInfo?.phone, email: guestInfo?.email } : undefined,
       };
-      
       activeSelections.set(selectionKey, newSelection);
-      
-      // Update new table status
-      arrangement.tables[newTableIndex].status = 'reserved';
-      arrangement.tables[newTableIndex].reservationInfo = {
-        reservedBy: selectedBy,
-        reservedByName: selectedByName,
-        reservedAt: new Date(),
-        expiresAt
-      };
-      arrangement.tables[newTableIndex].lastUpdated = new Date();
-      
-      // Update statistics
-      arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
-      arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
-      arrangement.updatedAt = new Date();
-      
-      await arrangement.save({ validateBeforeSave: false });
-      
+
       const responseData: any = {
         success: true,
         data: {
-          selection: {
-            ...newSelection,
-            selectedAt: newSelection.selectedAt.toISOString(),
-            expiresAt: newSelection.expiresAt.toISOString()
-          },
-          table: arrangement.tables[newTableIndex],
-          previousTableId: previousTableId,
-          previousTableNumber: previousTableNumber
+          selection: { ...newSelection, selectedAt: newSelection.selectedAt.toISOString(), expiresAt: newSelection.expiresAt.toISOString() },
+          table: updated.tables[newIdx],
+          previousTableId,
+          previousTableNumber,
         },
-        message: `Switched to Table ${newTable.number} successfully!`
+        message: `Switched to Table ${newTable.number} successfully!`,
       };
-      
       if (isGuest && guestSessionData) {
         responseData.guestId = guestSessionData.guestId;
         responseData.guestName = guestSessionData.name;
         responseData.isGuest = true;
       }
-      
       return NextResponse.json(responseData);
     }
 
-    // Handle SELECT TABLE (single selection)
+    // ── SELECT TABLE ──────────────────────────────────────────────────────────
     if (selectTable && tableId) {
-      // Fetch arrangement
-      const arrangement = await TableArrangement.findOne({
-        restaurantId,
-        floor,
-        isActive: true
-      });
-      
-      if (!arrangement) {
-        return NextResponse.json(
-          { success: false, error: 'Arrangement not found' }, 
-          { status: 404 }
-        );
-      }
-      
-      const tableIndex = arrangement.tables.findIndex((t: ITable) => t.id === tableId);
-      if (tableIndex === -1) {
-        return NextResponse.json(
-          { success: false, error: 'Table not found' }, 
-          { status: 404 }
-        );
+      const arr = await TableArrangement.findOne(baseQuery).lean() as any;
+      if (!arr) return NextResponse.json({ success: false, error: 'Arrangement not found' }, { status: 404 });
+
+      const idx = arr.tables.findIndex((t: any) => t.id === tableId);
+      if (idx === -1) return NextResponse.json({ success: false, error: 'Table not found' }, { status: 404 });
+
+      const table = arr.tables[idx];
+
+      if (table.status !== 'available') {
+        return NextResponse.json({ success: false, error: `Table ${table.number} is currently ${table.status}` }, { status: 400 });
       }
 
-      const table = arrangement.tables[tableIndex];
-      
-      if (table.status !== 'available') {
-        return NextResponse.json(
-          { success: false, error: `Table ${table.number} is currently ${table.status}` },
-          { status: 400 }
-        );
-      }
-      
-      // Check if user already has a different table selected
       if (existingSelection && existingSelection.tableId !== tableId) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: `You already have Table ${existingSelection.tableNumber} selected. Please unselect it first.`,
-            currentSelection: {
-              tableId: existingSelection.tableId,
-              tableNumber: existingSelection.tableNumber,
-              tableName: `Table ${existingSelection.tableNumber}`,
-              expiresAt: existingSelection.expiresAt.toISOString()
-            }
+        return NextResponse.json({
+          success: false,
+          error: `You already have Table ${existingSelection.tableNumber} selected. Please unselect it first.`,
+          currentSelection: {
+            tableId: existingSelection.tableId,
+            tableNumber: existingSelection.tableNumber,
+            tableName: `Table ${existingSelection.tableNumber}`,
+            expiresAt: existingSelection.expiresAt.toISOString(),
           },
-          { status: 409 }
-        );
+        }, { status: 409 });
       }
-      
-      // Check if table is selected by another user
+
       if (existingSelection && existingSelection.tableId === tableId && existingSelection.selectedBy !== selectedBy) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: `Table ${table.number} is being selected by another customer`,
-            conflict: true
-          },
-          { status: 409 }
-        );
+        return NextResponse.json({ success: false, error: `Table ${table.number} is being selected by another customer`, conflict: true }, { status: 409 });
       }
-      
-      // If same user re-selecting, just refresh the timer
+
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + duration);
+
+      // Refresh timer if same user re-selects
       if (existingSelection && existingSelection.tableId === tableId && existingSelection.selectedBy === selectedBy) {
-        const newExpiresAt = new Date();
-        newExpiresAt.setMinutes(newExpiresAt.getMinutes() + duration);
-        
-        existingSelection.expiresAt = newExpiresAt;
+        existingSelection.expiresAt = expiresAt;
         existingSelection.selectedAt = new Date();
         activeSelections.set(selectionKey, existingSelection);
-        
-        if (arrangement.tables[tableIndex].reservationInfo) {
-          arrangement.tables[tableIndex].reservationInfo!.expiresAt = newExpiresAt;
-          arrangement.tables[tableIndex].reservationInfo!.reservedAt = new Date();
-          arrangement.updatedAt = new Date();
-          await arrangement.save({ validateBeforeSave: false });
-        }
-        
-        return NextResponse.json({ 
+
+        await TableArrangement.findOneAndUpdate(baseQuery, {
+          $set: {
+            [`tables.${idx}.reservationInfo.expiresAt`]: expiresAt,
+            [`tables.${idx}.reservationInfo.reservedAt`]: new Date(),
+            updatedAt: new Date(),
+          },
+        }, { new: true });
+
+        return NextResponse.json({
           success: true,
           data: {
-            selection: {
-              ...existingSelection,
-              selectedAt: existingSelection.selectedAt.toISOString(),
-              expiresAt: existingSelection.expiresAt.toISOString()
-            },
-            table: arrangement.tables[tableIndex]
+            selection: { ...existingSelection, selectedAt: existingSelection.selectedAt.toISOString(), expiresAt: existingSelection.expiresAt.toISOString() },
+            table: arr.tables[idx],
           },
-          message: `Table ${table.number} selection renewed`
+          message: `Table ${table.number} selection renewed`,
         });
       }
-      
-      // Create new selection
-      const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + duration);
-      
+
+      // New selection
+      const updatePath: any = {
+        [`tables.${idx}.status`]: 'reserved',
+        [`tables.${idx}.reservationInfo`]: { reservedBy: selectedBy, reservedByName: selectedByName, reservedAt: new Date(), expiresAt },
+        [`tables.${idx}.lastUpdated`]: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const simulatedTables = arr.tables.map((t: any, i: number) => i === idx ? { ...t, status: 'reserved' } : t);
+      updatePath['availableTables'] = simulatedTables.filter((t: any) => t.status === 'available').length;
+      updatePath['reservedTables'] = simulatedTables.filter((t: any) => t.status === 'reserved').length;
+
+      const updated = await TableArrangement.findOneAndUpdate(baseQuery, { $set: updatePath }, { new: true });
+      if (!updated) return NextResponse.json({ success: false, error: 'Failed to update arrangement' }, { status: 500 });
+
       const newSelection = {
-        tableId: table.id,
-        tableNumber: table.number,
-        selectedBy: selectedBy,
-        selectedByName: selectedByName,
-        selectedAt: new Date(),
-        expiresAt,
-        isGuest: isGuest,
-        guestInfo: isGuest ? {
-          name: selectedByName,
-          phone: guestInfo?.phone,
-          email: guestInfo?.email
-        } : undefined
+        tableId: table.id, tableNumber: table.number,
+        selectedBy, selectedByName, selectedAt: new Date(), expiresAt, isGuest,
+        guestInfo: isGuest ? { name: selectedByName, phone: guestInfo?.phone, email: guestInfo?.email } : undefined,
       };
-      
       activeSelections.set(selectionKey, newSelection);
-      
-      // Update table status
-      arrangement.tables[tableIndex].status = 'reserved';
-      arrangement.tables[tableIndex].reservationInfo = {
-        reservedBy: selectedBy,
-        reservedByName: selectedByName,
-        reservedAt: new Date(),
-        expiresAt
-      };
-      arrangement.tables[tableIndex].lastUpdated = new Date();
-      arrangement.updatedAt = new Date();
-      
-      arrangement.availableTables = arrangement.tables.filter((t: ITable) => t.status === 'available').length;
-      arrangement.reservedTables = arrangement.tables.filter((t: ITable) => t.status === 'reserved').length;
-      
-      await arrangement.save({ validateBeforeSave: false });
-      
+
       const responseData: any = {
         success: true,
         data: {
-          selection: {
-            ...newSelection,
-            selectedAt: newSelection.selectedAt.toISOString(),
-            expiresAt: newSelection.expiresAt.toISOString()
-          },
-          table: arrangement.tables[tableIndex]
+          selection: { ...newSelection, selectedAt: newSelection.selectedAt.toISOString(), expiresAt: newSelection.expiresAt.toISOString() },
+          table: updated.tables[idx],
         },
-        message: `Table ${table.number} selected successfully!`
+        message: `Table ${table.number} selected successfully!`,
       };
-      
       if (isGuest && guestSessionData) {
         responseData.guestId = guestSessionData.guestId;
         responseData.guestName = guestSessionData.name;
         responseData.isGuest = true;
       }
-      
       return NextResponse.json(responseData);
     }
 
-    // If no valid operation
-    return NextResponse.json(
-      { success: false, error: 'Invalid operation. Must specify selectTable, unselectTable, or switchTable' },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, error: 'Invalid operation. Must specify selectTable, unselectTable, or switchTable' }, { status: 400 });
   } catch (error) {
     console.error('Error updating table:', error);
     return NextResponse.json(
@@ -593,27 +424,20 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// FIXED: POST handler
+// ─── POST ────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     await ensureConnection();
-    
     const session = await auth();
     if (!session?.user?.email) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await req.json();
     const { restaurantId, restaurantName, floor, tables, dimensions } = body;
 
     if (!restaurantId || !floor || !tables) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 
     const processedTables = tables.map((table: any) => ({
@@ -647,7 +471,7 @@ export async function POST(req: NextRequest) {
         dimensions: dimensions || { width: 1200, height: 800 },
         createdBy: session.user.email,
         updatedAt: new Date(),
-        isActive: true
+        isActive: true,
       },
       { upsert: true, new: true }
     );
@@ -655,24 +479,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, data: arrangement });
   } catch (error) {
     console.error('Error saving table arrangement:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to save table arrangement' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Failed to save table arrangement' }, { status: 500 });
   }
 }
 
-// FIXED: DELETE handler
+// ─── DELETE ──────────────────────────────────────────────────────────────────
 export async function DELETE(req: NextRequest) {
   try {
     await ensureConnection();
-    
     const session = await auth();
     if (!session?.user?.email) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -680,48 +497,34 @@ export async function DELETE(req: NextRequest) {
     const floor = searchParams.get('floor');
 
     if (!restaurantId || !floor) {
-      return NextResponse.json(
-        { success: false, error: 'restaurantId and floor are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: 'restaurantId and floor are required' }, { status: 400 });
     }
 
-    const arrangement = await TableArrangement.findOne({ restaurantId, floor, isActive: true });
-    if (!arrangement) {
-      return NextResponse.json(
-        { success: false, error: 'Arrangement not found' },
-        { status: 404 }
-      );
+    const updated = await TableArrangement.findOneAndUpdate(
+      { restaurantId, floor, isActive: true },
+      { $set: { isActive: false, updatedAt: new Date() } },
+      { new: true }
+    );
+
+    if (!updated) {
+      return NextResponse.json({ success: false, error: 'Arrangement not found' }, { status: 404 });
     }
 
-    arrangement.isActive = false;
-    arrangement.updatedAt = new Date();
-    await arrangement.save();
-
-    const selectionKey = getSelectionKey(restaurantId, floor);
-    activeSelections.delete(selectionKey);
-
+    activeSelections.delete(getSelectionKey(restaurantId, floor));
     return NextResponse.json({ success: true, message: 'Arrangement deleted successfully' });
   } catch (error) {
     console.error('Error deleting arrangement:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to delete arrangement' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Failed to delete arrangement' }, { status: 500 });
   }
 }
 
-// FIXED: PUT handler
+// ─── PUT ─────────────────────────────────────────────────────────────────────
 export async function PUT(req: NextRequest) {
   try {
     await ensureConnection();
-    
     const session = await auth();
     if (!session?.user?.email) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await req.json();
@@ -737,20 +540,14 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    return NextResponse.json(
-      { success: false, error: 'Invalid request' },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, error: 'Invalid request' }, { status: 400 });
   } catch (error) {
     console.error('Error syncing:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to sync' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Failed to sync' }, { status: 500 });
   }
 }
 
-// FIXED: OPTIONS handler for CORS
+// ─── OPTIONS ─────────────────────────────────────────────────────────────────
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
