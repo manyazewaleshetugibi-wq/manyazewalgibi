@@ -258,7 +258,11 @@ export class ProfitService {
       const response = await fetch("/api/stock-purchase")
       if (!response.ok) throw new Error("Failed to fetch purchases")
       const data = await response.json()
+      if (data.success && data.data) return data.data
       if (data.success && data.purchases) return data.purchases
+      if (data.data && Array.isArray(data.data)) return data.data
+      if (data.purchases && Array.isArray(data.purchases)) return data.purchases
+      if (Array.isArray(data)) return data
       return []
     } catch (error) {
       console.error("Error fetching purchases:", error)

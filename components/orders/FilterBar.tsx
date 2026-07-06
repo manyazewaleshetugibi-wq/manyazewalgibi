@@ -25,6 +25,7 @@ import {
   CheckCircle,
   XCircle,
   Clock,
+  AlertCircle,
 } from "lucide-react"
 import { format } from "date-fns"
 import type { OrderStatus, Waitress, Restaurant, StockProcessStatus } from "@/types/order"
@@ -39,10 +40,11 @@ const statusOptions: OrderStatus[] = [
   "CANCELLED",
 ]
 
-const stockStatusOptions: { value: StockProcessStatus | "ALL"; label: string; icon: React.ReactNode }[] = [
+const stockStatusOptions: { value: StockProcessStatus | "ALL" | "PARTIAL"; label: string; icon: React.ReactNode }[] = [
   { value: "ALL", label: "All Orders", icon: null },
   { value: "PROCESSED", label: "Stock Processed", icon: <CheckCircle className="h-3 w-3" /> },
   { value: "PENDING", label: "Pending Stock", icon: <Clock className="h-3 w-3" /> },
+  { value: "PARTIAL", label: "Partial Stock", icon: <AlertCircle className="h-3 w-3" /> },
   { value: "FAILED", label: "Stock Failed", icon: <XCircle className="h-3 w-3" /> },
 ]
 

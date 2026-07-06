@@ -64,6 +64,17 @@ export type Order = {
   stockProcessingError?: string
   stockProcessingFailedAt?: string
   stockProcessingNote?: string
+  // Partial stock processing — sufficient stocks were deducted, these still need stock
+  hasPartialStock?: boolean
+  pendingStockItems?: Array<{
+    stockId: string
+    stockName: string
+    requiredQuantity: number
+    currentStock: number
+    deficit: number
+    unit: string
+    menuItemName: string
+  }>
 }
 
 export type Waitress = {

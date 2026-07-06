@@ -185,13 +185,15 @@ export default function OrderManagementMain() {
   // Stock processing states
   const [pendingStockCount, setPendingStockCount] = useState<number>(0)
   const [failedStockCount, setFailedStockCount] = useState<number>(0)
+  const [partialStockCount, setPartialStockCount] = useState<number>(0)
   const [failedOrdersList, setFailedOrdersList] = useState<Order[]>([])
   const [pendingOrdersList, setPendingOrdersList] = useState<Order[]>([])
+  const [partialOrdersList, setPartialOrdersList] = useState<Order[]>([])
   const [processingStock, setProcessingStock] = useState<boolean>(false)
   const [stockError, setStockError] = useState<string | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState<boolean>(false)
   const [showFailedDetails, setShowFailedDetails] = useState<boolean>(false)
-  const [stockStatusFilter, setStockStatusFilter] = useState<string>("ALL") // ALL, PENDING, FAILED, PROCESSED
+  const [stockStatusFilter, setStockStatusFilter] = useState<string>("ALL") // ALL, PENDING, PARTIAL, FAILED, PROCESSED
   
   // Sound states
   const [showNotification, setShowNotification] = useState(false)
@@ -335,53 +337,33 @@ export default function OrderManagementMain() {
   const checkPendingStockOrders = useCallback(async () => {
     try {
       const response = await api.get('/order?all=true&status=COMPLETED')
-      
-      const completedOrders = response.data.orders || []
-      
-      // Filter completed orders that need stock processing
+      const completedOrders: Order[] = response.data.orders || []
+
       const pending = completedOrders.filter(
-        (order: Order) => 
-          order.status === "COMPLETED" && 
-          !order.stockProcessed && 
-          !order.stockProcessingError
+        o => o.status === "COMPLETED" && !o.stockProcessed && !o.stockProcessingError
       )
-      
       const failed = completedOrders.filter(
-        (order: Order) => 
-          order.status === "COMPLETED" && 
-          !order.stockProcessed && 
-          order.stockProcessingError
+        o => o.status === "COMPLETED" && !o.stockProcessed && !!o.stockProcessingError
       )
-      
-      const processed = completedOrders.filter(
-        (order: Order) => 
-          order.status === "COMPLETED" && 
-          order.stockProcessed === true
+      const partial = completedOrders.filter(
+        o => o.status === "COMPLETED" && o.stockProcessed === true && o.hasPartialStock === true
       )
-      
+
       if (isMountedRef.current) {
         setPendingStockCount(pending.length)
         setFailedStockCount(failed.length)
+        setPartialStockCount(partial.length)
         setPendingOrdersList(pending)
         setFailedOrdersList(failed)
-        
-        // Log stock status for debugging
-        console.log('📊 Stock Status Summary:', {
-          totalCompleted: completedOrders.length,
-          pending: pending.length,
-          failed: failed.length,
-          processed: processed.length
-        })
-        
-        if (pending.length === 0 && failed.length === 0) {
+        setPartialOrdersList(partial)
+
+        if (pending.length === 0 && failed.length === 0 && partial.length === 0) {
           setStockError(null)
         }
       }
     } catch (error: any) {
       console.error('Error checking pending stock:', error)
-      if (isMountedRef.current) {
-        setStockError('Failed to check')
-      }
+      if (isMountedRef.current) setStockError('Failed to check')
     }
   }, [])
 
@@ -802,11 +784,20 @@ export default function OrderManagementMain() {
 
   // ========== STOCK STATUS BADGE ==========
   const StockStatusBadge = ({ order }: { order: Order }) => {
-    // Only show stock status for COMPLETED orders
-    if (order.status !== "COMPLETED") {
-      return null
+    if (order.status !== "COMPLETED") return null
+
+    if (order.stockProcessed === true && order.hasPartialStock === true) {
+      const names = order.pendingStockItems?.map(
+        i => `${i.stockName} (need ${i.requiredQuantity}${i.unit}, have ${i.currentStock}${i.unit})`
+      ).join(', ') || ''
+      return (
+        <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-200 cursor-help" title={`Waiting for: ${names}`}>
+          <AlertCircle className="h-3 w-3 mr-1" />
+          Partial Stock
+        </Badge>
+      )
     }
-    
+
     if (order.stockProcessed === true) {
       return (
         <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
@@ -814,22 +805,23 @@ export default function OrderManagementMain() {
           Stock Processed
         </Badge>
       )
-    } else if (order.stockProcessingError) {
+    }
+
+    if (order.stockProcessingError) {
       return (
         <Badge variant="outline" className="bg-red-100 text-red-800 border-red-200 cursor-help" title={order.stockProcessingError}>
           <XCircle className="h-3 w-3 mr-1" />
           Stock Failed
         </Badge>
       )
-    } else {
-      // Pending stock (completed but not processed and no error)
-      return (
-        <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-200">
-          <Clock className="h-3 w-3 mr-1" />
-          Pending Stock
-        </Badge>
-      )
     }
+
+    return (
+      <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-200">
+        <Clock className="h-3 w-3 mr-1" />
+        Pending Stock
+      </Badge>
+    )
   }
 
   // ========== STOCK CONFIRM DIALOG ==========
@@ -837,59 +829,59 @@ export default function OrderManagementMain() {
     <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
       <AlertDialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <AlertDialogHeader>
-          <AlertDialogTitle>Process Stock for {pendingStockCount} Orders?</AlertDialogTitle>
+          <AlertDialogTitle>Process Stock for {pendingStockCount + partialStockCount} Orders?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will deduct stock quantities for {pendingStockCount} completed order(s).
-            This action cannot be undone.
+            This will deduct stock for {pendingStockCount} new order(s) and retry {partialStockCount} partial order(s).
           </AlertDialogDescription>
         </AlertDialogHeader>
-        
+
+        {/* Partial stock warnings */}
+        {partialOrdersList.length > 0 && (
+          <div className="mt-3 p-4 bg-orange-50 rounded-lg border border-orange-200">
+            <p className="text-sm font-semibold text-orange-800 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" />
+              {partialOrdersList.length} order(s) waiting for restocking:
+            </p>
+            <ul className="mt-2 space-y-2 max-h-48 overflow-y-auto">
+              {partialOrdersList.map(order => (
+                <li key={order._id} className="text-xs text-orange-700">
+                  <span className="font-medium">Order #{order.orderNumber}:</span>
+                  <ul className="ml-3 mt-1 space-y-0.5">
+                    {order.pendingStockItems?.map((item, i) => (
+                      <li key={i}>
+                        ⚠️ <span className="font-medium">{item.stockName}</span> — needs {item.requiredQuantity}{item.unit}, have {item.currentStock}{item.unit} (short by {item.deficit}{item.unit})
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Failed orders */}
         {failedStockCount > 0 && (
-          <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
+          <div className="mt-3 p-4 bg-red-50 rounded-lg border border-red-200">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-red-800 flex items-center gap-2">
                 <AlertCircle className="h-4 w-4" />
                 {failedStockCount} Order(s) Previously Failed
               </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowFailedDetails(!showFailedDetails)}
-                className="text-red-600 border-red-300 hover:bg-red-100"
-              >
-                {showFailedDetails ? "Hide Details" : "Show Details"}
+              <Button variant="outline" size="sm" onClick={() => setShowFailedDetails(!showFailedDetails)} className="text-red-600 border-red-300 hover:bg-red-100">
+                {showFailedDetails ? "Hide" : "Show Details"}
               </Button>
             </div>
-            
             {showFailedDetails && (
-              <div className="space-y-3 max-h-60 overflow-y-auto">
-                {failedOrdersList.map((order) => (
+              <div className="space-y-3 max-h-48 overflow-y-auto">
+                {failedOrdersList.map(order => (
                   <div key={order._id} className="bg-white rounded-lg p-3 border border-red-200">
-                    <div className="flex justify-between items-start mb-2">
-                      <p className="font-semibold text-red-800">Order #{order.orderNumber}</p>
-                      <Badge variant="outline" className="bg-red-100 text-red-800">
-                        Failed
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-red-700 mb-2">
-                      <span className="font-medium">Error:</span> {order.stockProcessingError || 'Unknown error'}
-                    </p>
+                    <p className="font-semibold text-red-800 text-sm">Order #{order.orderNumber}</p>
+                    <p className="text-xs text-red-700 mt-1">{order.stockProcessingError || 'Unknown error'}</p>
                     {order.stockProcessingFailedAt && (
-                      <p className="text-xs text-red-500">
-                        Failed at: {new Date(order.stockProcessingFailedAt).toLocaleString()}
-                      </p>
+                      <p className="text-xs text-red-500 mt-1">Failed at: {new Date(order.stockProcessingFailedAt).toLocaleString()}</p>
                     )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setShowConfirmDialog(false)
-                        handleRetryStockForOrder(order._id)
-                      }}
-                      className="mt-2 text-red-600 border-red-300 hover:bg-red-50"
-                    >
-                      <RefreshCcw className="h-3 w-3 mr-1" />
-                      Retry This Order
+                    <Button variant="outline" size="sm" onClick={() => { setShowConfirmDialog(false); handleRetryStockForOrder(order._id) }} className="mt-2 text-red-600 border-red-300 hover:bg-red-50">
+                      <RefreshCcw className="h-3 w-3 mr-1" />Retry This Order
                     </Button>
                   </div>
                 ))}
@@ -897,21 +889,11 @@ export default function OrderManagementMain() {
             )}
           </div>
         )}
-        
+
         <AlertDialogFooter className="flex gap-2">
-          <AlertDialogCancel onClick={() => setShowConfirmDialog(false)}>
-            Cancel
-          </AlertDialogCancel>
+          <AlertDialogCancel onClick={() => setShowConfirmDialog(false)}>Cancel</AlertDialogCancel>
           {failedStockCount > 0 && (
-            <Button
-              onClick={() => {
-                setShowConfirmDialog(false)
-                failedOrdersList.forEach(order => handleRetryStockForOrder(order._id))
-              }}
-              disabled={processingStock}
-              variant="outline"
-              className="gap-2"
-            >
+            <Button onClick={() => { setShowConfirmDialog(false); failedOrdersList.forEach(o => handleRetryStockForOrder(o._id)) }} disabled={processingStock} variant="outline" className="gap-2">
               <RefreshCcw className={`h-4 w-4 ${processingStock ? "animate-spin" : ""}`} />
               Retry All Failed ({failedStockCount})
             </Button>
@@ -919,16 +901,9 @@ export default function OrderManagementMain() {
           <AlertDialogAction
             onClick={handleProcessStock}
             className="bg-green-600 hover:bg-green-700"
-            disabled={processingStock || pendingStockCount === 0}
+            disabled={processingStock || (pendingStockCount === 0 && partialStockCount === 0)}
           >
-            {processingStock ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              "Yes, Process Stock"
-            )}
+            {processingStock ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</> : "Yes, Process Stock"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -965,19 +940,17 @@ export default function OrderManagementMain() {
 
       // Stock status filter
       if (stockStatusFilter !== "ALL") {
-        if (order.status !== "COMPLETED") {
-          // If not completed, only show if filter is ALL
-          if (stockStatusFilter !== "ALL") return false;
-        } else {
-          // For completed orders, apply stock status filter
-          const isProcessed = order.stockProcessed === true;
-          const isFailed = !!order.stockProcessingError;
-          const isPending = !isProcessed && !isFailed;
-          
-          if (stockStatusFilter === "PROCESSED" && !isProcessed) return false;
-          if (stockStatusFilter === "FAILED" && !isFailed) return false;
-          if (stockStatusFilter === "PENDING" && !isPending) return false;
-        }
+        if (order.status !== "COMPLETED") return false
+
+        const isFullyProcessed = order.stockProcessed === true && !order.hasPartialStock
+        const isPartial = order.stockProcessed === true && order.hasPartialStock === true
+        const isFailed = !order.stockProcessed && !!order.stockProcessingError
+        const isPending = !order.stockProcessed && !order.stockProcessingError
+
+        if (stockStatusFilter === "PROCESSED" && !isFullyProcessed) return false
+        if (stockStatusFilter === "PARTIAL" && !isPartial) return false
+        if (stockStatusFilter === "FAILED" && !isFailed) return false
+        if (stockStatusFilter === "PENDING" && !isPending) return false
       }
 
       const matchesSearch =
@@ -1243,38 +1216,31 @@ export default function OrderManagementMain() {
       )}
 
       {/* Stock Status Summary */}
-      {(pendingStockCount > 0 || failedStockCount > 0) && (
+      {(pendingStockCount > 0 || failedStockCount > 0 || partialStockCount > 0) && (
         <Alert className="bg-yellow-50 border-yellow-200">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-3">
               <Package className="h-4 w-4 text-yellow-600" />
               <AlertDescription className="text-yellow-800">
                 <span className="font-semibold">Stock Status:</span>
-                {pendingStockCount > 0 && (
-                  <span className="ml-2">🟡 {pendingStockCount} pending</span>
-                )}
-                {failedStockCount > 0 && (
-                  <span className="ml-2 text-red-600">🔴 {failedStockCount} failed</span>
-                )}
+                {pendingStockCount > 0 && <span className="ml-2">🟡 {pendingStockCount} pending</span>}
+                {partialStockCount > 0 && <span className="ml-2 text-orange-600">🟠 {partialStockCount} partial</span>}
+                {failedStockCount > 0 && <span className="ml-2 text-red-600">🔴 {failedStockCount} failed</span>}
               </AlertDescription>
             </div>
             <div className="flex gap-2">
-              {pendingStockCount > 0 && (
-                <Button
-                  size="sm"
-                  onClick={() => setShowConfirmDialog(true)}
-                  className="bg-yellow-600 hover:bg-yellow-700 text-white"
-                >
+              {(pendingStockCount > 0 || partialStockCount > 0) && (
+                <Button size="sm" onClick={() => setShowConfirmDialog(true)} className="bg-yellow-600 hover:bg-yellow-700 text-white">
                   Process Pending
                 </Button>
               )}
+              {partialStockCount > 0 && (
+                <Button size="sm" variant="outline" onClick={() => setStockStatusFilter("PARTIAL")} className="border-orange-300 text-orange-600 hover:bg-orange-50">
+                  View Partial
+                </Button>
+              )}
               {failedStockCount > 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setStockStatusFilter(failedStockCount > 0 ? "FAILED" : "ALL")}
-                  className="border-red-300 text-red-600 hover:bg-red-50"
-                >
+                <Button size="sm" variant="outline" onClick={() => setStockStatusFilter("FAILED")} className="border-red-300 text-red-600 hover:bg-red-50">
                   View Failed
                 </Button>
               )}
@@ -1302,24 +1268,26 @@ export default function OrderManagementMain() {
               <Volume2 className="h-4 w-4 mr-2" />Enable Sound
             </Button>
           )}
-          {(pendingStockCount > 0 || failedStockCount > 0) && (
+          {(pendingStockCount > 0 || failedStockCount > 0 || partialStockCount > 0) && (
             <Button
               onClick={() => setShowConfirmDialog(true)}
               disabled={processingStock}
               className="bg-green-600 hover:bg-green-700 text-white gap-2"
             >
               {processingStock ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Processing...
-                </>
+                <><Loader2 className="h-4 w-4 animate-spin" />Processing...</>
               ) : (
                 <>
                   <Package className="h-4 w-4" />
-                  Process Stock ({pendingStockCount})
+                  Process Stock ({pendingStockCount + partialStockCount})
                   {failedStockCount > 0 && (
-                    <Badge className="ml-1 bg-red-500 text-white text-xs cursor-help" title={`${failedStockCount} orders failed to process`}>
+                    <Badge className="ml-1 bg-red-500 text-white text-xs" title={`${failedStockCount} orders failed`}>
                       {failedStockCount} failed
+                    </Badge>
+                  )}
+                  {partialStockCount > 0 && (
+                    <Badge className="ml-1 bg-orange-500 text-white text-xs" title={`${partialStockCount} orders have insufficient stock`}>
+                      {partialStockCount} partial
                     </Badge>
                   )}
                 </>

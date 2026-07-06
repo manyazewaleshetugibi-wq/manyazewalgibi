@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Add this line to allow your mobile IP
-  allowedDevOrigins: ['192.168.1.7'],
-  allowedDevOrigins: ['192.168.107.77'],
+  allowedDevOrigins: ['192.168.1.4'],
+  
 
   typescript: {
     ignoreBuildErrors: true,

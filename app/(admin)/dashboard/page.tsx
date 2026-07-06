@@ -736,7 +736,7 @@ const DailyProfitCard = ({
               <p className="text-lg font-bold text-purple-700 dark:text-purple-400">
                 {formatCurrency(grossProfit)}
               </p>
-              <p className="text-[8px] text-muted-foreground">Revenue - Stock</p>
+              <p className="text-[8px] text-muted-foreground">Revenue - Stock Cost</p>
             </div>
             
             <div className={`bg-white/70 dark:bg-gray-800/50 rounded-xl p-3 text-center border ${isProfitable ? 'border-emerald-200/50 dark:border-emerald-800/30' : 'border-red-200/50 dark:border-red-800/30'} shadow-sm`}>
@@ -744,7 +744,7 @@ const DailyProfitCard = ({
               <p className={`text-lg font-bold ${isProfitable ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                 {formatCurrency(netProfit)}
               </p>
-              <p className="text-[8px] text-muted-foreground">Revenue - All</p>
+              <p className="text-[8px] text-muted-foreground">Gross - Expenses</p>
             </div>
             
             <div className={`bg-white/70 dark:bg-gray-800/50 rounded-xl p-3 text-center border ${profitMargin >= 20 ? 'border-emerald-200/50 dark:border-emerald-800/30' : profitMargin >= 0 ? 'border-yellow-200/50 dark:border-yellow-800/30' : 'border-red-200/50 dark:border-red-800/30'} shadow-sm`}>
@@ -758,7 +758,7 @@ const DailyProfitCard = ({
           
           <div className="mt-3 pt-3 border-t border-purple-200/30 dark:border-purple-700/30">
             <p className="text-[9px] text-center text-muted-foreground">
-              📊 Gross = Revenue - Stock Cost • Net = Revenue - All Expenses
+              📊 Gross = Revenue - Stock Cost • Net = Gross - All Expenses
             </p>
           </div>
         </CardContent>
@@ -894,6 +894,20 @@ function Dashboard() {
     return total
   }, [expenses, commonExpenses, stockPurchases, todayStr, todayDate])
 
+  // Only common + casual expenses for net profit (stock cost already in gross profit)
+  const todaysOperationalExpenses = useMemo(() => {
+    let total = 0
+    if (expenses) {
+      total += expenses
+        .filter((e) => normalizeDate(e.date) === todayStr)
+        .reduce((sum, e) => sum + e.amount, 0)
+    }
+    if (commonExpenses) {
+      commonExpenses.forEach(e => { total += getDailyCommonAmount(e, todayDate) })
+    }
+    return total
+  }, [expenses, commonExpenses, todayStr, todayDate])
+
   const yesterdaysExpenses = useMemo(() => {
     let total = 0
     
@@ -989,9 +1003,11 @@ function Dashboard() {
   const ordersChange = calculatePercentageChange(todaysOrders, yesterdaysOrders)
   const stockChange = calculatePercentageChange(currentStockValue, yesterdayStockValue)
 
-  const todaysNetProfit = profitSummary?.totalProfit || 0
-  const profitMargin = profitSummary?.profitMargin || 0
   const todaysGrossProfit = (profitSummary?.totalRevenue || 0) - (profitSummary?.totalCost || 0)
+  const todaysNetProfit = todaysGrossProfit - todaysOperationalExpenses
+  const profitMargin = (profitSummary?.totalRevenue || 0) > 0
+    ? (todaysNetProfit / (profitSummary?.totalRevenue || 1)) * 100
+    : 0
 
   const filteredSalesData = useMemo(() => {
     if (!orderReport) return []

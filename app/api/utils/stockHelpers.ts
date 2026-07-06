@@ -14,6 +14,7 @@ type ProcessOrderResult = {
   stockUsageRecords?: any[];
   processedStockIds?: string[];
   lowStockItems?: LowStockItem[];
+  partiallyProcessed?: boolean;
   error?: string;
 };
 
@@ -205,134 +206,148 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
     return { success: true, message: "No ingredients", noIngredients: true };
   }
 
-  // Check for insufficient stock BEFORE transaction
+  // --- PARTIAL PROCESSING: split into sufficient and insufficient ---
+  // If this order already has pendingStockItems saved, only process those
+  const savedPending: any[] = order.pendingStockItems || [];
+  const ingredientsToProcess = savedPending.length > 0
+    ? new Map(
+        [...allIngredients.entries()].filter(([id]) =>
+          savedPending.some((p: any) => p.stockId === id)
+        )
+      )
+    : allIngredients;
+
   const lowStockItems: LowStockItem[] = [];
-  
-  for (const [stockIdString, ing] of allIngredients.entries()) {
-    const currentStock = ing.currentStock;
-    if (currentStock < ing.totalQuantityUsed) {
+  const sufficientIngredients = new Map<string, any>();
+
+  for (const [stockIdString, ing] of ingredientsToProcess.entries()) {
+    if (ing.currentStock < ing.totalQuantityUsed) {
       lowStockItems.push({
         stockId: stockIdString,
         stockName: ing.stockName,
-        currentStock: currentStock,
+        currentStock: ing.currentStock,
         requiredQuantity: ing.totalQuantityUsed,
-        deficit: ing.totalQuantityUsed - currentStock,
+        deficit: ing.totalQuantityUsed - ing.currentStock,
         unit: ing.stockUnit,
         orderNumber: order.orderNumber,
         menuItemName: ing.items[0]?.itemName || "Unknown",
         orderId: order._id.toString()
       });
+    } else {
+      sufficientIngredients.set(stockIdString, ing);
     }
-  }
-  
-  // If there are low stock items, return them without processing
-  if (lowStockItems.length > 0) {
-    debugLog(`Order ${order.orderNumber}: Insufficient stock for ${lowStockItems.length} items`, lowStockItems);
-    
-    // Update order with error info
-    await db.collection("orders").updateOne(
-      { _id: order._id },
-      {
-        $set: {
-          stockProcessingError: `Insufficient stock: ${lowStockItems.map(i => i.stockName).join(', ')}`,
-          stockProcessingFailedAt: new Date()
-        }
-      }
-    );
-    
-    return { 
-      success: false, 
-      lowStockItems,
-      message: `Insufficient stock for ${lowStockItems.length} items`
-    };
   }
 
-  // Process with transaction (only if all stocks have sufficient quantity)
-  return await withTransactionRetry(dbClient, async (session) => {
-    const stillPending = await db.collection("orders").findOne(
-      { _id: order._id, stockProcessed: { $ne: true } },
-      { session }
-    );
-    
-    if (!stillPending) {
-      return { success: true, alreadyProcessed: true };
-    }
-    
-    const stockRecords = [];
-    const processedStockIds = [];
-    
-    for (const [stockIdString, ing] of allIngredients.entries()) {
-      const stockId = new ObjectId(stockIdString);
-      
-      // Check for existing record
-      const existing = await db.collection("used_stock").findOne(
-        { orderId: order._id, stockId: stockId },
-        { session }
-      );
-      if (existing) continue;
-      
-      // Get and update stock
-      const stockItem = await db.collection("stocks").findOne({ _id: stockId }, { session });
-      if (!stockItem) continue;
-      
-      const currentStock = Number(stockItem.currentStock) || 0;
-      if (currentStock < ing.totalQuantityUsed) {
-        throw new Error(`Insufficient stock: ${ing.stockName}`);
+  // Process all sufficient ingredients in a transaction
+  if (sufficientIngredients.size > 0) {
+    await withTransactionRetry(dbClient, async (session) => {
+      for (const [stockIdString, ing] of sufficientIngredients.entries()) {
+        const stockId = new ObjectId(stockIdString);
+
+        const existing = await db.collection("used_stock").findOne(
+          { orderId: order._id, stockId },
+          { session }
+        );
+        if (existing) continue;
+
+        const stockItem = await db.collection("stocks").findOne({ _id: stockId }, { session });
+        if (!stockItem) continue;
+
+        if (Number(stockItem.currentStock) < ing.totalQuantityUsed) {
+          throw new Error(`Insufficient stock: ${ing.stockName}`);
+        }
+
+        await db.collection("stocks").updateOne(
+          { _id: stockId, currentStock: { $gte: ing.totalQuantityUsed } },
+          {
+            $inc: { currentStock: -ing.totalQuantityUsed },
+            $set: { lastUsed: new Date(), lastUsedInOrder: order.orderNumber }
+          },
+          { session }
+        );
+
+        await db.collection("used_stock").insertOne({
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          stockId,
+          stockName: ing.stockName,
+          stockCategory: ing.stockCategory,
+          stockUnit: ing.stockUnit,
+          unitCost: ing.unitCost,
+          totalQuantityUsed: ing.totalQuantityUsed,
+          totalCost: ing.unitCost * ing.totalQuantityUsed,
+          items: ing.items,
+          usedAt: new Date(),
+          processedAt: new Date(),
+          createdAt: new Date()
+        }, { session });
       }
-      
-      await db.collection("stocks").updateOne(
-        { _id: stockId, currentStock: { $gte: ing.totalQuantityUsed } },
-        {
-          $inc: { currentStock: -ing.totalQuantityUsed },
-          $set: { lastUsed: new Date(), lastUsedInOrder: order.orderNumber }
-        },
-        { session }
-      );
-      
-      // Create record
-      const record = {
-        orderId: order._id,
-        orderNumber: order.orderNumber,
-        stockId: stockId,
-        stockName: ing.stockName,
-        stockCategory: ing.stockCategory,
-        stockUnit: ing.stockUnit,
-        unitCost: ing.unitCost,
-        totalQuantityUsed: ing.totalQuantityUsed,
-        totalCost: ing.unitCost * ing.totalQuantityUsed,
-        items: ing.items,
-        usedAt: new Date(),
-        processedAt: new Date(),
-        createdAt: new Date()
-      };
-      
-      await db.collection("used_stock").insertOne(record, { session });
-      stockRecords.push(record);
-      processedStockIds.push(stockIdString);
-    }
-    
-    // Mark order as processed
+    }, 3);
+
+    debugLog(`✅ Order ${order.orderNumber}: processed ${sufficientIngredients.size} sufficient stocks`);
+  }
+
+  // If some ingredients were insufficient, save them as pending and mark partial
+  if (lowStockItems.length > 0) {
+    const pendingStockItems = lowStockItems.map(i => ({
+      stockId: i.stockId,
+      stockName: i.stockName,
+      requiredQuantity: i.requiredQuantity,
+      currentStock: i.currentStock,
+      deficit: i.deficit,
+      unit: i.unit,
+      menuItemName: i.menuItemName
+    }));
+
     await db.collection("orders").updateOne(
       { _id: order._id },
       {
         $set: {
           stockProcessed: true,
           stockProcessedAt: new Date(),
-          stockProcessingNote: `Processed ${stockRecords.length} stock records`
+          hasPartialStock: true,
+          pendingStockItems,
+          stockProcessingNote: `Partial: waiting for ${pendingStockItems.map(i => i.stockName).join(', ')}`
         },
         $unset: { stockProcessingError: "", stockProcessingFailedAt: "" }
-      },
-      { session }
+      }
     );
-    
-    debugLog(`✅ Order ${order.orderNumber}: ${stockRecords.length} stock records`);
-    
-    return { 
-      success: true, 
-      recordsProcessed: stockRecords.length,
-      processedStockIds
+
+    debugLog(`⚠️ Order ${order.orderNumber}: partial — pending stocks: ${pendingStockItems.map(i => i.stockName).join(', ')}`);
+
+    return {
+      success: true,
+      partiallyProcessed: true,
+      recordsProcessed: sufficientIngredients.size,
+      lowStockItems,
+      message: `Partial: ${lowStockItems.map(i => i.stockName).join(', ')} insufficient`
     };
-  }, 3);
+  }
+
+  // All ingredients were sufficient — fully processed
+  await db.collection("orders").updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        stockProcessed: true,
+        stockProcessedAt: new Date(),
+        hasPartialStock: false,
+        stockProcessingNote: `Fully processed ${sufficientIngredients.size} stock records`
+      },
+      $unset: {
+        stockProcessingError: "",
+        stockProcessingFailedAt: "",
+        pendingStockItems: ""
+      }
+    }
+  );
+
+  debugLog(`✅ Order ${order.orderNumber}: fully processed`);
+
+  return {
+    success: true,
+    recordsProcessed: sufficientIngredients.size
+  };
 }
 
 export async function processAllCompletedOrders(req?: NextRequest, batchSize: number = 20) {
@@ -341,33 +356,17 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
 
   debugLog(`Finding up to ${batchSize} orders to process...`);
 
-  // Find orders ready for processing (excluding previously failed ones)
-  const orders = await db.collection("orders").aggregate([
-    {
-      $match: {
-        status: { $regex: /^completed$/i },
-        "items.0": { $exists: true },
-        $or: [
-          { stockProcessed: { $ne: true } },
-          { stockProcessed: { $exists: false } }
-        ]
-      }
-    },
-    {
-      $lookup: {
-        from: "used_stock",
-        localField: "_id",
-        foreignField: "orderId",
-        as: "existingStock"
-      }
-    },
-    {
-      $match: {
-        "existingStock": { $size: 0 }
-      }
-    },
-    { $limit: batchSize }
-  ]).toArray();
+  // Find orders ready for processing:
+  // 1. Not yet processed at all (stockProcessed != true)
+  // 2. Partially processed (stockProcessed=true but hasPartialStock=true — pending ingredients)
+  const orders = await db.collection("orders").find({
+    status: { $regex: /^completed$/i },
+    "items.0": { $exists: true },
+    $or: [
+      { stockProcessed: { $ne: true } },
+      { hasPartialStock: true }
+    ]
+  }).limit(batchSize).toArray();
 
   debugLog(`Found ${orders.length} orders to process`);
 
@@ -383,24 +382,22 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
 
   let processed = 0;
   let failed = 0;
+  let partial = 0;
   const allLowStockItems: LowStockItem[] = [];
   const allErrors: ProcessingError[] = [];
 
   for (const order of orders) {
     try {
       const result = await processOrderStockUsage(order);
-      
-      if (result.success) {
+
+      if (result.partiallyProcessed) {
+        partial++;
+        if (result.lowStockItems) allLowStockItems.push(...result.lowStockItems);
+      } else if (result.success) {
         processed++;
       } else {
         failed++;
-        
-        // Collect low stock items
-        if (result.lowStockItems && result.lowStockItems.length > 0) {
-          allLowStockItems.push(...result.lowStockItems);
-        }
-        
-        // Collect errors
+        if (result.lowStockItems) allLowStockItems.push(...result.lowStockItems);
         allErrors.push({
           orderNumber: order.orderNumber,
           orderId: order._id.toString(),
@@ -410,32 +407,21 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
     } catch (error) {
       failed++;
       const errorMessage = error instanceof Error ? error.message : String(error);
-      
       allErrors.push({
         orderNumber: order.orderNumber,
         orderId: order._id.toString(),
         error: errorMessage
       });
-      
       debugError(`Failed to process ${order.orderNumber}:`, error);
-      
-      // Update order with error info
       await db.collection("orders").updateOne(
         { _id: order._id },
-        {
-          $set: {
-            stockProcessingError: errorMessage,
-            stockProcessingFailedAt: new Date()
-          }
-        }
+        { $set: { stockProcessingError: errorMessage, stockProcessingFailedAt: new Date() } }
       );
     }
-    
-    // Small delay between orders
+
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  // Get unique low stock items (by stockId)
   const uniqueLowStockItems = Array.from(
     new Map(allLowStockItems.map(item => [item.stockId, item])).values()
   );
@@ -444,6 +430,7 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
     totalOrders: orders.length,
     processedOrders: processed,
     failedOrders: failed,
+    partialOrders: partial,
     lowStockItems: uniqueLowStockItems,
     errors: allErrors
   };

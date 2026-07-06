@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
       duration: `${duration}ms`,
       processedOrders: result.processedOrders,
       failedOrders: result.failedOrders,
+      partialOrders: result.partialOrders,
       pendingOrders: result.totalOrders - result.processedOrders - result.failedOrders,
       lowStockItems: result.lowStockItems || [],
       errors: result.errors || []
@@ -74,6 +75,7 @@ export async function GET(req: NextRequest) {
         error: String(error),
         processedOrders: 0,
         failedOrders: 0,
+        partialOrders: 0,
         pendingOrders: 0,
         lowStockItems: [],
         errors: []
@@ -98,17 +100,12 @@ export async function POST(req: NextRequest) {
     const result = await processAllCompletedOrders(undefined, 100);
     const duration = Date.now() - startTime;
     
-    debugLog(`✅ Manual processing completed in ${duration}ms:`, {
-      processed: result.processedOrders,
-      failed: result.failedOrders,
-      lowStockCount: result.lowStockItems?.length || 0
-    });
-    
     return NextResponse.json({
       success: true,
       duration: `${duration}ms`,
       processedOrders: result.processedOrders,
       failedOrders: result.failedOrders,
+      partialOrders: result.partialOrders,
       pendingOrders: result.totalOrders - result.processedOrders - result.failedOrders,
       lowStockItems: result.lowStockItems || [],
       errors: result.errors || []
@@ -122,6 +119,7 @@ export async function POST(req: NextRequest) {
         error: String(error),
         processedOrders: 0,
         failedOrders: 0,
+        partialOrders: 0,
         pendingOrders: 0,
         lowStockItems: [],
         errors: []

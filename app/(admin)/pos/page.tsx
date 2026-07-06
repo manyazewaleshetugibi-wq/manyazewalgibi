@@ -655,67 +655,67 @@ function CartPanel({
   handlePlaceOrder,
   closeCart
 }: any) {
+  const canClose = typeof closeCart === 'function' && closeCart.toString() !== '() => {}';
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-3 sm:p-4 border-b sticky top-0 bg-background z-10">
-        <h3 className="font-semibold flex items-center gap-2 text-sm sm:text-base">
-          <ShoppingCart className="h-4 w-4 sm:h-5 sm:w-5" />
+      <div className="flex items-center justify-between p-3 border-b sticky top-0 bg-background z-10">
+        <h3 className="font-semibold flex items-center gap-2 text-sm">
+          <ShoppingCart className="h-4 w-4" />
           Current Order
           <Badge variant="outline" className="ml-1 text-xs">
             {cart.length} {cart.length === 1 ? 'item' : 'items'}
           </Badge>
         </h3>
-        <Button variant="ghost" size="icon" onClick={closeCart} className="h-7 w-7 sm:h-8 sm:w-8 rounded-full">
-          <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-        </Button>
+        {canClose && (
+          <Button variant="ghost" size="icon" onClick={closeCart} className="h-8 w-8 rounded-full">
+            <X className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
-      {cart.length > 0 ? (
+      {cart.length > 0 && (
         <>
-          <ScrollArea className="flex-1 p-2 sm:p-3">
-            <div className="space-y-2 sm:space-y-3">
+          <ScrollArea className="flex-1 p-3">
+            <div className="space-y-2">
               {cart.map((item: any) => {
                 const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
                 const itemTotalOriginal = originalPrice * item.quantity;
                 const itemTotalTax = taxAmount * item.quantity;
-                
                 return (
                   <div key={item._id} className="flex border rounded-lg overflow-hidden bg-background/50">
-                    <div className="relative h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0">
+                    <div className="relative h-14 w-14 flex-shrink-0">
                       <Image src={item.imageUrl || "/placeholder.svg"} alt={item.name} fill sizes="56px" className="object-cover" />
                     </div>
-                    <div className="flex-1 p-1.5 sm:p-2 flex flex-col">
+                    <div className="flex-1 p-2 flex flex-col">
                       <div className="flex items-start justify-between gap-1">
                         <div className="flex-1 min-w-0">
-                          <h4 className="font-medium text-xs sm:text-sm truncate">{item.name}</h4>
-                          <div className="flex flex-col">
-                            <p className="text-[9px] sm:text-[10px] text-muted-foreground">
-                              {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(originalPrice)} <span className="text-[8px]">(excl. VAT)</span>
-                            </p>
-                            <p className="text-[8px] sm:text-[9px] text-primary">
-                              + VAT: {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(taxAmount)}
-                            </p>
-                          </div>
+                          <h4 className="font-medium text-xs truncate">{item.name}</h4>
+                          <p className="text-[10px] text-muted-foreground">
+                            {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(originalPrice)} <span className="text-[9px]">(excl. VAT)</span>
+                          </p>
+                          <p className="text-[10px] text-primary">
+                            + VAT: {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(taxAmount)}
+                          </p>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => removeFromCart(item._id)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-full text-destructive">
-                          <X className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                        <Button variant="ghost" size="icon" onClick={() => removeFromCart(item._id)} className="h-6 w-6 rounded-full text-destructive shrink-0">
+                          <X className="h-3 w-3" />
                         </Button>
                       </div>
-                      <div className="mt-1 pt-0.5 flex justify-between items-center">
+                      <div className="mt-1 flex justify-between items-center">
                         <div className="flex items-center border rounded-md">
-                          <Button variant="ghost" size="icon" onClick={() => updateQuantity(item._id, item.quantity - 1)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-l-md p-0">
-                            <Minus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                          <Button variant="ghost" size="icon" onClick={() => updateQuantity(item._id, item.quantity - 1)} className="h-7 w-7 rounded-none rounded-l-md p-0">
+                            <Minus className="h-3 w-3" />
                           </Button>
-                          <span className="w-5 sm:w-6 text-center text-[10px] sm:text-xs font-medium">{item.quantity}</span>
-                          <Button variant="ghost" size="icon" onClick={() => updateQuantity(item._id, item.quantity + 1)} className="h-5 w-5 sm:h-6 sm:w-6 rounded-none rounded-r-md p-0">
-                            <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                          <span className="w-7 text-center text-xs font-medium">{item.quantity}</span>
+                          <Button variant="ghost" size="icon" onClick={() => updateQuantity(item._id, item.quantity + 1)} className="h-7 w-7 rounded-none rounded-r-md p-0">
+                            <Plus className="h-3 w-3" />
                           </Button>
                         </div>
                         <div className="text-right">
-                          <span className="text-[10px] sm:text-xs font-medium">
+                          <span className="text-xs font-medium">
                             {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(itemTotalOriginal)}
                           </span>
-                          <p className="text-[7px] sm:text-[8px] text-muted-foreground">
+                          <p className="text-[9px] text-muted-foreground">
                             + VAT: {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(itemTotalTax)}
                           </p>
                         </div>
@@ -727,34 +727,34 @@ function CartPanel({
             </div>
           </ScrollArea>
 
-          <div className="border-t p-3 sm:p-4 space-y-2 sm:space-y-3">
-            <div className="space-y-1 sm:space-y-2">
-              <div className="flex items-center justify-between text-[10px] sm:text-xs">
+          <div className="border-t p-3 space-y-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Subtotal (excl. VAT)</span>
                 <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(subtotal)}</span>
               </div>
-              <div className="flex items-center justify-between text-[10px] sm:text-xs">
+              <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">VAT (15%)</span>
                 <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(tax)}</span>
               </div>
               {discount > 0 && (
-                <div className="flex items-center justify-between text-[10px] sm:text-xs text-primary">
+                <div className="flex items-center justify-between text-xs text-primary">
                   <span>Discount (10%)</span>
                   <span>-{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(discount)}</span>
                 </div>
               )}
               <Separator />
-              <div className="flex items-center justify-between font-semibold text-xs sm:text-sm">
+              <div className="flex items-center justify-between font-semibold text-sm">
                 <span>Total (incl. VAT)</span>
                 <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(total)}</span>
               </div>
             </div>
 
-            <div className="space-y-2 sm:space-y-3 pt-1">
+            <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <Label htmlFor="guests" className="text-[10px] sm:text-xs whitespace-nowrap">Guests:</Label>
+                <Label htmlFor="guests" className="text-xs whitespace-nowrap">Guests:</Label>
                 <Select value={numberOfGuests.toString()} onValueChange={(v) => setNumberOfGuests(parseInt(v))}>
-                  <SelectTrigger id="guests" className="h-7 sm:h-8 text-[10px] sm:text-xs flex-1">
+                  <SelectTrigger id="guests" className="h-8 text-xs flex-1">
                     <SelectValue placeholder="Number" />
                   </SelectTrigger>
                   <SelectContent>
@@ -768,36 +768,23 @@ function CartPanel({
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="special-requirements" className="text-[10px] sm:text-xs">Special Notes</Label>
+                <Label htmlFor="special-requirements" className="text-xs">Special Notes</Label>
                 <Textarea
                   id="special-requirements"
                   placeholder="Add notes..."
-                  className="min-h-[50px] sm:min-h-[60px] text-[10px] sm:text-xs"
+                  className="min-h-[60px] text-xs"
                   value={specialRequirements}
                   onChange={(e) => setSpecialRequirements(e.target.value)}
                 />
               </div>
 
-              <Button onClick={handlePlaceOrder} className="w-full rounded-lg h-8 sm:h-10 text-xs sm:text-sm" disabled={cart.length === 0}>
-                <Receipt className="mr-1.5 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              <Button onClick={handlePlaceOrder} className="w-full rounded-lg h-10 text-sm" disabled={cart.length === 0}>
+                <Receipt className="mr-2 h-4 w-4" />
                 Place Order
               </Button>
             </div>
           </div>
         </>
-      ) : (
-        <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
-          <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-muted flex items-center justify-center mb-2 sm:mb-3">
-            <ShoppingCart className="h-5 w-5 sm:h-6 sm:w-6 text-muted-foreground" />
-          </div>
-          <h3 className="text-sm sm:text-base font-medium mb-1">Your cart is empty</h3>
-          <p className="text-[10px] sm:text-xs text-muted-foreground max-w-md mb-3 sm:mb-4">
-            Add items from the menu to get started.
-          </p>
-          <Button variant="outline" onClick={closeCart} className="rounded-lg text-xs sm:text-sm">
-            Browse Menu
-          </Button>
-        </div>
       )}
     </div>
   );
@@ -936,6 +923,54 @@ const MenuItemFallback = () => (
     </div>
   </div>
 )
+
+function UserNamePopover({ user }: { user: { name: string; role?: string; email?: string; restaurantName?: string } }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20"
+        onClick={() => setOpen(v => !v)}
+      >
+        <UserIcon className="h-4 w-4 text-primary" />
+      </Button>
+      {open && (
+        <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 bg-popover border rounded-lg shadow-lg p-3 z-50 min-w-[180px]">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <UserIcon className="h-4 w-4 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold truncate">{user.name}</p>
+              {user.role && <p className="text-[10px] text-muted-foreground capitalize">{user.role}</p>}
+            </div>
+          </div>
+          {user.email && (
+            <p className="text-[10px] text-muted-foreground truncate border-t pt-1.5">{user.email}</p>
+          )}
+          {user.restaurantName && (
+            <p className="text-[10px] text-muted-foreground truncate mt-0.5 flex items-center gap-1">
+              <Building2 className="h-2.5 w-2.5 shrink-0" />{user.restaurantName}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Main Component
 export default function POSPage() {
@@ -1623,7 +1658,7 @@ export default function POSPage() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-background/95 overflow-hidden">
+    <div className="flex h-screen bg-background/95 overflow-hidden">
       {/* Notification Toast */}
       {showNotification && (
         <motion.div
@@ -1673,129 +1708,190 @@ export default function POSPage() {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header */}
-        <header className="border-b bg-background/80 backdrop-blur-sm p-2 sm:p-3 sticky top-0 z-10">
-          <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1 sm:gap-2">
-              <Button variant="ghost" size="icon" onClick={() => router.push('/dashboard')} className="h-7 w-7 sm:h-8 sm:w-8">
-                <ArrowLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              </Button>
-              <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">POS System</h1>
-            </div>
+      <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+        {/* Header - 2 rows on mobile, 1 row on desktop */}
+        <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10">
+          {/* Desktop: single row */}
+          <div className="hidden lg:flex items-center gap-1.5 px-2 py-1.5">
+            <Select value={selectedRestaurant || getDefaultRestaurantId()} onValueChange={(value) => {
+              setSelectedRestaurant(value);
+              const restaurant = restaurants.find(r => r._id === value);
+              if (restaurant) setSelectedRestaurantName(restaurant.name);
+            }}>
+              <SelectTrigger className="w-[110px] bg-background/70 text-xs h-8 shrink-0">
+                <Building2 className="h-3 w-3 mr-1 text-indigo-600 shrink-0" />
+                <SelectValue placeholder="Rest." />
+              </SelectTrigger>
+              <SelectContent>
+                {restaurants.map((restaurant) => (
+                  <SelectItem key={restaurant._id} value={restaurant._id}>
+                    <span className="text-xs">{restaurant.shortName}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-            <div className="flex items-center gap-1 sm:gap-2">
-              {/* Restaurant Selector - Shows current restaurant */}
-              <Select value={selectedRestaurant || getDefaultRestaurantId()} onValueChange={(value) => {
-                setSelectedRestaurant(value);
-                const restaurant = restaurants.find(r => r._id === value);
-                if (restaurant) {
-                  setSelectedRestaurantName(restaurant.name);
-                }
-              }}>
-                <SelectTrigger className="w-[110px] sm:w-[140px] lg:w-[160px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
-                  <SelectValue placeholder="Select Restaurant" />
+            <Select value={tableNumber} onValueChange={setTableNumber}>
+              <SelectTrigger className="w-[80px] bg-background/70 text-xs h-8 shrink-0">
+                <SelectValue placeholder="Table" />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 40 }, (_, i) => (
+                  <SelectItem key={i} value={`T${i + 1}`}>T{i + 1}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {currentUser && <UserNamePopover user={currentUser} />}
+
+            {!isPOS && (
+              <Select value={selectedWaiter} onValueChange={setSelectedWaiter}>
+                <SelectTrigger className="w-[110px] bg-background/70 text-xs h-8 shrink-0">
+                  <SelectValue placeholder="Server" />
                 </SelectTrigger>
                 <SelectContent>
-                  {restaurants.map((restaurant) => (
-                    <SelectItem key={restaurant._id} value={restaurant._id}>
-                      <div className="flex items-center gap-1 sm:gap-2">
-                        <Building2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-indigo-600" />
-                        <span className="truncate text-[10px] sm:text-xs">{restaurant.shortName}</span>
+                  {waiters.map((waiter) => (
+                    <SelectItem key={waiter._id} value={waiter._id}>
+                      <div className="flex items-center gap-1.5">
+                        <Avatar className="h-4 w-4"><AvatarFallback className="text-[9px]">{getInitials(waiter.name)}</AvatarFallback></Avatar>
+                        <span className="truncate text-xs">{waiter.name}</span>
                       </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            )}
 
-              <Select value={tableNumber} onValueChange={setTableNumber}>
-                <SelectTrigger className="w-[70px] sm:w-[90px] lg:w-[110px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
-                  <SelectValue placeholder="Table" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 40 }, (_, i) => (
-                    <SelectItem key={i} value={`T${i + 1}`}>T{i + 1}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="w-px h-5 bg-border mx-0.5" />
 
-              {/* Waiter Selector - For Admin/Kitchen only (dropdown), for POS users (auto-assigned, no dropdown) */}
-              {!isPOS ? (
-                <Select value={selectedWaiter} onValueChange={setSelectedWaiter}>
-                  <SelectTrigger className="w-[90px] sm:w-[130px] lg:w-[150px] bg-background/70 text-[10px] sm:text-xs h-7 sm:h-8">
-                    <SelectValue placeholder="Server" />
+            <div className="relative shrink-0">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input placeholder="Search..." value={searchQuery} onChange={handleSearchChange} className="pl-7 h-8 text-xs w-[150px] bg-background" />
+            </div>
+
+            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <SelectTrigger className="w-[120px] h-8 text-xs bg-background/70 shrink-0">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all"><span className="flex items-center gap-1.5 text-xs"><Utensils className="h-3.5 w-3.5" />All</span></SelectItem>
+                {categories.map((category) => (
+                  <SelectItem key={category._id} value={category._id}>
+                    <span className="flex items-center gap-1.5 text-xs">{getCategoryIcon(category.type)}{category.name}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <div className="flex items-center shrink-0">
+              <Button variant={activeView === 'grid' ? 'default' : 'outline'} size="icon" className="h-7 w-7 rounded-l-md rounded-r-none" onClick={() => setActiveView('grid')}>
+                <div className="grid grid-cols-2 gap-0.5"><div className="w-0.5 h-0.5 rounded-sm bg-current" /><div className="w-0.5 h-0.5 rounded-sm bg-current" /><div className="w-0.5 h-0.5 rounded-sm bg-current" /><div className="w-0.5 h-0.5 rounded-sm bg-current" /></div>
+              </Button>
+              <Button variant={activeView === 'list' ? 'default' : 'outline'} size="icon" className="h-7 w-7 rounded-l-none rounded-r-md" onClick={() => setActiveView('list')}>
+                <div className="flex flex-col items-center gap-0.5"><div className="w-2 h-0.5 rounded-sm bg-current" /><div className="w-2 h-0.5 rounded-sm bg-current" /><div className="w-2 h-0.5 rounded-sm bg-current" /></div>
+              </Button>
+            </div>
+
+            <Button variant="default" size="icon" className="relative shrink-0 h-8 w-8 ml-auto" onClick={() => setIsCartOpen(true)}>
+              <ShoppingCart className="h-4 w-4" />
+              {cart.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-[9px] rounded-full h-4 w-4 flex items-center justify-center font-bold">{cart.length}</span>
+              )}
+            </Button>
+          </div>
+
+          {/* Mobile: 2 rows */}
+          <div className="lg:hidden">
+            <div className="overflow-x-auto hide-scrollbar border-b border-border/40">
+              <div className="flex items-center gap-1.5 px-2 py-1.5 min-w-max">
+                <Select value={selectedRestaurant || getDefaultRestaurantId()} onValueChange={(value) => {
+                  setSelectedRestaurant(value);
+                  const restaurant = restaurants.find(r => r._id === value);
+                  if (restaurant) setSelectedRestaurantName(restaurant.name);
+                }}>
+                  <SelectTrigger className="w-[110px] bg-background/70 text-xs h-8 shrink-0">
+                    <Building2 className="h-3 w-3 mr-1 text-indigo-600 shrink-0" />
+                    <SelectValue placeholder="Rest." />
                   </SelectTrigger>
                   <SelectContent>
-                    {waiters.map((waiter) => (
-                      <SelectItem key={waiter._id} value={waiter._id}>
-                        <div className="flex items-center gap-1 sm:gap-2">
-                          <Avatar className="h-4 w-4 sm:h-5 sm:w-5">
-                            <AvatarFallback className="text-[8px] sm:text-[10px]">{getInitials(waiter.name)}</AvatarFallback>
-                          </Avatar>
-                          <span className="truncate text-[10px] sm:text-xs">{waiter.name}</span>
-                        </div>
+                    {restaurants.map((restaurant) => (
+                      <SelectItem key={restaurant._id} value={restaurant._id}>
+                        <span className="text-xs">{restaurant.shortName}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              ) : (
-                <div className="flex items-center gap-1 sm:gap-2 bg-primary/10 rounded-md px-2 sm:px-3 py-1 sm:py-1.5 h-7 sm:h-8">
-                  <UserIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary" />
-                  <span className="text-[10px] sm:text-xs font-medium">{currentUser?.name || "POS Staff"}</span>
-                </div>
-              )}
-              
-              {/* Current Restaurant Indicator */}
-              <Badge variant="outline" className="text-[8px] sm:text-[9px] bg-indigo-50 text-indigo-700 border-indigo-200">
-                <Building2 className="h-2.5 w-2.5 mr-1" />
-                {selectedRestaurantName || getDefaultRestaurantName()}
-              </Badge>
-            </div>
 
-            <div className="flex items-center gap-1 sm:gap-2">
-              <SoundToggleButton isEnabled={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
-              
-              <div className="hidden sm:flex items-center mr-1">
-                <Button variant={activeView === 'grid' ? 'default' : 'outline'} size="icon" className="h-6 w-6 sm:h-7 sm:w-7 rounded-l-md rounded-r-none" onClick={() => setActiveView('grid')}>
-                  <div className="grid grid-cols-2 gap-0.5"><div className="w-0.5 h-0.5 rounded-sm bg-current"></div><div className="w-0.5 h-0.5 rounded-sm bg-current"></div><div className="w-0.5 h-0.5 rounded-sm bg-current"></div><div className="w-0.5 h-0.5 rounded-sm bg-current"></div></div>
-                </Button>
-                <Button variant={activeView === 'list' ? 'default' : 'outline'} size="icon" className="h-6 w-6 sm:h-7 sm:w-7 rounded-l-none rounded-r-md" onClick={() => setActiveView('list')}>
-                  <div className="flex flex-col items-center justify-center gap-0.5"><div className="w-2 h-0.5 rounded-sm bg-current"></div><div className="w-2 h-0.5 rounded-sm bg-current"></div><div className="w-2 h-0.5 rounded-sm bg-current"></div></div>
+                <Select value={tableNumber} onValueChange={setTableNumber}>
+                  <SelectTrigger className="w-[80px] bg-background/70 text-xs h-8 shrink-0">
+                    <SelectValue placeholder="Table" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 40 }, (_, i) => (
+                      <SelectItem key={i} value={`T${i + 1}`}>T{i + 1}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {currentUser && <UserNamePopover user={currentUser} />}
+
+                {!isPOS && (
+                  <Select value={selectedWaiter} onValueChange={setSelectedWaiter}>
+                    <SelectTrigger className="w-[110px] bg-background/70 text-xs h-8 shrink-0">
+                      <SelectValue placeholder="Server" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {waiters.map((waiter) => (
+                        <SelectItem key={waiter._id} value={waiter._id}>
+                          <div className="flex items-center gap-1.5">
+                            <Avatar className="h-4 w-4"><AvatarFallback className="text-[9px]">{getInitials(waiter.name)}</AvatarFallback></Avatar>
+                            <span className="truncate text-xs">{waiter.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                <Button variant="default" size="icon" className="relative shrink-0 h-8 w-8 ml-auto" onClick={() => setIsCartOpen(true)}>
+                  <ShoppingCart className="h-4 w-4" />
+                  {cart.length > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-[9px] rounded-full h-4 w-4 flex items-center justify-center font-bold">{cart.length}</span>
+                  )}
                 </Button>
               </div>
+            </div>
 
-              <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="default" size="icon" className="relative shrink-0 h-7 w-7 sm:h-8 sm:w-8">
-                    <ShoppingCart className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                    {cart.length > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[8px] sm:text-[9px] rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 flex items-center justify-center">
-                        {cart.length}
-                      </span>
-                    )}
+            <div className="overflow-x-auto hide-scrollbar">
+              <div className="flex items-center gap-1.5 px-2 py-1.5 min-w-max">
+                <div className="relative shrink-0">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input placeholder="Search..." value={searchQuery} onChange={handleSearchChange} className="pl-7 h-8 text-xs w-[150px] bg-background" />
+                </div>
+
+                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                  <SelectTrigger className="w-[120px] h-8 text-xs bg-background/70 shrink-0">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all"><span className="flex items-center gap-1.5 text-xs"><Utensils className="h-3.5 w-3.5" />All</span></SelectItem>
+                    {categories.map((category) => (
+                      <SelectItem key={category._id} value={category._id}>
+                        <span className="flex items-center gap-1.5 text-xs">{getCategoryIcon(category.type)}{category.name}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <div className="flex items-center shrink-0">
+                  <Button variant={activeView === 'grid' ? 'default' : 'outline'} size="icon" className="h-7 w-7 rounded-l-md rounded-r-none" onClick={() => setActiveView('grid')}>
+                    <div className="grid grid-cols-2 gap-0.5"><div className="w-0.5 h-0.5 rounded-sm bg-current" /><div className="w-0.5 h-0.5 rounded-sm bg-current" /><div className="w-0.5 h-0.5 rounded-sm bg-current" /><div className="w-0.5 h-0.5 rounded-sm bg-current" /></div>
                   </Button>
-                </SheetTrigger>
-                <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col h-full border-l">
-                  <CartPanel
-                    cart={cart}
-                    updateQuantity={updateQuantity}
-                    removeFromCart={removeFromCart}
-                    subtotal={subtotal}
-                    tax={tax}
-                    discount={discount}
-                    total={finalTotal}
-                    applyDiscount={applyDiscount}
-                    setApplyDiscount={setApplyDiscount}
-                    numberOfGuests={numberOfGuests}
-                    setNumberOfGuests={setNumberOfGuests}
-                    specialRequirements={specialRequirements}
-                    setSpecialRequirements={setSpecialRequirements}
-                    orderNumber={orderNumber}
-                    handlePlaceOrder={handlePlaceOrder}
-                    closeCart={() => setIsCartOpen(false)}
-                  />
-                </SheetContent>
-              </Sheet>
+                  <Button variant={activeView === 'list' ? 'default' : 'outline'} size="icon" className="h-7 w-7 rounded-l-none rounded-r-md" onClick={() => setActiveView('list')}>
+                    <div className="flex flex-col items-center gap-0.5"><div className="w-2 h-0.5 rounded-sm bg-current" /><div className="w-2 h-0.5 rounded-sm bg-current" /><div className="w-2 h-0.5 rounded-sm bg-current" /></div>
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         </header>
@@ -1858,43 +1954,14 @@ export default function POSPage() {
           </div>
         )}
 
-        {/* Search & Categories */}
-        <div className="border-b bg-background/60 p-2 sm:p-3">
-          <div className="max-w-6xl mx-auto space-y-2 w-full">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3 w-3 sm:h-3.5 sm:w-3.5 text-muted-foreground" />
-              <Input
-                placeholder="Search menu..."
-                value={searchQuery}
-                onChange={handleSearchChange}
-                className="pl-7 sm:pl-8 bg-background pr-3 border-input h-7 sm:h-8 text-xs"
-              />
-            </div>
-
-            <div className="flex w-full overflow-x-auto pb-1 hide-scrollbar">
-              <div className="flex space-x-1 pb-1 w-max">
-                <Button variant={selectedCategory === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedCategory('all')} className="rounded-full shrink-0 h-6 sm:h-7 text-[10px] sm:text-xs px-2 sm:px-3">All</Button>
-                {categories.map((category) => (
-                  <Button key={category._id} variant={selectedCategory === category._id ? 'default' : 'outline'} size="sm" onClick={() => setSelectedCategory(category._id)} className="rounded-full whitespace-nowrap shrink-0 h-6 sm:h-7 text-[10px] sm:text-xs px-2 sm:px-3">
-                    <span className="flex items-center gap-0.5 sm:gap-1">
-                      {getCategoryIcon(category.type)}
-                      <span className="truncate max-w-[60px] sm:max-w-[80px]">{category.name}</span>
-                    </span>
-                  </Button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Menu Items */}
-        <div className="flex-1 p-2 sm:p-3 overflow-auto">
-          <div className="max-w-6xl mx-auto">
+        <div className="flex-1 p-2 overflow-auto">
+          <div className="max-w-full">
             {filteredItems.length > 0 ? (
               <div className={
                 activeView === 'grid'
-                  ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1.5 sm:gap-3 pb-16 md:pb-4"
-                  : "flex flex-col gap-1.5 sm:gap-2 pb-16 md:pb-4"
+                  ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 pb-24"
+                  : "flex flex-col gap-2 pb-24"
               }>
                 <AnimatePresence mode="popLayout">
                   {filteredItems.map((item, index) => (
@@ -1947,22 +2014,62 @@ export default function POSPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Cart sheet */}
+      <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col h-full border-l">
+          <CartPanel
+            cart={cart}
+            updateQuantity={updateQuantity}
+            removeFromCart={removeFromCart}
+            subtotal={subtotal}
+            tax={tax}
+            discount={discount}
+            total={finalTotal}
+            applyDiscount={applyDiscount}
+            setApplyDiscount={setApplyDiscount}
+            numberOfGuests={numberOfGuests}
+            setNumberOfGuests={setNumberOfGuests}
+            specialRequirements={specialRequirements}
+            setSpecialRequirements={setSpecialRequirements}
+            orderNumber={orderNumber}
+            handlePlaceOrder={handlePlaceOrder}
+            closeCart={() => setIsCartOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
+
+      {/* Sticky cart bar */}
+      {cart.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-20 p-3 bg-background/95 backdrop-blur-sm border-t">
+          <Button
+            className="w-full h-12 text-sm font-semibold rounded-xl flex items-center justify-between px-4"
+            onClick={() => setIsCartOpen(true)}
+          >
+            <div className="flex items-center gap-2">
+              <ShoppingCart className="h-5 w-5" />
+              <span>{`${cart.length} item${cart.length > 1 ? 's' : ''} in cart`}</span>
+            </div>
+            <span className="font-bold">{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(finalTotal)}</span>
+          </Button>
+        </div>
+      )}
+
       {/* Order Progress */}
       {orderProgress > 0 && orderProgress < 100 && (
         <motion.div
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 lg:bottom-5 lg:left-5 lg:translate-x-0 bg-background/95 backdrop-blur-sm p-2 sm:p-4 rounded-xl shadow-lg border border-primary/20 z-30 w-[85%] sm:w-[90%] max-w-xs"
+          className="fixed bottom-20 sm:bottom-4 left-1/2 -translate-x-1/2 sm:left-5 sm:translate-x-0 bg-background/95 backdrop-blur-sm p-3 rounded-xl shadow-lg border border-primary/20 z-30 w-[85%] max-w-xs"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 20 }}
         >
-          <div className="flex items-center justify-between mb-1 sm:mb-2">
-            <h3 className="font-medium text-[10px] sm:text-xs flex items-center gap-1 sm:gap-2">
-              <ChefHat className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-primary animate-pulse" />
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-medium text-xs flex items-center gap-1.5">
+              <ChefHat className="h-3 w-3 text-primary animate-pulse" />
               Preparing Order
-            </h3> 
-            <Badge className="bg-primary/20 text-primary border-none px-1.5 sm:px-2 text-[8px] sm:text-[10px]">{orderProgress}%</Badge>
+            </h3>
+            <Badge className="bg-primary/20 text-primary border-none px-2 text-[10px]">{orderProgress}%</Badge>
           </div>
-          <Progress value={orderProgress} className="w-full h-1 sm:h-1.5 bg-primary/10" />
+          <Progress value={orderProgress} className="w-full h-1.5 bg-primary/10" />
         </motion.div>
       )}
     </div>

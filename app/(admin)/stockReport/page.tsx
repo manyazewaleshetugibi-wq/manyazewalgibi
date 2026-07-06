@@ -67,7 +67,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, subMonths } from "date-fns"
+import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, subMonths, getDay, setDay } from "date-fns"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import {
   Popover,
@@ -172,16 +172,21 @@ const formatDate = (date: string | Date | null): string => {
   return d.toLocaleDateString("en-ET")
 }
 
-const getDateRange = (type: 'today' | 'week' | 'month' | 'year' | 'all'): DateRange => {
+type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all'
+
+const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+
+const getDateRange = (type: DatePreset): DateRange => {
   const now = new Date()
-  
   switch (type) {
     case 'today':
       return { from: startOfDay(now), to: endOfDay(now) }
+    case 'yesterday': {
+      const y = subDays(now, 1)
+      return { from: startOfDay(y), to: endOfDay(y) }
+    }
     case 'week':
-      const weekStart = startOfWeek(now, { weekStartsOn: 0 })
-      const weekEnd = endOfWeek(now, { weekStartsOn: 0 })
-      return { from: weekStart, to: weekEnd }
+      return { from: startOfWeek(now, { weekStartsOn: 1 }), to: endOfWeek(now, { weekStartsOn: 1 }) }
     case 'month':
       return { from: startOfMonth(now), to: endOfMonth(now) }
     case 'year':
@@ -191,6 +196,16 @@ const getDateRange = (type: 'today' | 'week' | 'month' | 'year' | 'all'): DateRa
     default:
       return { from: null, to: null }
   }
+}
+
+// Get date range for a specific weekday (0=Sun..6=Sat) in the current week
+const getWeekdayRange = (dayIndex: number): DateRange => {
+  const now = new Date()
+  const weekStart = startOfWeek(now, { weekStartsOn: 1 }) // Monday
+  // dayIndex from our dropdown: 0=Mon,1=Tue,...,6=Sun
+  const target = new Date(weekStart)
+  target.setDate(weekStart.getDate() + dayIndex)
+  return { from: startOfDay(target), to: endOfDay(target) }
 }
 
 const STATUS_COLORS = {
@@ -474,38 +489,112 @@ function StockReportContent() {
   const router = useRouter()
   const queryClient = useQueryClient()
   
-  const [groupBy, setGroupBy] = useState<'stock' | 'menuItem'>('stock') // Default to stock
-  const [dateRange, setDateRange] = useState<DateRange>(getDateRange('month'))
+  const [groupBy, setGroupBy] = useState<'stock' | 'menuItem'>('stock')
+  const [dateRange, setDateRange] = useState<DateRange>(getDateRange('today'))
+  const [activePreset, setActivePreset] = useState<DatePreset | 'weekday'>('today')
+  const [selectedWeekday, setSelectedWeekday] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState('')
   const [showDatePicker, setShowDatePicker] = useState(false)
-  const [viewLayout] = useState<'table'>('table') // Only table view
   const [sortBy, setSortBy] = useState<'frequency' | 'name' | 'usage'>('frequency')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [page, setPage] = useState(1)
   const [limit] = useState(20)
+
+  // Separate queries for today/week/month stats
+  const todayRange = getDateRange('today')
+  const weekRange = getDateRange('week')
+  const monthRange = getDateRange('month')
+
+  const { data: todayData } = useQuery({
+    queryKey: ['stock-stats-today'],
+    queryFn: async () => {
+      const p = new URLSearchParams({ groupBy: 'stock', sortBy: 'frequency', sortOrder: 'desc', page: '1', limit: '1000',
+        from: todayRange.from!.toISOString(), to: todayRange.to!.toISOString() })
+      const r = await api.get(`/reports/stock-usage?${p}`)
+      return r.data as PaginatedResponse<StockData>
+    },
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  const { data: weekData } = useQuery({
+    queryKey: ['stock-stats-week'],
+    queryFn: async () => {
+      const p = new URLSearchParams({ groupBy: 'stock', sortBy: 'frequency', sortOrder: 'desc', page: '1', limit: '1000',
+        from: weekRange.from!.toISOString(), to: weekRange.to!.toISOString() })
+      const r = await api.get(`/reports/stock-usage?${p}`)
+      return r.data as PaginatedResponse<StockData>
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  const { data: monthData } = useQuery({
+    queryKey: ['stock-stats-month'],
+    queryFn: async () => {
+      const p = new URLSearchParams({ groupBy: 'stock', sortBy: 'frequency', sortOrder: 'desc', page: '1', limit: '1000',
+        from: monthRange.from!.toISOString(), to: monthRange.to!.toISOString() })
+      const r = await api.get(`/reports/stock-usage?${p}`)
+      return r.data as PaginatedResponse<StockData>
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  // Items sold today (menuItem groupBy)
+  const { data: itemsTodayData } = useQuery({
+    queryKey: ['items-sold-today'],
+    queryFn: async () => {
+      const p = new URLSearchParams({ groupBy: 'menuItem', sortBy: 'frequency', sortOrder: 'desc', page: '1', limit: '1000',
+        from: todayRange.from!.toISOString(), to: todayRange.to!.toISOString() })
+      const r = await api.get(`/reports/stock-usage?${p}`)
+      return r.data as PaginatedResponse<MenuItemData>
+    },
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  // Computed stats
+  const todayStockStats = useMemo(() => ({
+    processed: todayData?.pagination?.total || 0,
+    totalCost: todayData?.summary?.totalCost || 0,
+    totalQty: todayData?.data?.reduce((s, i) => s + i.totalQuantityUsed, 0) || 0,
+  }), [todayData])
+
+  const weekStockStats = useMemo(() => ({
+    processed: weekData?.pagination?.total || 0,
+    totalCost: weekData?.summary?.totalCost || 0,
+  }), [weekData])
+
+  const monthStockStats = useMemo(() => ({
+    processed: monthData?.pagination?.total || 0,
+    totalCost: monthData?.summary?.totalCost || 0,
+  }), [monthData])
+
+  const itemsTodayStats = useMemo(() => {
+    const items = itemsTodayData?.data || []
+    return {
+      uniqueItems: items.length,
+      totalSold: items.reduce((s, i) => s + i.totalQuantity, 0),
+      totalRevenue: itemsTodayData?.summary?.totalRevenue || 0,
+      topItem: items[0] || null,
+    }
+  }, [itemsTodayData])
   
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItemData | null>(null)
   const [selectedStock, setSelectedStock] = useState<StockData | null>(null)
   const [showMenuItemDialog, setShowMenuItemDialog] = useState(false)
   const [showStockDialog, setShowStockDialog] = useState(false)
-  
+
   const { data, isLoading, isFetching, error, refetch } = useReportData({
-    groupBy,
-    dateRange,
-    search: searchTerm,
-    sortBy,
-    sortOrder,
-    page,
-    limit
+    groupBy, dateRange, search: searchTerm, sortBy, sortOrder, page, limit
   })
-  
+
   const reportData = data?.data || []
   const pagination = data?.pagination
   const summary = data?.summary
-  
-  useEffect(() => {
-    setPage(1)
-  }, [groupBy, dateRange, searchTerm, sortBy, sortOrder])
+
+  useEffect(() => { setPage(1) }, [groupBy, dateRange, searchTerm, sortBy, sortOrder])
   
   // Chart data based on groupBy
   const chartData = useMemo(() => {
@@ -570,8 +659,16 @@ function StockReportContent() {
     refetch()
   }
 
-  const handleDatePreset = (type: 'today' | 'week' | 'month' | 'year' | 'all') => {
+  const handleDatePreset = (type: DatePreset) => {
+    setActivePreset(type)
+    setSelectedWeekday('')
     setDateRange(getDateRange(type))
+  }
+
+  const handleWeekdaySelect = (val: string) => {
+    setSelectedWeekday(val)
+    setActivePreset('weekday')
+    setDateRange(getWeekdayRange(parseInt(val)))
   }
   
   const totalItems = pagination?.total || reportData.length
@@ -691,6 +788,40 @@ function StockReportContent() {
           </Card>
         </div>
         
+        {/* Stock Processed Stats Row */}
+        <div className="grid gap-4 md:grid-cols-4">
+          <Card className="shadow-lg border-0 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30">
+            <CardContent className="pt-4">
+              <p className="text-xs font-medium text-blue-600 mb-1">Stocks Used Today</p>
+              <p className="text-3xl font-bold text-blue-700">{todayStockStats.processed}</p>
+              <p className="text-xs text-muted-foreground mt-1">Cost: {formatCurrency(todayStockStats.totalCost)}</p>
+            </CardContent>
+          </Card>
+          <Card className="shadow-lg border-0 bg-gradient-to-br from-violet-50 to-violet-100 dark:from-violet-950/30 dark:to-violet-900/30">
+            <CardContent className="pt-4">
+              <p className="text-xs font-medium text-violet-600 mb-1">Stocks Used This Week</p>
+              <p className="text-3xl font-bold text-violet-700">{weekStockStats.processed}</p>
+              <p className="text-xs text-muted-foreground mt-1">Cost: {formatCurrency(weekStockStats.totalCost)}</p>
+            </CardContent>
+          </Card>
+          <Card className="shadow-lg border-0 bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-950/30 dark:to-emerald-900/30">
+            <CardContent className="pt-4">
+              <p className="text-xs font-medium text-emerald-600 mb-1">Stocks Used This Month</p>
+              <p className="text-3xl font-bold text-emerald-700">{monthStockStats.processed}</p>
+              <p className="text-xs text-muted-foreground mt-1">Cost: {formatCurrency(monthStockStats.totalCost)}</p>
+            </CardContent>
+          </Card>
+          <Card className="shadow-lg border-0 bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950/30 dark:to-amber-900/30">
+            <CardContent className="pt-4">
+              <p className="text-xs font-medium text-amber-600 mb-1">Items Sold Today</p>
+              <p className="text-3xl font-bold text-amber-700">{itemsTodayStats.totalSold}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {itemsTodayStats.uniqueItems} unique · {itemsTodayStats.topItem ? `Top: ${itemsTodayStats.topItem.itemName}` : 'No data'}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Date Filter Bar */}
         <Card className="shadow-lg border-0">
           <CardHeader className="pb-3">
@@ -700,48 +831,40 @@ function StockReportContent() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-2">
-              <Button 
-                variant={!dateRange.from && !dateRange.to ? "default" : "outline"} 
-                size="sm" 
-                onClick={() => handleDatePreset('all')}
-                className="rounded-full"
-              >
-                All Time
-              </Button>
-              <Button 
-                variant={dateRange.from === getDateRange('today').from ? "default" : "outline"} 
-                size="sm" 
-                onClick={() => handleDatePreset('today')}
-                className="rounded-full"
-              >
-                Today
-              </Button>
-              <Button 
-                variant={dateRange.from === getDateRange('week').from ? "default" : "outline"} 
-                size="sm" 
-                onClick={() => handleDatePreset('week')}
-                className="rounded-full"
-              >
-                This Week
-              </Button>
-              <Button 
-                variant={dateRange.from === getDateRange('month').from ? "default" : "outline"} 
-                size="sm" 
-                onClick={() => handleDatePreset('month')}
-                className="rounded-full"
-              >
-                This Month
-              </Button>
-              <Button 
-                variant={dateRange.from === getDateRange('year').from ? "default" : "outline"} 
-                size="sm" 
-                onClick={() => handleDatePreset('year')}
-                className="rounded-full"
-              >
-                This Year
-              </Button>
-              
+            <div className="flex flex-wrap gap-2 items-center">
+              {([
+                { label: 'All Time', value: 'all' },
+                { label: 'Today', value: 'today' },
+                { label: 'Yesterday', value: 'yesterday' },
+                { label: 'This Week', value: 'week' },
+                { label: 'This Month', value: 'month' },
+                { label: 'This Year', value: 'year' },
+              ] as { label: string; value: DatePreset }[]).map(({ label, value }) => (
+                <Button
+                  key={value}
+                  variant={activePreset === value ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleDatePreset(value)}
+                  className="rounded-full"
+                >
+                  {label}
+                </Button>
+              ))}
+
+              {/* Day of week dropdown */}
+              <Select value={selectedWeekday} onValueChange={handleWeekdaySelect}>
+                <SelectTrigger className={`w-[150px] rounded-full h-9 text-sm ${
+                  activePreset === 'weekday' ? 'bg-primary text-primary-foreground border-primary' : ''
+                }`}>
+                  <SelectValue placeholder="📅 Day of week" />
+                </SelectTrigger>
+                <SelectContent>
+                  {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((day, i) => (
+                    <SelectItem key={i} value={String(i)}>{day}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               <Popover open={showDatePicker} onOpenChange={setShowDatePicker}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="rounded-full ml-auto">
@@ -754,14 +877,13 @@ function StockReportContent() {
                     initialFocus
                     mode="range"
                     defaultMonth={dateRange.from || new Date()}
-                    selected={{
-                      from: dateRange.from || undefined,
-                      to: dateRange.to || undefined,
-                    }}
+                    selected={{ from: dateRange.from || undefined, to: dateRange.to || undefined }}
                     onSelect={(range: any) => {
                       if (range?.from && range?.to) {
+                        setActivePreset('all') // clear preset
+                        setSelectedWeekday('')
                         setDateRange({ from: startOfDay(range.from), to: endOfDay(range.to) })
-                      } else if (range?.from && !range?.to) {
+                      } else if (range?.from) {
                         setDateRange({ from: startOfDay(range.from), to: null })
                       } else {
                         setDateRange({ from: null, to: null })
@@ -773,10 +895,16 @@ function StockReportContent() {
                 </PopoverContent>
               </Popover>
             </div>
-            
+
             {dateRange.from && dateRange.to && (
-              <div className="mt-3 text-sm text-muted-foreground">
-                Selected: {format(dateRange.from, 'MMM d, yyyy')} - {format(dateRange.to, 'MMM d, yyyy')}
+              <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                <Calendar className="h-3.5 w-3.5" />
+                {format(dateRange.from, 'EEE, MMM d yyyy')} → {format(dateRange.to, 'EEE, MMM d yyyy')}
+                {activePreset === 'weekday' && selectedWeekday !== '' && (
+                  <Badge variant="secondary" className="ml-2">
+                    {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][parseInt(selectedWeekday)]}
+                  </Badge>
+                )}
               </div>
             )}
           </CardContent>
