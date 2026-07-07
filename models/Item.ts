@@ -21,6 +21,14 @@ export const ItemSchema = z.object({
     z.object({
       stockId: z.string(),
       quantity: z.number().min(0, "Quantity must be positive"),
+      // Each ingredient can have 1 or more alternatives
+      alternatives: z.array(
+        z.object({
+          stockId: z.string(),
+          quantity: z.number().min(0),
+          label: z.string().optional(), // e.g. "Kita", "Injera"
+        })
+      ).optional(),
     })
   ).optional(),
   nutritionalInfo: z.object({

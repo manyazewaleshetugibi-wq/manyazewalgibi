@@ -1190,8 +1190,8 @@ export default function DashboardPage() {
 
     try {
       const range = options.customDateRange || dateRange
-      const startDateStr = format(range.start, 'yyyy-MM-dd')
-      const endDateStr = format(range.end, 'yyyy-MM-dd')
+      const startDateStr = format(range.start, "yyyy-MM-dd'T'HH:mm:ss")
+      const endDateStr = format(range.end, "yyyy-MM-dd'T'HH:mm:ss")
       const currentWaiterId = options.waiterId ?? selectedWaiter;
       const currentRestaurantId = options.restaurantId ?? selectedRestaurant;
       const apiRestaurantId = currentRestaurantId === 'unassigned' ? 'all' : currentRestaurantId
@@ -1210,8 +1210,8 @@ export default function DashboardPage() {
 
       // Fetch previous period data for comparison
       const previousRange = getPreviousPeriodRange(filterType, range.start, range.end)
-      const previousStartStr = format(previousRange.start, 'yyyy-MM-dd')
-      const previousEndStr = format(previousRange.end, 'yyyy-MM-dd')
+      const previousStartStr = format(previousRange.start, "yyyy-MM-dd'T'HH:mm:ss")
+      const previousEndStr = format(previousRange.end, "yyyy-MM-dd'T'HH:mm:ss")
       
       const previousReportData = await fetchWaiterReport(
         currentWaiterId, 

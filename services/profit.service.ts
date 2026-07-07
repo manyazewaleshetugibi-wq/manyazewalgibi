@@ -190,13 +190,15 @@ export class ProfitService {
   // Fetch orders for a specific date range
   static async fetchOrders(startDate: string, endDate: string): Promise<Order[]> {
     try {
+      // Send full ISO datetime strings so the API applies Ethiopia timezone correctly
+      const from = new Date(startDate + 'T00:00:00').toISOString()
+      const to = new Date(endDate + 'T23:59:59').toISOString()
       const response = await fetch(
-        `/api/order/waiterreport?startDate=${startDate}&endDate=${endDate}&limit=10000`
+        `/api/order/waiterreport?startDate=${from}&endDate=${to}&limit=10000`
       )
       const data = await response.json()
       
       if (data.success && data.orders) {
-        // Filter ONLY COMPLETED orders
         return data.orders.filter((order: Order) => 
           order.status === 'COMPLETED' || order.status === 'completed'
         )
@@ -205,6 +207,28 @@ export class ProfitService {
     } catch (error) {
       console.error("Error fetching orders:", error)
       return []
+    }
+  }
+
+  // Fetch actual stock costs from used_stock for a date range
+  static async fetchUsedStockCosts(startDate: string, endDate: string): Promise<Map<string, number>> {
+    try {
+      const from = new Date(startDate + 'T00:00:00').toISOString()
+      const to = new Date(endDate + 'T23:59:59').toISOString()
+      const response = await fetch(`/api/reports/stock-usage?groupBy=menuItem&from=${from}&to=${to}&limit=1000&page=1&sortBy=frequency&sortOrder=desc`)
+      const data = await response.json()
+      // Map itemId -> totalRevenue (not used here) and build itemId -> totalStockCost
+      const costMap = new Map<string, number>()
+      if (data.success && data.data) {
+        for (const item of data.data) {
+          const stockCost = (item.stocksUsed || []).reduce((s: number, x: any) => s + (x.totalCost || 0), 0)
+          costMap.set(item.itemId, stockCost)
+        }
+      }
+      return costMap
+    } catch (error) {
+      console.error("Error fetching used stock costs:", error)
+      return new Map()
     }
   }
 
@@ -307,111 +331,117 @@ export class ProfitService {
     return order.orderItems || order.items || []
   }
 
-  // Calculate profitability for sold items
+  // Calculate profitability for sold items using actual used_stock costs
   static calculateProfitability(
     orders: Order[],
     menuItems: MenuItem[],
     categories: Category[],
     stocks: StockItem[],
-    purchases: Purchase[]
+    purchases: Purchase[],
+    usedStockCostMap: Map<string, number> = new Map()
   ): DailySoldItem[] {
     try {
-      // Aggregate sales by item from orders
-      const salesMap = new Map<string, { quantity: number }>()
+      // Aggregate sales by item: itemId -> { quantity, totalRevenue }
+      const salesMap = new Map<string, { quantity: number; totalRevenue: number }>()
       
       orders.forEach(order => {
         const orderItems = this.getOrderItems(order)
         if (!orderItems || orderItems.length === 0) return
-
         orderItems.forEach(item => {
           const itemId = item.menuItemId || item.itemId
           if (!itemId) return
-          
           const quantity = item.quantity || 0
-          const existing = salesMap.get(itemId) || { quantity: 0 }
-          
+          const revenue = (item.unitPrice || item.price || 0) * quantity
+          const existing = salesMap.get(itemId) || { quantity: 0, totalRevenue: 0 }
           salesMap.set(itemId, {
-            quantity: existing.quantity + quantity
+            quantity: existing.quantity + quantity,
+            totalRevenue: existing.totalRevenue + revenue
           })
         })
       })
 
-      if (salesMap.size === 0) {
-        return []
-      }
+      if (salesMap.size === 0) return []
 
-      // Calculate profitability for each sold item
       const results: DailySoldItem[] = []
 
       salesMap.forEach((sale, itemId) => {
-        // Find menu item
         const menuItem = menuItems.find(item => item._id === itemId)
-        if (!menuItem || !menuItem.isActive) {
-          return
-        }
+        if (!menuItem) return
 
-        // Find category
         const category = categories.find(c => c._id === menuItem.categoryId)
         const categoryName = category?.name || "Uncategorized"
         const categoryType = category?.type || "OTHER"
 
+        // Use actual recorded stock cost from used_stock if available,
+        // otherwise fall back to latest purchase price calculation
         let totalCost = 0
         const ingredients: IngredientCost[] = []
 
-        // Calculate cost from required stock
-        if (menuItem.requiredStock && menuItem.requiredStock.length > 0) {
+        if (usedStockCostMap.has(itemId)) {
+          // Actual cost from used_stock records (most accurate)
+          totalCost = usedStockCostMap.get(itemId)!
+          // Build ingredient list from requiredStock for display only
+          if (menuItem.requiredStock?.length > 0) {
+            menuItem.requiredStock.forEach(req => {
+              const { price: latestPrice, purchaseDate, supplier } = this.getLatestPrice(req.stockId, purchases)
+              ingredients.push({
+                stockId: req.stockId,
+                stockName: this.getStockName(req.stockId, stocks),
+                quantity: req.quantity * sale.quantity,
+                unit: this.getStockUnit(req.stockId, stocks),
+                latestPrice,
+                totalCost: req.quantity * latestPrice * sale.quantity,
+                purchaseDate,
+                supplier
+              })
+            })
+          }
+        } else if (menuItem.requiredStock?.length > 0) {
+          // Fallback: calculate from latest purchase prices
           menuItem.requiredStock.forEach(req => {
-            const { price: latestPrice, purchaseDate, supplier } = this.getLatestPrice(
-              req.stockId, 
-              purchases
-            )
-            // Cost = quantity_needed × latest_price × quantity_sold
+            const { price: latestPrice, purchaseDate, supplier } = this.getLatestPrice(req.stockId, purchases)
             const cost = req.quantity * latestPrice * sale.quantity
             totalCost += cost
-
             ingredients.push({
               stockId: req.stockId,
               stockName: this.getStockName(req.stockId, stocks),
               quantity: req.quantity * sale.quantity,
               unit: this.getStockUnit(req.stockId, stocks),
-              latestPrice: latestPrice,
+              latestPrice,
               totalCost: cost,
-              purchaseDate: purchaseDate,
-              supplier: supplier
+              purchaseDate,
+              supplier
             })
           })
         }
 
-        // Revenue is price × quantity sold
-        const totalRevenue = menuItem.price * sale.quantity
+        // Use actual revenue from order items (not menuItem.price * qty)
+        const totalRevenue = sale.totalRevenue > 0 ? sale.totalRevenue : menuItem.price * sale.quantity
         const profit = totalRevenue - totalCost
         const profitMargin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0
 
         let status: 'profitable' | 'low' | 'loss' = 'profitable'
         if (profitMargin < 0) status = 'loss'
         else if (profitMargin < 20) status = 'low'
-        else status = 'profitable'
 
         results.push({
           itemId: menuItem._id,
           itemName: menuItem.name,
-          sellingPrice: menuItem.price,
+          sellingPrice: totalRevenue / sale.quantity,
           totalIngredientCost: totalCost,
-          profit: profit,
-          profitMargin: profitMargin,
-          status: status,
-          ingredients: ingredients,
+          profit,
+          profitMargin,
+          status,
+          ingredients,
           preparationTime: menuItem.preparationTime || 0,
           categoryId: menuItem.categoryId,
-          categoryName: categoryName,
-          categoryType: categoryType,
+          categoryName,
+          categoryType,
           quantitySold: sale.quantity
         })
       })
 
-      // Sort by profit margin
       results.sort((a, b) => b.profitMargin - a.profitMargin)
-      
       return results
     } catch (error) {
       console.error("Error calculating profitability:", error)
@@ -574,17 +604,25 @@ export class ProfitService {
     date?: Date,
     filters: ProfitFilters = {}
   ): Promise<ProfitDataResult> {
-    // Fetch all data
-    const { orders, menuItems, categories, stocks, purchases } = 
-      await this.fetchAllData(date)
+    const targetDate = date || new Date()
+    const startDate = format(startOfDay(targetDate), "yyyy-MM-dd")
+    const endDate = format(endOfDay(targetDate), "yyyy-MM-dd")
 
-    // Calculate profitability
+    // Fetch all data + actual used_stock costs in parallel
+    const [{ orders, menuItems, categories, stocks, purchases }, usedStockCostMap] =
+      await Promise.all([
+        this.fetchAllData(date),
+        this.fetchUsedStockCosts(startDate, endDate)
+      ])
+
+    // Calculate profitability using actual stock costs
     const allItems = this.calculateProfitability(
       orders,
       menuItems,
       categories,
       stocks,
-      purchases
+      purchases,
+      usedStockCostMap
     )
 
     // Generate summary

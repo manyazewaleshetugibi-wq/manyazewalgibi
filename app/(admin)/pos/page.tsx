@@ -57,6 +57,8 @@ import { Progress } from "@/components/ui/progress"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
+import { AlternativePickerDialog, type IngredientChoice, type AlternativeOption, type IngredientSelections } from "@/components/orders/AlternativePickerDialog"
+
 // Types
 interface MenuItem {
   _id: string
@@ -69,6 +71,13 @@ interface MenuItem {
   calories: number
   tags: string[]
   stock?: number
+  requiredStock?: {
+    stockId: string
+    stockName?: string
+    stockUnit?: string
+    quantity: number
+    alternatives?: { stockId: string; stockName?: string; stockUnit?: string; quantity: number; label?: string }[]
+  }[]
 }
 
 interface Category {
@@ -83,6 +92,7 @@ interface CartItem extends MenuItem {
   specialInstructions?: string
   originalPrice?: number
   taxAmount?: number
+  ingredientChoices?: { defaultStockId: string; chosenStockId: string; chosenQuantity: number }[]
 }
 
 interface Waiter {
@@ -94,6 +104,13 @@ interface Waiter {
   role?: string
   restaurantId?: string
   restaurantName?: string
+}
+
+interface Stock {
+  _id: string;
+  name: string;
+  unit?: string;
+  currentStock?: number;
 }
 
 interface OrderItem {
@@ -1002,6 +1019,9 @@ export default function POSPage() {
   const [currentUser, setCurrentUser] = useState<{ id: string; name: string; role: string; email: string; restaurantId?: string; restaurantName?: string } | null>(null)
   const [showNotification, setShowNotification] = useState(false)
   const [notificationData, setNotificationData] = useState({ title: '', message: '' })
+  const [altPickerOpen, setAltPickerOpen] = useState(false)
+  const [altPickerItem, setAltPickerItem] = useState<MenuItem | null>(null)
+  const [altPickerIngredients, setAltPickerIngredients] = useState<IngredientChoice[]>([])
   
   // Get user role
   const userRole = currentUser?.role;
@@ -1336,25 +1356,76 @@ export default function POSPage() {
     })
   }, [items, selectedCategory, debouncedSearchQuery])
 
-  const addToCart = useCallback((item: MenuItem) => {
+  const addToCart = useCallback((item: MenuItem, stocks: Stock[]) => {
     if (item.stock !== undefined && item.stock <= 0) {
       toast.error(`Sorry, ${item.name} is out of stock!`);
       setInsufficientStockItem(item.name);
       return;
     }
 
+    // Check if any ingredient has alternatives
+    const ingredientsWithAlts = (item.requiredStock || []).filter(
+      (ing) => ing.alternatives && ing.alternatives.length > 0
+    );
+
+    if (ingredientsWithAlts.length > 0) {
+      // Build IngredientChoice list for the dialog using enriched stockName from API
+      const choices: IngredientChoice[] = ingredientsWithAlts.map((ing) => ({
+        defaultStockId: ing.stockId,
+        defaultStockName: ing.stockName || stocks.find((s: Stock) => s._id === ing.stockId)?.name || ing.stockId,
+        defaultQuantity: ing.quantity,
+        defaultUnit: ing.stockUnit || stocks.find((s: Stock) => s._id === ing.stockId)?.unit || '',
+        options: (ing.alternatives || []).map((alt) => ({
+          stockId: alt.stockId,
+          stockName: alt.stockName || alt.label || stocks.find((s: Stock) => s._id === alt.stockId)?.name || alt.stockId,
+          quantity: alt.quantity,
+          unit: alt.stockUnit || stocks.find((s: Stock) => s._id === alt.stockId)?.unit || '',
+        })),
+      }))
+      setAltPickerIngredients(choices)
+      setAltPickerItem(item)
+      setAltPickerOpen(true)
+      return
+    }
+
+    // No alternatives — add directly
     const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
-    
     setCart((prev) => {
       const existing = prev.find((i) => i._id === item._id)
       if (existing) {
         return prev.map((i) => (i._id === item._id ? { ...i, quantity: i.quantity + 1 } : i))
       }
-      return [...prev, { ...item, quantity: 1, originalPrice, taxAmount }]
+      return [...prev, { ...item, quantity: 1, originalPrice, taxAmount, ingredientChoices: [] }]
     })
-
     toast.success(`Added ${item.name} to cart`);
-  }, [])
+  }, [setCart, setInsufficientStockItem, setAltPickerIngredients, setAltPickerItem, setAltPickerOpen])
+
+  const handleAltPickerConfirm = useCallback((selections: IngredientSelections[]) => {
+    if (!altPickerItem) return
+    const { originalPrice, taxAmount } = calculatePriceBreakdown(altPickerItem.price)
+    // Flatten all chosen options across all ingredients into ingredientChoices
+    const ingredientChoices = selections.flatMap((sel) =>
+      sel.chosen.map((c) => ({
+        defaultStockId: sel.defaultStockId,
+        chosenStockId: c.stockId,
+        chosenQuantity: c.quantity,
+      }))
+    )
+    setCart((prev) => {
+      const existing = prev.find((i) => i._id === altPickerItem._id)
+      if (existing) {
+        return prev.map((i) =>
+          i._id === altPickerItem._id
+            ? { ...i, quantity: i.quantity + 1, ingredientChoices }
+            : i
+        )
+      }
+      return [...prev, { ...altPickerItem, quantity: 1, originalPrice, taxAmount, ingredientChoices }]
+    })
+    toast.success(`Added ${altPickerItem.name} to cart`)
+    setAltPickerItem(null)
+    setAltPickerIngredients([])
+  }, [altPickerItem])
 
   const removeFromCart = useCallback((itemId: string) => {
     setCart((prev) => prev.filter((item) => item._id !== itemId))
@@ -1562,7 +1633,8 @@ export default function POSPage() {
         taxAmount: taxAmount,
         subtotal: originalPrice * item.quantity,
         taxTotal: taxAmount * item.quantity,
-        total: item.price * item.quantity
+        total: item.price * item.quantity,
+        ingredientChoices: item.ingredientChoices || [],
       }
     })
 
@@ -1571,7 +1643,7 @@ export default function POSPage() {
     const orderData = {
       orderNumber,
       tableNumber,
-      waiterId: finalWaiterId,
+      waiterId: finalWaiterId || '',
       waiterName: isPOS 
         ? (currentUser?.name || selectedWaiterInfo?.name || "")
         : (selectedWaiterInfo?.name || ""),
@@ -1966,7 +2038,7 @@ export default function POSPage() {
                 <AnimatePresence mode="popLayout">
                   {filteredItems.map((item, index) => (
                     <motion.div
-                      key={item._id}
+                      key={item._id + '-' + activeView}
                       layout
                       initial="initial"
                       animate="animate"
@@ -1976,10 +2048,10 @@ export default function POSPage() {
                     >
                       {activeView === 'grid' ? (
                         <Suspense fallback={<MenuItemFallback />}>
-                          <MenuItemComponent item={item} addToCart={addToCart} />
+                          <MenuItemComponent item={item} addToCart={(item: MenuItem) => addToCart(item, items.flatMap(i => i.requiredStock || []).map(rs => ({ _id: rs.stockId, name: rs.stockName || 'Unknown' })) as Stock[])} />
                         </Suspense>
                       ) : (
-                        <ListViewItem item={item} addToCart={addToCart} />
+                        <ListViewItem item={item} addToCart={(item: MenuItem) => addToCart(item, items.flatMap(i => i.requiredStock || []).map(rs => ({ _id: rs.stockId, name: rs.stockName || 'Unknown' })) as Stock[])} />
                       )}
                     </motion.div>
                   ))}
@@ -1998,6 +2070,23 @@ export default function POSPage() {
           </div>
         </div>
       </main>
+
+      {/* Alternative Ingredient Picker */}
+      {altPickerItem && (
+        <AlternativePickerDialog
+          open={altPickerOpen}
+          onOpenChange={(open) => {
+            setAltPickerOpen(open)
+            if (!open) {
+              setAltPickerItem(null)
+              setAltPickerIngredients([])
+            }
+          }}
+          itemName={altPickerItem.name}
+          ingredients={altPickerIngredients}
+          onConfirm={handleAltPickerConfirm}
+        />
+      )}
 
       {/* Dialogs */}
       <Dialog open={!!insufficientStockItem} onOpenChange={() => setInsufficientStockItem(null)}>

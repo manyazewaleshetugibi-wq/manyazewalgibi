@@ -52,11 +52,24 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Build query - ONLY COMPLETED ORDERS
+    // Parse dates — support both 'yyyy-MM-dd' and full ISO datetime strings
+    // For date-only strings, treat as Ethiopia local time (UTC+3)
+    const ETH_OFFSET_MS = 3 * 60 * 60 * 1000
+    let fromDate: Date, toDate: Date
+    if (startDate.includes('T')) {
+      // Full ISO string from frontend (already local time)
+      fromDate = new Date(startDate)
+      toDate = new Date(endDate)
+    } else {
+      // Date-only string: treat midnight as Ethiopia local midnight
+      fromDate = new Date(new Date(startDate + 'T00:00:00.000Z').getTime() - ETH_OFFSET_MS)
+      toDate = new Date(new Date(endDate + 'T23:59:59.999Z').getTime() - ETH_OFFSET_MS)
+    }
+
     const query: any = {
       createdAt: {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate + 'T23:59:59.999Z'),
+        $gte: fromDate,
+        $lte: toDate,
       },
       status: 'COMPLETED',
     };

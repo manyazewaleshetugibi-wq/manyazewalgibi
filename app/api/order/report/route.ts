@@ -17,13 +17,10 @@ export async function GET(req: NextRequest) {
     orders.forEach((order) => {
       let date: string;
       try {
-        if (order.createdAt instanceof Date) {
-          date = order.createdAt.toISOString().split("T")[0];
-        } else if (typeof order.createdAt === "string") {
-          date = order.createdAt.split("T")[0];
-        } else {
-          date = new Date().toISOString().split("T")[0];
-        }
+        // Use Ethiopia local date (UTC+3) for grouping
+        const ETH_OFFSET_MS = 3 * 60 * 60 * 1000
+        const localDate = new Date((order.createdAt instanceof Date ? order.createdAt.getTime() : new Date(order.createdAt).getTime()) + ETH_OFFSET_MS)
+        date = localDate.toISOString().split('T')[0]
       } catch (e) {
         date = new Date().toISOString().split("T")[0];
       }

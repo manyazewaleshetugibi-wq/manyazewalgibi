@@ -11,6 +11,7 @@ import {
   Table as TableIcon,
   Lock,
   AlertOctagon,
+  ArrowRightLeft,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -18,6 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { StockCalculations } from "../../../components/stock/stock-calculations"
 import { StockManagementUI } from "../../../components/stock/stock-management-ui"
 import { WastageDisplay } from "../../../components/stock/WastageDisplay"
+import { TransferDisplay } from "../../../components/stock/TransferDisplay"
 
 // Types
 export type Stock = {
@@ -102,6 +104,7 @@ export default function StockManagementPage() {
   
   // New state for wastage display
   const [isWastageDisplayOpen, setIsWastageDisplayOpen] = useState(false)
+  const [isTransferDisplayOpen, setIsTransferDisplayOpen] = useState(false)
 
   useEffect(() => {
     fetchStocks()
@@ -304,6 +307,16 @@ export default function StockManagementPage() {
                 <AlertOctagon className="mr-2 h-4 w-4" />
                 Show Wastages
               </Button>
+
+              {/* Show Transfers Button - Visible to everyone */}
+              <Button 
+                variant="outline" 
+                onClick={() => setIsTransferDisplayOpen(true)}
+                className="bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300 text-blue-700"
+              >
+                <ArrowRightLeft className="mr-2 h-4 w-4" />
+                Show Transfers
+              </Button>
               
               {/* Add Stock Button - Only for Admin and Stock Manager */}
               {canEdit && (
@@ -379,6 +392,15 @@ export default function StockManagementPage() {
         stocks={stocks}
         categories={categories}
         purchases={purchases}
+        fetchStocks={fetchStocks}
+      />
+
+      {/* Transfer Display Dialog - Visible to everyone */}
+      <TransferDisplay
+        open={isTransferDisplayOpen}
+        onOpenChange={setIsTransferDisplayOpen}
+        stocks={stocks}
+        categories={categories}
         fetchStocks={fetchStocks}
       />
     </div>

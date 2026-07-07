@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
-import { validateItemData } from "@/models/Item";
 import { ObjectId } from "mongodb";
 
 // Cloudinary Configuration
@@ -224,36 +223,43 @@ export async function PUT(
       requiredStock: JSON.parse(formData.get("requiredStock") as string || "[]"),
     };
 
-    // Validate item data - use the new imageUrl and cloudinaryData
-    const validatedData = validateItemData({
-      ...body,
-      imageUrl,
-      cloudinaryData,
-      isFasting: body.isFasting, // ADDED
-    });
-
-    // Ensure valid category and stock IDs
-    if (!ObjectId.isValid(validatedData.categoryId)) {
+    // Validate IDs
+    if (!ObjectId.isValid(body.categoryId as string)) {
       return NextResponse.json({ success: false, message: "Invalid category ID" }, { status: 400 });
     }
-
-    validatedData.requiredStock.forEach((stock: any) => {
+    for (const stock of body.requiredStock) {
       if (!ObjectId.isValid(stock.stockId)) {
-        throw new Error(`Invalid stock ID: ${stock.stockId}`);
+        return NextResponse.json({ success: false, message: `Invalid stock ID: ${stock.stockId}` }, { status: 400 });
       }
-    });
+      for (const alt of (stock.alternatives || [])) {
+        if (!ObjectId.isValid(alt.stockId)) {
+          return NextResponse.json({ success: false, message: `Invalid alternative stock ID: ${alt.stockId}` }, { status: 400 });
+        }
+      }
+    }
 
-    // Prepare update data - ADDED isFasting
+    // Build update data directly — no Zod validation to avoid ObjectId crash
     const updateData = {
-      ...validatedData,
-      categoryId: new ObjectId(validatedData.categoryId),
-      requiredStock: validatedData.requiredStock.map((stock: any) => ({
+      name: body.name,
+      description: body.description,
+      categoryId: new ObjectId(body.categoryId as string),
+      price: body.price,
+      preparationTime: body.preparationTime,
+      isActive: body.isActive,
+      isFeatured: body.isFeatured,
+      isFasting: body.isFasting,
+      nutritionalInfo: body.nutritionalInfo,
+      requiredStock: body.requiredStock.map((stock: any) => ({
         stockId: new ObjectId(stock.stockId),
         quantity: stock.quantity,
+        alternatives: (stock.alternatives || []).map((alt: any) => ({
+          stockId: new ObjectId(alt.stockId),
+          quantity: alt.quantity,
+          label: alt.label || '',
+        })),
       })),
       imageUrl,
       cloudinaryData,
-      isFasting: validatedData.isFasting || false, // ADDED
       updatedAt: new Date(),
     };
 

@@ -480,7 +480,8 @@ export async function POST(req: NextRequest) {
         notes: item.notes || "",
         isUneditable: false,
         uneditableAt: null,
-        uneditableBy: null
+        uneditableBy: null,
+        ingredientChoices: Array.isArray(item.ingredientChoices) ? item.ingredientChoices : [],
       };
 
       processedItems.push(processedItem);

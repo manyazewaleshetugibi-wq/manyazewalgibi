@@ -124,7 +124,7 @@ async function fetchDailyCash(): Promise<DailyCashEntry[]> {
   }
 }
 
-async function fetchDailyRevenue(startDate?: string, endDate?: string): Promise<{ totalSales: number; orderCount: number; averageOrderValue: number; dailySales: Record<string, number> }> {
+async function fetchDailyRevenue(startDate?: string, endDate?: string): Promise<{ totalSales: number; orderCount: number; averageOrderValue: number; dailySales: Record<string, number>; orders: Order[] }> {
   try {
     const params = new URLSearchParams()
     if (startDate) params.append('startDate', startDate)
@@ -149,12 +149,12 @@ async function fetchDailyRevenue(startDate?: string, endDate?: string): Promise<
       
       const averageOrderValue = orderCount > 0 ? totalSales / orderCount : 0
       
-      return { totalSales, orderCount, averageOrderValue, dailySales }
+    return { totalSales, orderCount, averageOrderValue, dailySales, orders: data.orders }
     }
-    return { totalSales: 0, orderCount: 0, averageOrderValue: 0, dailySales: {} }
+    return { totalSales: 0, orderCount: 0, averageOrderValue: 0, dailySales: {}, orders: [] }
   } catch (error) {
     console.error("Error fetching daily revenue:", error)
-    return { totalSales: 0, orderCount: 0, averageOrderValue: 0, dailySales: {} }
+    return { totalSales: 0, orderCount: 0, averageOrderValue: 0, dailySales: {}, orders: [] }
   }
 }
 
@@ -604,25 +604,28 @@ function DailyZReportTable({
     }
     
     dates.forEach(date => {
+      // Yesterday's date string for sales and expenses
+      const yesterdayDate = format(subDays(new Date(date), 1), 'yyyy-MM-dd');
+
       const cashEntry = entries.find(e => e.date.startsWith(date))
       const zReport = cashEntry?.zedAmount || 0
       const totalCash = cashEntry?.cashAmount || 0
       const totalBank = cashEntry?.bankAmount || 0
       
-      const dailyCasual = casualExpenses.filter(e => e.date && e.date.startsWith(date))
+      const dailyCasual = casualExpenses.filter(e => e.date && e.date.startsWith(yesterdayDate))
       const casualExpense = dailyCasual.reduce((sum, e) => sum + (e.amount || 0), 0)
       
-      const dailyStock = stockPurchases.filter(p => p.purchaseDate && p.purchaseDate.startsWith(date))
+      const dailyStock = stockPurchases.filter(p => p.purchaseDate && p.purchaseDate.startsWith(yesterdayDate))
       const stockPurchase = dailyStock.reduce((sum, p) => sum + (p.totalAmount || p.quantity * p.unitPrice || 0), 0)
       
       const totalExpense = casualExpense + stockPurchase
-      const dailySale = dailySales[date] || 0
+      const dailySale = dailySales[yesterdayDate] || 0
       
       const cafetTransfer = zReport / 2
       const personnelTransfer = (zReport / 2) + totalExpense - totalCash
       
       const totalCashAndBank = totalCash + totalBank
-      const difference = totalCashAndBank - dailySale
+      const difference = totalCashAndBank - dailySale;
       const isBalanced = Math.abs(difference) < 1
       
       data.push({
@@ -948,13 +951,13 @@ function DailyCashManager({
   const [showForm, setShowForm] = useState(false)
   const [editingEntry, setEditingEntry] = useState<DailyCashEntry | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [formData, setFormData] = useState({
-    date: new Date().toISOString().split('T')[0],
+  const [formData, setFormData] = useState(() => ({
+    date: format(subDays(new Date(), 1), 'yyyy-MM-dd'),
     cashAmount: "",
     bankAmount: "",
     zedAmount: "",
     notes: "",
-  })
+  }))
 
   const loadData = async () => {
     setIsLoading(true)
@@ -1014,8 +1017,8 @@ function DailyCashManager({
       await loadData()
       if (onRefresh) onRefresh()
       setShowForm(false)
-      setEditingEntry(null)
-      setFormData({ date: new Date().toISOString().split('T')[0], cashAmount: "", bankAmount: "", zedAmount: "", notes: "" })
+      setEditingEntry(null);
+      setFormData({ date: format(subDays(new Date(), 1), 'yyyy-MM-dd'), cashAmount: "", bankAmount: "", zedAmount: "", notes: "" });
     } catch (error: any) {
       toast.error(error.message || "Failed to save Z-Report")
     } finally {
@@ -1062,7 +1065,7 @@ function DailyCashManager({
         <Button 
           onClick={() => {
             setEditingEntry(null)
-            setFormData({ date: new Date().toISOString().split('T')[0], cashAmount: "", bankAmount: "", zedAmount: "", notes: "" })
+            setFormData({ date: format(subDays(new Date(), 1), 'yyyy-MM-dd'), cashAmount: "", bankAmount: "", zedAmount: "", notes: "" })
             setShowForm(true)
           }} 
           className="w-full sm:w-auto bg-purple-900 hover:bg-purple-800 rounded-full px-3 sm:px-6 shadow-lg shadow-purple-900/25 text-xs sm:text-sm py-1.5 sm:py-2"
@@ -1258,22 +1261,28 @@ export default function FinancialManagementPage() {
       
       const startDateStr = format(start, 'yyyy-MM-dd')
       const endDateStr = format(end, 'yyyy-MM-dd')
+      // Fetch revenue from one day before start so each row can look up (date - 1) sales
+      const revenueStartStr = format(subDays(start, 1), 'yyyy-MM-dd')
       
       const [casualExpenses, stockData, cashData, revenueData] = await Promise.all([
         fetch("/api/expense").then(res => res.json()).then(data => data.data || []),
         fetchStockPurchases(),
         fetchDailyCash(),
-        fetchDailyRevenue(startDateStr, endDateStr),
+        fetchDailyRevenue(revenueStartStr, endDateStr),
       ])
       
       setCasualExpensesData(casualExpenses)
       setStockPurchasesData(stockData)
       setDailySalesData(revenueData.dailySales || {})
       
+      // Shift back one day: expenses/sales for date X come from date X-1
+      const prevStart = subDays(start, 1)
+      const prevEnd = subDays(end, 1)
+
       const filteredCasual = casualExpenses.filter((expense: any) => {
         if (!expense?.date) return false
         const expenseDate = new Date(expense.date)
-        return expenseDate >= start && expenseDate <= end
+        return expenseDate >= prevStart && expenseDate <= prevEnd
       })
       
       const totalAmount = filteredCasual.reduce((sum: number, e: any) => sum + (e.amount || 0), 0)
@@ -1285,7 +1294,7 @@ export default function FinancialManagementPage() {
       const filteredStock = stockData.filter((purchase: StockPurchase) => {
         if (!purchase?.purchaseDate) return false
         const purchaseDate = new Date(purchase.purchaseDate)
-        return purchaseDate >= start && purchaseDate <= end
+        return purchaseDate >= prevStart && purchaseDate <= prevEnd
       })
       const stockTotal = filteredStock.reduce((sum: number, e: StockPurchase) => sum + (e.totalAmount || e.quantity * e.unitPrice || 0), 0)
       
@@ -1297,10 +1306,24 @@ export default function FinancialManagementPage() {
       const totalZed = filteredCash.reduce((sum: number, e: DailyCashEntry) => sum + (e.zedAmount || 0), 0)
       const lastCash = filteredCash.length > 0 ? filteredCash[filteredCash.length - 1]?.zedAmount || 0 : 0
       
+      // Daily Revenue card shows previous day's sales
+      const prevDateStr = format(prevStart, 'yyyy-MM-dd')
+      const prevEndStr = format(prevEnd, 'yyyy-MM-dd')
+      const prevDaySales = Object.entries(revenueData.dailySales)
+        .filter(([d]) => d >= prevDateStr && d <= prevEndStr)
+        .reduce((sum, [, v]) => sum + v, 0)
+      const prevDayOrderCount = revenueData.orders
+        ? revenueData.orders.filter((o: Order) => {
+            const d = new Date(o.createdAt).toISOString().split('T')[0]
+            return d >= prevDateStr && d <= prevEndStr
+          }).length
+        : 0
+      const prevDayAvg = prevDayOrderCount > 0 ? prevDaySales / prevDayOrderCount : 0
+
       setMetrics({
-        dailyRevenue: revenueData.totalSales,
-        dailyOrderCount: revenueData.orderCount,
-        dailyAverageOrderValue: revenueData.averageOrderValue,
+        dailyRevenue: prevDaySales,
+        dailyOrderCount: prevDayOrderCount,
+        dailyAverageOrderValue: prevDayAvg,
         casualTotalAmount: totalAmount,
         casualCount: filteredCasual.length,
         pendingCount: pendingExpenses.length,

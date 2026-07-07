@@ -42,6 +42,7 @@ import {
   XCircle,
   RefreshCw,
   AlertOctagon,
+  ArrowRightLeft,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -72,6 +73,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import type { Stock, Category, Purchase, StockStatus } from "../../app/(admin)/stock/page"
 import { RegisterWastageModal } from "./RegisterWastageModal"
+import { RegisterTransferModal } from "./RegisterTransferModal"
 
 // Schemas
 const stockSchema = z.object({
@@ -200,10 +202,16 @@ export function StockManagementUI({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery)
+  const [stockTransfers, setStockTransfers] = useState<any[]>([])
+  const [isLoadingTransfers, setIsLoadingTransfers] = useState(false)
   
-  // Wastage state - only for registering
+  // Wastage state
   const [isRegisterWastageOpen, setIsRegisterWastageOpen] = useState(false)
   const [selectedStockForWastage, setSelectedStockForWastage] = useState<Stock | null>(null)
+
+  // Transfer state
+  const [isRegisterTransferOpen, setIsRegisterTransferOpen] = useState(false)
+  const [selectedStockForTransfer, setSelectedStockForTransfer] = useState<Stock | null>(null)
 
   // Check if user is admin
   const isAdmin = userRole === 'admin'
@@ -416,6 +424,20 @@ export function StockManagementUI({
   const handleViewStockDetail = (stock: Stock) => {
     setSelectedStock(stock)
     setIsStockDetailOpen(true)
+    fetchStockTransfers(stock._id)
+  }
+
+  const fetchStockTransfers = async (stockId: string) => {
+    setIsLoadingTransfers(true)
+    try {
+      const res = await fetch(`/api/stock-transfer?stockId=${stockId}`)
+      const data = await res.json()
+      if (data.success) setStockTransfers(data.data || [])
+    } catch {
+      // silent
+    } finally {
+      setIsLoadingTransfers(false)
+    }
   }
 
   const handleDeletePurchase = (purchaseId: string) => {
@@ -457,17 +479,19 @@ export function StockManagementUI({
     onSearchChange("")
   }
 
-  // Wastage handler - only for registering
   const handleOpenRegisterWastage = (stock: Stock) => {
-    console.log("Opening register wastage for:", stock.name)
     setSelectedStockForWastage(stock)
     setIsRegisterWastageOpen(true)
   }
 
-  const handleWastageSuccess = () => {
-    console.log("Wastage registered, refreshing stocks...")
-    fetchStocks()
+  const handleWastageSuccess = () => fetchStocks()
+
+  const handleOpenRegisterTransfer = (stock: Stock) => {
+    setSelectedStockForTransfer(stock)
+    setIsRegisterTransferOpen(true)
   }
+
+  const handleTransferSuccess = () => fetchStocks()
 
   const columns: ColumnDef<Stock>[] = [
     {
@@ -589,6 +613,10 @@ export function StockManagementUI({
                   <DropdownMenuItem onClick={() => handleOpenRegisterWastage(stock)}>
                     <AlertOctagon className="mr-2 h-4 w-4" />
                     Register Wastage
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleOpenRegisterTransfer(stock)}>
+                    <ArrowRightLeft className="mr-2 h-4 w-4" />
+                    Register Transfer
                   </DropdownMenuItem>
                 </>
               )}
@@ -829,6 +857,16 @@ export function StockManagementUI({
                   >
                     <AlertOctagon className="h-3.5 w-3.5 mr-1" />
                     Wastage
+                  </Button>
+                  <Button 
+                    variant="default" 
+                    size="sm" 
+                    onClick={() => handleOpenRegisterTransfer(stock)} 
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white col-span-2"
+                    disabled={!canEdit}
+                  >
+                    <ArrowRightLeft className="h-3.5 w-3.5 mr-1" />
+                    Transfer to Kitchen
                   </Button>
                 </CardFooter>
               </Card>
@@ -1330,7 +1368,54 @@ export function StockManagementUI({
                     </Table>
                   </div>
                 </div>
-              </div>
+
+                {/* Kitchen Transfers */}
+                <div>
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <ArrowRightLeft className="h-5 w-5 text-blue-500" />
+                    Kitchen Transfer History
+                  </h3>
+                  <div className="rounded-md border overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Quantity</TableHead>
+                          <TableHead>Receiver</TableHead>
+                          <TableHead>Note</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {isLoadingTransfers ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-4">
+                              <Loader2 className="h-5 w-5 animate-spin mx-auto" />
+                            </TableCell>
+                          </TableRow>
+                        ) : stockTransfers.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-6">
+                              <p className="text-muted-foreground text-sm">No transfer records found</p>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          stockTransfers.map((t) => (
+                            <TableRow key={t._id}>
+                              <TableCell className="text-sm">{new Date(t.date).toLocaleDateString()}</TableCell>
+                              <TableCell>
+                                <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs">
+                                  {t.quantity} {selectedStock.unit}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-sm font-medium">{t.receiverName}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{t.note || "-"}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>              </div>
             )}
           </ScrollArea>
         </DialogContent>
@@ -1357,12 +1442,18 @@ export function StockManagementUI({
         </DialogContent>
       </Dialog>
 
-      {/* Register Wastage Modal - Only this remains */}
       <RegisterWastageModal
         open={isRegisterWastageOpen}
         onOpenChange={setIsRegisterWastageOpen}
         stock={selectedStockForWastage}
         onSuccess={handleWastageSuccess}
+      />
+
+      <RegisterTransferModal
+        open={isRegisterTransferOpen}
+        onOpenChange={setIsRegisterTransferOpen}
+        stock={selectedStockForTransfer}
+        onSuccess={handleTransferSuccess}
       />
     </>
   )

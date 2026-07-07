@@ -254,8 +254,8 @@ export default function WaiterReportPage() {
     if (!session?.user?.email) return null;
     try {
       const response = await fetch("/api/waitress");
-      const data = await response.json();
-      const waitress = (data || []).find((w: Waitress) => 
+      const result = await response.json();
+      const waitress = (result.data || []).find((w: Waitress) => 
         w.email?.toLowerCase() === session.user?.email?.toLowerCase()
       );
       setCurrentWaitress(waitress || null);

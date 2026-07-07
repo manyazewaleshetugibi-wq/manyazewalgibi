@@ -5,6 +5,7 @@ export type StockProcessStatus = "PROCESSED" | "PENDING" | "FAILED"
 
 export type OrderItem = {
   itemId: string
+  itemName?: string
   quantity: number
   unitPrice: number
   price?: number
@@ -13,6 +14,9 @@ export type OrderItem = {
   isUneditable?: boolean
   uneditableAt?: string
   uneditableBy?: string
+  // Alternative ingredient selections made by waiter at order time
+  // key = default stockId, value = chosen stockId (could be same as default or an alternative)
+  selectedAlternatives?: Record<string, { stockId: string; stockName: string; quantity: number }>
 }
 
 export type DeliveryInfo = {

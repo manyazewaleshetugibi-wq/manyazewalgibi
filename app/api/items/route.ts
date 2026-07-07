@@ -145,13 +145,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate requiredStock IDs
+    // Validate requiredStock IDs (POST)
     for (const stock of requiredStock) {
       if (!ObjectId.isValid(stock.stockId)) {
         return NextResponse.json(
           { success: false, message: `Invalid stock ID: ${stock.stockId}` },
           { status: 400 }
         );
+      }
+      for (const alt of (stock.alternatives || [])) {
+        if (!ObjectId.isValid(alt.stockId)) {
+          return NextResponse.json(
+            { success: false, message: `Invalid alternative stock ID: ${alt.stockId}` },
+            { status: 400 }
+          );
+        }
       }
     }
 
@@ -229,6 +237,11 @@ export async function POST(req: NextRequest) {
       requiredStock: validatedData.requiredStock.map((stock: any) => ({
         stockId: new ObjectId(stock.stockId),
         quantity: stock.quantity,
+        alternatives: (stock.alternatives || []).map((alt: any) => ({
+          stockId: new ObjectId(alt.stockId),
+          quantity: alt.quantity,
+          label: alt.label || '',
+        })),
       })),
       imageUrl,
       cloudinaryData,
@@ -257,14 +270,54 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ✅ GET all items
+// ✅ GET all items — enriched with stock names for requiredStock & alternatives
 export async function GET() {
   try {
     const client = await clientPromise;
     const db = client.db("gold");
     const items = await db.collection("items").find({}).toArray();
 
-    return NextResponse.json({ success: true, items }, { status: 200 });
+    // Collect all unique stockIds across all items (default + alternatives)
+    const allStockIds = new Set<string>();
+    for (const item of items) {
+      for (const ing of item.requiredStock || []) {
+        if (ing.stockId) allStockIds.add(ing.stockId.toString());
+        for (const alt of ing.alternatives || []) {
+          if (alt.stockId) allStockIds.add(alt.stockId.toString());
+        }
+      }
+    }
+
+    // Fetch all referenced stocks in one query
+    const stockNameMap = new Map<string, string>();
+    const stockUnitMap = new Map<string, string>();
+    if (allStockIds.size > 0) {
+      const stocks = await db.collection("stocks")
+        .find({ _id: { $in: [...allStockIds].map(id => { try { return new ObjectId(id) } catch { return null } }).filter(Boolean) } })
+        .project({ _id: 1, name: 1, unit: 1 })
+        .toArray();
+      for (const s of stocks) {
+        stockNameMap.set(s._id.toString(), s.name);
+        stockUnitMap.set(s._id.toString(), s.unit || '');
+      }
+    }
+
+    // Attach stockName and stockUnit to each ingredient and its alternatives
+    const enrichedItems = items.map(item => ({
+      ...item,
+      requiredStock: (item.requiredStock || []).map((ing: any) => ({
+        ...ing,
+        stockName: stockNameMap.get(ing.stockId?.toString()) || ing.stockId?.toString() || '',
+        stockUnit: stockUnitMap.get(ing.stockId?.toString()) || '',
+        alternatives: (ing.alternatives || []).map((alt: any) => ({
+          ...alt,
+          stockName: stockNameMap.get(alt.stockId?.toString()) || alt.label || alt.stockId?.toString() || '',
+          stockUnit: stockUnitMap.get(alt.stockId?.toString()) || '',
+        })),
+      })),
+    }));
+
+    return NextResponse.json({ success: true, items: enrichedItems }, { status: 200 });
   } catch (error) {
     console.error("GET /item Error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
@@ -390,7 +443,7 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // Validate requiredStock IDs
+    // Validate requiredStock IDs (PUT)
     for (const stock of requiredStock) {
       if (!ObjectId.isValid(stock.stockId)) {
         return NextResponse.json(
@@ -398,32 +451,42 @@ export async function PUT(req: NextRequest) {
           { status: 400 }
         );
       }
+      for (const alt of (stock.alternatives || [])) {
+        if (!ObjectId.isValid(alt.stockId)) {
+          return NextResponse.json(
+            { success: false, message: `Invalid alternative stock ID: ${alt.stockId}` },
+            { status: 400 }
+          );
+        }
+      }
     }
 
-    // Prepare update data - ADDED isFasting field
-    const updateData: any = {
+    // Build final data to save — convert IDs to ObjectId directly, no Zod validation needed
+    const dataToSave: any = {
       name: name !== undefined ? name : existingItem.name,
       description: description !== undefined ? description : existingItem.description,
       price: price !== undefined ? parseFloat(price) : existingItem.price,
       cost: cost !== undefined ? parseFloat(cost) : existingItem.cost,
-      categoryId: categoryId !== undefined ? categoryId : existingItem.categoryId,
+      categoryId: new ObjectId(categoryId !== undefined ? categoryId : existingItem.categoryId.toString()),
       imageUrl,
       cloudinaryData,
       requiredStock: requiredStock.map((stock: any) => ({
         stockId: new ObjectId(stock.stockId),
         quantity: stock.quantity,
+        alternatives: (stock.alternatives || []).map((alt: any) => ({
+          stockId: new ObjectId(alt.stockId),
+          quantity: alt.quantity,
+          label: alt.label || '',
+        })),
       })),
-      isFasting: isFasting !== undefined ? isFasting : existingItem.isFasting || false, // ADDED
+      isFasting: isFasting !== undefined ? isFasting : existingItem.isFasting || false,
       updatedAt: new Date(),
     };
-
-    // Validate data
-    const validatedData = validateItemData(updateData);
 
     // Update item
     const result = await db.collection("items").updateOne(
       { _id: new ObjectId(id) },
-      { $set: validatedData }
+      { $set: dataToSave }
     );
 
     if (result.matchedCount === 0) {

@@ -33,7 +33,8 @@ enum Shift {
 async function fetchWaitresses(): Promise<Waitress[]> {
   const res = await fetch("/api/waitress")
   if (!res.ok) throw new Error("Failed to fetch waitresses")
-  return res.json()
+  const data = await res.json()
+  return Array.isArray(data) ? data : (data.data ?? data.waitresses ?? [])
 }
 
 async function addWaitress(waitress: Omit<Waitress, "_id" | "createdAt" | "updatedAt">): Promise<Waitress> {
@@ -82,7 +83,7 @@ export default function WaitressManagement() {
     setLoading(true)
     try {
       const data = await fetchWaitresses()
-      setWaitresses(data)
+      setWaitresses(Array.isArray(data) ? data : [])
     } catch (error) {
       toast.error("Failed to load waitresses")
     } finally {

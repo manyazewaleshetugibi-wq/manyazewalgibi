@@ -967,7 +967,8 @@ export default function OrderEditPage() {
     try {
       const response = await fetch("/api/waitress");
       const data = await response.json();
-      setWaiters(data || []);
+      const arr = Array.isArray(data) ? data : (data.data ?? data.waitresses ?? []);
+      setWaiters(arr);
     } catch (error) {
       console.error("Error fetching waiters:", error);
     }

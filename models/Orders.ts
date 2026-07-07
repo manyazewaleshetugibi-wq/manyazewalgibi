@@ -26,7 +26,15 @@ const OrderItemSchema = z.object({
   // NEW FIELDS for marking items as uneditable
   isUneditable: z.boolean().default(false),
   uneditableAt: z.date().optional(),
-  uneditableBy: z.string().optional()
+  uneditableBy: z.string().optional(),
+  // Alternative ingredient choices made at order time
+  ingredientChoices: z.array(
+    z.object({
+      defaultStockId: z.string(),
+      chosenStockId: z.string(),
+      chosenQuantity: z.number().min(0),
+    })
+  ).optional(),
 });
 
 // Table Order Schema - UPDATED to include orderItems for compatibility
@@ -84,7 +92,12 @@ const TableOrderMongooseSchema = new mongoose.Schema({
     quantity: { type: Number },
     unitPrice: { type: Number },
     subtotal: { type: Number },
-    status: { type: String }
+    status: { type: String },
+    ingredientChoices: [{
+      defaultStockId: { type: String },
+      chosenStockId: { type: String },
+      chosenQuantity: { type: Number },
+    }],
   }],
   status: { type: String, default: "PENDING" },
   totalAmount: { type: Number },

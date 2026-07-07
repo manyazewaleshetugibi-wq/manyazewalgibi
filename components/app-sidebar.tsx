@@ -47,7 +47,7 @@ import {
 
 const ALL_ROUTES = {
   ADMIN: [
-    '/dashboard', '/stock', '/scategory', '/stockReport', '/purchase-request',
+    '/dashboard', '/stock','/Culture','/entenfsandretreat', '/scategory', '/stockReport', '/purchase-request',
     '/items', '/catagory', '/healthy-menu', '/menu-profitability',
     '/orders', '/delivery', '/blog', '/contents', '/applications',
     '/sales', '/expe', '/profit', '/training', '/Pregister',
@@ -58,52 +58,52 @@ const ALL_ROUTES = {
     '/qr' // ✅ ADDED QR PAGE - ADMIN ONLY
   ],
   KITCHEN: [
-    '/dashboard', '/orders', '/delivery', '/training',
+    '/Culture', '/orders', '/delivery', '/training',
     '/preparation', '/standards', '/daily-tasks', '/profile',
     '/change-password', '/table-arrangement'
   ],
   FB: [
-    '/dashboard', '/items', '/catagory', '/menu-profitability',
+     '/Culture', '/items', '/catagory', '/menu-profitability',
     '/Pregister', '/Sregister', '/training', '/preparation',
     '/standards', '/daily-tasks', '/profile', '/change-password'
   ],
   MARKETING: [
-    '/dashboard', '/blog', '/contents', '/training',
+     '/Culture', '/entenfsandretreat', '/blog', '/contents', '/training',
     '/feedback', '/standards', '/daily-tasks', '/profile',
     '/change-password'
   ],
   FINANCE: [
-    '/dashboard', '/stock', '/scategory', '/stockReport',
+     '/Culture', '/stock', '/scategory', '/stockReport',
     '/purchase-request', '/sales', '/expe', '/profit',
     '/training', '/expenses', '/standards', '/daily-tasks',
     '/profile', '/change-password'
   ],
   STOCK_MANAGER: [
-    '/dashboard', '/stock', '/scategory', '/stockReport',
+    '/Culture', '/stock', '/scategory', '/stockReport',
     '/purchase-request', '/training', '/standards',
     '/daily-tasks', '/profile', '/change-password'
   ],
   PURCHASING: [
-    '/dashboard', '/purchase-request', '/stock', '/stockReport',
+    '/Culture', '/purchase-request', '/stock', '/stockReport',
     '/training', '/standards', '/daily-tasks', '/profile',
     '/change-password'
   ],
   DELIVERY: [
-    '/dashboard', '/delivery', '/training', '/standards',
+    '/Culture', '/delivery', '/training', '/standards',
     '/daily-tasks', '/profile', '/change-password'
   ],
   POS: [
-    '/dashboard', '/pos', '/edit', '/myorders',
+    '/Culture', '/pos', '/edit', '/myorders',
     '/table-arrangement', '/training', '/standards',
     '/daily-tasks', '/profile', '/change-password'
   ],
   WAITRESS: [
-    '/dashboard', '/pos', '/myorders', '/table-arrangement',
+    '/Culture', '/pos', '/myorders', '/table-arrangement',
     '/training', '/daily-tasks', '/profile', '/change-password'
   ],
   DEFAULT: [
-    '/dashboard', '/training', '/daily-tasks', '/profile',
-    '/change-password'
+    '/Culture', '/training', '/daily-tasks', '/profile',
+    
   ]
 };
 
@@ -149,6 +149,7 @@ const roleBasedNavigation = {
           { title: "Blogs", url: "/blog" },
           { title: "Contents", url: "/contents" },
           { title: "Applications", url: "/applications" },
+          {title: 'entenfsandretreat', url: "/entenfsandretreat"}
         ],
       },
       {
@@ -167,6 +168,7 @@ const roleBasedNavigation = {
         icon: ChefHat,
         items: [
           { title: "Training", url: "/training", icon: BookCheckIcon },
+          { title: "Culture", url: "/Culture", icon: AudioWaveform },
           {
             title: "SOP",
             url: "#",
@@ -233,7 +235,8 @@ const roleBasedNavigation = {
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Preparation", url: "/preparation", icon: ChefHat },
       { name: "Standards", url: "/standards", icon: ClipboardCheck },
-      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+      { name: "culture", url: "/Culture", icon: AudioWaveform } // ✅ ADDED CULTURE FOR KITCHEN
     ],
   },
 
@@ -264,7 +267,9 @@ const roleBasedNavigation = {
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Preparation", url: "/preparation", icon: ChefHat },
       { name: "Standards", url: "/standards", icon: ClipboardCheck },
-      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+      { name: "culture", url: "/Culture", icon: AudioWaveform } // ✅ ADDED CULTURE FOR KITCHEN
+
     ],
   },
    
@@ -277,6 +282,8 @@ const roleBasedNavigation = {
         items: [
           { title: "Blogs", url: "/blog" },
           { title: "Contents", url: "/contents" },
+          {title: "Applications", url: "/applications" },
+          { title: "entenfsandretreat", url: "/entenfsandretreat" }
         ],
       },
     ],
@@ -285,7 +292,9 @@ const roleBasedNavigation = {
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Feedback", url: "/feedback", icon: Pen },
       { name: "Standards", url: "/standards", icon: ClipboardCheck },
-      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+      { name: "culture", url: "/Culture", icon: AudioWaveform } // ✅ ADDED CULTURE FOR KITCHEN
+
     ],
   },
 
@@ -318,7 +327,9 @@ const roleBasedNavigation = {
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Expenses", url: "/expenses", icon: DollarSign },
       { name: "Standards", url: "/standards", icon: ClipboardCheck },
-      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+            { name: "culture", url: "/Culture", icon: AudioWaveform } // ✅ ADDED CULTURE FOR KITCHEN
+
     ],
   },
 
@@ -340,7 +351,9 @@ const roleBasedNavigation = {
       { name: "Dashboard", url: "/dashboard", icon: Tag },
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Standards", url: "/standards", icon: ClipboardCheck },
-      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+            { name: "culture", url: "/Culture", icon: AudioWaveform } // ✅ ADDED CULTURE FOR KITCHEN
+
     ],
   },
 
@@ -368,7 +381,9 @@ const roleBasedNavigation = {
       { name: "Dashboard", url: "/dashboard", icon: Tag },
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Standards", url: "/standards", icon: ClipboardCheck },
-      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+            { name: "culture", url: "/Culture", icon: AudioWaveform } // ✅ ADDED CULTURE FOR KITCHEN
+
     ],
   },
 
@@ -388,6 +403,8 @@ const roleBasedNavigation = {
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Standards", url: "/standards", icon: ClipboardCheck },
       { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+            { name: "culture", url: "/Culture", icon: AudioWaveform } // ✅ ADDED CULTURE FOR KITCHEN
+
     ],
   },
 
@@ -417,7 +434,9 @@ const roleBasedNavigation = {
       { name: "POS", url: "/pos", icon: SquareTerminal },
       { name: "Training", url: "/training", icon: BookCheckIcon },
       { name: "Standards", url: "/standards", icon: ClipboardCheck },
-      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+      { name: "culture", url: "/Culture", icon: AudioWaveform } // ✅ ADDED CULTURE FOR KITCHEN
+
     ],
   },
 
@@ -444,16 +463,19 @@ const roleBasedNavigation = {
     projects: [
       { name: "Dashboard", url: "/dashboard", icon: Tag },
       { name: "Training", url: "/training", icon: BookCheckIcon },
-      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+            { name: "culture", url: "/Culture", icon: AudioWaveform } // ✅ ADDED CULTURE FOR KITCHEN
+
     ],
   },
 
   DEFAULT: {
     navMain: [],
     projects: [
-      { name: "Dashboard", url: "/dashboard", icon: Tag },
       { name: "Training", url: "/training", icon: BookCheckIcon },
-      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon }
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+            { name: "culture", url: "/Culture", icon: AudioWaveform } // ✅ ADDED CULTURE FOR KITCHEN
+
     ],
   },
 };

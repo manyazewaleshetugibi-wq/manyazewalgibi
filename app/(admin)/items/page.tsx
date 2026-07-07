@@ -32,7 +32,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, Plus, Edit, Trash2, Clock, Star, Save, X, Tag, Loader2, Eye, ChefHat, Menu, Filter, Coffee, XCircle, AlertCircle, Package, Check, Moon, Sun } from 'lucide-react'
+import { Search, Plus, Edit, Trash2, Clock, Star, Save, X, Tag, Loader2, Eye, ChefHat, Menu, Filter, Coffee, XCircle, AlertCircle, Package, Check, Moon, Sun, ChevronDown, ChevronUp } from 'lucide-react'
 import { useDebouncedCallback } from "use-debounce"
 import { api } from "@/types/utils/api"
 import { Label } from "@/components/ui/label"
@@ -67,7 +67,9 @@ interface MenuItem {
   };
   requiredStock?: {
     stockId: string;
-    quantity: number; // Now accepts any decimal number
+    stockName?: string;
+    quantity: number;
+    alternatives?: { stockId: string; stockName?: string; quantity: number; label?: string }[];
   }[];
   nutritionalInfo?: {
     calories: number;
@@ -111,8 +113,14 @@ const ItemSchema = z.object({
   requiredStock: z.array(
     z.object({
       stockId: z.string(),
-      quantity: z.number()
-        .min(0, "Quantity must be positive"),
+      stockName: z.string().optional(),
+      quantity: z.number().min(0, "Quantity must be positive"),
+      alternatives: z.array(z.object({
+        stockId: z.string(),
+        stockName: z.string().optional(),
+        quantity: z.number().min(0),
+        label: z.string().optional(),
+      })).optional(),
     }),
   ).optional(),
   nutritionalInfo: z.object({
@@ -168,7 +176,7 @@ const DEFAULT_NUTRITIONAL_INFO = {
 };
 
 // Default values for required stock
-const DEFAULT_REQUIRED_STOCK: { stockId: string; quantity: number }[] = [];
+const DEFAULT_REQUIRED_STOCK: { stockId: string; stockName?: string; quantity: number; alternatives?: { stockId: string; stockName?: string; quantity: number; label?: string }[] }[] = [];
 
 // Image validation constants
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -315,6 +323,142 @@ const SearchableStockSelect: React.FC<SearchableStockSelectProps> = ({
   );
 };
 
+// IngredientRow: one ingredient with its alternatives
+interface IngredientRowProps {
+  index: number
+  control: any
+  register: any
+  getValues: any
+  stocks: Stock[]
+  fieldErrors: Record<string, string>
+  isSubmitting: boolean
+  onRemove: () => void
+}
+
+function IngredientRow({ index, control, register, getValues, stocks, fieldErrors, isSubmitting, onRemove }: IngredientRowProps) {
+  const { fields: altFields, append: addAlt, remove: removeAlt } = useFieldArray({
+    control,
+    name: `requiredStock.${index}.alternatives`,
+  });
+  const [showAlts, setShowAlts] = useState(altFields.length > 0);
+  useEffect(() => {
+    setShowAlts(altFields.length > 0);
+  }, [altFields.length]);
+
+  return (
+    <div className="bg-gray-50 p-3 rounded-md border border-gray-200 space-y-2">
+      {/* Main ingredient row */}
+      <div className="flex items-center space-x-2">
+        <div className="flex-1">
+          <Label className="text-xs mb-1 block">Ingredient</Label>
+          <Controller
+            name={`requiredStock.${index}.stockId`}
+            control={control}
+            render={({ field }) => (
+              <SearchableStockSelect
+                value={field.value || ""}
+                onChange={field.onChange}
+                stocks={stocks}
+                disabled={isSubmitting}
+                placeholder="Select ingredient..."
+              />
+            )}
+          />
+        </div>
+        <div className="w-24">
+          <Label className="text-xs mb-1 block">Qty</Label>
+          <Input
+            type="number" step="any" min="0"
+            className={`w-full ${fieldErrors[`requiredStock.${index}.quantity`] ? "border-red-500" : ""}`}
+            disabled={isSubmitting}
+            {...register(`requiredStock.${index}.quantity` as const, {
+              valueAsNumber: true,
+              setValueAs: (v: any) => v === '' ? 0 : parseFloat(v)
+            })}
+          />
+        </div>
+        <div className="flex items-end gap-1 pb-0.5">
+          <Button
+            type="button" variant="ghost" size="icon"
+            onClick={() => setShowAlts(!showAlts)}
+            className="h-8 w-8 text-orange-500 hover:bg-orange-50"
+            title={showAlts ? "Hide alternatives" : "Add alternatives"}
+          >
+            {showAlts ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+          <Button
+            type="button" variant="ghost" size="icon"
+            onClick={onRemove}
+            className="h-8 w-8 text-red-500 hover:bg-red-50"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Alternatives section */}
+      {showAlts && (
+        <div className="pl-3 border-l-2 border-orange-200 space-y-2">
+          <p className="text-xs text-orange-600 font-medium">Alternatives (waiter can choose one at order time)</p>
+          {altFields.map((alt, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Controller
+                name={`requiredStock.${index}.alternatives.${i}.stockId`}
+                control={control}
+                render={({ field }) => (
+                  <div className="flex-1">
+                    <SearchableStockSelect
+                      value={field.value || ""}
+                      onChange={field.onChange}
+                      stocks={stocks}
+                      disabled={isSubmitting}
+                      placeholder="Alternative ingredient..."
+                    />
+                  </div>
+                )}
+              />
+              <div className="w-20">
+                <Input
+                  type="number" step="any" min="0"
+                  placeholder="Qty"
+                  disabled={isSubmitting}
+                  {...register(`requiredStock.${index}.alternatives.${i}.quantity` as const, {
+                    valueAsNumber: true,
+                    setValueAs: (v: any) => v === '' ? 0 : parseFloat(v)
+                  })}
+                />
+              </div>
+              <div className="w-24">
+                <Input
+                  placeholder="Label"
+                  disabled={isSubmitting}
+                  title="Optional display name e.g. Injera, Kita"
+                  {...register(`requiredStock.${index}.alternatives.${i}.label` as const)}
+                />
+              </div>
+              <Button
+                type="button" variant="ghost" size="icon"
+                onClick={() => removeAlt(i)}
+                className="h-7 w-7 text-red-400 hover:bg-red-50 flex-shrink-0"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="button" variant="outline" size="sm"
+            onClick={() => addAlt({ stockId: "", quantity: 0, label: "" })}
+            className="text-xs h-7 border-dashed border-orange-300 text-orange-600 hover:bg-orange-50"
+            disabled={isSubmitting}
+          >
+            <Plus className="h-3 w-3 mr-1" /> Add Alternative
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Main component
 export default function RestaurantMenuManagement() {
   const [categories, setCategories] = useState<ItemCategory[]>([])
@@ -342,7 +486,7 @@ export default function RestaurantMenuManagement() {
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [retryCount, setRetryCount] = useState(0)
-  const [networkStatus, setNetworkStatus] = useState<'online' | 'offline'>(navigator.onLine ? 'online' : 'offline')
+  const [networkStatus, setNetworkStatus] = useState<'online' | 'offline'>(typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline')
 
   // Monitor network status
   useEffect(() => {
@@ -645,13 +789,22 @@ export default function RestaurantMenuManagement() {
       }
       formData.append("nutritionalInfo", JSON.stringify(formattedNutritionalInfo))
       
-      // Add required stock with defaults - preserve full precision
-      const validRequiredStock = (data.requiredStock || DEFAULT_REQUIRED_STOCK)
-        .filter(stock => stock.stockId && stock.quantity > 0)
-        .map(stock => ({
+      // Build requiredStock from react-hook-form state — alternatives are fully inside RHF via nested useFieldArray
+      const allStock = getValues('requiredStock') || []
+      const validRequiredStock = allStock
+        .filter((stock: any) => stock.stockId && stock.quantity > 0)
+        .map((stock: any) => ({
           stockId: stock.stockId,
-          quantity: stock.quantity // Keep original value without rounding
+          quantity: stock.quantity,
+          alternatives: (stock.alternatives || [])
+            .filter((alt: any) => alt.stockId)
+            .map((alt: any) => ({
+              stockId: alt.stockId,
+              quantity: alt.quantity || 0,
+              label: alt.label || ''
+            }))
         }))
+      console.log('Sending requiredStock:', JSON.stringify(validRequiredStock))
       formData.append("requiredStock", JSON.stringify(validRequiredStock))
       
       // 🔥 FIXED IMAGE HANDLING FOR EDIT MODE 🔥
@@ -874,25 +1027,32 @@ export default function RestaurantMenuManagement() {
   }
 
   const handleEdit = (item: MenuItem) => {
+    console.log('handleEdit requiredStock:', JSON.stringify(item.requiredStock))
     setSelectedItem(item)
-    // Use cloudinaryData.url if available, otherwise fallback to imageUrl
     setImagePreview(item.cloudinaryData?.url || item.imageUrl || null)
     setSelectedImage(null)
     setIsImageRemoved(false)
     setFieldErrors({})
     setError(null)
-    
-    // Ensure all fields have defaults
+
     const itemToEdit = {
       ...item,
-      requiredStock: item.requiredStock || DEFAULT_REQUIRED_STOCK,
+      requiredStock: (item.requiredStock || DEFAULT_REQUIRED_STOCK).map(s => ({
+        ...s,
+        stockId: s.stockId?.toString() || '',
+        quantity: s.quantity || 0,
+        alternatives: (s.alternatives || []).map(a => ({
+          stockId: a.stockId?.toString() || '',
+          quantity: a.quantity || 0,
+          label: a.label || ''
+        }))
+      })),
       nutritionalInfo: item.nutritionalInfo || DEFAULT_NUTRITIONAL_INFO,
       preparationTime: getSafeValue(item.preparationTime, 10),
       isActive: getSafeValue(item.isActive, true),
       isFeatured: getSafeValue(item.isFeatured, false),
-      isFasting: getSafeValue(item.isFasting, false), // Added default
+      isFasting: getSafeValue(item.isFasting, false),
       price: getSafeValue(item.price, 0),
-      // Use cloudinaryData.url for imageUrl in the form
       imageUrl: item.cloudinaryData?.url || item.imageUrl,
     }
     reset(itemToEdit)
@@ -1595,53 +1755,17 @@ export default function RestaurantMenuManagement() {
                         </div>
                       )}
                       {fields.map((field, index) => (
-                        <div key={field.id} className="flex items-center space-x-2 bg-gray-50 p-3 rounded-md">
-                          <div className="flex-1">
-                            <Label htmlFor={`stock-${index}`} className="text-xs mb-1 block">Ingredient</Label>
-                            <Controller
-                              name={`requiredStock.${index}.stockId`}
-                              control={control}
-                              render={({ field }) => (
-                                <SearchableStockSelect
-                                  value={field.value || ""}
-                                  onChange={field.onChange}
-                                  stocks={stocks}
-                                  disabled={isSubmitting || isUploading}
-                                  placeholder="Select ingredient..."
-                                />
-                              )}
-                            />
-                          </div>
-                          <div className="w-1/4">
-                            <Label htmlFor={`quantity-${index}`} className="text-xs mb-1 block">Qty</Label>
-                            <Input
-                              id={`quantity-${index}`}
-                              type="number"
-                              step="any"
-                              min="0"
-                              placeholder="0.0000373463489"
-                              className={`w-full ${fieldErrors[`requiredStock.${index}.quantity`] ? "border-red-500" : ""}`}
-                              disabled={isSubmitting || isUploading}
-                              {...register(`requiredStock.${index}.quantity` as const, { 
-                                valueAsNumber: true,
-                                setValueAs: (v) => v === '' ? 0 : parseFloat(v)
-                              })}
-                            />
-                            <p className="text-xs text-gray-400 mt-1">Accepts any decimal value</p>
-                          </div>
-                          <div className="flex items-end pb-1">
-                            <Button 
-                              type="button" 
-                              variant="ghost" 
-                              size="icon" 
-                              onClick={() => remove(index)} 
-                              className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
-                              disabled={isSubmitting || isUploading}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
+                        <IngredientRow
+                          key={field.id}
+                          index={index}
+                          control={control}
+                          register={register}
+                          getValues={getValues}
+                          stocks={stocks}
+                          fieldErrors={fieldErrors}
+                          isSubmitting={isSubmitting || isUploading}
+                          onRemove={() => remove(index)}
+                        />
                       ))}
                       <Button
                         type="button"
@@ -1864,23 +1988,26 @@ export default function RestaurantMenuManagement() {
                 <div>
                   <h3 className="text-lg font-semibold mb-2">Required Stock</h3>
                   {getRequiredStock(selectedItem).length > 0 ? (
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-gray-200">
-                            <th className="text-left pb-2">Ingredient</th>
-                            <th className="text-right pb-2">Quantity</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {getRequiredStock(selectedItem).map((stock, index) => (
-                            <tr key={index} className="border-b border-gray-100 last:border-0">
-                              <td className="py-2">{stocks.find((s) => s._id === stock.stockId)?.name || "Unknown"}</td>
-                              <td className="text-right py-2">{stock.quantity.toString()}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                      {getRequiredStock(selectedItem).map((stock, index) => (
+                        <div key={index} className="border-b border-gray-100 last:border-0 pb-2 last:pb-0">
+                          <div className="flex justify-between items-center py-1">
+                            <span className="font-medium text-sm">{stock.stockName || stocks.find((s) => s._id === stock.stockId)?.name || "Unknown"}</span>
+                            <span className="text-sm text-gray-600">qty: {stock.quantity}</span>
+                          </div>
+                          {stock.alternatives && stock.alternatives.length > 0 && (
+                            <div className="ml-3 mt-1 space-y-0.5">
+                              <p className="text-xs text-orange-600 font-medium">Alternatives:</p>
+                              {stock.alternatives.map((alt, ai) => (
+                                <div key={ai} className="flex justify-between items-center text-xs text-gray-500">
+                                  <span>↳ {alt.stockName || alt.label || "Unknown"}</span>
+                                  <span>qty: {alt.quantity}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <p className="text-gray-500 italic">No stock requirements defined</p>

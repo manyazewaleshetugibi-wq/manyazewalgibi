@@ -11,6 +11,8 @@ const ROLE_ROUTE_PERMISSIONS = {
     routes: [
       '/dashboard',
       '/stock',
+      '/Culture',
+      '/entenfsandretreat',
       '/scategory',
       '/stockReport',
       '/purchase-request',
@@ -93,7 +95,7 @@ const ROLE_ROUTE_PERMISSIONS = {
   
   KITCHEN: {
     routes: [
-      '/dashboard',
+      '/Culture',
       '/orders',
       '/delivery',
       '/training',
@@ -105,6 +107,7 @@ const ROLE_ROUTE_PERMISSIONS = {
       '/table-arrangement',
     ],
     apiRoutes: [
+
       '/api/order',
       '/api/orders',
       '/api/delivery',
@@ -119,7 +122,7 @@ const ROLE_ROUTE_PERMISSIONS = {
   
   FB: {
     routes: [
-      '/dashboard',
+      '/Culture',
       '/items',
       '/catagory',
       '/menu-profitability',
@@ -149,7 +152,8 @@ const ROLE_ROUTE_PERMISSIONS = {
   
   MARKETING: {
     routes: [
-      '/dashboard',
+      '/Culture',
+      '/entenfsandretreat',
       '/blog',
       '/contents',
       '/training',
@@ -172,7 +176,7 @@ const ROLE_ROUTE_PERMISSIONS = {
   
   FINANCE: {
     routes: [
-      '/dashboard',
+      '/Culture',
       '/stock',
       '/scategory',
       '/stockReport',
@@ -205,7 +209,7 @@ const ROLE_ROUTE_PERMISSIONS = {
   
   STOCK_MANAGER: {
     routes: [
-      '/dashboard',
+      '/Culture',
       '/stock',
       '/scategory',
       '/stockReport',
@@ -230,7 +234,7 @@ const ROLE_ROUTE_PERMISSIONS = {
   
   PURCHASING: {
     routes: [
-      '/dashboard',
+      '/Culture',
       '/purchase-request',
       '/stock',
       '/stockReport',
@@ -253,7 +257,7 @@ const ROLE_ROUTE_PERMISSIONS = {
   
   DELIVERY: {
     routes: [
-      '/dashboard',
+      '/Culture',
       '/delivery',
       '/training',
       '/standards',
@@ -273,7 +277,7 @@ const ROLE_ROUTE_PERMISSIONS = {
   
   POS: {
     routes: [
-      '/dashboard',
+      '/Culture',
       '/pos',
       '/edit',
       '/myorders',
@@ -299,7 +303,7 @@ const ROLE_ROUTE_PERMISSIONS = {
   
   WAITRESS: {
     routes: [
-      '/dashboard',
+      '/Culture',
       '/pos',
       '/myorders',
       '/table-arrangement',
@@ -321,7 +325,7 @@ const ROLE_ROUTE_PERMISSIONS = {
   
   DEFAULT: {
     routes: [
-      '/dashboard',
+      '/Culture',
       '/training',
       '/daily-tasks',
       '/profile',

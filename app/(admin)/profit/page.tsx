@@ -192,26 +192,26 @@ async function fetchTodayOrders(): Promise<Order[]> {
   const startDate = format(startOfDay(today), "yyyy-MM-dd")
   const endDate = format(endOfDay(today), "yyyy-MM-dd")
   
+  // ✅ FIXED: Use the correct endpoint for fetching orders for reports
   try {
-    const response = await fetch(`/api/order/waiterreport?startDate=${startDate}&endDate=${endDate}&limit=10000`)
+    const response = await fetch(`/api/order/waiterreport?startDate=${startDate}&endDate=${endDate}&limit=10000&status=COMPLETED`)
     const data = await response.json()
     
     // Handle different response structures
     let orders = []
-    if (data.success && data.orders) {
+    if (data.success && data.data) { // The report endpoint uses 'data'
+      orders = data.data
+    } else if (data.success && data.orders) { // Fallback for old structure
       orders = data.orders
     } else if (data.data && Array.isArray(data.data)) {
       orders = data.data
     } else if (Array.isArray(data)) {
       orders = data
     }
-    
-    // Filter ONLY COMPLETED orders from today
-    return orders.filter((order: Order) => {
-      const orderDate = new Date(order.createdAt)
-      return order.status === 'COMPLETED' &&
-             orderDate >= startOfDay(today) && orderDate <= endOfDay(today)
-    })
+    // The API now filters by date and status, but we can double-check creation date here if needed.
+    // The primary change is relying on the API's date filtering.
+    return orders.filter((order: Order) => order.status === 'COMPLETED');
+
   } catch (error) {
     console.error("Error fetching today's orders:", error)
     return []
@@ -652,45 +652,48 @@ export default function DailyProfitPage() {
         const categoryType = category?.type || "OTHER"
 
         let totalCost = 0
+        let singleItemCost = 0
         const ingredients: IngredientCost[] = []
 
         // Calculate cost from required stock
         if (menuItem.requiredStock && menuItem.requiredStock.length > 0) {
-          menuItem.requiredStock.forEach(req => {
-            const { price: latestPrice, purchaseDate, supplier } = getLatestPrice(req.stockId, purchaseData)
+          for (const req of menuItem.requiredStock) {
+            const { price: latestPrice, date: purchaseDate, supplier } = getLatestPrice(req.stockId, purchaseData)
             // Cost = quantity_needed × latest_price × quantity_sold
             const cost = req.quantity * latestPrice * sale.quantity
             totalCost += cost
+            const ingredientCostForOne = req.quantity * latestPrice
+            singleItemCost += ingredientCostForOne
 
             ingredients.push({
               stockId: req.stockId,
-              stockName: getStockName(req.stockId, stockData),
-              quantity: req.quantity * sale.quantity,
+              stockName: getStockName(req.stockId, stockData), // Cost per single item
+              quantity: req.quantity, // Cost per single item
               unit: getStockUnit(req.stockId, stockData),
               latestPrice: latestPrice,
-              totalCost: cost,
-              purchaseDate: purchaseDate,
+              totalCost: ingredientCostForOne,
+              purchaseDate: purchaseDate || '',
               supplier: supplier
             })
-          })
+          }
         }
 
         // Revenue is price × quantity sold
-        const totalRevenue = menuItem.price * sale.quantity
-        const profit = totalRevenue - totalCost
-        const profitMargin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0
+        const singleItemProfit = menuItem.price - singleItemCost
+        const profitMargin = menuItem.price > 0 ? (singleItemProfit / menuItem.price) * 100 : 0
 
         let status: 'profitable' | 'low' | 'loss' = 'profitable'
         if (profitMargin < 0) status = 'loss'
         else if (profitMargin < 20) status = 'low'
         else status = 'profitable'
 
+        // ✅ FIXED: Storing per-item cost and profit
         results.push({
           itemId: menuItem._id,
           itemName: menuItem.name,
-          sellingPrice: menuItem.price,
-          totalIngredientCost: totalCost,
-          profit: profit,
+          sellingPrice: menuItem.price, // Price for one item
+          totalIngredientCost: singleItemCost, // Cost for one item
+          profit: singleItemProfit, // Profit for one item
           profitMargin: profitMargin,
           status: status,
           ingredients: ingredients,
@@ -707,9 +710,9 @@ export default function DailyProfitPage() {
       setTodayItems(results)
 
       // Calculate summary
-      const totalRevenue = results.reduce((sum, item) => sum + (item.sellingPrice * item.quantitySold), 0)
-      const totalCost = results.reduce((sum, item) => sum + item.totalIngredientCost, 0)
-      const totalProfit = totalRevenue - totalCost
+      const totalRevenue = results.reduce((sum, item) => sum + (item.sellingPrice * item.quantitySold), 0);
+      const totalCost = results.reduce((sum, item) => sum + (item.totalIngredientCost * item.quantitySold), 0);
+      const totalProfit = totalRevenue - totalCost;
       const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0
       const profitableItems = results.filter(i => i.status === 'profitable').length
       const lowMarginItems = results.filter(i => i.status === 'low').length
@@ -807,9 +810,9 @@ export default function DailyProfitPage() {
 
   // Calculate totals for footer
   const totals = useMemo(() => {
-    const totalCost = filteredItems.reduce((sum, item) => sum + item.totalIngredientCost, 0)
+    const totalCost = filteredItems.reduce((sum, item) => sum + (item.totalIngredientCost * item.quantitySold), 0)
     const totalRevenue = filteredItems.reduce((sum, item) => sum + (item.sellingPrice * item.quantitySold), 0)
-    const totalProfit = totalRevenue - totalCost
+    const totalProfit = totalRevenue - totalCost;
     return { totalCost, totalRevenue, totalProfit }
   }, [filteredItems])
 
@@ -825,8 +828,8 @@ export default function DailyProfitPage() {
       'Category': item.categoryName,
       'Type': item.categoryType,
       'Quantity Sold': item.quantitySold,
-      'Price': formatCurrency(item.sellingPrice),
-      'Total Cost': formatCurrency(item.totalIngredientCost),
+      'Price (per item)': formatCurrency(item.sellingPrice),
+      'Cost (per item)': formatCurrency(item.totalIngredientCost),
       'Profit': formatCurrency(item.profit),
       'Profit Margin %': item.profitMargin.toFixed(2),
       'Status': item.status === 'profitable' ? 'Profitable' : item.status === 'low' ? 'Low Margin' : 'Loss',

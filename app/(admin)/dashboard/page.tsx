@@ -849,12 +849,15 @@ function Dashboard() {
 
   const isLoading = isLoadingExpenses || isLoadingCommon || isLoadingOrderReport || isLoadingStock || isLoadingStockPurchases || isLoadingDailyCash || isLoadingProfit
 
-  const todayStr = new Date().toISOString().split("T")[0]
+  const ETH_OFFSET_MS = 3 * 60 * 60 * 1000
+  const todayLocalDate = new Date(Date.now() + ETH_OFFSET_MS)
+  const todayStr = todayLocalDate.toISOString().split("T")[0]
   const todayDate = new Date()
   
   const yesterday = new Date()
   yesterday.setDate(yesterday.getDate() - 1)
-  const yesterdayStr = yesterday.toISOString().split("T")[0]
+  const yesterdayLocalDate = new Date(yesterday.getTime() + ETH_OFFSET_MS)
+  const yesterdayStr = yesterdayLocalDate.toISOString().split("T")[0]
   const yesterdayDate = yesterday
 
   const todaysRevenue = useMemo(() => {

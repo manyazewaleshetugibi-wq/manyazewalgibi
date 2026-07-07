@@ -82,11 +82,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const stockDateFilter: any = {};
     
     if (from && to && from !== 'null' && to !== 'null') {
-      const fromDate = new Date(from);
-      const toDate = new Date(to);
-      // Set to end of day for 'to' date to include all orders on that day
-      toDate.setHours(23, 59, 59, 999);
-      fromDate.setHours(0, 0, 0, 0);
+      // Parse as Ethiopia local time (UTC+3): local midnight = UTC midnight - 3h
+      const ETH_OFFSET_MS = 3 * 60 * 60 * 1000
+      const fromDate = new Date(new Date(from).setHours(0, 0, 0, 0) - ETH_OFFSET_MS);
+      const toDate = new Date(new Date(to).setHours(23, 59, 59, 999) - ETH_OFFSET_MS);
       
       orderDateFilter.createdAt = {
         $gte: fromDate,
@@ -191,6 +190,40 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         stockMap.set(stock._id.toString(), stock);
       });
 
+      // Fetch menuItems that used each stock in the date range
+      const stockIdStrings = stockData.map(s => s._id?.toString()).filter(Boolean);
+      let menuItemsByStock = new Map<string, any[]>();
+      if (stockIdStrings.length > 0) {
+        try {
+          const usedStockDocs = await db.collection("used_stock")
+            .find({ ...stockDateFilter, stockId: { $in: stockIdStrings } })
+            .toArray();
+          // Group by stockId, collect unique itemName + sum quantityUsed
+          const grouped = new Map<string, Map<string, { itemName: string; quantityUsed: number; servingsCount: number }>>();
+          usedStockDocs.forEach((doc: any) => {
+            const sid = doc.stockId?.toString() || '';
+            if (!grouped.has(sid)) grouped.set(sid, new Map());
+            const itemKey = doc.itemId?.toString() || doc.itemName || 'Unknown';
+            const existing = grouped.get(sid)!.get(itemKey);
+            if (existing) {
+              existing.quantityUsed += doc.totalQuantityUsed || 0;
+              existing.servingsCount += 1;
+            } else {
+              grouped.get(sid)!.set(itemKey, {
+                itemName: doc.itemName || 'Unknown',
+                quantityUsed: doc.totalQuantityUsed || 0,
+                servingsCount: 1,
+              });
+            }
+          });
+          grouped.forEach((itemMap, sid) => {
+            menuItemsByStock.set(sid, Array.from(itemMap.values()));
+          });
+        } catch (err) {
+          console.error('menuItems fetch error:', err);
+        }
+      }
+
       const finalData: StockWithDetails[] = stockData.map(item => {
         const stockInfo = stockMap.get(item._id?.toString() || '');
         const currentStock = stockInfo?.currentStock || 0;
@@ -200,8 +233,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         if (currentStock <= 0) stockStatus = 'critical';
         else if (currentStock <= minimumStock) stockStatus = 'low';
         
+        const sid = item._id?.toString() || '';
         return {
-          stockId: item._id?.toString() || '',
+          stockId: sid,
           stockName: item.stockName || 'Unknown',
           stockCategory: item.stockCategory || 'General',
           stockUnit: item.stockUnit || 'unit',
@@ -213,7 +247,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           minimumStock,
           stockStatus,
           lastUsed: item.lastUsed || null,
-          menuItems: []
+          menuItems: menuItemsByStock.get(sid) || []
         };
       });
 
@@ -349,8 +383,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             try { return new ObjectId(id); } catch { return id; }
           });
           
+          // Apply the same date filter so ingredients shown match the selected period
           const stockPipeline = [
-            { $match: { "items.itemId": { $in: objectIds } } },
+            { $match: { ...stockDateFilter, "items.itemId": { $in: objectIds } } },
             { $unwind: "$items" },
             { $match: { "items.itemId": { $in: objectIds } } },
             {

@@ -159,40 +159,65 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
     if (!itemData?.requiredStock?.length) continue;
     
     hasIngredients = true;
-    
+
+    // Build a map: defaultStockId -> array of { chosenStockId, chosenQuantity }
+    // Supports both old single-choice and new multi-choice formats
+    const choicesMap = new Map<string, { chosenStockId: string; chosenQuantity: number }[]>();
+    const orderItem = order.items?.find((i: any) => i.itemId?.toString() === itemIdString);
+    if (orderItem?.ingredientChoices?.length) {
+      for (const choice of orderItem.ingredientChoices) {
+        const existing = choicesMap.get(choice.defaultStockId) || [];
+        existing.push({ chosenStockId: choice.chosenStockId, chosenQuantity: choice.chosenQuantity });
+        choicesMap.set(choice.defaultStockId, existing);
+      }
+    }
+
     for (const ingredient of itemData.requiredStock) {
       if (!ingredient.stockId || !ObjectId.isValid(ingredient.stockId)) continue;
-      
-      const stockIdString = ingredient.stockId.toString();
-      const quantityNeeded = (Number(ingredient.quantity) || 0) * aggItem.quantity;
-      if (quantityNeeded <= 0) continue;
-      
-      const stockItem = await db.collection("stocks").findOne({ _id: new ObjectId(stockIdString) });
-      if (!stockItem) continue;
-      
-      const existing = allIngredients.get(stockIdString);
-      if (existing) {
-        existing.totalQuantityUsed += quantityNeeded;
-        existing.items.push({
-          itemId: new ObjectId(itemIdString),
-          itemName: aggItem.itemName,
-          quantityUsed: quantityNeeded
-        });
-      } else {
-        allIngredients.set(stockIdString, {
-          stockId: stockIdString,
-          stockName: stockItem.name,
-          stockCategory: stockItem.category || "General",
-          stockUnit: stockItem.unit || "pcs",
-          unitCost: Number(stockItem.unitCost) || Number(stockItem.costPerUnit) || 0,
-          totalQuantityUsed: quantityNeeded,
-          currentStock: Number(stockItem.currentStock) || 0,
-          items: [{
+
+      const defaultStockIdString = ingredient.stockId.toString();
+      const choices = choicesMap.get(defaultStockIdString);
+
+      // Determine which stocks to deduct:
+      // - If waiter made choices: use chosen stocks (may be multiple)
+      // - If no choice made: use the default ingredient stock
+      const stocksToDeduct: { stockId: string; quantity: number }[] = choices && choices.length > 0
+        ? choices.map(c => ({ stockId: c.chosenStockId, quantity: c.chosenQuantity }))
+        : [{ stockId: defaultStockIdString, quantity: Number(ingredient.quantity) || 0 }];
+
+      for (const { stockId: effectiveStockId, quantity: qtyPerUnit } of stocksToDeduct) {
+        if (!ObjectId.isValid(effectiveStockId)) continue;
+
+        const quantityNeeded = qtyPerUnit * aggItem.quantity;
+        if (quantityNeeded <= 0) continue;
+
+        const stockItem = await db.collection("stocks").findOne({ _id: new ObjectId(effectiveStockId) });
+        if (!stockItem) continue;
+
+        const existing = allIngredients.get(effectiveStockId);
+        if (existing) {
+          existing.totalQuantityUsed += quantityNeeded;
+          existing.items.push({
             itemId: new ObjectId(itemIdString),
             itemName: aggItem.itemName,
             quantityUsed: quantityNeeded
-          }]
-        });
+          });
+        } else {
+          allIngredients.set(effectiveStockId, {
+            stockId: effectiveStockId,
+            stockName: stockItem.name,
+            stockCategory: stockItem.category || "General",
+            stockUnit: stockItem.unit || "pcs",
+            unitCost: Number(stockItem.currentUnitPrice) || Number(stockItem.unitCost) || Number(stockItem.costPerUnit) || 0,
+            totalQuantityUsed: quantityNeeded,
+            currentStock: Number(stockItem.currentStock) || 0,
+            items: [{
+              itemId: new ObjectId(itemIdString),
+              itemName: aggItem.itemName,
+              quantityUsed: quantityNeeded
+            }]
+          });
+        }
       }
     }
   }

@@ -328,130 +328,216 @@ const ReportTypeCard = ({
 )
 
 // Stock Detail Dialog
-function StockDetailDialog({ stock, open, onOpenChange }: { stock: StockData | null; open: boolean; onOpenChange: (open: boolean) => void }) {
+function StockDetailDialog({ 
+  stock, 
+  open, 
+  onOpenChange,
+  dateLabel
+}: { 
+  stock: StockData | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  dateLabel: string
+}) {
   if (!stock) return null
+
+  const totalUsed = stock.totalQuantityUsed
+  const menuItemsTotal = stock.menuItems.reduce((s, m) => s + m.quantityUsed, 0)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[650px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh]">
         <DialogHeader>
-          <DialogTitle className="text-2xl flex items-center gap-2">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-              <Package className="h-5 w-5 text-white" />
-            </div>
+          <DialogTitle className="text-xl flex items-center gap-2">
+            <Package className="h-5 w-5 text-primary" />
             {stock.stockName}
           </DialogTitle>
-          <DialogDescription>
-            Used {stock.frequency} times | Total Cost: {formatCurrency(stock.totalCost)}
+          <DialogDescription asChild>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span>Used {stock.frequency}× · Cost: {formatCurrency(stock.totalCost)}</span>
+              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                <Calendar className="h-3 w-3 mr-1" />
+                {dateLabel}
+              </Badge>
+            </div>
           </DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-2 gap-4">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30">
-            <CardContent className="pt-4 text-center">
-              <p className="text-sm text-muted-foreground">Total Used</p>
-              <p className="text-2xl font-bold text-blue-600">{formatQuantity(stock.totalQuantityUsed, stock.stockUnit)}</p>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-950/30 dark:to-emerald-900/30">
-            <CardContent className="pt-4 text-center">
-              <p className="text-sm text-muted-foreground">Current Stock</p>
-              <p className="text-2xl font-bold text-emerald-600">{formatQuantity(stock.currentStock, stock.stockUnit)}</p>
-              <Badge className={STATUS_COLORS[stock.stockStatus]}>{stock.stockStatus}</Badge>
-            </CardContent>
-          </Card>
-        </div>
-        {stock.menuItems && stock.menuItems.length > 0 && (
-          <div className="mt-4">
-            <h4 className="font-semibold mb-2">Used in Menu Items:</h4>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {stock.menuItems.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2 bg-muted/30 rounded-lg">
-                  <span className="text-sm">{item.itemName}</span>
-                  <Badge variant="outline">{formatQuantity(item.quantityUsed, stock.stockUnit)}</Badge>
-                </div>
-              ))}
-            </div>
+        <ScrollArea className="max-h-[70vh] pr-2">
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-100">
+              <CardContent className="pt-3 pb-3 text-center">
+                <p className="text-xs text-muted-foreground">Total Used ({dateLabel})</p>
+                <p className="text-2xl font-bold text-blue-700">{formatQuantity(totalUsed, stock.stockUnit)}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100">
+              <CardContent className="pt-3 pb-3 text-center">
+                <p className="text-xs text-muted-foreground">Current Stock</p>
+                <p className="text-2xl font-bold text-emerald-700">{formatQuantity(stock.currentStock, stock.stockUnit)}</p>
+                <Badge className={`text-xs mt-1 ${STATUS_COLORS[stock.stockStatus]}`}>{stock.stockStatus}</Badge>
+              </CardContent>
+            </Card>
           </div>
-        )}
+
+          {stock.menuItems && stock.menuItems.length > 0 ? (
+            <div>
+              <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
+                <Utensils className="h-4 w-4 text-muted-foreground" />
+                Menu Items that used this stock — <span className="text-blue-600 font-medium">{dateLabel}</span>
+              </h4>
+              <div className="rounded-md border overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="text-xs">Menu Item</TableHead>
+                      <TableHead className="text-xs text-right">Qty Used</TableHead>
+                      <TableHead className="text-xs text-right">Times</TableHead>
+                      <TableHead className="text-xs text-right">% of Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {stock.menuItems
+                      .sort((a, b) => b.quantityUsed - a.quantityUsed)
+                      .map((item, idx) => {
+                        const pct = menuItemsTotal > 0 ? (item.quantityUsed / menuItemsTotal) * 100 : 0
+                        return (
+                          <TableRow key={idx} className="hover:bg-muted/30">
+                            <TableCell className="font-medium text-sm">{item.itemName}</TableCell>
+                            <TableCell className="text-right font-mono text-sm">
+                              {formatQuantity(item.quantityUsed, stock.stockUnit)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Badge variant="secondary" className="text-xs">{item.servingsCount}×</Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <Progress value={pct} className="w-12 h-1.5" />
+                                <span className="text-xs text-muted-foreground w-8">{pct.toFixed(0)}%</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="mt-3 p-3 bg-muted/30 rounded-lg flex items-center justify-between">
+                <span className="text-sm font-medium">Total used across all items</span>
+                <span className="font-bold text-blue-700">{formatQuantity(menuItemsTotal, stock.stockUnit)}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <Utensils className="h-10 w-10 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No menu items found using this stock</p>
+              <p className="text-xs mt-1">in the selected period: {dateLabel}</p>
+            </div>
+          )}
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   )
 }
 
 // Menu Item Detail Dialog
-function MenuItemDetailDialog({ item, open, onOpenChange }: { item: MenuItemData | null; open: boolean; onOpenChange: (open: boolean) => void }) {
+function MenuItemDetailDialog({ 
+  item, 
+  open, 
+  onOpenChange,
+  dateLabel
+}: { 
+  item: MenuItemData | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  dateLabel: string
+}) {
   if (!item) return null
 
   const totalStockCost = item.stocksUsed.reduce((sum, s) => sum + s.totalCost, 0)
-  const profitMargin = totalStockCost > 0 ? ((item.totalRevenue - totalStockCost) / item.totalRevenue) * 100 : 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh]">
         <DialogHeader>
-          <DialogTitle className="text-2xl flex items-center gap-2">
-            <Utensils className="h-6 w-6 text-primary" />
+          <DialogTitle className="text-xl flex items-center gap-2">
+            <Utensils className="h-5 w-5 text-primary" />
             {item.itemName}
           </DialogTitle>
-          <DialogDescription>
-            Ordered {item.frequency} times | Revenue: {formatCurrency(item.totalRevenue)}
+          <DialogDescription asChild>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span>Ordered {item.frequency}× · Revenue: {formatCurrency(item.totalRevenue)}</span>
+              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                <Calendar className="h-3 w-3 mr-1" />
+                {dateLabel}
+              </Badge>
+            </div>
           </DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[70vh] pr-4">
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <Card>
-              <CardContent className="pt-4 text-center">
-                <p className="text-sm text-muted-foreground">Frequency</p>
-                <p className="text-3xl font-bold">{item.frequency}×</p>
+        <ScrollArea className="max-h-[70vh] pr-2">
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-100">
+              <CardContent className="pt-3 pb-3 text-center">
+                <p className="text-xs text-muted-foreground">Times Ordered</p>
+                <p className="text-2xl font-bold text-blue-700">{item.frequency}×</p>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="pt-4 text-center">
-                <p className="text-sm text-muted-foreground">Revenue</p>
-                <p className="text-xl font-bold text-green-600">{formatCurrency(item.totalRevenue)}</p>
+            <Card className="bg-green-50 dark:bg-green-950/20 border-green-100">
+              <CardContent className="pt-3 pb-3 text-center">
+                <p className="text-xs text-muted-foreground">Revenue</p>
+                <p className="text-lg font-bold text-green-700">{formatCurrency(item.totalRevenue)}</p>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="pt-4 text-center">
-                <p className="text-sm text-muted-foreground">Ingredients</p>
-                <p className="text-2xl font-bold">{item.stocksUsed.length}</p>
+            <Card className="bg-purple-50 dark:bg-purple-950/20 border-purple-100">
+              <CardContent className="pt-3 pb-3 text-center">
+                <p className="text-xs text-muted-foreground">Ingredient Cost</p>
+                <p className="text-lg font-bold text-purple-700">{formatCurrency(totalStockCost)}</p>
               </CardContent>
             </Card>
           </div>
 
-          {item.stocksUsed.length > 0 && (
-            <div className="mb-4">
-              <h4 className="font-semibold mb-3 flex items-center gap-2">
-                <Package className="h-4 w-4" />
-                Ingredients Used
+          {item.stocksUsed.length > 0 ? (
+            <div>
+              <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
+                <Package className="h-4 w-4 text-muted-foreground" />
+                Stock Used — <span className="text-blue-600 font-medium">{dateLabel}</span>
+                <span className="text-xs text-muted-foreground font-normal ml-auto">
+                  Total: {formatQuantity(item.stocksUsed.reduce((s, x) => s + x.quantityUsed, 0), item.stocksUsed[0]?.stockUnit || '')}
+                </span>
               </h4>
-              <div className="rounded-md border">
+              <div className="rounded-md border overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow>
-                      <TableHead>Ingredient</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead className="text-right">Quantity</TableHead>
-                      <TableHead className="text-right">Cost</TableHead>
-                      <TableHead className="text-right">% of Item</TableHead>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="text-xs">Ingredient</TableHead>
+                      <TableHead className="text-xs text-right">Qty Used</TableHead>
+                      <TableHead className="text-xs text-right">Cost</TableHead>
+                      <TableHead className="text-xs text-right">% Share</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {item.stocksUsed.map((stock, idx) => {
                       const Icon = getIngredientIcon(stock.stockCategory)
                       return (
-                        <TableRow key={idx}>
-                          <TableCell className="font-medium flex items-center gap-2">
-                            <Icon className="h-4 w-4 text-muted-foreground" />
-                            {stock.stockName}
+                        <TableRow key={idx} className="hover:bg-muted/30">
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <div>
+                                <p className="text-sm">{stock.stockName}</p>
+                                <p className="text-xs text-muted-foreground">{stock.stockCategory}</p>
+                              </div>
+                            </div>
                           </TableCell>
-                          <TableCell>{stock.stockCategory}</TableCell>
-                          <TableCell className="text-right">{formatQuantity(stock.quantityUsed, stock.stockUnit)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(stock.totalCost)}</TableCell>
+                          <TableCell className="text-right text-sm font-mono">
+                            {formatQuantity(stock.quantityUsed, stock.stockUnit)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm text-purple-600 font-medium">
+                            {formatCurrency(stock.totalCost)}
+                          </TableCell>
                           <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <Progress value={stock.percentageOfItem} className="w-16 h-2" />
-                              <span className="text-xs">{stock.percentageOfItem.toFixed(1)}%</span>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Progress value={stock.percentageOfItem} className="w-12 h-1.5" />
+                              <span className="text-xs text-muted-foreground w-8">{stock.percentageOfItem.toFixed(0)}%</span>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -460,6 +546,12 @@ function MenuItemDetailDialog({ item, open, onOpenChange }: { item: MenuItemData
                   </TableBody>
                 </Table>
               </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <Package className="h-10 w-10 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No stock usage tracked for this item</p>
+              <p className="text-xs mt-1">in the selected period: {dateLabel}</p>
             </div>
           )}
         </ScrollArea>
@@ -586,6 +678,23 @@ function StockReportContent() {
   const [showMenuItemDialog, setShowMenuItemDialog] = useState(false)
   const [showStockDialog, setShowStockDialog] = useState(false)
 
+  // Human-readable label for the active date range — shown inside detail dialogs
+  const dateLabel = useMemo(() => {
+    if (activePreset === 'today') return 'Today'
+    if (activePreset === 'yesterday') return 'Yesterday'
+    if (activePreset === 'week') return 'This Week'
+    if (activePreset === 'month') return 'This Month'
+    if (activePreset === 'year') return 'This Year'
+    if (activePreset === 'all') return 'All Time'
+    if (activePreset === 'weekday' && selectedWeekday !== '') {
+      return ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][parseInt(selectedWeekday)]
+    }
+    if (dateRange.from && dateRange.to) {
+      return `${format(dateRange.from, 'MMM d')} – ${format(dateRange.to, 'MMM d, yyyy')}`
+    }
+    return 'Selected Period'
+  }, [activePreset, selectedWeekday, dateRange])
+
   const { data, isLoading, isFetching, error, refetch } = useReportData({
     groupBy, dateRange, search: searchTerm, sortBy, sortOrder, page, limit
   })
@@ -672,8 +781,8 @@ function StockReportContent() {
   }
   
   const totalItems = pagination?.total || reportData.length
-  const totalCost = summary?.totalCost || reportData.reduce((sum, item) => sum + (groupBy === 'stock' ? (item as StockData).totalCost : 0), 0)
-  const totalFrequency = reportData.reduce((sum, item) => sum + (groupBy === 'stock' ? (item as StockData).frequency : (item as MenuItemData).frequency), 0)
+  const totalCost = summary?.totalCost || reportData.reduce((sum, item) => sum + (groupBy === 'stock' ? ((item as StockData).totalCost) : 0), 0)
+  const totalFrequency = summary?.totalItems || reportData.reduce((sum, item) => sum + (groupBy === 'stock' ? (item as StockData).frequency : (item as MenuItemData).frequency), 0)
   
   if (isLoading && !reportData.length) {
     return <LoadingSkeleton />
@@ -1187,13 +1296,15 @@ function StockReportContent() {
       <MenuItemDetailDialog 
         item={selectedMenuItem} 
         open={showMenuItemDialog} 
-        onOpenChange={setShowMenuItemDialog} 
+        onOpenChange={setShowMenuItemDialog}
+        dateLabel={dateLabel}
       />
       
       <StockDetailDialog 
         stock={selectedStock} 
         open={showStockDialog} 
-        onOpenChange={setShowStockDialog} 
+        onOpenChange={setShowStockDialog}
+        dateLabel={dateLabel}
       />
     </div>
   )

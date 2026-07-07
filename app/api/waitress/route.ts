@@ -106,16 +106,13 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // 6. Get all waitresses and EXCLUDE email field from response
+        // 6. Get all waitresses
         const allWaitresses = await db.collection<Waitress>(COLLECTION_NAME)
             .find({})
             .sort({ name: 1 })
-            .project({ 
-                email: 0 // Explicitly exclude email field
-            })
             .toArray();
 
-        // 7. Return success with data (email excluded)
+        // 7. Return success with data
         return NextResponse.json({ 
             success: true,
             data: allWaitresses,
