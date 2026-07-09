@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { format, subDays, startOfMonth, eachDayOfInterval, startOfDay, endOfDay } from "date-fns"
+import { format, subDays, startOfMonth, eachDayOfInterval, startOfDay, endOfDay, parseISO, isSameDay } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -28,6 +28,50 @@ const DATE_FILTERS: { value: DateFilterType; label: string }[] = [
   { value: "28d", label: "28 Days" },
   { value: "month", label: "Month" },
 ]
+
+// Fixed helper function to calculate daily common amount
+const calculateDailyCommonAmount = (expense: CommonExpense, date: Date): number => {
+  const expenseDate = parseISO(expense.startDate)
+  
+  // If expense is not active or start date is in the future, return 0
+  if (!expense.isActive || expenseDate > date) return 0
+  
+  // For one-time expenses, only count on the start date
+  if (expense.frequency === 'one-time') {
+    return isSameDay(expenseDate, date) ? expense.amount : 0
+  }
+  
+  // For recurring expenses, calculate daily amount
+  switch (expense.frequency) {
+    case 'daily':
+      return expense.amount
+    case 'weekly':
+      return expense.amount / 7
+    case 'monthly':
+      return expense.amount / 30  // Using 30 days for monthly
+    case 'quarterly':
+      return expense.amount / 91.25  // 365/4
+    case 'yearly':
+      return expense.amount / 365
+    default:
+      return 0
+  }
+}
+
+// Get monthly projection for an expense
+const getMonthlyProjection = (expense: CommonExpense): number => {
+  if (!expense.isActive) return 0
+  
+  switch (expense.frequency) {
+    case 'daily': return expense.amount * 30
+    case 'weekly': return (expense.amount / 7) * 30
+    case 'monthly': return expense.amount
+    case 'quarterly': return expense.amount / 3
+    case 'yearly': return expense.amount / 12
+    case 'one-time': return 0
+    default: return 0
+  }
+}
 
 export default function ExpensePage() {
   const [activeTab, setActiveTab] = useState<TabType>("overview")
@@ -87,35 +131,74 @@ export default function ExpensePage() {
 
   const { start, end } = useMemo(() => getDateRange(dateFilter), [dateFilter, getDateRange])
 
+  // FIXED: Calculate totals correctly using the daily common amount
   const totals = useMemo(() => {
     const dates = eachDayOfInterval({ start, end })
     let totalCommon = 0, totalStock = 0, totalCasual = 0
 
     dates.forEach(date => {
       const dateStr = format(date, "yyyy-MM-dd")
-      commonExpenses.forEach(e => { totalCommon += getDailyCommonAmount(e, date) })
+      
+      // FIXED: Calculate daily common expense correctly
+      commonExpenses.forEach(e => {
+        totalCommon += calculateDailyCommonAmount(e, date)
+      })
+      
       totalStock += stockPurchases
         .filter(p => p.purchaseDate.startsWith(dateStr))
         .reduce((s, p) => s + p.totalAmount, 0)
+      
       totalCasual += casualExpenses
         .filter(e => e.date?.startsWith(dateStr))
         .reduce((s, e) => s + e.amount, 0)
     })
 
-    return { totalCommon, totalStock, totalCasual, total: totalCommon + totalStock + totalCasual }
+    return { 
+      totalCommon, 
+      totalStock, 
+      totalCasual, 
+      total: totalCommon + totalStock + totalCasual 
+    }
   }, [commonExpenses, stockPurchases, casualExpenses, start, end])
 
+  // FIXED: Chart data with correct daily common amounts
   const chartData = useMemo(() => {
     const dates = eachDayOfInterval({ start, end })
     return dates.map(date => {
       const dateStr = format(date, "yyyy-MM-dd")
       let common = 0
-      commonExpenses.forEach(e => { common += getDailyCommonAmount(e, date) })
-      const stock = stockPurchases.filter(p => p.purchaseDate.startsWith(dateStr)).reduce((s, p) => s + p.totalAmount, 0)
-      const casual = casualExpenses.filter(e => e.date?.startsWith(dateStr)).reduce((s, e) => s + e.amount, 0)
-      return { date: format(date, "MMM dd"), Common: common, Stock: stock, Casual: casual }
+      
+      // FIXED: Calculate daily common correctly
+      commonExpenses.forEach(e => {
+        common += calculateDailyCommonAmount(e, date)
+      })
+      
+      const stock = stockPurchases
+        .filter(p => p.purchaseDate.startsWith(dateStr))
+        .reduce((s, p) => s + p.totalAmount, 0)
+      
+      const casual = casualExpenses
+        .filter(e => e.date?.startsWith(dateStr))
+        .reduce((s, e) => s + e.amount, 0)
+      
+      return { 
+        date: format(date, "MMM dd"), 
+        Common: Math.round(common * 100) / 100,
+        Stock: stock, 
+        Casual: casual 
+      }
     })
   }, [commonExpenses, stockPurchases, casualExpenses, start, end])
+
+  // FIXED: Calculate active common expenses count and monthly projection
+  const commonSummary = useMemo(() => {
+    const activeCount = commonExpenses.filter(e => e.isActive).length
+    const totalMonthly = commonExpenses
+      .filter(e => e.isActive)
+      .reduce((sum, e) => sum + getMonthlyProjection(e), 0)
+    
+    return { activeCount, totalMonthly }
+  }, [commonExpenses])
 
   const tabs: { id: TabType; label: string; icon: any; color: string; amount: number }[] = [
     { id: "overview", label: "Overview", icon: BarChart3, color: "purple", amount: totals.total },
@@ -256,12 +339,33 @@ export default function ExpensePage() {
         {/* Overview Tab */}
         {activeTab === "overview" && (
           <div className="space-y-4 sm:space-y-6">
-            {/* 3 Summary Cards */}
+            {/* 3 Summary Cards - FIXED: Showing correct common amount */}
             <div className="grid grid-cols-3 gap-2 sm:gap-4">
               {[
-                { label: "Common", amount: totals.totalCommon, color: "indigo", icon: Wallet, tab: "common" as TabType },
-                { label: "Stock", amount: totals.totalStock, color: "emerald", icon: Package, tab: "stock" as TabType },
-                { label: "Casual", amount: totals.totalCasual, color: "amber", icon: Receipt, tab: "casual" as TabType },
+                { 
+                  label: "Common", 
+                  amount: totals.totalCommon, 
+                  color: "indigo", 
+                  icon: Wallet, 
+                  tab: "common" as TabType,
+                  subText: `${commonSummary.activeCount} active expenses`
+                },
+                { 
+                  label: "Stock", 
+                  amount: totals.totalStock, 
+                  color: "emerald", 
+                  icon: Package, 
+                  tab: "stock" as TabType,
+                  subText: `${stockPurchases.length} purchases`
+                },
+                { 
+                  label: "Casual", 
+                  amount: totals.totalCasual, 
+                  color: "amber", 
+                  icon: Receipt, 
+                  tab: "casual" as TabType,
+                  subText: `${casualExpenses.length} expenses`
+                },
               ].map(item => {
                 const Icon = item.icon
                 const pct = totals.total > 0 ? (item.amount / totals.total) * 100 : 0
@@ -294,7 +398,9 @@ export default function ExpensePage() {
                         }`}>
                           {formatCurrency(item.amount)}
                         </p>
-                        <p className="text-[9px] sm:text-xs text-muted-foreground mt-1">{pct.toFixed(1)}% of total</p>
+                        <p className="text-[9px] sm:text-xs text-muted-foreground mt-1">
+                          {pct.toFixed(1)}% of total · {item.subText}
+                        </p>
                       </CardContent>
                     </Card>
                   </button>
@@ -302,7 +408,7 @@ export default function ExpensePage() {
               })}
             </div>
 
-            {/* Total Banner */}
+            {/* Total Banner - FIXED: Shows correct total */}
             <Card className="border-0 shadow-lg rounded-2xl bg-gradient-to-r from-purple-600 to-purple-700 dark:from-purple-800 dark:to-purple-900 text-white overflow-hidden">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex items-center justify-between">
@@ -317,25 +423,28 @@ export default function ExpensePage() {
                     <TrendingUp className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
                   </div>
                 </div>
-                {/* Mini breakdown */}
+                {/* Mini breakdown with correct common amount */}
                 <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-white/20">
                   <div className="text-center">
                     <p className="text-purple-200 text-[9px] sm:text-xs">Common</p>
                     <p className="text-white font-bold text-xs sm:text-sm">{formatCurrency(totals.totalCommon)}</p>
+                    <p className="text-purple-200 text-[8px] sm:text-[10px]">{commonSummary.activeCount} active</p>
                   </div>
                   <div className="text-center border-x border-white/20">
                     <p className="text-purple-200 text-[9px] sm:text-xs">Stock</p>
                     <p className="text-white font-bold text-xs sm:text-sm">{formatCurrency(totals.totalStock)}</p>
+                    <p className="text-purple-200 text-[8px] sm:text-[10px]">{stockPurchases.length} items</p>
                   </div>
                   <div className="text-center">
                     <p className="text-purple-200 text-[9px] sm:text-xs">Casual</p>
                     <p className="text-white font-bold text-xs sm:text-sm">{formatCurrency(totals.totalCasual)}</p>
+                    <p className="text-purple-200 text-[8px] sm:text-[10px]">{casualExpenses.length} expenses</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Chart */}
+            {/* Chart - FIXED: Shows correct daily common amounts */}
             <Card className="border-0 shadow-lg rounded-2xl overflow-hidden">
               <CardContent className="p-3 sm:p-6">
                 <div className="flex items-center gap-2 mb-4">

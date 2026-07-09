@@ -456,6 +456,7 @@ function ZReportMobileCard({
             <p className="text-xs font-bold text-purple-900 dark:text-purple-300">
               {format(new Date(row.date), 'MMM dd, yyyy')}
             </p>
+            <p className="text-[8px] text-muted-foreground">Z-Report Date (Today)</p>
             <Badge className={`mt-1 text-[8px] ${isRowBalanced ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
               {isRowBalanced ? '✅ Balanced' : '⚠️ Check'}
             </Badge>
@@ -477,23 +478,23 @@ function ZReportMobileCard({
         {/* Main Metrics Grid */}
         <div className="grid grid-cols-2 gap-1.5 text-[10px]">
           <div className="bg-white/50 dark:bg-gray-800/50 rounded-lg p-1.5">
-            <p className="text-muted-foreground text-[8px]">Z Report</p>
+            <p className="text-muted-foreground text-[8px]">Z Report (Today)</p>
             <p className="font-bold text-purple-600 text-xs">{formatCurrency(row.zReport)}</p>
           </div>
           <div className="bg-white/50 dark:bg-gray-800/50 rounded-lg p-1.5">
-            <p className="text-muted-foreground text-[8px]">Sales</p>
+            <p className="text-muted-foreground text-[8px]">Sales (Yesterday)</p>
             <p className="font-bold text-green-600 text-xs">{formatCurrency(row.dailySales)}</p>
           </div>
           <div className="bg-white/50 dark:bg-gray-800/50 rounded-lg p-1.5">
-            <p className="text-muted-foreground text-[8px]">Cash</p>
+            <p className="text-muted-foreground text-[8px]">Cash (Today)</p>
             <p className="font-bold text-emerald-600 text-xs">{formatCurrency(row.totalCash)}</p>
           </div>
           <div className="bg-white/50 dark:bg-gray-800/50 rounded-lg p-1.5">
-            <p className="text-muted-foreground text-[8px]">Bank</p>
+            <p className="text-muted-foreground text-[8px]">Bank (Today)</p>
             <p className="font-bold text-cyan-600 text-xs">{formatCurrency(row.totalBank)}</p>
           </div>
           <div className="bg-white/50 dark:bg-gray-800/50 rounded-lg p-1.5">
-            <p className="text-muted-foreground text-[8px]">Expense</p>
+            <p className="text-muted-foreground text-[8px]">Expense (Today)</p>
             <p className="font-bold text-red-600 text-xs">{formatCurrency(row.totalExpense)}</p>
           </div>
           <div className="bg-white/50 dark:bg-gray-800/50 rounded-lg p-1.5">
@@ -529,15 +530,15 @@ function ZReportMobileCard({
           <div className="mt-3 pt-3 border-t border-purple-200/30 animate-in fade-in slide-in-from-top-2 duration-300">
             <div className="grid grid-cols-2 gap-1.5 text-[9px]">
               <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-1.5">
-                <p className="text-muted-foreground text-[7px]">Casual Expense</p>
+                <p className="text-muted-foreground text-[7px]">Casual Expense (Today)</p>
                 <p className="font-medium text-red-600">{formatCurrency(row.casualExpense)}</p>
               </div>
               <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-1.5">
-                <p className="text-muted-foreground text-[7px]">Stock Purchase</p>
+                <p className="text-muted-foreground text-[7px]">Stock Purchase (Today)</p>
                 <p className="font-medium text-orange-600">{formatCurrency(row.stockPurchase)}</p>
               </div>
               <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-1.5">
-                <p className="text-muted-foreground text-[7px]">Cash + Bank</p>
+                <p className="text-muted-foreground text-[7px]">Cash + Bank (Today)</p>
                 <p className="font-bold text-blue-700">{formatCurrency(row.totalCash + row.totalBank)}</p>
               </div>
               <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-1.5">
@@ -604,26 +605,38 @@ function DailyZReportTable({
     }
     
     dates.forEach(date => {
-      // Yesterday's date string for sales and expenses
-      const yesterdayDate = format(subDays(new Date(date), 1), 'yyyy-MM-dd');
-
+      // Get today's Z-Report entry (cash, bank, zedAmount)
       const cashEntry = entries.find(e => e.date.startsWith(date))
-      const zReport = cashEntry?.zedAmount || 0
-      const totalCash = cashEntry?.cashAmount || 0
-      const totalBank = cashEntry?.bankAmount || 0
       
-      const dailyCasual = casualExpenses.filter(e => e.date && e.date.startsWith(yesterdayDate))
+      // Only include dates that have a Z-Report entry
+      if (!cashEntry) return
+      
+      const zReport = cashEntry.zedAmount || 0
+      const totalCash = cashEntry.cashAmount || 0
+      const totalBank = cashEntry.bankAmount || 0
+      
+      // Get today's expenses
+      const dailyCasual = casualExpenses.filter(e => e.date && e.date.startsWith(date))
       const casualExpense = dailyCasual.reduce((sum, e) => sum + (e.amount || 0), 0)
       
-      const dailyStock = stockPurchases.filter(p => p.purchaseDate && p.purchaseDate.startsWith(yesterdayDate))
+      const dailyStock = stockPurchases.filter(p => p.purchaseDate && p.purchaseDate.startsWith(date))
       const stockPurchase = dailyStock.reduce((sum, p) => sum + (p.totalAmount || p.quantity * p.unitPrice || 0), 0)
       
       const totalExpense = casualExpense + stockPurchase
+      
+      // Get yesterday's sales
+      const yesterdayDate = format(subDays(new Date(date), 1), 'yyyy-MM-dd');
       const dailySale = dailySales[yesterdayDate] || 0
       
+      // CALCULATE TRANSFERS:
+      // cafetTransfer = Z-Report / 2 (50% of Z-Report goes to cafeteria)
       const cafetTransfer = zReport / 2
+      
+      // personnelTransfer = (Z-Report / 2) + totalExpense - cash
+      // This represents the amount that goes to personnel
       const personnelTransfer = (zReport / 2) + totalExpense - totalCash
       
+      // VALIDATION: Cash + Bank should equal Daily Sales
       const totalCashAndBank = totalCash + totalBank
       const difference = totalCashAndBank - dailySale;
       const isBalanced = Math.abs(difference) < 1
@@ -644,7 +657,8 @@ function DailyZReportTable({
       })
     })
     
-    return data.filter(d => d.zReport > 0 || d.totalExpense > 0 || d.dailySales > 0)
+    // Only show dates that have Z-Report entries
+    return data
   }, [entries, casualExpenses, stockPurchases, dailySales, startDate, endDate])
   
   const totals = useMemo(() => {
@@ -678,7 +692,10 @@ function DailyZReportTable({
       <Card className="rounded-xl sm:rounded-2xl border-0 shadow-lg">
         <CardContent className="p-6 sm:p-8 text-center">
           <FileText className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="text-sm sm:text-base text-muted-foreground">No Z-Report data found for the selected period</p>
+          <p className="text-sm sm:text-base text-muted-foreground">No Z-Report entries found for the selected period</p>
+          <p className="text-xs text-muted-foreground mt-2">
+            Create a Z-Report to record today's cash collection against yesterday's sales
+          </p>
         </CardContent>
       </Card>
     )
@@ -742,14 +759,14 @@ function DailyZReportTable({
             <table className="w-full text-xs sm:text-sm">
               <thead className="bg-purple-50 dark:bg-purple-950/30">
                 <tr className="border-b">
-                  <th className="text-left p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Date</th>
-                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Expense</th>
-                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Z Report</th>
-                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Cafet</th>
-                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Personnel</th>
-                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Cash</th>
-                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Bank</th>
-                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Sales</th>
+                  <th className="text-left p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Z-Report Date</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Expense (Today)</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Z Report (Today)</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Cafet Transfer</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Personnel Transfer</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Cash (Today)</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Bank (Today)</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Sales (Yesterday)</th>
                   <th className="text-center p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Status</th>
                   <th className="text-center p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Details</th>
                 </tr>
@@ -764,14 +781,32 @@ function DailyZReportTable({
                       <tr className={`border-b hover:bg-purple-50/50 dark:hover:bg-purple-950/20 transition-colors ${
                         isRowBalanced ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : 'bg-red-50/30 dark:bg-red-950/10'
                       }`}>
-                        <td className="p-2 sm:p-3 font-medium whitespace-nowrap">{format(new Date(row.date), 'MMM dd, yyyy')}</td>
-                        <td className="text-right p-2 sm:p-3 text-red-600 whitespace-nowrap">{formatCurrency(row.totalExpense)}</td>
-                        <td className="text-right p-2 sm:p-3 font-bold text-purple-600 whitespace-nowrap">{formatCurrency(row.zReport)}</td>
+                        <td className="p-2 sm:p-3 font-medium whitespace-nowrap">
+                          {format(new Date(row.date), 'MMM dd, yyyy')}
+                          <span className="block text-[8px] text-muted-foreground">(Today)</span>
+                        </td>
+                        <td className="text-right p-2 sm:p-3 text-red-600 whitespace-nowrap">
+                          {formatCurrency(row.totalExpense)}
+                          <span className="block text-[8px] text-muted-foreground">Today's Expenses</span>
+                        </td>
+                        <td className="text-right p-2 sm:p-3 font-bold text-purple-600 whitespace-nowrap">
+                          {formatCurrency(row.zReport)}
+                          <span className="block text-[8px] text-muted-foreground">Today's Collection</span>
+                        </td>
                         <td className="text-right p-2 sm:p-3 text-blue-600 whitespace-nowrap">{formatCurrency(row.cafetTransfer)}</td>
                         <td className="text-right p-2 sm:p-3 text-orange-600 whitespace-nowrap">{formatCurrency(row.personnelTransfer)}</td>
-                        <td className="text-right p-2 sm:p-3 text-emerald-600 whitespace-nowrap">{formatCurrency(row.totalCash)}</td>
-                        <td className="text-right p-2 sm:p-3 text-cyan-600 whitespace-nowrap">{formatCurrency(row.totalBank)}</td>
-                        <td className="text-right p-2 sm:p-3 font-bold text-green-600 whitespace-nowrap">{formatCurrency(row.dailySales)}</td>
+                        <td className="text-right p-2 sm:p-3 text-emerald-600 whitespace-nowrap">
+                          {formatCurrency(row.totalCash)}
+                          <span className="block text-[8px] text-muted-foreground">Today</span>
+                        </td>
+                        <td className="text-right p-2 sm:p-3 text-cyan-600 whitespace-nowrap">
+                          {formatCurrency(row.totalBank)}
+                          <span className="block text-[8px] text-muted-foreground">Today</span>
+                        </td>
+                        <td className="text-right p-2 sm:p-3 font-bold text-green-600 whitespace-nowrap">
+                          {formatCurrency(row.dailySales)}
+                          <span className="block text-[8px] text-muted-foreground">from {format(subDays(new Date(row.date), 1), 'MMM dd')}</span>
+                        </td>
                         <td className="text-center p-2 sm:p-3 whitespace-nowrap">
                           <Badge className={isRowBalanced ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>
                             {isRowBalanced ? '✅' : '⚠️'}
@@ -799,27 +834,35 @@ function DailyZReportTable({
                             <Card className="border-0 shadow-sm bg-white dark:bg-gray-900">
                               <CardContent className="p-3 sm:p-4">
                                 <h5 className="text-xs sm:text-sm font-semibold mb-2 sm:mb-3 text-purple-900 dark:text-purple-300">
-                                  Details for {format(new Date(row.date), 'MMMM dd, yyyy')}
+                                  Z-Report Details for {format(new Date(row.date), 'MMMM dd, yyyy')}
                                 </h5>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
                                   <div className="space-y-0.5">
-                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Casual Expenses</p>
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Z-Report Date (Today)</p>
+                                    <p className="text-xs sm:text-sm font-medium">{format(new Date(row.date), 'MMM dd, yyyy')}</p>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Sales Date (Yesterday)</p>
+                                    <p className="text-xs sm:text-sm font-medium">{format(subDays(new Date(row.date), 1), 'MMM dd, yyyy')}</p>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Casual Expenses (Today)</p>
                                     <p className="text-xs sm:text-sm font-medium text-red-600">{formatCurrency(row.casualExpense)}</p>
                                   </div>
                                   <div className="space-y-0.5">
-                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Stock Purchases</p>
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Stock Purchases (Today)</p>
                                     <p className="text-xs sm:text-sm font-medium text-orange-600">{formatCurrency(row.stockPurchase)}</p>
                                   </div>
                                   <div className="space-y-0.5">
-                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Total Expense</p>
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Total Expense (Today)</p>
                                     <p className="text-xs sm:text-sm font-bold text-red-700">{formatCurrency(row.totalExpense)}</p>
                                   </div>
                                   <div className="space-y-0.5">
-                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Z Report</p>
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Z Report (Today)</p>
                                     <p className="text-xs sm:text-sm font-medium text-purple-600">{formatCurrency(row.zReport)}</p>
                                   </div>
                                   <div className="space-y-0.5">
-                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Cafet Transfer</p>
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Cafet Transfer (50%)</p>
                                     <p className="text-xs sm:text-sm font-medium text-blue-600">{formatCurrency(row.cafetTransfer)}</p>
                                   </div>
                                   <div className="space-y-0.5">
@@ -827,19 +870,19 @@ function DailyZReportTable({
                                     <p className="text-xs sm:text-sm font-medium text-orange-600">{formatCurrency(row.personnelTransfer)}</p>
                                   </div>
                                   <div className="space-y-0.5">
-                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Total Cash</p>
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Total Cash (Today)</p>
                                     <p className="text-xs sm:text-sm font-medium text-emerald-600">{formatCurrency(row.totalCash)}</p>
                                   </div>
                                   <div className="space-y-0.5">
-                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Total Bank</p>
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Total Bank (Today)</p>
                                     <p className="text-xs sm:text-sm font-medium text-cyan-600">{formatCurrency(row.totalBank)}</p>
                                   </div>
                                   <div className="space-y-0.5">
-                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Cash + Bank</p>
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Cash + Bank (Today)</p>
                                     <p className="text-xs sm:text-sm font-bold text-blue-700">{formatCurrency(row.totalCash + row.totalBank)}</p>
                                   </div>
                                   <div className="space-y-0.5">
-                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Daily Sales</p>
+                                    <p className="text-[8px] sm:text-xs text-muted-foreground">Daily Sales (Yesterday)</p>
                                     <p className="text-xs sm:text-sm font-medium text-green-600">{formatCurrency(row.dailySales)}</p>
                                   </div>
                                   <div className="space-y-0.5">
@@ -854,6 +897,9 @@ function DailyZReportTable({
                                       Cash ({formatCurrency(row.totalCash)}) + Bank ({formatCurrency(row.totalBank)}) 
                                       = {formatCurrency(row.totalCash + row.totalBank)} 
                                       {row.isBalanced ? ' ✅' : ' ❌'} Sales ({formatCurrency(row.dailySales)})
+                                    </p>
+                                    <p className="text-[7px] sm:text-[8px] text-muted-foreground mt-1">
+                                      Personnel Transfer = (Z/2) + Expense - Cash
                                     </p>
                                   </div>
                                 </div>
@@ -896,28 +942,29 @@ function DailyZReportTable({
       <div className="grid grid-cols-2 gap-1.5 sm:gap-2 md:grid-cols-4">
         <Card className="rounded-xl sm:rounded-2xl border-0 shadow-md bg-gradient-to-br from-red-50 to-red-100/50 dark:from-red-950/30 dark:to-red-900/20">
           <CardContent className="pt-2 sm:pt-4 px-2 sm:px-4 pb-2 sm:pb-4">
-            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Expense</p>
+            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Total Expense (Today)</p>
             <p className="text-xs sm:text-sm md:text-xl font-bold text-red-600 truncate">{formatCurrency(totals.totalExpense)}</p>
           </CardContent>
         </Card>
         <Card className="rounded-xl sm:rounded-2xl border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20">
           <CardContent className="pt-2 sm:pt-4 px-2 sm:px-4 pb-2 sm:pb-4">
-            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Z Report</p>
+            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Total Z Report (Today)</p>
             <p className="text-xs sm:text-sm md:text-xl font-bold text-blue-600 truncate">{formatCurrency(totals.zReport)}</p>
           </CardContent>
         </Card>
         <Card className="rounded-xl sm:rounded-2xl border-0 shadow-md bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20">
           <CardContent className="pt-2 sm:pt-4 px-2 sm:px-4 pb-2 sm:pb-4">
-            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Sales</p>
+            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Total Sales (Yesterday)</p>
             <p className="text-xs sm:text-sm md:text-xl font-bold text-green-600 truncate">{formatCurrency(totals.dailySales)}</p>
           </CardContent>
         </Card>
         <Card className={`rounded-xl sm:rounded-2xl border-0 shadow-md ${isOverallBalanced ? 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20' : 'bg-gradient-to-br from-red-50 to-red-100/50 dark:from-red-950/30 dark:to-red-900/20'}`}>
           <CardContent className="pt-2 sm:pt-4 px-2 sm:px-4 pb-2 sm:pb-4">
-            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Diff</p>
+            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Difference</p>
             <p className={`text-xs sm:text-sm md:text-xl font-bold truncate ${isOverallBalanced ? 'text-emerald-600' : 'text-red-600'}`}>
               {formatCurrency(totals.difference)}
             </p>
+            <p className="text-[6px] text-muted-foreground">Cash+Bank vs Sales</p>
           </CardContent>
         </Card>
       </div>
@@ -952,7 +999,7 @@ function DailyCashManager({
   const [editingEntry, setEditingEntry] = useState<DailyCashEntry | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState(() => ({
-    date: format(subDays(new Date(), 1), 'yyyy-MM-dd'),
+    date: format(new Date(), 'yyyy-MM-dd'),
     cashAmount: "",
     bankAmount: "",
     zedAmount: "",
@@ -1018,7 +1065,7 @@ function DailyCashManager({
       if (onRefresh) onRefresh()
       setShowForm(false)
       setEditingEntry(null);
-      setFormData({ date: format(subDays(new Date(), 1), 'yyyy-MM-dd'), cashAmount: "", bankAmount: "", zedAmount: "", notes: "" });
+      setFormData({ date: format(new Date(), 'yyyy-MM-dd'), cashAmount: "", bankAmount: "", zedAmount: "", notes: "" });
     } catch (error: any) {
       toast.error(error.message || "Failed to save Z-Report")
     } finally {
@@ -1059,13 +1106,13 @@ function DailyCashManager({
         <div className="w-full sm:w-auto">
           <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-purple-900 dark:text-purple-300">Daily Z-Report</h3>
           <p className="text-[10px] sm:text-xs md:text-sm text-muted-foreground">
-            {format(start, 'MMM dd')} - {format(end, 'MMM dd, yyyy')}
+            Record today's cash collection against yesterday's sales
           </p>
         </div>
         <Button 
           onClick={() => {
             setEditingEntry(null)
-            setFormData({ date: format(subDays(new Date(), 1), 'yyyy-MM-dd'), cashAmount: "", bankAmount: "", zedAmount: "", notes: "" })
+            setFormData({ date: format(new Date(), 'yyyy-MM-dd'), cashAmount: "", bankAmount: "", zedAmount: "", notes: "" })
             setShowForm(true)
           }} 
           className="w-full sm:w-auto bg-purple-900 hover:bg-purple-800 rounded-full px-3 sm:px-6 shadow-lg shadow-purple-900/25 text-xs sm:text-sm py-1.5 sm:py-2"
@@ -1079,19 +1126,19 @@ function DailyCashManager({
       <div className="grid grid-cols-2 gap-1.5 sm:gap-2 md:grid-cols-4">
         <Card className="rounded-xl sm:rounded-2xl border-0 shadow-md bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20">
           <CardContent className="pt-2 sm:pt-4 px-2 sm:px-4 pb-2 sm:pb-4">
-            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Cash</p>
+            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Cash (Today)</p>
             <p className="text-xs sm:text-sm md:text-xl font-bold text-emerald-600 truncate">{formatCurrency(totals.totalCash)}</p>
           </CardContent>
         </Card>
         <Card className="rounded-xl sm:rounded-2xl border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20">
           <CardContent className="pt-2 sm:pt-4 px-2 sm:px-4 pb-2 sm:pb-4">
-            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Bank</p>
+            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Bank (Today)</p>
             <p className="text-xs sm:text-sm md:text-xl font-bold text-blue-600 truncate">{formatCurrency(totals.totalBank)}</p>
           </CardContent>
         </Card>
         <Card className="rounded-xl sm:rounded-2xl border-0 shadow-md bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20">
           <CardContent className="pt-2 sm:pt-4 px-2 sm:px-4 pb-2 sm:pb-4">
-            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Z-Report</p>
+            <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Z-Report (Today)</p>
             <p className="text-xs sm:text-sm md:text-xl font-bold text-purple-600 truncate">{formatCurrency(totals.totalZed)}</p>
           </CardContent>
         </Card>
@@ -1099,6 +1146,7 @@ function DailyCashManager({
           <CardContent className="pt-2 sm:pt-4 px-2 sm:px-4 pb-2 sm:pb-4">
             <p className="text-[6px] sm:text-[10px] md:text-xs text-muted-foreground">Reports</p>
             <p className="text-xs sm:text-sm md:text-xl font-bold text-gray-600">{totals.count}</p>
+            <p className="text-[6px] text-muted-foreground">Z-Report entries</p>
           </CardContent>
         </Card>
       </div>
@@ -1137,7 +1185,7 @@ function DailyCashManager({
               </div>
               <div className="space-y-3 sm:space-y-4">
                 <div>
-                  <label className="text-xs sm:text-sm font-medium text-purple-900 dark:text-purple-300">Date</label>
+                  <label className="text-xs sm:text-sm font-medium text-purple-900 dark:text-purple-300">Z-Report Date (Today)</label>
                   <input 
                     type="date" 
                     className="w-full p-2 sm:p-2.5 text-sm border rounded-lg focus:ring-2 focus:ring-purple-900 focus:border-transparent outline-none"
@@ -1145,9 +1193,10 @@ function DailyCashManager({
                     onChange={(e) => setFormData({...formData, date: e.target.value})} 
                     disabled={isSubmitting}
                   />
+                  <p className="text-[8px] text-muted-foreground mt-1">This Z-Report records today's cash collection</p>
                 </div>
                 <div>
-                  <label className="text-xs sm:text-sm font-medium text-purple-900 dark:text-purple-300">Cash Amount</label>
+                  <label className="text-xs sm:text-sm font-medium text-purple-900 dark:text-purple-300">Cash Amount (Today)</label>
                   <input 
                     type="number" 
                     placeholder="0.00" 
@@ -1158,7 +1207,7 @@ function DailyCashManager({
                   />
                 </div>
                 <div>
-                  <label className="text-xs sm:text-sm font-medium text-purple-900 dark:text-purple-300">Bank Amount</label>
+                  <label className="text-xs sm:text-sm font-medium text-purple-900 dark:text-purple-300">Bank Amount (Today)</label>
                   <input 
                     type="number" 
                     placeholder="0.00" 
@@ -1170,7 +1219,7 @@ function DailyCashManager({
                 </div>
                 <div>
                   <label className="text-xs sm:text-sm font-medium text-purple-900 dark:text-purple-300">
-                    Zed Amount *
+                    Zed Amount (Z-Report) *
                   </label>
                   <input 
                     type="number" 
@@ -1181,6 +1230,7 @@ function DailyCashManager({
                     onChange={(e) => setFormData({...formData, zedAmount: e.target.value})} 
                     disabled={isSubmitting}
                   />
+                  <p className="text-[8px] text-muted-foreground mt-1">Z-Report amount from today's cash register</p>
                 </div>
                 <div>
                   <label className="text-xs sm:text-sm font-medium text-purple-900 dark:text-purple-300">Notes</label>
@@ -1261,43 +1311,59 @@ export default function FinancialManagementPage() {
       
       const startDateStr = format(start, 'yyyy-MM-dd')
       const endDateStr = format(end, 'yyyy-MM-dd')
-      // Fetch revenue from one day before start so each row can look up (date - 1) sales
-      const revenueStartStr = format(subDays(start, 1), 'yyyy-MM-dd')
+      
+      // For Z-Report, we need sales from yesterday
+      const salesStartStr = format(subDays(start, 1), 'yyyy-MM-dd')
       
       const [casualExpenses, stockData, cashData, revenueData] = await Promise.all([
         fetch("/api/expense").then(res => res.json()).then(data => data.data || []),
         fetchStockPurchases(),
         fetchDailyCash(),
-        fetchDailyRevenue(revenueStartStr, endDateStr),
+        fetchDailyRevenue(salesStartStr, endDateStr),
       ])
       
       setCasualExpensesData(casualExpenses)
       setStockPurchasesData(stockData)
       setDailySalesData(revenueData.dailySales || {})
       
-      // Shift back one day: expenses/sales for date X come from date X-1
-      const prevStart = subDays(start, 1)
-      const prevEnd = subDays(end, 1)
-
+      // For metrics on the main cards:
+      // - Sales are from yesterday
+      // - Everything else is from today (Z-Report, Expenses, Stock)
+      
+      // Yesterday's sales for the revenue card
+      const yesterdayStart = subDays(start, 1)
+      const yesterdayEnd = subDays(end, 1)
+      
+      const yesterdaySales = Object.entries(revenueData.dailySales)
+        .filter(([d]) => d >= format(yesterdayStart, 'yyyy-MM-dd') && d <= format(yesterdayEnd, 'yyyy-MM-dd'))
+        .reduce((sum, [, v]) => sum + v, 0)
+      const yesterdayOrders = revenueData.orders
+        ? revenueData.orders.filter((o: Order) => {
+            const d = new Date(o.createdAt).toISOString().split('T')[0]
+            return d >= format(yesterdayStart, 'yyyy-MM-dd') && d <= format(yesterdayEnd, 'yyyy-MM-dd')
+          }).length
+        : 0
+      const yesterdayAvg = yesterdayOrders > 0 ? yesterdaySales / yesterdayOrders : 0
+      
+      // Today's expenses
       const filteredCasual = casualExpenses.filter((expense: any) => {
         if (!expense?.date) return false
         const expenseDate = new Date(expense.date)
-        return expenseDate >= prevStart && expenseDate <= prevEnd
+        return expenseDate >= start && expenseDate <= end
       })
       
-      const totalAmount = filteredCasual.reduce((sum: number, e: any) => sum + (e.amount || 0), 0)
+      const totalCasual = filteredCasual.reduce((sum: number, e: any) => sum + (e.amount || 0), 0)
       const pendingExpenses = filteredCasual.filter((e: any) => e.status === "Pending")
       const paidExpenses = filteredCasual.filter((e: any) => e.status === "Paid")
-      const pendingTotal = pendingExpenses.reduce((sum: number, e: any) => sum + (e.amount || 0), 0)
-      const paidTotal = paidExpenses.reduce((sum: number, e: any) => sum + (e.amount || 0), 0)
       
       const filteredStock = stockData.filter((purchase: StockPurchase) => {
         if (!purchase?.purchaseDate) return false
         const purchaseDate = new Date(purchase.purchaseDate)
-        return purchaseDate >= prevStart && purchaseDate <= prevEnd
+        return purchaseDate >= start && purchaseDate <= end
       })
       const stockTotal = filteredStock.reduce((sum: number, e: StockPurchase) => sum + (e.totalAmount || e.quantity * e.unitPrice || 0), 0)
       
+      // Today's Z-Reports
       const filteredCash = cashData.filter((entry: DailyCashEntry) => {
         if (!entry?.date) return false
         const entryDate = new Date(entry.date)
@@ -1305,31 +1371,17 @@ export default function FinancialManagementPage() {
       })
       const totalZed = filteredCash.reduce((sum: number, e: DailyCashEntry) => sum + (e.zedAmount || 0), 0)
       const lastCash = filteredCash.length > 0 ? filteredCash[filteredCash.length - 1]?.zedAmount || 0 : 0
-      
-      // Daily Revenue card shows previous day's sales
-      const prevDateStr = format(prevStart, 'yyyy-MM-dd')
-      const prevEndStr = format(prevEnd, 'yyyy-MM-dd')
-      const prevDaySales = Object.entries(revenueData.dailySales)
-        .filter(([d]) => d >= prevDateStr && d <= prevEndStr)
-        .reduce((sum, [, v]) => sum + v, 0)
-      const prevDayOrderCount = revenueData.orders
-        ? revenueData.orders.filter((o: Order) => {
-            const d = new Date(o.createdAt).toISOString().split('T')[0]
-            return d >= prevDateStr && d <= prevEndStr
-          }).length
-        : 0
-      const prevDayAvg = prevDayOrderCount > 0 ? prevDaySales / prevDayOrderCount : 0
 
       setMetrics({
-        dailyRevenue: prevDaySales,
-        dailyOrderCount: prevDayOrderCount,
-        dailyAverageOrderValue: prevDayAvg,
-        casualTotalAmount: totalAmount,
+        dailyRevenue: yesterdaySales,
+        dailyOrderCount: yesterdayOrders,
+        dailyAverageOrderValue: yesterdayAvg,
+        casualTotalAmount: totalCasual,
         casualCount: filteredCasual.length,
         pendingCount: pendingExpenses.length,
-        pendingAmount: pendingTotal,
+        pendingAmount: pendingExpenses.reduce((sum: number, e: any) => sum + (e.amount || 0), 0),
         paidCount: paidExpenses.length,
-        paidAmount: paidTotal,
+        paidAmount: paidExpenses.reduce((sum: number, e: any) => sum + (e.amount || 0), 0),
         stockTotalAmount: stockTotal,
         stockCount: filteredStock.length,
         totalZedAmount: totalZed,
@@ -1370,27 +1422,27 @@ export default function FinancialManagementPage() {
   const modules = [
     {
       id: 'cash' as const,
-      title: `Z-Reports`,
+      title: `Z-Reports (Today)`,
       value: formatCurrency(metrics.totalZedAmount),
-      subtitle: `${metrics.cashCount} • ${formatCurrency(metrics.lastCash)}`,
+      subtitle: `${metrics.cashCount} reports • ${formatCurrency(metrics.lastCash)} last`,
     },
     {
       id: 'casual' as const,
-      title: `Casual Expenses`,
+      title: `Casual Expenses (Today)`,
       value: formatCurrency(metrics.casualTotalAmount),
       subtitle: `${metrics.casualCount} • ${metrics.pendingCount} pending`,
     },
     {
       id: 'stock' as const,
-      title: `Stock Purchases`,
+      title: `Stock Purchases (Today)`,
       value: formatCurrency(metrics.stockTotalAmount),
-      subtitle: `${metrics.stockCount}`,
+      subtitle: `${metrics.stockCount} purchases`,
     },
     {
       id: 'revenue' as const,
-      title: `Daily Revenue`,
+      title: `Sales (Yesterday)`,
       value: formatCurrency(metrics.dailyRevenue),
-      subtitle: `${metrics.dailyOrderCount} • ${formatCurrency(metrics.dailyAverageOrderValue)}`,
+      subtitle: `${metrics.dailyOrderCount} orders • ${formatCurrency(metrics.dailyAverageOrderValue)} avg`,
     },
   ]
 
@@ -1418,7 +1470,7 @@ export default function FinancialManagementPage() {
             Financial Management
           </h2>
           <p className="text-[10px] sm:text-xs md:text-sm text-muted-foreground mt-0.5">
-            Manage revenue, expenses, stock, and reports
+            Z-Reports: Today's cash, expenses, and stock against yesterday's sales
           </p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">

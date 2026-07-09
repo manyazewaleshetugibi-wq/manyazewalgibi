@@ -1,13 +1,12 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { 
   DollarSign, 
   TrendingUp, 
   TrendingDown, 
   Package, 
-  Calendar,
   AlertCircle,
   RefreshCw,
   Download,
@@ -21,7 +20,9 @@ import {
   Grid3X3,
   Search,
   Clock,
-  ArrowUpDown
+  ArrowUpDown,
+  Warehouse,
+  Scale,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -62,8 +63,10 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  ComposedChart,
+  Line,
 } from "recharts"
-import { format, startOfDay, endOfDay } from "date-fns"
+import { format, startOfDay, endOfDay, parseISO } from "date-fns"
 import * as XLSX from "xlsx"
 
 // ============================================
@@ -119,6 +122,7 @@ interface Purchase {
   supplier: string
 }
 
+// Updated OrderItem to match API response
 interface OrderItem {
   itemId: string
   menuItemId?: string
@@ -127,18 +131,21 @@ interface OrderItem {
   price?: number
   name?: string
   subtotal?: number
-  itemName?: string
 }
 
+// Updated Order to match API response
 interface Order {
   _id: string
   orderNumber: string
-  items?: OrderItem[]
+  items: OrderItem[]  // API uses 'items'
   orderItems?: OrderItem[]
   totalAmount: number
   finalAmount: number
   createdAt: string
   status: string
+  waiterName?: string
+  restaurantName?: string
+  paymentMethod?: string
 }
 
 interface IngredientCost {
@@ -146,6 +153,7 @@ interface IngredientCost {
   stockName: string
   quantity: number
   unit: string
+  averageCost: number
   latestPrice: number
   totalCost: number
   purchaseDate?: string
@@ -180,110 +188,167 @@ interface DailySummary {
   lowMarginItems: number
   lossItems: number
   totalIngredients: number
+  totalStockValue: number
+  totalStockCost: number
+  averageStockCost: number
+}
+
+interface StockValuation {
+  totalStockValue: number
+  totalStockCost: number
+  averageCost: number
+  items: {
+    stockId: string
+    name: string
+    currentStock: number
+    unit: string
+    averageCost: number
+    totalValue: number
+    totalCost: number
+    purchaseCount: number
+    lastPurchaseDate: string
+    supplier: string
+  }[]
 }
 
 // ============================================
-// API FUNCTIONS - FIXED
+// API FUNCTIONS WITH FIXED HANDLING
 // ============================================
 
-// ✅ FIXED: Get today's completed orders
+// Get today's completed orders only
 async function fetchTodayOrders(): Promise<Order[]> {
   const today = new Date()
+  // Use Ethiopia timezone (UTC+3)
   const startDate = format(startOfDay(today), "yyyy-MM-dd")
   const endDate = format(endOfDay(today), "yyyy-MM-dd")
   
-  // ✅ FIXED: Use the correct endpoint for fetching orders for reports
+  console.log(`📅 Fetching orders from ${startDate} to ${endDate}`)
+  
   try {
-    const response = await fetch(`/api/order/waiterreport?startDate=${startDate}&endDate=${endDate}&limit=10000&status=COMPLETED`)
-    const data = await response.json()
+    const response = await fetch(
+      `/api/order/waiterreport?startDate=${startDate}&endDate=${endDate}&limit=10000&status=COMPLETED`
+    )
     
-    // Handle different response structures
-    let orders = []
-    if (data.success && data.data) { // The report endpoint uses 'data'
-      orders = data.data
-    } else if (data.success && data.orders) { // Fallback for old structure
-      orders = data.orders
-    } else if (data.data && Array.isArray(data.data)) {
-      orders = data.data
-    } else if (Array.isArray(data)) {
-      orders = data
+    console.log(`📡 API Response Status: ${response.status}`)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ API Error (${response.status}):`, errorText)
+      throw new Error(`Failed to fetch orders: ${response.status}`)
     }
-    // The API now filters by date and status, but we can double-check creation date here if needed.
-    // The primary change is relying on the API's date filtering.
-    return orders.filter((order: Order) => order.status === 'COMPLETED');
-
+    
+    const data = await response.json()
+    console.log(`📊 API Response Data:`, {
+      success: data.success,
+      ordersCount: data.orders?.length || 0,
+      summary: data.summary
+    })
+    
+    if (data.success && data.orders) {
+      // Filter for today's completed orders
+      const todayOrders = data.orders.filter((order: Order) => {
+        const orderDate = new Date(order.createdAt)
+        const isToday = orderDate >= startOfDay(today) && orderDate <= endOfDay(today)
+        const isCompleted = order.status === 'COMPLETED'
+        return isToday && isCompleted
+      })
+      
+      console.log(`✅ Found ${todayOrders.length} completed orders for today`)
+      
+      // Log first order for debugging
+      if (todayOrders.length > 0) {
+        console.log(`📝 Sample order:`, {
+          id: todayOrders[0]._id,
+          orderNumber: todayOrders[0].orderNumber,
+          itemsCount: todayOrders[0].items?.length || 0,
+          totalAmount: todayOrders[0].totalAmount,
+          status: todayOrders[0].status
+        })
+      }
+      
+      return todayOrders
+    }
+    
+    console.warn(`⚠️ No orders found or API returned unexpected structure`)
+    return []
   } catch (error) {
-    console.error("Error fetching today's orders:", error)
+    console.error("❌ Error fetching today's orders:", error)
     return []
   }
 }
 
-// ✅ FIXED: Fetch menu items
 async function fetchMenuItems(): Promise<MenuItem[]> {
   try {
     const response = await fetch("/api/items")
-    if (!response.ok) throw new Error("Failed to fetch menu items")
+    if (!response.ok) throw new Error(`Failed to fetch menu items: ${response.status}`)
     const data = await response.json()
     
-    // Handle different response structures
-    if (data.data) return data.data
-    if (data.items) return data.items
-    if (Array.isArray(data)) return data
-    return []
+    let items = []
+    if (data.data) items = data.data
+    else if (data.items) items = data.items
+    else if (Array.isArray(data)) items = data
+    
+    console.log(`✅ Loaded ${items.length} menu items`)
+    return items
   } catch (error) {
-    console.error("Error fetching menu items:", error)
+    console.error("❌ Error fetching menu items:", error)
     return []
   }
 }
 
-// ✅ FIXED: Fetch categories
 async function fetchCategories(): Promise<Category[]> {
   try {
     const response = await fetch("/api/item-category?limit=100")
-    if (!response.ok) throw new Error("Failed to fetch categories")
+    if (!response.ok) throw new Error(`Failed to fetch categories: ${response.status}`)
     const data = await response.json()
     
-    if (data.success && data.data) return data.data
-    if (Array.isArray(data)) return data
-    return []
+    let categories = []
+    if (data.success && data.data) categories = data.data
+    else if (data.categories) categories = data.categories
+    else if (Array.isArray(data)) categories = data
+    
+    console.log(`✅ Loaded ${categories.length} categories`)
+    return categories
   } catch (error) {
-    console.error("Error fetching categories:", error)
+    console.error("❌ Error fetching categories:", error)
     return []
   }
 }
 
-// ✅ FIXED: Fetch stock items
 async function fetchStockItems(): Promise<StockItem[]> {
   try {
     const response = await fetch("/api/stock")
-    if (!response.ok) throw new Error("Failed to fetch stock items")
+    if (!response.ok) throw new Error(`Failed to fetch stock items: ${response.status}`)
     const data = await response.json()
     
-    if (data.success && data.data) return data.data
-    if (Array.isArray(data)) return data
-    return []
+    let stocks = []
+    if (data.success && data.data) stocks = data.data
+    else if (data.stock) stocks = data.stock
+    else if (Array.isArray(data)) stocks = data
+    
+    console.log(`✅ Loaded ${stocks.length} stock items`)
+    return stocks
   } catch (error) {
-    console.error("Error fetching stock items:", error)
+    console.error("❌ Error fetching stock items:", error)
     return []
   }
 }
 
-// ✅ FIXED: Fetch purchases - handles both "data" and "purchases" fields
 async function fetchPurchases(): Promise<Purchase[]> {
   try {
     const response = await fetch("/api/stock-purchase")
-    if (!response.ok) throw new Error("Failed to fetch purchases")
+    if (!response.ok) throw new Error(`Failed to fetch purchases: ${response.status}`)
     const data = await response.json()
     
-    // Handle different response structures
-    if (data.success && data.data) return data.data
-    if (data.success && data.purchases) return data.purchases
-    if (data.data && Array.isArray(data.data)) return data.data
-    if (data.purchases && Array.isArray(data.purchases)) return data.purchases
-    if (Array.isArray(data)) return data
-    return []
+    let purchases = []
+    if (data.success && data.purchases) purchases = data.purchases
+    else if (data.data) purchases = data.data
+    else if (Array.isArray(data)) purchases = data
+    
+    console.log(`✅ Loaded ${purchases.length} purchases`)
+    return purchases
   } catch (error) {
-    console.error("Error fetching purchases:", error)
+    console.error("❌ Error fetching purchases:", error)
     return []
   }
 }
@@ -291,6 +356,46 @@ async function fetchPurchases(): Promise<Purchase[]> {
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
+
+function calculateAverageCost(stockId: string, purchases: Purchase[]): { 
+  averageCost: number, 
+  totalCost: number,
+  purchaseCount: number,
+  lastPurchaseDate: string,
+  supplier: string 
+} {
+  const stockPurchases = purchases
+    .filter(p => p.stockId === stockId)
+    .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
+  
+  if (stockPurchases.length === 0) {
+    return {
+      averageCost: 0,
+      totalCost: 0,
+      purchaseCount: 0,
+      lastPurchaseDate: '',
+      supplier: ''
+    }
+  }
+
+  let totalQuantity = 0
+  let totalCost = 0
+  
+  stockPurchases.forEach(p => {
+    totalQuantity += p.quantity
+    totalCost += p.quantity * p.unitPrice
+  })
+
+  const averageCost = totalQuantity > 0 ? totalCost / totalQuantity : 0
+
+  return {
+    averageCost,
+    totalCost,
+    purchaseCount: stockPurchases.length,
+    lastPurchaseDate: stockPurchases[0].purchaseDate,
+    supplier: stockPurchases[0].supplier
+  }
+}
 
 function getLatestPrice(stockId: string, purchases: Purchase[]): { price: number, date: string, supplier: string } {
   const stockPurchases = purchases
@@ -317,8 +422,9 @@ function getStockUnit(stockId: string, stocks: StockItem[]): string {
   return stock ? stock.unit : "unit"
 }
 
+// FIXED: Get order items - API uses 'items'
 function getOrderItems(order: Order): OrderItem[] {
-  return order.orderItems || order.items || []
+  return order.items || order.orderItems || []
 }
 
 const formatCurrency = (value: number) => {
@@ -330,8 +436,100 @@ const formatCurrency = (value: number) => {
 }
 
 // ============================================
-// ITEM DETAIL DIALOG COMPONENT
+// DIALOG COMPONENTS
 // ============================================
+
+interface StockValuationDialogProps {
+  isOpen: boolean
+  onClose: () => void
+  stockValuation: StockValuation | null
+}
+
+function StockValuationDialog({ isOpen, onClose, stockValuation }: StockValuationDialogProps) {
+  if (!stockValuation) return null
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-5xl max-h-[80vh] overflow-y-auto rounded-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+            <Warehouse className="h-6 w-6 text-purple-600" />
+            Stock Valuation Report
+          </DialogTitle>
+          <DialogDescription>
+            Current value of all stock items based on average purchase costs
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="bg-purple-50 rounded-xl p-3 text-center">
+              <p className="text-xs text-muted-foreground">Total Stock Value</p>
+              <p className="text-xl font-bold text-purple-600">{formatCurrency(stockValuation.totalStockValue)}</p>
+            </div>
+            <div className="bg-blue-50 rounded-xl p-3 text-center">
+              <p className="text-xs text-muted-foreground">Total Cost</p>
+              <p className="text-xl font-bold text-blue-600">{formatCurrency(stockValuation.totalStockCost)}</p>
+            </div>
+            <div className="bg-green-50 rounded-xl p-3 text-center">
+              <p className="text-xs text-muted-foreground">Average Cost</p>
+              <p className="text-xl font-bold text-green-600">{formatCurrency(stockValuation.averageCost)}</p>
+            </div>
+            <div className="bg-orange-50 rounded-xl p-3 text-center">
+              <p className="text-xs text-muted-foreground">Total Items</p>
+              <p className="text-xl font-bold text-orange-600">{stockValuation.items.length}</p>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <Package className="h-5 w-5 text-purple-600" />
+              Stock Items Detail
+            </h3>
+            <div className="rounded-xl border overflow-hidden">
+              <Table>
+                <TableHeader className="bg-purple-50">
+                  <TableRow>
+                    <TableHead className="font-semibold">Item</TableHead>
+                    <TableHead className="text-right font-semibold">Current Stock</TableHead>
+                    <TableHead className="text-right font-semibold">Unit</TableHead>
+                    <TableHead className="text-right font-semibold">Avg Cost</TableHead>
+                    <TableHead className="text-right font-semibold">Total Value</TableHead>
+                    <TableHead className="text-right font-semibold">Purchases</TableHead>
+                    <TableHead className="text-right font-semibold">Last Purchase</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stockValuation.items.map((item) => (
+                    <TableRow key={item.stockId}>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell className="text-right font-bold">{item.currentStock}</TableCell>
+                      <TableCell className="text-right">{item.unit}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(item.averageCost)}</TableCell>
+                      <TableCell className="text-right text-purple-600 font-medium">
+                        {formatCurrency(item.totalValue)}
+                      </TableCell>
+                      <TableCell className="text-right">{item.purchaseCount}</TableCell>
+                      <TableCell className="text-right text-xs text-muted-foreground">
+                        {item.lastPurchaseDate ? format(new Date(item.lastPurchaseDate), 'PP') : 'N/A'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end mt-4">
+          <Button onClick={onClose} variant="outline" className="rounded-full">
+            Close
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 interface ItemDetailDialogProps {
   item: DailySoldItem | null
@@ -356,7 +554,6 @@ function ItemDetailDialog({ item, isOpen, onClose }: ItemDetailDialogProps) {
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="bg-green-50 rounded-xl p-3 text-center">
               <p className="text-xs text-muted-foreground">Quantity Sold</p>
@@ -378,7 +575,6 @@ function ItemDetailDialog({ item, isOpen, onClose }: ItemDetailDialogProps) {
             </div>
           </div>
 
-          {/* Status and Margin */}
           <div className="flex flex-wrap gap-3">
             <Badge className="text-sm px-4 py-2">
               Profit Margin: {item.profitMargin.toFixed(1)}%
@@ -392,14 +588,8 @@ function ItemDetailDialog({ item, isOpen, onClose }: ItemDetailDialogProps) {
             {item.status === 'loss' && (
               <Badge className="bg-red-100 text-red-800 text-sm px-4 py-2">Loss</Badge>
             )}
-            {item.preparationTime > 0 && (
-              <Badge variant="outline" className="text-sm px-4 py-2">
-                Prep Time: {item.preparationTime} min
-              </Badge>
-            )}
           </div>
 
-          {/* Ingredients Table */}
           <div>
             <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
               <Package className="h-5 w-5 text-purple-600" />
@@ -412,7 +602,7 @@ function ItemDetailDialog({ item, isOpen, onClose }: ItemDetailDialogProps) {
                     <TableHead className="font-semibold">Stock Item</TableHead>
                     <TableHead className="text-right font-semibold">Quantity Used</TableHead>
                     <TableHead className="text-right font-semibold">Unit</TableHead>
-                    <TableHead className="text-right font-semibold">Unit Price</TableHead>
+                    <TableHead className="text-right font-semibold">Avg Cost</TableHead>
                     <TableHead className="text-right font-semibold">Total Cost</TableHead>
                     <TableHead className="text-right font-semibold">Supplier</TableHead>
                   </TableRow>
@@ -424,7 +614,7 @@ function ItemDetailDialog({ item, isOpen, onClose }: ItemDetailDialogProps) {
                       <TableCell className="text-right">{ing.quantity}</TableCell>
                       <TableCell className="text-right">{ing.unit}</TableCell>
                       <TableCell className="text-right">
-                        {ing.latestPrice > 0 ? formatCurrency(ing.latestPrice) : 'No price'}
+                        {ing.averageCost > 0 ? formatCurrency(ing.averageCost) : 'N/A'}
                       </TableCell>
                       <TableCell className="text-right text-orange-600 font-medium">
                         {formatCurrency(ing.totalCost)}
@@ -434,71 +624,10 @@ function ItemDetailDialog({ item, isOpen, onClose }: ItemDetailDialogProps) {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {item.ingredients.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
-                        No ingredients defined for this item
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
             </div>
           </div>
-
-          {/* Margin Visualization */}
-          <div>
-            <h3 className="text-lg font-semibold mb-3">Profit Margin Visualization</h3>
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs">
-                <span className="text-red-600">Loss</span>
-                <span className="text-orange-600">0%</span>
-                <span className="text-yellow-600">10%</span>
-                <span className="text-emerald-600">20%</span>
-                <span className="text-green-600">30%+</span>
-              </div>
-              <Progress 
-                value={Math.min(100, Math.max(0, (item.profitMargin / 40) * 100))} 
-                className={`h-3 ${item.profitMargin >= 30 ? 'bg-green-500' : item.profitMargin >= 20 ? 'bg-emerald-500' : item.profitMargin >= 10 ? 'bg-yellow-500' : item.profitMargin >= 0 ? 'bg-orange-500' : 'bg-red-500'}`}
-              />
-              <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                <span>Target: &gt;30% margin</span>
-                <span className="font-bold">Current: {item.profitMargin.toFixed(1)}%</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Recommendations */}
-          {item.profitMargin < 20 && (
-            <div className={`p-4 rounded-xl ${item.profitMargin < 0 ? 'bg-red-50 border border-red-200' : 'bg-yellow-50 border border-yellow-200'}`}>
-              <div className="flex items-start gap-3">
-                {item.profitMargin < 0 ? (
-                  <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
-                ) : (
-                  <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
-                )}
-                <div>
-                  <p className="font-semibold mb-1">Recommendation</p>
-                  {item.profitMargin < 0 ? (
-                    <p className="text-sm">
-                      This item is currently making a loss. Consider increasing the selling price, 
-                      negotiating better ingredient prices, or reviewing the recipe quantities.
-                    </p>
-                  ) : item.profitMargin < 10 ? (
-                    <p className="text-sm">
-                      This item has a very low profit margin. Look for opportunities to reduce ingredient costs 
-                      or consider a price adjustment.
-                    </p>
-                  ) : (
-                    <p className="text-sm">
-                      This item has a low profit margin. Consider optimizing ingredient costs or 
-                      slightly increasing the price to reach target margin.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="flex justify-end mt-4">
@@ -525,11 +654,10 @@ export default function DailyProfitPage() {
   const [sortBy, setSortBy] = useState<'profit' | 'margin' | 'price' | 'cost'>('margin')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   
-  // Dialog state
   const [selectedItem, setSelectedItem] = useState<DailySoldItem | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const [isStockValuationOpen, setIsStockValuationOpen] = useState(false)
   
-  // Data states
   const [orders, setOrders] = useState<Order[]>([])
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -537,12 +665,16 @@ export default function DailyProfitPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([])
   const [todayItems, setTodayItems] = useState<DailySoldItem[]>([])
   const [summary, setSummary] = useState<DailySummary | null>(null)
+  const [stockValuation, setStockValuation] = useState<StockValuation | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [debugInfo, setDebugInfo] = useState<string>("")
 
   // Load data
   const loadData = async () => {
     setIsLoading(true)
     setError(null)
+    setDebugInfo("Loading data...")
+    
     try {
       // Fetch all required data in parallel
       const [ordersData, menuData, categoryData, stockData, purchaseData] = await Promise.all([
@@ -553,27 +685,94 @@ export default function DailyProfitPage() {
         fetchPurchases()
       ])
 
-      console.log("📊 Orders fetched:", ordersData.length)
-      console.log("📦 Menu items fetched:", menuData.length)
-      console.log("📁 Categories fetched:", categoryData.length)
-      console.log("📦 Stock items fetched:", stockData.length)
-      console.log("🛒 Purchases fetched:", purchaseData.length)
-
+      setDebugInfo(`Loaded ${ordersData.length} orders, ${menuData.length} items, ${categoryData.length} categories`)
+      
       setOrders(ordersData)
       setMenuItems(menuData)
       setCategories(categoryData)
       setStocks(stockData)
       setPurchases(purchaseData)
 
-      // Calculate profitability for today's sold items
-      calculateTodayProfitability(ordersData, menuData, categoryData, stockData, purchaseData)
+      // Calculate stock valuation
+      if (stockData.length > 0) {
+        calculateStockValuation(stockData, purchaseData)
+      }
+
+      // Calculate profitability if we have orders and menu items
+      if (ordersData.length > 0 && menuData.length > 0) {
+        calculateTodayProfitability(ordersData, menuData, categoryData, stockData, purchaseData)
+      } else {
+        // Set empty state with debug info
+        setTodayItems([])
+        setSummary({
+          date: format(new Date(), 'PPP'),
+          totalRevenue: 0,
+          totalCost: 0,
+          totalProfit: 0,
+          profitMargin: 0,
+          totalItemsSold: 0,
+          totalOrders: ordersData.length || 0,
+          profitableItems: 0,
+          lowMarginItems: 0,
+          lossItems: 0,
+          totalIngredients: 0,
+          totalStockValue: 0,
+          totalStockCost: 0,
+          averageStockCost: 0
+        })
+        
+        if (ordersData.length === 0) {
+          setError("No completed orders found for today. Check if there are any orders in the system.")
+        }
+      }
       
       setLastUpdated(new Date())
+      setDebugInfo(`✅ Complete! Updated at ${format(new Date(), 'HH:mm:ss')}`)
     } catch (error) {
       console.error("Error loading data:", error)
-      setError("Failed to load data. Please try again.")
+      setError(`Failed to load data: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // Calculate stock valuation
+  const calculateStockValuation = (stockData: StockItem[], purchaseData: Purchase[]) => {
+    try {
+      const valuationItems = stockData
+        .filter(s => s.isActive !== false)
+        .map(stock => {
+          const { averageCost, totalCost, purchaseCount, lastPurchaseDate, supplier } = 
+            calculateAverageCost(stock._id, purchaseData)
+          
+          return {
+            stockId: stock._id,
+            name: stock.name,
+            currentStock: stock.currentStock || 0,
+            unit: stock.unit || 'unit',
+            averageCost,
+            totalValue: averageCost * (stock.currentStock || 0),
+            totalCost,
+            purchaseCount,
+            lastPurchaseDate,
+            supplier
+          }
+        })
+        .filter(item => item.currentStock > 0 || item.purchaseCount > 0)
+
+      const totalStockValue = valuationItems.reduce((sum, item) => sum + item.totalValue, 0)
+      const totalStockCost = valuationItems.reduce((sum, item) => sum + item.totalCost, 0)
+      const totalQuantity = valuationItems.reduce((sum, item) => sum + item.currentStock, 0)
+      const averageCost = totalQuantity > 0 ? totalStockValue / totalQuantity : 0
+
+      setStockValuation({
+        totalStockValue,
+        totalStockCost,
+        averageCost,
+        items: valuationItems
+      })
+    } catch (error) {
+      console.error("Error calculating stock valuation:", error)
     }
   }
 
@@ -591,31 +790,34 @@ export default function DailyProfitPage() {
       
       console.log(`Processing ${ordersData.length} completed orders from today`)
       
-      ordersData.forEach(order => {
+      ordersData.forEach((order, index) => {
         const orderItems = getOrderItems(order)
         if (!orderItems || orderItems.length === 0) {
           console.warn(`Order ${order._id} has no items`)
           return
         }
 
-        orderItems.forEach(item => {
+        console.log(`Order ${index + 1}: ${orderItems.length} items`)
+
+        orderItems.forEach((item: OrderItem) => {
+          // Try multiple ways to get the item ID
           const itemId = item.menuItemId || item.itemId
           if (!itemId) {
-            console.warn(`Order ${order._id} has item without ID`)
+            console.warn(`Order ${order._id} has item without ID:`, item)
             return
           }
           
           const quantity = item.quantity || 0
+          if (quantity === 0) return
           
           const existing = salesMap.get(itemId) || { quantity: 0 }
-          
           salesMap.set(itemId, {
             quantity: existing.quantity + quantity
           })
         })
       })
 
-      console.log(`Found ${salesMap.size} unique items sold today from completed orders`)
+      console.log(`Found ${salesMap.size} unique items sold today`)
 
       if (salesMap.size === 0) {
         setTodayItems([])
@@ -630,19 +832,24 @@ export default function DailyProfitPage() {
           profitableItems: 0,
           lowMarginItems: 0,
           lossItems: 0,
-          totalIngredients: 0
+          totalIngredients: 0,
+          totalStockValue: stockValuation?.totalStockValue || 0,
+          totalStockCost: stockValuation?.totalStockCost || 0,
+          averageStockCost: stockValuation?.averageCost || 0
         })
         return
       }
 
       // Calculate profitability for each sold item
       const results: DailySoldItem[] = []
+      let itemsNotFound = 0
 
       salesMap.forEach((sale, itemId) => {
         // Find menu item
         const menuItem = menuData.find(item => item._id === itemId)
         if (!menuItem || !menuItem.isActive) {
           console.warn(`Menu item ${itemId} not found or inactive`)
+          itemsNotFound++
           return
         }
 
@@ -652,48 +859,49 @@ export default function DailyProfitPage() {
         const categoryType = category?.type || "OTHER"
 
         let totalCost = 0
-        let singleItemCost = 0
         const ingredients: IngredientCost[] = []
 
-        // Calculate cost from required stock
+        // Calculate cost from required stock using average cost
         if (menuItem.requiredStock && menuItem.requiredStock.length > 0) {
-          for (const req of menuItem.requiredStock) {
-            const { price: latestPrice, date: purchaseDate, supplier } = getLatestPrice(req.stockId, purchaseData)
-            // Cost = quantity_needed × latest_price × quantity_sold
-            const cost = req.quantity * latestPrice * sale.quantity
+          menuItem.requiredStock.forEach(req => {
+            const { averageCost, totalCost: avgTotalCost, purchaseCount, lastPurchaseDate, supplier } = 
+              calculateAverageCost(req.stockId, purchaseData)
+            const { price: latestPrice } = getLatestPrice(req.stockId, purchaseData)
+            
+            // Cost = quantity_needed × average_cost × quantity_sold
+            const cost = req.quantity * averageCost * sale.quantity
             totalCost += cost
-            const ingredientCostForOne = req.quantity * latestPrice
-            singleItemCost += ingredientCostForOne
 
             ingredients.push({
               stockId: req.stockId,
-              stockName: getStockName(req.stockId, stockData), // Cost per single item
-              quantity: req.quantity, // Cost per single item
+              stockName: getStockName(req.stockId, stockData),
+              quantity: req.quantity * sale.quantity,
               unit: getStockUnit(req.stockId, stockData),
+              averageCost: averageCost,
               latestPrice: latestPrice,
-              totalCost: ingredientCostForOne,
-              purchaseDate: purchaseDate || '',
+              totalCost: cost,
+              purchaseDate: lastPurchaseDate,
               supplier: supplier
             })
-          }
+          })
         }
 
         // Revenue is price × quantity sold
-        const singleItemProfit = menuItem.price - singleItemCost
-        const profitMargin = menuItem.price > 0 ? (singleItemProfit / menuItem.price) * 100 : 0
+        const totalRevenue = menuItem.price * sale.quantity
+        const profit = totalRevenue - totalCost
+        const profitMargin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0
 
         let status: 'profitable' | 'low' | 'loss' = 'profitable'
         if (profitMargin < 0) status = 'loss'
         else if (profitMargin < 20) status = 'low'
         else status = 'profitable'
 
-        // ✅ FIXED: Storing per-item cost and profit
         results.push({
           itemId: menuItem._id,
           itemName: menuItem.name,
-          sellingPrice: menuItem.price, // Price for one item
-          totalIngredientCost: singleItemCost, // Cost for one item
-          profit: singleItemProfit, // Profit for one item
+          sellingPrice: menuItem.price,
+          totalIngredientCost: totalCost,
+          profit: profit,
           profitMargin: profitMargin,
           status: status,
           ingredients: ingredients,
@@ -705,14 +913,18 @@ export default function DailyProfitPage() {
         })
       })
 
+      if (itemsNotFound > 0) {
+        console.warn(`${itemsNotFound} items were not found in the menu`)
+      }
+
       // Sort by profit margin
       results.sort((a, b) => b.profitMargin - a.profitMargin)
       setTodayItems(results)
 
       // Calculate summary
-      const totalRevenue = results.reduce((sum, item) => sum + (item.sellingPrice * item.quantitySold), 0);
-      const totalCost = results.reduce((sum, item) => sum + (item.totalIngredientCost * item.quantitySold), 0);
-      const totalProfit = totalRevenue - totalCost;
+      const totalRevenue = results.reduce((sum, item) => sum + (item.sellingPrice * item.quantitySold), 0)
+      const totalCost = results.reduce((sum, item) => sum + item.totalIngredientCost, 0)
+      const totalProfit = totalRevenue - totalCost
       const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0
       const profitableItems = results.filter(i => i.status === 'profitable').length
       const lowMarginItems = results.filter(i => i.status === 'low').length
@@ -730,11 +942,14 @@ export default function DailyProfitPage() {
         profitableItems,
         lowMarginItems,
         lossItems,
-        totalIngredients
+        totalIngredients,
+        totalStockValue: stockValuation?.totalStockValue || 0,
+        totalStockCost: stockValuation?.totalStockCost || 0,
+        averageStockCost: stockValuation?.averageCost || 0
       })
     } catch (error) {
       console.error("Error calculating profitability:", error)
-      setError("Failed to calculate profitability")
+      setError(`Failed to calculate profitability: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -752,6 +967,11 @@ export default function DailyProfitPage() {
   const handleViewDetails = (item: DailySoldItem) => {
     setSelectedItem(item)
     setIsDetailOpen(true)
+  }
+
+  // Handle view stock valuation
+  const handleViewStockValuation = () => {
+    setIsStockValuationOpen(true)
   }
 
   // Filter and sort items
@@ -810,9 +1030,9 @@ export default function DailyProfitPage() {
 
   // Calculate totals for footer
   const totals = useMemo(() => {
-    const totalCost = filteredItems.reduce((sum, item) => sum + (item.totalIngredientCost * item.quantitySold), 0)
+    const totalCost = filteredItems.reduce((sum, item) => sum + item.totalIngredientCost, 0)
     const totalRevenue = filteredItems.reduce((sum, item) => sum + (item.sellingPrice * item.quantitySold), 0)
-    const totalProfit = totalRevenue - totalCost;
+    const totalProfit = totalRevenue - totalCost
     return { totalCost, totalRevenue, totalProfit }
   }, [filteredItems])
 
@@ -828,8 +1048,8 @@ export default function DailyProfitPage() {
       'Category': item.categoryName,
       'Type': item.categoryType,
       'Quantity Sold': item.quantitySold,
-      'Price (per item)': formatCurrency(item.sellingPrice),
-      'Cost (per item)': formatCurrency(item.totalIngredientCost),
+      'Price': formatCurrency(item.sellingPrice),
+      'Total Cost': formatCurrency(item.totalIngredientCost),
       'Profit': formatCurrency(item.profit),
       'Profit Margin %': item.profitMargin.toFixed(2),
       'Status': item.status === 'profitable' ? 'Profitable' : item.status === 'low' ? 'Low Margin' : 'Loss',
@@ -846,28 +1066,28 @@ export default function DailyProfitPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'profitable':
-        return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200">Profitable</Badge>
+        return <Badge className="bg-green-100 text-green-800 border-green-200">Profitable</Badge>
       case 'low':
-        return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200">Low Margin</Badge>
+        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Low Margin</Badge>
       case 'loss':
-        return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200">Loss</Badge>
+        return <Badge className="bg-red-100 text-red-800 border-red-200">Loss</Badge>
       default:
         return <Badge variant="outline">Unknown</Badge>
     }
   }
 
   const getProfitColor = (profit: number) => {
-    if (profit > 0) return 'text-green-600 dark:text-green-400'
-    if (profit < 0) return 'text-red-600 dark:text-red-400'
+    if (profit > 0) return 'text-green-600'
+    if (profit < 0) return 'text-red-600'
     return 'text-gray-600'
   }
 
   const getMarginColor = (margin: number) => {
-    if (margin >= 30) return 'text-green-600 dark:text-green-400'
-    if (margin >= 20) return 'text-emerald-600 dark:text-emerald-400'
-    if (margin >= 10) return 'text-yellow-600 dark:text-yellow-400'
-    if (margin >= 0) return 'text-orange-600 dark:text-orange-400'
-    return 'text-red-600 dark:text-red-400'
+    if (margin >= 30) return 'text-green-600'
+    if (margin >= 20) return 'text-emerald-600'
+    if (margin >= 10) return 'text-yellow-600'
+    if (margin >= 0) return 'text-orange-600'
+    return 'text-red-600'
   }
 
   const getProgressColor = (margin: number) => {
@@ -879,9 +1099,9 @@ export default function DailyProfitPage() {
   }
 
   const categoryTypeColors = {
-    FOOD: { bg: "bg-amber-100 dark:bg-amber-900/30", text: "text-amber-800 dark:text-amber-300", border: "border-amber-200 dark:border-amber-800", icon: Pizza },
-    DRINK: { bg: "bg-blue-100 dark:bg-blue-900/30", text: "text-blue-800 dark:text-blue-300", border: "border-blue-200 dark:border-blue-800", icon: Coffee },
-    OTHER: { bg: "bg-purple-100 dark:bg-purple-900/30", text: "text-purple-800 dark:text-purple-300", border: "border-purple-200 dark:border-purple-800", icon: Utensils },
+    FOOD: { bg: "bg-amber-100", text: "text-amber-800", border: "border-amber-200", icon: Pizza },
+    DRINK: { bg: "bg-blue-100", text: "text-blue-800", border: "border-blue-200", icon: Coffee },
+    OTHER: { bg: "bg-purple-100", text: "text-purple-800", border: "border-purple-200", icon: Utensils },
   }
 
   // Chart data
@@ -898,7 +1118,7 @@ export default function DailyProfitPage() {
   const pieData = [
     { name: 'Profitable (≥20%)', value: summary?.profitableItems || 0, color: '#22c55e' },
     { name: 'Low Margin (0-20%)', value: summary?.lowMarginItems || 0, color: '#eab308' },
-    { name: 'Loss (&lt;0%)', value: summary?.lossItems || 0, color: '#ef4444' }
+    { name: 'Loss (<0%)', value: summary?.lossItems || 0, color: '#ef4444' }
   ].filter(d => d.value > 0)
 
   if (isLoading) {
@@ -923,24 +1143,6 @@ export default function DailyProfitPage() {
     )
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 p-4 md:p-6 flex items-center justify-center">
-        <Card className="max-w-md w-full">
-          <CardContent className="pt-6 text-center">
-            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Error Loading Data</h3>
-            <p className="text-muted-foreground mb-4">{error}</p>
-            <Button onClick={handleRefresh}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Try Again
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50/50 via-white to-purple-50/30 p-3 md:p-6">
       <div className="max-w-7xl mx-auto">
@@ -950,7 +1152,7 @@ export default function DailyProfitPage() {
             <div className="flex items-center gap-2 mb-1 md:mb-2">
               <Calculator className="h-6 w-6 md:h-8 md:w-8 text-purple-600" />
               <h1 className="text-xl md:text-3xl font-bold bg-gradient-to-r from-purple-800 to-purple-600 bg-clip-text text-transparent">
-                Today's Profit
+                Today's Profit & Stock Value
               </h1>
             </div>
             <p className="text-xs md:text-sm text-muted-foreground ml-8 md:ml-9">
@@ -959,8 +1161,20 @@ export default function DailyProfitPage() {
             <p className="text-[10px] md:text-xs text-muted-foreground ml-8 md:ml-9 mt-0.5 md:mt-1">
               {summary?.totalOrders || 0} completed orders • {summary?.totalItemsSold || 0} items sold
             </p>
+            {debugInfo && (
+              <p className="text-[10px] text-gray-400 ml-8 md:ml-9 mt-1">{debugInfo}</p>
+            )}
           </div>
-          <div className="flex gap-2 w-full sm:w-auto">
+          <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+            <Button 
+              onClick={handleViewStockValuation} 
+              variant="outline" 
+              size="sm" 
+              className="rounded-full flex-1 sm:flex-none text-xs md:text-sm border-purple-200 hover:bg-purple-50"
+            >
+              <Warehouse className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
+              Stock Value
+            </Button>
             <Button onClick={handleRefresh} variant="outline" size="sm" className="rounded-full flex-1 sm:flex-none text-xs md:text-sm">
               <RefreshCw className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
               Refresh
@@ -972,125 +1186,150 @@ export default function DailyProfitPage() {
           </div>
         </div>
 
-        {/* Summary Stats Cards */}
-        {summary && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-8">
-            <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg bg-gradient-to-br from-white to-purple-50/50">
-              <CardContent className="p-3 md:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] md:text-sm font-medium text-muted-foreground">Items Sold</p>
-                    <p className="text-base md:text-2xl font-bold text-purple-900">{summary.totalItemsSold}</p>
-                    <p className="text-[8px] md:text-xs text-muted-foreground">{todayItems.length} unique</p>
-                  </div>
-                  <div className="p-2 md:p-3 bg-purple-100 rounded-xl md:rounded-2xl">
-                    <Utensils className="h-4 w-4 md:h-6 md:w-6 text-purple-600" />
-                  </div>
+        {/* Error Display */}
+        {error && (
+          <Card className="mb-4 border-red-200 bg-red-50">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-red-800">Error</p>
+                  <p className="text-sm text-red-700">{error}</p>
+                  <Button onClick={handleRefresh} variant="outline" size="sm" className="mt-2">
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Retry
+                  </Button>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg bg-gradient-to-br from-white to-green-50/50">
-              <CardContent className="p-3 md:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] md:text-sm font-medium text-muted-foreground">Revenue</p>
-                    <p className="text-base md:text-2xl font-bold text-green-600">{formatCurrency(summary.totalRevenue)}</p>
-                    <p className="text-[8px] md:text-xs text-muted-foreground">{summary.totalOrders} orders</p>
-                  </div>
-                  <div className="p-2 md:p-3 bg-green-100 rounded-xl md:rounded-2xl">
-                    <DollarSign className="h-4 w-4 md:h-6 md:w-6 text-green-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg bg-gradient-to-br from-white to-orange-50/50">
-              <CardContent className="p-3 md:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] md:text-sm font-medium text-muted-foreground">Stock Cost</p>
-                    <p className="text-base md:text-2xl font-bold text-orange-600">{formatCurrency(summary.totalCost)}</p>
-                    <p className="text-[8px] md:text-xs text-muted-foreground">{summary.totalIngredients} ingredients</p>
-                  </div>
-                  <div className="p-2 md:p-3 bg-orange-100 rounded-xl md:rounded-2xl">
-                    <Package className="h-4 w-4 md:h-6 md:w-6 text-orange-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg bg-gradient-to-br from-white to-blue-50/50">
-              <CardContent className="p-3 md:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] md:text-sm font-medium text-muted-foreground">Profit</p>
-                    <p className={`text-base md:text-2xl font-bold ${getProfitColor(summary.totalProfit)}`}>
-                      {formatCurrency(summary.totalProfit)}
-                    </p>
-                    <p className="text-[8px] md:text-xs text-muted-foreground">
-                      {summary.profitableItems} profitable
-                    </p>
-                  </div>
-                  <div className={`p-2 md:p-3 ${summary.totalProfit >= 0 ? 'bg-blue-100' : 'bg-red-100'} rounded-xl md:rounded-2xl`}>
-                    <TrendingUp className={`h-4 w-4 md:h-6 md:w-6 ${summary.totalProfit >= 0 ? 'text-blue-600' : 'text-red-600'}`} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
-        {/* Second Row Stats */}
+        {/* Summary Stats Cards */}
         {summary && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-8">
-            <Card className="rounded-xl md:rounded-2xl border-0 shadow-md bg-gradient-to-br from-white to-purple-50/50">
-              <CardContent className="p-2 md:p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[8px] md:text-xs text-muted-foreground">Margin</p>
-                    <p className={`text-sm md:text-xl font-bold ${getMarginColor(summary.profitMargin)}`}>
-                      {summary.profitMargin.toFixed(1)}%
-                    </p>
+          <>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-8">
+              <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg bg-gradient-to-br from-white to-purple-50/50">
+                <CardContent className="p-3 md:p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] md:text-sm font-medium text-muted-foreground">Items Sold</p>
+                      <p className="text-base md:text-2xl font-bold text-purple-900">{summary.totalItemsSold}</p>
+                      <p className="text-[8px] md:text-xs text-muted-foreground">{todayItems.length} unique</p>
+                    </div>
+                    <div className="p-2 md:p-3 bg-purple-100 rounded-xl md:rounded-2xl">
+                      <Utensils className="h-4 w-4 md:h-6 md:w-6 text-purple-600" />
+                    </div>
                   </div>
-                  <Percent className="h-4 w-4 md:h-5 md:w-5 text-purple-500" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="rounded-xl md:rounded-2xl border-0 shadow-md bg-gradient-to-br from-white to-green-50/50">
-              <CardContent className="p-2 md:p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[8px] md:text-xs text-muted-foreground">Profitable</p>
-                    <p className="text-sm md:text-xl font-bold text-green-600">{summary.profitableItems}</p>
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg bg-gradient-to-br from-white to-green-50/50">
+                <CardContent className="p-3 md:p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] md:text-sm font-medium text-muted-foreground">Revenue</p>
+                      <p className="text-base md:text-2xl font-bold text-green-600">{formatCurrency(summary.totalRevenue)}</p>
+                      <p className="text-[8px] md:text-xs text-muted-foreground">{summary.totalOrders} orders</p>
+                    </div>
+                    <div className="p-2 md:p-3 bg-green-100 rounded-xl md:rounded-2xl">
+                      <DollarSign className="h-4 w-4 md:h-6 md:w-6 text-green-600" />
+                    </div>
                   </div>
-                  <TrendingUp className="h-4 w-4 md:h-5 md:w-5 text-green-500" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="rounded-xl md:rounded-2xl border-0 shadow-md bg-gradient-to-br from-white to-yellow-50/50">
-              <CardContent className="p-2 md:p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[8px] md:text-xs text-muted-foreground">Low Margin</p>
-                    <p className="text-sm md:text-xl font-bold text-yellow-600">{summary.lowMarginItems}</p>
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg bg-gradient-to-br from-white to-orange-50/50">
+                <CardContent className="p-3 md:p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] md:text-sm font-medium text-muted-foreground">Stock Cost</p>
+                      <p className="text-base md:text-2xl font-bold text-orange-600">{formatCurrency(summary.totalCost)}</p>
+                      <p className="text-[8px] md:text-xs text-muted-foreground">{summary.totalIngredients} ingredients</p>
+                    </div>
+                    <div className="p-2 md:p-3 bg-orange-100 rounded-xl md:rounded-2xl">
+                      <Package className="h-4 w-4 md:h-6 md:w-6 text-orange-600" />
+                    </div>
                   </div>
-                  <TrendingDown className="h-4 w-4 md:h-5 md:w-5 text-yellow-500" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="rounded-xl md:rounded-2xl border-0 shadow-md bg-gradient-to-br from-white to-red-50/50">
-              <CardContent className="p-2 md:p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[8px] md:text-xs text-muted-foreground">Loss</p>
-                    <p className="text-sm md:text-xl font-bold text-red-600">{summary.lossItems}</p>
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg bg-gradient-to-br from-white to-blue-50/50">
+                <CardContent className="p-3 md:p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] md:text-sm font-medium text-muted-foreground">Profit</p>
+                      <p className={`text-base md:text-2xl font-bold ${getProfitColor(summary.totalProfit)}`}>
+                        {formatCurrency(summary.totalProfit)}
+                      </p>
+                      <p className="text-[8px] md:text-xs text-muted-foreground">
+                        {summary.profitableItems} profitable
+                      </p>
+                    </div>
+                    <div className={`p-2 md:p-3 ${summary.totalProfit >= 0 ? 'bg-blue-100' : 'bg-red-100'} rounded-xl md:rounded-2xl`}>
+                      <TrendingUp className={`h-4 w-4 md:h-6 md:w-6 ${summary.totalProfit >= 0 ? 'text-blue-600' : 'text-red-600'}`} />
+                    </div>
                   </div>
-                  <TrendingDown className="h-4 w-4 md:h-5 md:w-5 text-red-500" />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Second Row Stats */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-8">
+              <Card className="rounded-xl md:rounded-2xl border-0 shadow-md bg-gradient-to-br from-white to-purple-50/50">
+                <CardContent className="p-2 md:p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[8px] md:text-xs text-muted-foreground">Stock Value</p>
+                      <p className="text-sm md:text-xl font-bold text-purple-600">
+                        {formatCurrency(summary.totalStockValue)}
+                      </p>
+                    </div>
+                    <Warehouse className="h-4 w-4 md:h-5 md:w-5 text-purple-500" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="rounded-xl md:rounded-2xl border-0 shadow-md bg-gradient-to-br from-white to-blue-50/50">
+                <CardContent className="p-2 md:p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[8px] md:text-xs text-muted-foreground">Avg Stock Cost</p>
+                      <p className="text-sm md:text-xl font-bold text-blue-600">
+                        {formatCurrency(summary.averageStockCost)}
+                      </p>
+                    </div>
+                    <Scale className="h-4 w-4 md:h-5 md:w-5 text-blue-500" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="rounded-xl md:rounded-2xl border-0 shadow-md bg-gradient-to-br from-white to-green-50/50">
+                <CardContent className="p-2 md:p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[8px] md:text-xs text-muted-foreground">Margin</p>
+                      <p className={`text-sm md:text-xl font-bold ${getMarginColor(summary.profitMargin)}`}>
+                        {summary.profitMargin.toFixed(1)}%
+                      </p>
+                    </div>
+                    <Percent className="h-4 w-4 md:h-5 md:w-5 text-green-500" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="rounded-xl md:rounded-2xl border-0 shadow-md bg-gradient-to-br from-white to-yellow-50/50">
+                <CardContent className="p-2 md:p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[8px] md:text-xs text-muted-foreground">Low/Loss Items</p>
+                      <p className="text-sm md:text-xl font-bold text-yellow-600">
+                        {summary.lowMarginItems + summary.lossItems}
+                      </p>
+                    </div>
+                    <TrendingDown className="h-4 w-4 md:h-5 md:w-5 text-yellow-500" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </>
         )}
 
         {/* Filters */}
@@ -1178,8 +1417,8 @@ export default function DailyProfitPage() {
         </Card>
 
         {/* Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
-          {chartData.length > 0 && (
+        {chartData.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
             <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg">
               <CardHeader className="p-3 md:p-6">
                 <CardTitle className="text-sm md:text-lg">Top Items - Revenue vs Cost</CardTitle>
@@ -1188,54 +1427,59 @@ export default function DailyProfitPage() {
               <CardContent className="p-3 md:p-6">
                 <div className="w-full h-[200px] md:h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData}>
+                    <ComposedChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" angle={-45} textAnchor="end" height={60} tick={{ fontSize: 10 }} />
-                      <YAxis tickFormatter={(value) => formatCurrency(value)} tick={{ fontSize: 10 }} />
-                      <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                      <YAxis yAxisId="left" tickFormatter={(value) => formatCurrency(value)} tick={{ fontSize: 10 }} />
+                      <YAxis yAxisId="right" orientation="right" tickFormatter={(value) => `${value}%`} tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(value, name) => {
+                        if (name === 'margin') return `${Number(value).toFixed(1)}%`
+                        return formatCurrency(value as number)
+                      }} />
                       <Legend wrapperStyle={{ fontSize: '10px' }} />
-                      <Bar dataKey="price" name="Price" fill="#22c55e" />
-                      <Bar dataKey="cost" name="Stock Cost" fill="#f97316" />
-                    </BarChart>
+                      <Bar yAxisId="left" dataKey="price" name="Price" fill="#22c55e" />
+                      <Bar yAxisId="left" dataKey="cost" name="Stock Cost" fill="#f97316" />
+                      <Line yAxisId="right" type="monotone" dataKey="margin" name="Margin %" stroke="#8b5cf6" strokeWidth={2} />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               </CardContent>
             </Card>
-          )}
 
-          {pieData.length > 0 && (
-            <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg">
-              <CardHeader className="p-3 md:p-6">
-                <CardTitle className="text-sm md:text-lg">Profitability Distribution</CardTitle>
-                <CardDescription className="text-xs md:text-sm">Status of all items sold</CardDescription>
-              </CardHeader>
-              <CardContent className="p-3 md:p-6">
-                <div className="w-full h-[200px] md:h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => [`${value} items`, 'Count']} />
-                      <Legend wrapperStyle={{ fontSize: '10px' }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+            {pieData.length > 0 && (
+              <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg">
+                <CardHeader className="p-3 md:p-6">
+                  <CardTitle className="text-sm md:text-lg">Profitability Distribution</CardTitle>
+                  <CardDescription className="text-xs md:text-sm">Status of all items sold</CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 md:p-6">
+                  <div className="w-full h-[200px] md:h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={pieData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {pieData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => [`${value} items`, 'Count']} />
+                        <Legend wrapperStyle={{ fontSize: '10px' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
 
         {/* Items Table */}
         <Card className="rounded-xl md:rounded-2xl border-0 shadow-lg overflow-hidden">
@@ -1245,9 +1489,14 @@ export default function DailyProfitPage() {
                 <Clock className="h-4 w-4 md:h-5 md:w-5 text-purple-600" />
                 Items Sold Today
               </CardTitle>
-              <Badge variant="secondary" className="text-xs md:text-sm">
-                {filteredItems.length} items
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="text-xs md:text-sm">
+                  {filteredItems.length} items
+                </Badge>
+                <Badge variant="outline" className="text-xs md:text-sm">
+                  {formatCurrency(totals.totalRevenue)} revenue
+                </Badge>
+              </div>
             </div>
             <CardDescription className="text-xs md:text-sm">
               {format(new Date(), 'EEEE, MMMM d, yyyy')} • {summary?.totalOrders || 0} completed orders
@@ -1332,15 +1581,19 @@ export default function DailyProfitPage() {
                     )
                   })}
 
-                  {filteredItems.length === 0 && (
+                  {filteredItems.length === 0 && !error && (
                     <TableRow>
                       <TableCell colSpan={9} className="text-center py-8 md:py-10 text-muted-foreground">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-6 w-6 md:h-8 md:w-8 text-muted-foreground" />
-                          <p className="text-sm md:text-base">No completed orders found today</p>
-                          <Button variant="outline" size="sm" onClick={handleRefresh}>
-                            <RefreshCw className="h-3 w-3 md:h-4 md:w-4 mr-2" />
-                            Refresh
+                          <p className="text-sm md:text-base">No items found matching your filters</p>
+                          <Button variant="outline" size="sm" onClick={() => {
+                            setSearchQuery("")
+                            setSelectedCategoryId("all")
+                            setSelectedCategoryType("all")
+                            setStatusFilter("all")
+                          }}>
+                            Clear Filters
                           </Button>
                         </div>
                       </TableCell>
@@ -1378,7 +1631,7 @@ export default function DailyProfitPage() {
           </CardContent>
         </Card>
 
-        {/* Item Detail Dialog */}
+        {/* Dialogs */}
         <ItemDetailDialog 
           item={selectedItem}
           isOpen={isDetailOpen}
@@ -1386,6 +1639,12 @@ export default function DailyProfitPage() {
             setIsDetailOpen(false)
             setSelectedItem(null)
           }}
+        />
+
+        <StockValuationDialog
+          isOpen={isStockValuationOpen}
+          onClose={() => setIsStockValuationOpen(false)}
+          stockValuation={stockValuation}
         />
       </div>
     </div>

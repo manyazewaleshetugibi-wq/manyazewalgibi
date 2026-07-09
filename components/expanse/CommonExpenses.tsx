@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { format, eachDayOfInterval, parseISO } from "date-fns"
+import { format, eachDayOfInterval, parseISO, isSameDay } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -14,7 +14,36 @@ import { CalendarIcon, LayoutGrid, TrendingUp, Wallet, Sparkles, RefreshCw, Info
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, AreaChart, Area, LineChart, Line } from "recharts"
 import { commonApi } from "@/services/expense.service"
 import { CommonExpense, DateFilterType } from "@/types/expense.types"
-import { formatCurrency, formatShortCurrency, getDailyCommonAmount, getDateRange } from "@/lib/utils/expense.utils"
+import { formatCurrency, formatShortCurrency, getDateRange } from "@/lib/utils/expense.utils"
+
+// Fixed version of getDailyCommonAmount
+const getDailyCommonAmount = (expense: CommonExpense, date: Date): number => {
+  const expenseDate = parseISO(expense.startDate)
+  
+  // If expense is not active or start date is in the future, return 0
+  if (!expense.isActive || expenseDate > date) return 0
+  
+  // For one-time expenses, only count on the start date
+  if (expense.frequency === 'one-time') {
+    return isSameDay(expenseDate, date) ? expense.amount : 0
+  }
+  
+  // For recurring expenses, calculate daily amount
+  switch (expense.frequency) {
+    case 'daily':
+      return expense.amount
+    case 'weekly':
+      return expense.amount / 7
+    case 'monthly':
+      return expense.amount / 30  // Using 30 days for monthly
+    case 'quarterly':
+      return expense.amount / 91.25  // 365/4
+    case 'yearly':
+      return expense.amount / 365
+    default:
+      return 0
+  }
+}
 
 export function CommonExpenses() {
   const [expenses, setExpenses] = useState<CommonExpense[]>([])
@@ -68,23 +97,37 @@ export function CommonExpenses() {
       return {
         date: format(date, 'MMM dd'),
         fullDate: date,
-        Amount: dailyTotal,
+        Amount: Math.round(dailyTotal * 100) / 100, // Round to 2 decimal places
       }
     })
   }, [expenses, dateFilterType, customStartDate, customEndDate])
 
-  const totalForPeriod = chartData.reduce((sum, day) => sum + day.Amount, 0)
-  const averageDaily = chartData.length > 0 ? totalForPeriod / chartData.length : 0
-  const monthlyProjected = averageDaily * 30
+  // Calculate summary statistics
+  const summaryData = useMemo(() => {
+    const totalForPeriod = chartData.reduce((sum, day) => sum + day.Amount, 0)
+    const averageDaily = chartData.length > 0 ? totalForPeriod / chartData.length : 0
+    const monthlyProjected = averageDaily * 30
+    
+    // Calculate total monthly from all active expenses
+    const totalMonthly = expenses
+      .filter(e => e.isActive)
+      .reduce((sum, e) => {
+        if (e.frequency === 'monthly') return sum + e.amount
+        if (e.frequency === 'daily') return sum + (e.amount * 30)
+        if (e.frequency === 'weekly') return sum + (e.amount * 4.33)
+        if (e.frequency === 'quarterly') return sum + (e.amount / 4)
+        if (e.frequency === 'yearly') return sum + (e.amount / 12)
+        return sum + e.amount
+      }, 0)
 
-  const activeExpenses = expenses.filter(e => e.isActive)
-  const totalMonthlyAmount = activeExpenses.reduce((sum, e) => {
-    if (e.frequency === 'monthly') return sum + e.amount
-    if (e.frequency === 'daily') return sum + (e.amount * 30)
-    if (e.frequency === 'weekly') return sum + (e.amount * 4.33)
-    if (e.frequency === 'yearly') return sum + (e.amount / 12)
-    return sum + e.amount
-  }, 0)
+    return {
+      totalForPeriod,
+      averageDaily,
+      monthlyProjected,
+      totalMonthly,
+      activeExpenses: expenses.filter(e => e.isActive).length
+    }
+  }, [chartData, expenses])
 
   const getFrequencyLabel = (freq: string) => {
     const labels: Record<string, string> = {
@@ -323,32 +366,32 @@ export function CommonExpenses() {
         </CardContent>
       </Card>
 
-      {/* Enhanced Summary Cards */}
+      {/* Enhanced Summary Cards - FIXED */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/30 dark:to-purple-900/20 border-0 shadow-md hover:shadow-lg transition-shadow">
           <CardContent className="pt-4 sm:pt-6">
             <p className="text-xs sm:text-sm text-muted-foreground">Active Expenses</p>
-            <p className="text-xl sm:text-2xl font-bold text-purple-600">{activeExpenses.length}</p>
+            <p className="text-xl sm:text-2xl font-bold text-purple-600">{summaryData.activeExpenses}</p>
           </CardContent>
         </Card>
         <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/20 border-0 shadow-md hover:shadow-lg transition-shadow">
           <CardContent className="pt-4 sm:pt-6">
             <p className="text-xs sm:text-sm text-muted-foreground">Period Total</p>
-            <p className="text-xl sm:text-2xl font-bold text-blue-600">{formatCurrency(totalForPeriod)}</p>
+            <p className="text-xl sm:text-2xl font-bold text-blue-600">{formatCurrency(summaryData.totalForPeriod)}</p>
             <p className="text-[10px] sm:text-xs text-muted-foreground">Over {chartData.length} days</p>
           </CardContent>
         </Card>
         <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-950/30 dark:to-emerald-900/20 border-0 shadow-md hover:shadow-lg transition-shadow">
           <CardContent className="pt-4 sm:pt-6">
             <p className="text-xs sm:text-sm text-muted-foreground">Avg. Daily</p>
-            <p className="text-xl sm:text-2xl font-bold text-emerald-600">{formatCurrency(averageDaily)}</p>
+            <p className="text-xl sm:text-2xl font-bold text-emerald-600">{formatCurrency(summaryData.averageDaily)}</p>
             <p className="text-[10px] sm:text-xs text-muted-foreground">Per day</p>
           </CardContent>
         </Card>
         <Card className="bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950/30 dark:to-amber-900/20 border-0 shadow-md hover:shadow-lg transition-shadow">
           <CardContent className="pt-4 sm:pt-6">
             <p className="text-xs sm:text-sm text-muted-foreground">Monthly Projected</p>
-            <p className="text-xl sm:text-2xl font-bold text-amber-600">{formatCurrency(monthlyProjected)}</p>
+            <p className="text-xl sm:text-2xl font-bold text-amber-600">{formatCurrency(summaryData.monthlyProjected)}</p>
             <p className="text-[10px] sm:text-xs text-muted-foreground">30-day projection</p>
           </CardContent>
         </Card>
