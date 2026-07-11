@@ -64,38 +64,18 @@ export async function POST(req: NextRequest) {
     if (!stock) {
       return NextResponse.json({ success: false, message: "Stock not found" }, { status: 404 })
     }
-    if (stock.currentStock < quantity) {
-      return NextResponse.json(
-        { success: false, message: `Insufficient stock. Available: ${stock.currentStock}` },
-        { status: 400 }
-      )
-    }
 
-    const session = client.startSession()
-    try {
-      await session.withTransaction(async () => {
-        await db.collection("stock_transfers").insertOne(
-          {
-            stockId,
-            quantity: Number(quantity),
-            receiverName: receiverName.trim(),
-            note: (note || "").trim(),
-            date: date || new Date().toISOString().split("T")[0],
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-          { session }
-        )
-        await db.collection("stocks").updateOne(
-          { _id: new ObjectId(stockId) },
-          { $inc: { currentStock: -Number(quantity) }, $set: { updatedAt: new Date() } },
-          { session }
-        )
-      })
-      return NextResponse.json({ success: true, message: "Transfer registered successfully" }, { status: 201 })
-    } finally {
-      await session.endSession()
-    }
+    await db.collection("stock_transfers").insertOne({
+      stockId,
+      quantity: Number(quantity),
+      receiverName: receiverName.trim(),
+      note: (note || "").trim(),
+      date: date || new Date().toISOString().split("T")[0],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    return NextResponse.json({ success: true, message: "Transfer registered successfully" }, { status: 201 })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ success: false, message: "Validation error", errors: error.errors }, { status: 400 })
@@ -124,21 +104,6 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Transfer not found" }, { status: 404 })
     }
 
-    const quantityDiff = (validated.quantity ?? existing.quantity) - existing.quantity
-
-    if (quantityDiff !== 0) {
-      const stock = await db.collection("stocks").findOne({ _id: new ObjectId(existing.stockId) })
-      if (!stock) {
-        return NextResponse.json({ success: false, message: "Stock not found" }, { status: 404 })
-      }
-      if (stock.currentStock < quantityDiff) {
-        return NextResponse.json(
-          { success: false, message: `Insufficient stock. Available: ${stock.currentStock}` },
-          { status: 400 }
-        )
-      }
-    }
-
     const session = client.startSession()
     try {
       await session.withTransaction(async () => {
@@ -147,13 +112,6 @@ export async function PUT(req: NextRequest) {
           { $set: { ...validated, updatedAt: new Date() } },
           { session }
         )
-        if (quantityDiff !== 0) {
-          await db.collection("stocks").updateOne(
-            { _id: new ObjectId(existing.stockId) },
-            { $inc: { currentStock: -quantityDiff }, $set: { updatedAt: new Date() } },
-            { session }
-          )
-        }
       })
       return NextResponse.json({ success: true, message: "Transfer updated successfully" }, { status: 200 })
     } finally {
@@ -184,20 +142,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Transfer not found" }, { status: 404 })
     }
 
-    const session = client.startSession()
-    try {
-      await session.withTransaction(async () => {
-        await db.collection("stocks").updateOne(
-          { _id: new ObjectId(transfer.stockId) },
-          { $inc: { currentStock: transfer.quantity }, $set: { updatedAt: new Date() } },
-          { session }
-        )
-        await db.collection("stock_transfers").deleteOne({ _id: new ObjectId(id) }, { session })
-      })
-      return NextResponse.json({ success: true, message: "Transfer deleted and stock restored" }, { status: 200 })
-    } finally {
-      await session.endSession()
-    }
+    await db.collection("stock_transfers").deleteOne({ _id: new ObjectId(id) })
+    return NextResponse.json({ success: true, message: "Transfer deleted" }, { status: 200 })
   } catch (error) {
     console.error("DELETE /stock-transfer Error:", error)
     return NextResponse.json({ success: false, message: "Error deleting transfer" }, { status: 500 })

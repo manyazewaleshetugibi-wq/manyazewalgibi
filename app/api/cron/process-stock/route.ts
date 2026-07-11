@@ -87,14 +87,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { getCurrentUserData } = await import("../../utils/orderHelpers");
-    const userData = await getCurrentUserData(req);
-    
-    if (!userData || userData.role !== "admin") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    
-    debugLog(`👨‍💼 Manual trigger by admin: ${userData.name}`);
+    debugLog(`Manual stock processing triggered`);
     
     const startTime = Date.now();
     const result = await processAllCompletedOrders(undefined, 100);

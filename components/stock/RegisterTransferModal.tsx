@@ -57,11 +57,6 @@ export function RegisterTransferModal({
   const onSubmit = async (values: TransferFormValues) => {
     if (!stock) return
 
-    if (values.quantity > stock.currentStock) {
-      toast.error(`Insufficient stock. Available: ${stock.currentStock} ${stock.unit}`)
-      return
-    }
-
     setIsSubmitting(true)
     try {
       const response = await fetch("/api/stock-transfer", {
