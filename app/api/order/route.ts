@@ -46,10 +46,11 @@ function isSuccessResult(result: any): result is {
   return result?.success === true && typeof result?.pointsAwarded === 'number';
 }
 
-// Helper function to check if a user role is admin
+// Helper function to check if a user role is admin (case-insensitive)
 const isAdminRole = (role: string | undefined): boolean => {
   if (!role) return false;
-  return ['ADMIN', 'admin', 'Admin', 'SUPER_ADMIN'].includes(role);
+  const normalized = role.toUpperCase();
+  return ['ADMIN', 'SUPER_ADMIN'].includes(normalized);
 }
 
 // GET endpoint - Fetch orders with role-based time filtering
@@ -1028,6 +1029,7 @@ export async function DELETE(req: NextRequest) {
     const isAdmin = isAdminRole(userData?.role);
     
     if (!isAdmin) {
+      console.warn(`Order delete denied: userId=${userData?.id}, role=${userData?.role}, hasToken=${!!userData}`);
       return NextResponse.json(
         { success: false, error: "Unauthorized. Only administrators can delete orders." },
         { status: 403 }

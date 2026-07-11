@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useSession, signOut, getSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { motion } from "framer-motion";
 import { 
   Lock, 
@@ -118,13 +118,16 @@ export default function ChangePasswordPage() {
     try {
       console.log("🔄 Forcing session refresh...");
       
-      // Method 1: Use NextAuth's update function
+      // Step 1: Use NextAuth's update function to refresh JWT
       await update({
         requiresPasswordChange: false
       });
       
-      // Method 2: Call session endpoint with no-cache headers
-      await fetch('/api/auth/session', {
+      // Step 2: Wait for the JWT callback to query DB and propagate
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Step 3: Fetch fresh session directly from API (bypass client cache)
+      const res = await fetch('/api/auth/session', {
         method: 'GET',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -134,18 +137,13 @@ export default function ChangePasswordPage() {
         credentials: 'include'
       });
       
-      // Method 3: Small delay and get fresh session
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const freshSession = await res.json();
+      console.log("🔄 Fresh session from API:", freshSession?.user);
       
-      const newSession = await getSession();
-      console.log("🔄 New session after refresh:", newSession?.user);
-      
-      if (newSession?.user) {
-        const user = newSession.user as SessionUser;
-        console.log("✅ Session refreshed successfully, requiresPasswordChange:", user.requiresPasswordChange);
+      if (freshSession?.user) {
+        const user = freshSession.user as SessionUser;
         
         if (!user.requiresPasswordChange) {
-          // Redirect based on role
           toast({
             title: "Success!",
             description: "Session updated successfully. Redirecting...",
@@ -154,6 +152,20 @@ export default function ChangePasswordPage() {
           redirectByRole(user.role, router, user.requiresPasswordChange);
           return true;
         }
+      }
+      
+      // If still not refreshed, try one more time with longer delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const retryRes = await fetch('/api/auth/session', {
+        method: 'GET',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
+        credentials: 'include'
+      });
+      const retrySession = await retryRes.json();
+      
+      if (retrySession?.user && !retrySession.user.requiresPasswordChange) {
+        redirectByRole(retrySession.user.role, router, false);
+        return true;
       }
       
       return false;
@@ -252,26 +264,34 @@ export default function ChangePasswordPage() {
           variant: "default",
         });
         
-        // Try multiple methods to refresh session
         console.log("🔄 Attempting to refresh session after password change...");
         
-        // Method 1: Use NextAuth's update function
+        // Step 1: Update JWT token
         await update({
           requiresPasswordChange: false
         });
         
-        // Method 2: Add a small delay
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Step 2: Wait for DB propagation
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // Method 3: Get fresh session
-        const newSession = await getSession();
+        // Step 3: Fetch fresh session directly from API
+        const res = await fetch('/api/auth/session', {
+          method: 'GET',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          },
+          credentials: 'include'
+        });
         
-        if (newSession?.user) {
-          const user = newSession.user as SessionUser;
+        const freshSession = await res.json();
+        
+        if (freshSession?.user) {
+          const user = freshSession.user as SessionUser;
           console.log("✅ Fresh session obtained, requiresPasswordChange:", user.requiresPasswordChange);
           
           if (!user.requiresPasswordChange) {
-            // Redirect based on role
             toast({
               title: "Redirecting...",
               description: "Your session has been updated successfully.",
@@ -279,12 +299,10 @@ export default function ChangePasswordPage() {
             });
             redirectByRole(user.role, router, user.requiresPasswordChange);
           } else {
-            // If session still shows requiresPasswordChange, try force refresh
             console.log("🔄 Session still shows requiresPasswordChange=true, forcing refresh...");
             await forceSessionRefresh();
           }
         } else {
-          // If no session, try force refresh
           console.log("🔄 No session found, forcing refresh...");
           await forceSessionRefresh();
         }

@@ -314,7 +314,7 @@ export async function PUT(
   }
 }
 
-// DELETE: Delete an order by ID
+// DELETE: Delete an order by ID (Admin only)
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -329,6 +329,16 @@ export async function DELETE(
     // Validate the order ID
     if (!ObjectId.isValid(orderId)) {
       return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
+    }
+
+    // Auth check - admin only
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const role = (session.user as any).role;
+    if (!role || !['ADMIN', 'SUPER_ADMIN'].includes(String(role).toUpperCase())) {
+      return NextResponse.json({ error: "Unauthorized. Only administrators can delete orders." }, { status: 403 });
     }
 
     // Delete the order from the database

@@ -3,10 +3,11 @@ import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { getCurrentUserData } from "../../utils/orderHelpers";
 
-// Helper function to check if a user role is admin
+// Helper function to check if a user role is admin (case-insensitive)
 const isAdminRole = (role: string | undefined): boolean => {
   if (!role) return false;
-  return ['ADMIN', 'admin', 'Admin', 'SUPER_ADMIN'].includes(role);
+  const normalized = role.toUpperCase();
+  return ['ADMIN', 'SUPER_ADMIN'].includes(normalized);
 };
 
 // GET: Retrieve an order by ID - COMPLETELY HIDE ALL DATA
@@ -132,6 +133,7 @@ export async function DELETE(
     const isAdmin = isAdminRole(userData?.role);
     
     if (!isAdmin) {
+      console.warn(`Order delete denied: userId=${userData?.id}, role=${userData?.role}, hasToken=${!!userData}`);
       return NextResponse.json(
         { success: false, message: "Unauthorized" },
         { status: 403 }

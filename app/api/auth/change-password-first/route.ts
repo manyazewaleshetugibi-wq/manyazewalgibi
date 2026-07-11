@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
       httpOnly: false, // Allow frontend to read this
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 30
+      maxAge: 120
     });
     
     // Set a secure flag for the frontend to detect immediate session refresh
@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
       httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 5 // 5 seconds - very short-lived
+      maxAge: 30
     });
     
     return response;
