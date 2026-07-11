@@ -375,7 +375,7 @@ export default function OrderManagementMain() {
     const loadingToast = toast.loading('Processing stock...')
     
     try {
-      const response = await api.get('/cron/process-stock')
+      const response = await api.post('/cron/process-stock')
       const result = response.data
       
       toast.dismiss(loadingToast)

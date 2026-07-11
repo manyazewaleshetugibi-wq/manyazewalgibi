@@ -88,7 +88,7 @@ export function StockProcess({ onStockProcessed }: StockProcessProps) {
 
     try {
       const response = await fetch('/api/cron/process-stock', {
-        method: 'GET',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       })
 

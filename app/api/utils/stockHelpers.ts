@@ -103,7 +103,12 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
   const existingRecords = await db.collection("used_stock")
     .countDocuments({ orderId: order._id });
   
-  if (existingRecords > 0) {
+  const isPartialOrder = order.hasPartialStock === true || 
+    (order.pendingStockItems && order.pendingStockItems.length > 0);
+
+  // Only skip if fully processed (existing records AND not a partial order)
+  // Partial orders need to continue so remaining pendingStockItems get processed
+  if (existingRecords > 0 && !isPartialOrder) {
     if (!order.stockProcessed) {
       await db.collection("orders").updateOne(
         { _id: order._id },
