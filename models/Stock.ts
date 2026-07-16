@@ -8,14 +8,17 @@ export const StockCategorySubschema = z.object({
 });
 
 export const ReorderFrequencyEnum = z.enum([
-  "daily", 
-  "weekly", 
-  "15days", 
-  "monthly", 
-  "2months", 
-  "3months", 
-  "6months", 
-  "9months", 
+  "daily",
+  "3days",
+  "5days",
+  "weekly",
+  "9days",
+  "11days",
+  "2weeks",
+  "monthly",
+  "2months",
+  "3months",
+  "6months",
   "yearly"
 ]);
 

@@ -30,7 +30,7 @@ export type Stock = {
   minimumStock: number
   currentStock: number
   requiredAmount: number
-  reorderFrequency: 'daily' | 'weekly' | '15days' | 'monthly' | '2months' | '3months' | '6months' | '9months' | 'yearly'
+  reorderFrequency: 'daily' | '3days' | '5days' | 'weekly' | '9days' | '11days' | '2weeks' | 'monthly' | '2months' | '3months' | '6months' | 'yearly'
   isActive: boolean
   createdAt: string
   updatedAt: string

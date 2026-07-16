@@ -20,7 +20,7 @@ export const sanitizeStock = (stock: any) => {
     currentStock: stock.currentStock,
     minimumStock: stock.minimumStock,
     currentUnitPrice: stock.currentUnitPrice || 0,
-    reorderFrequency: stock.reorderFrequency || 'MONTHLY',
+    reorderFrequency: stock.reorderFrequency || 'monthly',
     requiredAmount: stock.requiredAmount || 0,
     isActive: stock.isActive !== undefined ? stock.isActive : true,
     description: stock.description || '',

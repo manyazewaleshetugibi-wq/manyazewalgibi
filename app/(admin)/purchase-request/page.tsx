@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { Toaster, toast } from "react-hot-toast"
 import {
@@ -9,11 +9,9 @@ import {
   Search,
   Filter,
   CheckCircle,
-  Truck,
   ShoppingCart,
   UserCheck,
   Clock,
-  DollarSign,
   Loader2,
   Eye,
   TrendingUp,
@@ -25,19 +23,13 @@ import {
   Shield,
   Target,
   Calculator,
+  Zap,
+  X,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -52,6 +44,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Separator } from "@/components/ui/separator"
 
 type PurchaseRequest = {
   _id: string
@@ -69,17 +62,14 @@ type PurchaseRequest = {
   estimatedTotalCost: number
   actualUnitPrice?: number
   actualTotalCost?: number
-  isDelivered: boolean
   isPurchased: boolean
   isConfirmed: boolean
-  deliveredAt?: string
-  deliveredBy?: string
   purchasedAt?: string
   purchasedBy?: string
   confirmedAt?: string
   confirmedBy?: string
   reason: string
-  status: 'pending' | 'delivered' | 'purchased' | 'completed'
+  status: 'pending' | 'purchased' | 'completed'
   notes?: string
   createdAt: string
   currentStockLevel?: number
@@ -91,7 +81,6 @@ type DateSummary = {
   totalRequests: number
   totalEstimatedCost: number
   pending: number
-  delivered: number
   purchased: number
   completed: number
 }
@@ -101,10 +90,36 @@ const normalizeRole = (role: string | undefined): string => {
   return role.toUpperCase().trim();
 };
 
+const getReasonInfo = (reason: string) => {
+  switch (reason) {
+    case 'minimum_stock_reached':
+      return {
+        label: 'Low Stock',
+        description: 'Current stock fell below minimum required level',
+        color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800',
+        icon: AlertTriangle,
+      }
+    case 'reorder_frequency_due':
+      return {
+        label: 'Reorder Schedule',
+        description: 'Time to reorder based on schedule',
+        color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800',
+        icon: Calendar,
+      }
+    default:
+      return {
+        label: 'Manual Request',
+        description: 'Manually requested',
+        color: 'bg-gray-100 text-gray-700 border-gray-200',
+        icon: Package,
+      }
+  }
+}
+
 export default function PurchaseRequestPage() {
   const { data: session } = useSession()
   const userRole = normalizeRole(session?.user?.role)
-  
+
   const [requests, setRequests] = useState<PurchaseRequest[]>([])
   const [summary, setSummary] = useState<DateSummary[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -114,9 +129,6 @@ export default function PurchaseRequestPage() {
   const [selectedRequest, setSelectedRequest] = useState<PurchaseRequest | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isToggling, setIsToggling] = useState(false)
-  const [generationStatus, setGenerationStatus] = useState<{ canGenerate: boolean; hoursRemaining: number; lastGeneratedAt: string | null } | null>(null)
-  
-  // Price input modal states
   const [isPriceModalOpen, setIsPriceModalOpen] = useState(false)
   const [priceInputRequestId, setPriceInputRequestId] = useState<string | null>(null)
   const [unitPriceInput, setUnitPriceInput] = useState<string>("")
@@ -126,7 +138,7 @@ export default function PurchaseRequestPage() {
   const isFinance = userRole === 'FINANCE'
   const isStockManager = userRole === 'STOCK_MANAGER'
   const canGenerate = isAdmin || isStockManager
-  const canToggleDelivered = isAdmin || isFinance
+  const canPurchase = isAdmin || isFinance
   const canConfirm = isAdmin || isStockManager
 
   const fetchRequests = async () => {
@@ -135,7 +147,7 @@ export default function PurchaseRequestPage() {
       let roleParam = ''
       if (isFinance) roleParam = 'finance'
       if (isStockManager) roleParam = 'stock_manager'
-      
+
       const response = await fetch(`/api/purchase-request?role=${roleParam}&status=${statusFilter}&date=${selectedDate}`)
       const data = await response.json()
       if (data.success) {
@@ -152,35 +164,19 @@ export default function PurchaseRequestPage() {
     }
   }
 
-  const checkGenerationStatus = async () => {
-    if (!canGenerate) return
-    try {
-      const response = await fetch("/api/purchase-request/generate")
-      const data = await response.json()
-      if (data.success) {
-        setGenerationStatus(data.data)
-      }
-    } catch (error) {
-      console.error("Error checking generation status:", error)
-    }
-  }
-
   const handleGenerateRequests = async () => {
     if (!canGenerate) {
       toast.error("You don't have permission to generate purchase requests")
       return
     }
-    
+
     setIsLoading(true)
     try {
-      const response = await fetch("/api/purchase-request/generate", {
-        method: "POST",
-      })
+      const response = await fetch("/api/purchase-request/generate", { method: "POST" })
       const data = await response.json()
       if (data.success) {
         toast.success(`${data.data.count} new requests generated for ${data.data.date}`)
         fetchRequests()
-        checkGenerationStatus()
       } else {
         if (response.status === 429) {
           toast.error(data.message)
@@ -196,12 +192,10 @@ export default function PurchaseRequestPage() {
     }
   }
 
-  // Open price modal before marking as purchased
   const openPriceModal = (requestId: string) => {
     const request = requests.find(r => r._id === requestId)
     if (request) {
       setPriceInputRequestId(requestId)
-      // Pre-fill with estimated price if available
       const defaultPrice = request.estimatedUnitPrice || 0
       setUnitPriceInput(defaultPrice.toString())
       setCalculatedTotal(defaultPrice * request.requestedQuantity)
@@ -209,96 +203,82 @@ export default function PurchaseRequestPage() {
     }
   }
 
- // Handle price submission and mark as purchased
-const handlePriceSubmit = async () => {
-  if (!priceInputRequestId) return
-  
-  const unitPrice = parseFloat(unitPriceInput)
-  if (isNaN(unitPrice) || unitPrice <= 0) {
-    toast.error("Please enter a valid unit price")
-    return
-  }
-  
-  const request = requests.find(r => r._id === priceInputRequestId)
-  if (!request) return
-  
-  const totalCost = unitPrice * request.requestedQuantity
-  
-  console.log(`💰 Submitting purchase - Request ID: ${priceInputRequestId}, Unit Price: ${unitPrice}, Total Cost: ${totalCost}`)
-  
-  setIsToggling(true)
-  try {
-    const response = await fetch(`/api/purchase-request/${priceInputRequestId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: 'purchased',
-        userId: session?.user?.id || "system",
-        actualUnitPrice: unitPrice,
-        actualTotalCost: totalCost,
-      }),
-    })
-    const data = await response.json()
-    if (data.success) {
-      toast.success(`Purchase completed! Total: ${totalCost.toLocaleString()} ETB`)
-      fetchRequests()
-      setIsPriceModalOpen(false)
-      setPriceInputRequestId(null)
-      setUnitPriceInput("")
-      setCalculatedTotal(0)
-    } else {
-      toast.error(data.message || "Failed to mark as purchased")
-    }
-  } catch (error) {
-    console.error("Error marking as purchased:", error)
-    toast.error("Failed to mark as purchased")
-  } finally {
-    setIsToggling(false)
-  }
-}
+  const handlePriceSubmit = async () => {
+    if (!priceInputRequestId) return
 
-  const handleToggle = async (requestId: string, action: 'delivered' | 'purchased' | 'confirm') => {
-    if (action === 'delivered' || action === 'purchased') {
-      if (!canToggleDelivered) {
-        toast.error("You don't have permission to update delivery/purchase status")
-        return
-      }
+    const unitPrice = parseFloat(unitPriceInput)
+    if (isNaN(unitPrice) || unitPrice <= 0) {
+      toast.error("Please enter a valid unit price")
+      return
     }
-    if (action === 'confirm') {
-      if (!canConfirm) {
-        toast.error("You don't have permission to confirm stock")
-        return
+
+    const request = requests.find(r => r._id === priceInputRequestId)
+    if (!request) return
+
+    const totalCost = unitPrice * request.requestedQuantity
+
+    setIsToggling(true)
+    try {
+      const response = await fetch(`/api/purchase-request/${priceInputRequestId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: 'purchased',
+          userId: session?.user?.id || "system",
+          actualUnitPrice: unitPrice,
+          actualTotalCost: totalCost,
+        }),
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast.success(`Purchase completed! Total: ${totalCost.toLocaleString()} ETB`)
+        fetchRequests()
+        setIsPriceModalOpen(false)
+        setPriceInputRequestId(null)
+        setUnitPriceInput("")
+        setCalculatedTotal(0)
+      } else {
+        toast.error(data.message || "Failed to mark as purchased")
       }
+    } catch (error) {
+      console.error("Error marking as purchased:", error)
+      toast.error("Failed to mark as purchased")
+    } finally {
+      setIsToggling(false)
     }
-    
-    // For purchased action, open price modal instead of direct toggle
+  }
+
+  const handleToggle = async (requestId: string, action: 'purchased' | 'confirm') => {
     if (action === 'purchased') {
       openPriceModal(requestId)
       return
     }
-    
+
+    if (action === 'confirm' && !canConfirm) {
+      toast.error("You don't have permission to confirm stock")
+      return
+    }
+
     setIsToggling(true)
     try {
-      const payload: any = {
-        action,
-        userId: session?.user?.id || "system",
-      }
-
       const response = await fetch(`/api/purchase-request/${requestId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          action,
+          userId: session?.user?.id || "system",
+        }),
       })
       const data = await response.json()
       if (data.success) {
-        toast.success(`Request ${action}ed successfully`)
+        toast.success(action === 'confirm' ? 'Stock confirmed and updated!' : 'Marked as purchased')
         fetchRequests()
       } else {
-        toast.error(data.message || `Failed to ${action} request`)
+        toast.error(data.message || `Failed to ${action}`)
       }
     } catch (error) {
       console.error(`Error toggling ${action}:`, error)
-      toast.error(`Failed to ${action} request`)
+      toast.error(`Failed to ${action}`)
     } finally {
       setIsToggling(false)
     }
@@ -306,35 +286,14 @@ const handlePriceSubmit = async () => {
 
   useEffect(() => {
     fetchRequests()
-    if (canGenerate) {
-      checkGenerationStatus()
-    }
   }, [selectedDate, statusFilter])
 
   const todaySummary = summary.find(s => s.date === selectedDate)
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return { label: 'Pending', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400', icon: Clock }
-      case 'delivered':
-        return { label: 'Delivered', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400', icon: Truck }
-      case 'purchased':
-        return { label: 'Purchased', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400', icon: ShoppingCart }
-      case 'completed':
-        return { label: 'Completed', color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400', icon: CheckCircle }
-      default:
-        return { label: status, color: 'bg-gray-100 text-gray-800', icon: Package }
-    }
-  }
-
-  const dailyProgress = todaySummary ? 
-    ((todaySummary.completed + todaySummary.purchased) / todaySummary.totalRequests) * 100 : 0
-
-  const changeDate = (days: number) => {
-    const currentDate = new Date(selectedDate)
-    currentDate.setDate(currentDate.getDate() + days)
-    setSelectedDate(currentDate.toISOString().split('T')[0])
+  const getProgress = (req: PurchaseRequest) => {
+    if (req.isConfirmed) return 100
+    if (req.isPurchased) return 66
+    return 0
   }
 
   const getRequiredAmountDisplay = (request: PurchaseRequest) => {
@@ -347,7 +306,12 @@ const handlePriceSubmit = async () => {
     return 0
   }
 
-  // Update calculated total when unit price changes
+  const changeDate = (days: number) => {
+    const currentDate = new Date(selectedDate)
+    currentDate.setDate(currentDate.getDate() + days)
+    setSelectedDate(currentDate.toISOString().split('T')[0])
+  }
+
   const handleUnitPriceChange = (value: string) => {
     setUnitPriceInput(value)
     const price = parseFloat(value)
@@ -359,8 +323,14 @@ const handlePriceSubmit = async () => {
     }
   }
 
+  const filteredRequests = requests.filter(req =>
+    req.stockName.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  const today = new Date().toISOString().split('T')[0]
+
   return (
-    <div className="container mx-auto py-10">
+    <div className="min-h-screen bg-gray-50/50 dark:bg-gray-950/50">
       <Toaster position="top-right" />
 
       {/* Price Input Modal */}
@@ -372,31 +342,22 @@ const handlePriceSubmit = async () => {
               Enter Purchase Details
             </DialogTitle>
             <DialogDescription>
-              Enter the actual unit price to calculate the total purchase cost.
+              Enter the actual unit price to calculate the total cost.
             </DialogDescription>
           </DialogHeader>
-          
+
           {priceInputRequestId && (() => {
             const request = requests.find(r => r._id === priceInputRequestId)
             if (!request) return null
-            
             return (
               <div className="space-y-4">
-                <div className="bg-gray-50 dark:bg-gray-900/30 p-3 rounded-lg">
-                  <p className="text-sm text-muted-foreground">Stock</p>
+                <div className="bg-muted/50 p-3 rounded-lg space-y-1">
                   <p className="font-medium">{request.stockName}</p>
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Requested Quantity</p>
-                      <p className="font-semibold">{request.requestedQuantity} {request.unit}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Required Amount</p>
-                      <p className="font-semibold">{getRequiredAmountDisplay(request)} {request.unit}</p>
-                    </div>
+                  <div className="flex items-center gap-4 text-sm">
+                    <span className="text-muted-foreground">Qty: <span className="font-semibold text-foreground">{request.requestedQuantity} {request.unit}</span></span>
+                    <span className="text-muted-foreground">Target: <span className="font-semibold text-foreground">{getRequiredAmountDisplay(request)} {request.unit}</span></span>
                   </div>
                 </div>
-                
                 <div className="space-y-2">
                   <Label htmlFor="unitPrice">Unit Price (ETB)</Label>
                   <Input
@@ -409,24 +370,14 @@ const handlePriceSubmit = async () => {
                     autoFocus
                   />
                 </div>
-                
-                <div className="bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg">
-                  <p className="text-sm text-muted-foreground">Calculated Total Cost</p>
-                  <p className="text-2xl font-bold text-blue-600">
-                    {calculatedTotal.toLocaleString()} ETB
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {request.requestedQuantity} {request.unit} × {parseFloat(unitPriceInput) || 0} ETB
-                  </p>
+                <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Total Cost</p>
+                  <p className="text-2xl font-bold text-blue-600">{calculatedTotal.toLocaleString()} ETB</p>
+                  <p className="text-xs text-muted-foreground mt-1">{request.requestedQuantity} x {parseFloat(unitPriceInput) || 0} ETB</p>
                 </div>
-                
                 <DialogFooter className="gap-2">
-                  <Button variant="outline" onClick={() => setIsPriceModalOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handlePriceSubmit} disabled={!unitPriceInput || parseFloat(unitPriceInput) <= 0}>
-                    Confirm Purchase
-                  </Button>
+                  <Button variant="outline" onClick={() => setIsPriceModalOpen(false)}>Cancel</Button>
+                  <Button onClick={handlePriceSubmit} disabled={!unitPriceInput || parseFloat(unitPriceInput) <= 0}>Confirm Purchase</Button>
                 </DialogFooter>
               </div>
             )
@@ -434,504 +385,498 @@ const handlePriceSubmit = async () => {
         </DialogContent>
       </Dialog>
 
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <TrendingUp className="h-8 w-8" />
-            Purchase Requests
-          </h1>
-          <div className="flex items-center gap-2 mt-2">
-            <p className="text-muted-foreground">
-              One request per stock per day | Confirming sets stock to Required Amount
+      <div className="max-w-7xl mx-auto px-4 py-4 md:py-8">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 md:h-6 md:w-6" />
+              Purchase Requests
+            </h1>
+            <p className="text-xs md:text-sm text-muted-foreground mt-1">
+              Purchased → Confirmed sets stock to Required Amount
             </p>
-            <Badge variant="outline" className="ml-2">
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs">
               <Shield className="h-3 w-3 mr-1" />
-              Role: {userRole}
+              {userRole}
             </Badge>
+            {canGenerate && (
+              <Button onClick={handleGenerateRequests} disabled={isLoading} size="sm" className="bg-green-600 hover:bg-green-700">
+                <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Generate</span>
+              </Button>
+            )}
+            <Button onClick={fetchRequests} variant="outline" size="sm">
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
           </div>
         </div>
-        <div className="flex gap-2">
-          {canGenerate && (
-            <Button 
-              onClick={handleGenerateRequests} 
-              disabled={isLoading}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-              Generate Requests
-            </Button>
-          )}
-          <Button onClick={fetchRequests} variant="outline">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-      </div>
 
-      {!canGenerate && (
-        <Alert className="mb-6 bg-blue-50 dark:bg-blue-950/20 border-blue-200">
-          <Lock className="h-4 w-4 text-blue-600" />
-          <AlertDescription className="text-blue-800 dark:text-blue-300">
-            You are viewing as {userRole}. You can update Delivered and Purchased status, but cannot generate new requests.
-          </AlertDescription>
-        </Alert>
-      )}
+        {!canGenerate && (
+          <Alert className="mb-4 bg-blue-50 dark:bg-blue-950/20 border-blue-200">
+            <Lock className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-xs md:text-sm text-blue-800 dark:text-blue-300">
+              Viewing as {userRole}. You can mark items as purchased and confirm stock.
+            </AlertDescription>
+          </Alert>
+        )}
 
-      <Card className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20">
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-4">
-              <Button variant="outline" size="icon" onClick={() => changeDate(-1)}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold flex items-center gap-2">
-                  <Calendar className="h-5 w-5" />
-                  {new Date(selectedDate).toLocaleDateString('en-US', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  })}
-                </h2>
-                {selectedDate !== new Date().toISOString().split('T')[0] && (
-                  <p className="text-sm text-muted-foreground">Historical View</p>
+        {/* Date Navigation + Summary */}
+        <Card className="mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-0">
+          <CardContent className="p-4 md:p-6">
+            {/* Date nav */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => changeDate(-1)}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <div className="text-center min-w-0">
+                  <h2 className="text-sm md:text-base font-bold flex items-center gap-1.5 justify-center">
+                    <Calendar className="h-4 w-4 shrink-0" />
+                    <span className="truncate">
+                      {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  </h2>
+                </div>
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => changeDate(1)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+              <Badge variant={selectedDate === today ? "default" : "secondary"} className="text-xs shrink-0">
+                {selectedDate === today ? "Today" : "Past"}
+              </Badge>
+            </div>
+
+            {/* Stats */}
+            {todaySummary ? (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-white/60 dark:bg-white/5 rounded-lg p-3 text-center">
+                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">Total</p>
+                    <p className="text-xl md:text-2xl font-bold">{todaySummary.totalRequests}</p>
+                  </div>
+                  <div className="bg-white/60 dark:bg-white/5 rounded-lg p-3 text-center">
+                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">Est. Cost</p>
+                    <p className="text-xl md:text-2xl font-bold text-blue-600">{todaySummary.totalEstimatedCost.toLocaleString()}</p>
+                    <p className="text-[10px] text-muted-foreground">ETB</p>
+                  </div>
+                  <div className="bg-white/60 dark:bg-white/5 rounded-lg p-3 text-center">
+                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">Pending</p>
+                    <p className="text-xl md:text-2xl font-bold text-yellow-600">{todaySummary.pending}</p>
+                  </div>
+                  <div className="bg-white/60 dark:bg-white/5 rounded-lg p-3 text-center">
+                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">Done</p>
+                    <p className="text-xl md:text-2xl font-bold text-green-600">{todaySummary.purchased + todaySummary.completed}</p>
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-muted-foreground">Progress</span>
+                    <span className="font-medium">{todaySummary.totalRequests > 0 ? Math.round(((todaySummary.purchased + todaySummary.completed) / todaySummary.totalRequests) * 100) : 0}%</span>
+                  </div>
+                  <Progress value={todaySummary.totalRequests > 0 ? ((todaySummary.purchased + todaySummary.completed) / todaySummary.totalRequests) * 100 : 0} className="h-1.5" />
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-6">
+                <Package className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No requests for this date</p>
+                {selectedDate === today && canGenerate && (
+                  <Button onClick={handleGenerateRequests} variant="outline" size="sm" className="mt-3">Generate Requests</Button>
                 )}
               </div>
-              <Button variant="outline" size="icon" onClick={() => changeDate(1)}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-            <Badge variant={selectedDate === new Date().toISOString().split('T')[0] ? "default" : "secondary"}>
-              {selectedDate === new Date().toISOString().split('T')[0] ? "Today" : "Past Date"}
-            </Badge>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Search + Filter */}
+        <div className="flex gap-2 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search stock..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 h-9 text-sm"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[130px] h-9 text-sm">
+              <Filter className="mr-1.5 h-3.5 w-3.5" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="purchased">Purchased</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-          {todaySummary ? (
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Requests</p>
-                <p className="text-2xl font-bold">{todaySummary.totalRequests}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Estimated Cost</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {todaySummary.totalEstimatedCost.toLocaleString()} ETB
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Pending</p>
-                <p className="text-2xl font-bold text-yellow-600">{todaySummary.pending}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Delivered/Purchased</p>
-                <p className="text-2xl font-bold text-purple-600">{todaySummary.delivered + todaySummary.purchased}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Completed</p>
-                <p className="text-2xl font-bold text-green-600">{todaySummary.completed}</p>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <Package className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-              <p className="text-muted-foreground">No requests found for this date</p>
-              {selectedDate === new Date().toISOString().split('T')[0] && canGenerate && (
-                <Button onClick={handleGenerateRequests} variant="outline" className="mt-4">
-                  Generate Requests for Today
-                </Button>
-              )}
-            </div>
-          )}
-          
-          {todaySummary && (
-            <div className="mt-4">
-              <div className="flex justify-between text-sm mb-1">
-                <span>Daily Progress</span>
-                <span>{Math.round(dailyProgress)}% Complete</span>
-              </div>
-              <Progress value={dailyProgress} className="h-2" />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="mb-6">
-        <CardContent className="pt-6">
-          <div className="flex gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by stock name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[200px]">
-                <Filter className="mr-2 h-4 w-4" />
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="delivered">Delivered</SelectItem>
-                <SelectItem value="purchased">Purchased</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-              </SelectContent>
-            </Select>
+        {/* Requests List */}
+        {isLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        </CardContent>
-      </Card>
+        ) : filteredRequests.length === 0 ? (
+          <div className="text-center py-12">
+            <Package className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">No requests found</p>
+            {selectedDate === today && canGenerate && (
+              <Button onClick={handleGenerateRequests} variant="outline" size="sm" className="mt-3">Generate Requests</Button>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Desktop Table */}
+            <div className="hidden md:block">
+              <Card>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/30">
+                          <th className="text-left py-3 px-4 font-medium text-muted-foreground">Stock</th>
+                          <th className="text-left py-3 px-4 font-medium text-muted-foreground">Reason</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">Current</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">Required</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">To Buy</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">Est. Cost</th>
+                          <th className="text-right py-3 px-4 font-medium text-muted-foreground">Actual</th>
+                          <th className="text-center py-3 px-4 font-medium text-muted-foreground">Status</th>
+                          <th className="text-center py-3 px-4 font-medium text-muted-foreground">Progress</th>
+                          {(canPurchase || isAdmin) && <th className="text-center py-3 px-4 font-medium text-muted-foreground">Finance</th>}
+                          {(canConfirm || isAdmin) && <th className="text-center py-3 px-4 font-medium text-muted-foreground">Confirm</th>}
+                          <th className="py-3 px-4"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRequests.map((request) => {
+                          const progress = getProgress(request)
+                          const requiredAmountDisplay = getRequiredAmountDisplay(request)
+                          const currentStock = request.currentStockLevel || request.currentStock || 0
+                          const shortage = Math.max(0, requiredAmountDisplay - currentStock)
+                          const actualCost = request.actualTotalCost || (request.actualUnitPrice ? request.actualUnitPrice * request.requestedQuantity : null)
+                          const reasonInfo = getReasonInfo(request.reason)
+                          const ReasonIcon = reasonInfo.icon
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Requests for {new Date(selectedDate).toLocaleDateString()}</CardTitle>
-          <CardDescription>
-            {isFinance && "Click 'Purchased' to enter unit price and calculate total cost"}
-            {isStockManager && "Confirm stock delivery after purchase is completed"}
-            {isAdmin && "You have full access to all features"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-          ) : requests.length === 0 ? (
-            <div className="text-center py-8">
-              <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">No purchase requests found for this date</p>
-              {selectedDate === new Date().toISOString().split('T')[0] && canGenerate && (
-                <Button onClick={handleGenerateRequests} variant="outline" className="mt-4">
-                  Generate Requests
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="rounded-md border overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Stock</TableHead>
-                    <TableHead>Required</TableHead>
-                    <TableHead>Requested Qty</TableHead>
-                    <TableHead>Current Stock</TableHead>
-                    <TableHead>Est. Cost</TableHead>
-                    <TableHead>Actual Cost</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Progress</TableHead>
-                    {(canToggleDelivered || isAdmin) && <TableHead>Finance Actions</TableHead>}
-                    {(canConfirm || isAdmin) && <TableHead>Stock Manager Actions</TableHead>}
-                    <TableHead>Details</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {requests.filter(req => 
-                    req.stockName.toLowerCase().includes(searchQuery.toLowerCase())
-                  ).map((request) => {
-                    const statusBadge = getStatusBadge(request.status)
-                    const StatusIcon = statusBadge.icon
-                    const progress = request.isConfirmed ? 100 : request.isPurchased ? 75 : request.isDelivered ? 50 : 25
-                    const requiredAmountDisplay = getRequiredAmountDisplay(request)
-                    const currentStock = request.currentStockLevel || request.currentStock || 0
-                    const needsReorder = requiredAmountDisplay > currentStock
-                    const actualCost = request.actualTotalCost || (request.actualUnitPrice ? request.actualUnitPrice * request.requestedQuantity : null)
-                    
-                    return (
-                      <TableRow key={request._id} className={needsReorder && request.status === 'pending' ? 'bg-orange-50 dark:bg-orange-950/10' : ''}>
-                        <TableCell className="font-medium">{request.stockName}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                            <Target className="mr-1 h-3 w-3" />
-                            {requiredAmountDisplay} {request.unit}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {request.requestedQuantity} {request.unit}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className={currentStock <= request.minimumStock ? 'text-red-600 font-bold' : ''}>
-                              {currentStock} {request.unit}
-                            </span>
-                            {currentStock < requiredAmountDisplay && requiredAmountDisplay > 0 && (
-                              <span className="text-xs text-orange-600">
-                                Shortage: {requiredAmountDisplay - currentStock}
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {request.estimatedTotalCost.toLocaleString()} ETB
-                        </TableCell>
-                        <TableCell>
-                          {actualCost ? (
-                            <span className="font-medium text-green-600">
-                              {actualCost.toLocaleString()} ETB
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={statusBadge.color}>
-                            <StatusIcon className="mr-1 h-3 w-3" />
-                            {statusBadge.label}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="min-w-[100px]">
-                          <Progress value={progress} className="h-2" />
-                          <span className="text-xs text-muted-foreground">{progress}%</span>
-                        </TableCell>
-                        
-                        {(canToggleDelivered || isAdmin) && (
-                          <TableCell>
-                            <div className="flex flex-col gap-2 min-w-[140px]">
-                              <div className="flex items-center justify-between gap-2">
-                                <Label htmlFor={`delivered-${request._id}`} className="text-sm flex items-center gap-1">
-                                  <Truck className="h-3 w-3" />
-                                  Delivered
-                                </Label>
-                                <Switch
-                                  id={`delivered-${request._id}`}
-                                  checked={request.isDelivered}
-                                  onCheckedChange={() => handleToggle(request._id, 'delivered')}
-                                  disabled={request.isConfirmed || isToggling}
-                                />
-                              </div>
-                              
-                              <div className="flex items-center justify-between gap-2">
-                                <Label htmlFor={`purchased-${request._id}`} className="text-sm flex items-center gap-1">
-                                  <ShoppingCart className="h-3 w-3" />
-                                  Purchased
-                                </Label>
-                                <Switch
-                                  id={`purchased-${request._id}`}
-                                  checked={request.isPurchased}
-                                  onCheckedChange={() => handleToggle(request._id, 'purchased')}
-                                  disabled={!request.isDelivered || request.isConfirmed || isToggling}
-                                />
-                              </div>
-                            </div>
-                          </TableCell>
-                        )}
-                        
-                        {(canConfirm || isAdmin) && (
-                          <TableCell>
-                            <div className="flex flex-col gap-1 min-w-[140px]">
-                              <div className="flex items-center justify-between gap-2">
-                                <Label htmlFor={`confirm-${request._id}`} className="text-sm flex items-center gap-1">
-                                  <UserCheck className="h-3 w-3" />
-                                  Confirm
-                                </Label>
-                                <Switch
-                                  id={`confirm-${request._id}`}
-                                  checked={request.isConfirmed}
-                                  onCheckedChange={() => handleToggle(request._id, 'confirm')}
-                                  disabled={!request.isPurchased || isToggling}
-                                />
-                              </div>
-                              {!request.isConfirmed && request.isPurchased && (
-                                <span className="text-xs text-green-600">
-                                  Will set stock to: {requiredAmountDisplay}
+                          return (
+                            <tr key={request._id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${request.status === 'pending' && shortage > 0 ? 'bg-orange-50/50 dark:bg-orange-950/10' : ''}`}>
+                              <td className="py-3 px-4">
+                                <span className="font-medium">{request.stockName}</span>
+                                <span className="text-xs text-muted-foreground block">{request.reorderFrequency}</span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <Badge variant="outline" className={`text-[10px] ${reasonInfo.color}`}>
+                                  <ReasonIcon className="h-3 w-3 mr-1" />
+                                  {reasonInfo.label}
+                                </Badge>
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <span className={currentStock <= request.minimumStock ? 'text-red-600 font-bold' : ''}>
+                                  {currentStock}
                                 </span>
+                                <span className="text-muted-foreground text-xs ml-0.5">{request.unit}</span>
+                              </td>
+                              <td className="py-3 px-4 text-right font-medium">{requiredAmountDisplay} <span className="text-muted-foreground text-xs">{request.unit}</span></td>
+                              <td className="py-3 px-4 text-right">
+                                <span className="font-semibold">{request.requestedQuantity}</span>
+                                <span className="text-muted-foreground text-xs ml-0.5">{request.unit}</span>
+                                {shortage > 0 && <span className="text-orange-600 text-[10px] block">-{shortage} shortage</span>}
+                              </td>
+                              <td className="py-3 px-4 text-right text-muted-foreground">{request.estimatedTotalCost.toLocaleString()} <span className="text-xs">ETB</span></td>
+                              <td className="py-3 px-4 text-right">
+                                {actualCost ? (
+                                  <span className="font-medium text-green-600">{actualCost.toLocaleString()} <span className="text-xs">ETB</span></span>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                {request.status === 'completed' ? (
+                                  <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs"><CheckCircle className="h-3 w-3 mr-1" />Done</Badge>
+                                ) : request.status === 'purchased' ? (
+                                  <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-xs"><ShoppingCart className="h-3 w-3 mr-1" />Purchased</Badge>
+                                ) : (
+                                  <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 text-xs"><Clock className="h-3 w-3 mr-1" />Pending</Badge>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 min-w-[100px]">
+                                <div className="flex items-center gap-2">
+                                  <Progress value={progress} className="h-1.5 flex-1" />
+                                  <span className="text-[10px] text-muted-foreground w-7 text-right">{progress}%</span>
+                                </div>
+                              </td>
+                              {(canPurchase || isAdmin) && (
+                                <td className="py-3 px-4 text-center">
+                                  <Switch
+                                    checked={request.isPurchased}
+                                    onCheckedChange={() => handleToggle(request._id, 'purchased')}
+                                    disabled={request.isConfirmed || isToggling}
+                                  />
+                                </td>
                               )}
-                            </div>
-                          </TableCell>
-                        )}
-                        
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedRequest(request)
-                              setIsDetailOpen(true)
-                            }}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
+                              {(canConfirm || isAdmin) && (
+                                <td className="py-3 px-4 text-center">
+                                  <div className="flex flex-col items-center gap-1">
+                                    <Switch
+                                      checked={request.isConfirmed}
+                                      onCheckedChange={() => handleToggle(request._id, 'confirm')}
+                                      disabled={!request.isPurchased || isToggling}
+                                    />
+                                    {!request.isConfirmed && request.isPurchased && (
+                                      <span className="text-[9px] text-green-600">Set stock to {requiredAmountDisplay}</span>
+                                    )}
+                                  </div>
+                                </td>
+                              )}
+                              <td className="py-3 px-4">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setSelectedRequest(request); setIsDetailOpen(true) }}>
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            {/* Mobile Cards */}
+            <div className="md:hidden space-y-3">
+              {filteredRequests.map((request) => {
+                const progress = getProgress(request)
+                const requiredAmountDisplay = getRequiredAmountDisplay(request)
+                const currentStock = request.currentStockLevel || request.currentStock || 0
+                const shortage = Math.max(0, requiredAmountDisplay - currentStock)
+                const actualCost = request.actualTotalCost || (request.actualUnitPrice ? request.actualUnitPrice * request.requestedQuantity : null)
+                const reasonInfo = getReasonInfo(request.reason)
+                const ReasonIcon = reasonInfo.icon
+
+                return (
+                  <Card key={request._id} className={`overflow-hidden ${request.status === 'pending' && shortage > 0 ? 'border-orange-300' : ''}`}>
+                    <CardContent className="p-3">
+                      {/* Top: Stock name + status + reason */}
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-semibold text-sm truncate">{request.stockName}</h3>
+                          <span className="text-[10px] text-muted-foreground">{request.reorderFrequency}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Badge variant="outline" className={`text-[10px] ${reasonInfo.color}`}>
+                            <ReasonIcon className="h-2.5 w-2.5 mr-0.5" />
+                            {reasonInfo.label}
+                          </Badge>
+                          {request.status === 'completed' ? (
+                            <Badge className="bg-green-100 text-green-700 text-[10px]"><CheckCircle className="h-2.5 w-2.5 mr-0.5" />Done</Badge>
+                          ) : request.status === 'purchased' ? (
+                            <Badge className="bg-purple-100 text-purple-700 text-[10px]"><ShoppingCart className="h-2.5 w-2.5 mr-0.5" />Purchased</Badge>
+                          ) : (
+                            <Badge className="bg-yellow-100 text-yellow-700 text-[10px]"><Clock className="h-2.5 w-2.5 mr-0.5" />Pending</Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Stock info */}
+                      <div className="grid grid-cols-3 gap-2 mb-2">
+                        <div className="text-center bg-muted/30 rounded p-1.5">
+                          <p className="text-[9px] text-muted-foreground uppercase">Current</p>
+                          <p className={`text-sm font-bold ${currentStock <= request.minimumStock ? 'text-red-600' : ''}`}>{currentStock}<span className="text-[9px] font-normal text-muted-foreground ml-0.5">{request.unit}</span></p>
+                        </div>
+                        <div className="text-center bg-muted/30 rounded p-1.5">
+                          <p className="text-[9px] text-muted-foreground uppercase">Required</p>
+                          <p className="text-sm font-bold text-blue-600">{requiredAmountDisplay}<span className="text-[9px] font-normal text-muted-foreground ml-0.5">{request.unit}</span></p>
+                        </div>
+                        <div className="text-center bg-muted/30 rounded p-1.5">
+                          <p className="text-[9px] text-muted-foreground uppercase">To Buy</p>
+                          <p className="text-sm font-bold">{request.requestedQuantity}<span className="text-[9px] font-normal text-muted-foreground ml-0.5">{request.unit}</span></p>
+                        </div>
+                      </div>
+
+                      {shortage > 0 && (
+                        <div className="bg-orange-50 dark:bg-orange-950/20 rounded px-2 py-1 mb-2 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3 text-orange-500" />
+                          <span className="text-[10px] text-orange-700 dark:text-orange-400">Shortage: {shortage} {request.unit}</span>
+                        </div>
+                      )}
+
+                      {/* Cost */}
+                      <div className="flex items-center justify-between text-xs mb-2">
+                        <span className="text-muted-foreground">Est: {request.estimatedTotalCost.toLocaleString()} ETB</span>
+                        {actualCost && <span className="font-medium text-green-600">Actual: {actualCost.toLocaleString()} ETB</span>}
+                      </div>
+
+                      {/* Progress */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <Progress value={progress} className="h-1.5 flex-1" />
+                        <span className="text-[10px] text-muted-foreground w-7 text-right">{progress}%</span>
+                      </div>
+
+                      <Separator className="mb-3" />
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-2">
+                        {(canPurchase || isAdmin) && (
+                          <div className="flex items-center gap-1.5 flex-1">
+                            <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Purchased</Label>
+                            <Switch
+                              checked={request.isPurchased}
+                              onCheckedChange={() => handleToggle(request._id, 'purchased')}
+                              disabled={request.isConfirmed || isToggling}
+                            />
+                          </div>
+                        )}
+                        {(canConfirm || isAdmin) && (
+                          <div className="flex items-center gap-1.5 flex-1">
+                            <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Confirm</Label>
+                            <Switch
+                              checked={request.isConfirmed}
+                              onCheckedChange={() => handleToggle(request._id, 'confirm')}
+                              disabled={!request.isPurchased || isToggling}
+                            />
+                          </div>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => { setSelectedRequest(request); setIsDetailOpen(true) }}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Request Detail Dialog */}
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Purchase Request Details</DialogTitle>
-            <DialogDescription>
-              Complete information about this purchase request
-            </DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5" />
+              Purchase Request Details
+            </DialogTitle>
           </DialogHeader>
-          
-          {selectedRequest && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <h4 className="text-sm font-medium text-muted-foreground">Stock Name</h4>
-                  <p className="text-lg font-semibold">{selectedRequest.stockName}</p>
-                </div>
-                <div>
-                  <h4 className="text-sm font-medium text-muted-foreground">Request Date</h4>
-                  <p>{new Date(selectedRequest.requestDate).toLocaleDateString()}</p>
-                </div>
-                <div>
-                  <h4 className="text-sm font-medium text-muted-foreground">Unit</h4>
-                  <p>{selectedRequest.unit}</p>
-                </div>
-                <div>
-                  <h4 className="text-sm font-medium text-muted-foreground">Required Amount</h4>
-                  <Badge variant="outline" className="bg-blue-50">
-                    <Target className="mr-1 h-3 w-3" />
-                    {getRequiredAmountDisplay(selectedRequest)} {selectedRequest.unit}
-                  </Badge>
-                </div>
-                <div>
-                  <h4 className="text-sm font-medium text-muted-foreground">Reorder Frequency</h4>
-                  <Badge variant="outline" className="capitalize">
-                    <Calendar className="mr-1 h-3 w-3" />
-                    {selectedRequest.reorderFrequency}
-                  </Badge>
-                </div>
-                <div>
-                  <h4 className="text-sm font-medium text-muted-foreground">Reason</h4>
-                  <Badge variant="outline" className="capitalize">
-                    {selectedRequest.reason === 'minimum_stock_reached' ? 'Low Stock' : 
-                     selectedRequest.reason === 'reorder_frequency_due' ? 'Frequency Due' : 
-                     'Manual Request'}
-                  </Badge>
-                </div>
-              </div>
 
-              <div className="border-t pt-4">
-                <h4 className="font-semibold mb-2">Stock Information</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Current Stock</p>
-                    <p className="font-medium">{selectedRequest.currentStockLevel || selectedRequest.currentStock} {selectedRequest.unit}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Required Amount</p>
-                    <p className="font-medium text-blue-600">{getRequiredAmountDisplay(selectedRequest)} {selectedRequest.unit}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Minimum Stock</p>
-                    <p className="font-medium">{selectedRequest.minimumStock} {selectedRequest.unit}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Requested Quantity</p>
-                    <p className="font-medium text-purple-600">{selectedRequest.requestedQuantity} {selectedRequest.unit}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-sm text-muted-foreground">Stock After Confirmation</p>
-                    <p className="font-medium text-green-600">
-                      {getRequiredAmountDisplay(selectedRequest)} {selectedRequest.unit}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Note: Confirming will set stock to the Required Amount
-                    </p>
+          {selectedRequest && (() => {
+            const reasonInfo = getReasonInfo(selectedRequest.reason)
+            const ReasonIcon = reasonInfo.icon
+            const requiredAmountDisplay = getRequiredAmountDisplay(selectedRequest)
+            const currentStock = selectedRequest.currentStockLevel || selectedRequest.currentStock || 0
+            const actualCost = selectedRequest.actualTotalCost || (selectedRequest.actualUnitPrice ? selectedRequest.actualUnitPrice * selectedRequest.requestedQuantity : null)
+
+            return (
+              <div className="space-y-4">
+                {/* Reason Banner */}
+                <div className={`rounded-lg p-3 border ${reasonInfo.color}`}>
+                  <div className="flex items-center gap-2">
+                    <ReasonIcon className="h-4 w-4" />
+                    <div>
+                      <p className="font-semibold text-sm">{reasonInfo.label}</p>
+                      <p className="text-xs opacity-80">
+                        {selectedRequest.reason === 'minimum_stock_reached'
+                          ? `Current stock (${currentStock} ${selectedRequest.unit}) fell below minimum (${selectedRequest.minimumStock} ${selectedRequest.unit})`
+                          : selectedRequest.reason === 'reorder_frequency_due'
+                          ? `Scheduled reorder based on ${selectedRequest.reorderFrequency} frequency`
+                          : reasonInfo.description}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="border-t pt-4">
-                <h4 className="font-semibold mb-2">Financial Information</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Estimated Unit Price</p>
-                    <p className="font-medium">{selectedRequest.estimatedUnitPrice.toLocaleString()} ETB</p>
+                {/* Quick Info */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-muted/30 rounded-lg p-3 text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase">Current Stock</p>
+                    <p className={`text-lg font-bold ${currentStock <= selectedRequest.minimumStock ? 'text-red-600' : ''}`}>{currentStock} <span className="text-xs font-normal text-muted-foreground">{selectedRequest.unit}</span></p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Estimated Total Cost</p>
-                    <p className="font-medium">{selectedRequest.estimatedTotalCost.toLocaleString()} ETB</p>
+                  <div className="bg-muted/30 rounded-lg p-3 text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase">Required Amount</p>
+                    <p className="text-lg font-bold text-blue-600">{requiredAmountDisplay} <span className="text-xs font-normal text-muted-foreground">{selectedRequest.unit}</span></p>
                   </div>
-                  {selectedRequest.actualUnitPrice && (
-                    <>
+                  <div className="bg-muted/30 rounded-lg p-3 text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase">Minimum Stock</p>
+                    <p className="text-lg font-bold">{selectedRequest.minimumStock} <span className="text-xs font-normal text-muted-foreground">{selectedRequest.unit}</span></p>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-3 text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase">To Purchase</p>
+                    <p className="text-lg font-bold text-purple-600">{selectedRequest.requestedQuantity} <span className="text-xs font-normal text-muted-foreground">{selectedRequest.unit}</span></p>
+                  </div>
+                </div>
+
+                {/* Cost */}
+                <div className="border rounded-lg p-3 space-y-2">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase">Cost</h4>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-muted-foreground text-xs">Estimated</p>
+                      <p className="font-medium">{selectedRequest.estimatedUnitPrice.toLocaleString()} ETB/unit</p>
+                      <p className="font-bold">{selectedRequest.estimatedTotalCost.toLocaleString()} ETB total</p>
+                    </div>
+                    {actualCost && (
                       <div>
-                        <p className="text-sm text-muted-foreground">Actual Unit Price</p>
-                        <p className="font-medium text-green-600">{selectedRequest.actualUnitPrice.toLocaleString()} ETB</p>
+                        <p className="text-muted-foreground text-xs">Actual</p>
+                        <p className="font-medium text-green-600">{selectedRequest.actualUnitPrice?.toLocaleString()} ETB/unit</p>
+                        <p className="font-bold text-green-600">{actualCost.toLocaleString()} ETB total</p>
                       </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Actual Total Cost</p>
-                        <p className="font-medium text-green-600">{selectedRequest.actualTotalCost?.toLocaleString()} ETB</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Timeline */}
+                <div className="border rounded-lg p-3 space-y-2">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase">Workflow</h4>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center ${selectedRequest.isPurchased ? 'bg-purple-100 text-purple-600' : selectedRequest.status === 'pending' ? 'bg-yellow-100 text-yellow-600' : 'bg-gray-100 text-gray-400'}`}>
+                        {selectedRequest.isPurchased ? <CheckCircle className="h-3.5 w-3.5" /> : <span className="text-xs font-bold">1</span>}
                       </div>
-                    </>
-                  )}
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">Purchased (Finance)</p>
+                        {selectedRequest.isPurchased ? (
+                          <p className="text-xs text-green-600">
+                            {selectedRequest.purchasedAt ? new Date(selectedRequest.purchasedAt).toLocaleString() : 'Done'}
+                            {selectedRequest.purchasedBy && <span className="text-muted-foreground ml-1">by {selectedRequest.purchasedBy}</span>}
+                          </p>
+                        ) : <p className="text-xs text-muted-foreground">Pending</p>}
+                      </div>
+                    </div>
+                    <div className="ml-3 w-px h-4 bg-border" />
+                    <div className="flex items-center gap-3">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center ${selectedRequest.isConfirmed ? 'bg-green-100 text-green-600' : selectedRequest.isPurchased ? 'bg-yellow-100 text-yellow-600' : 'bg-gray-100 text-gray-400'}`}>
+                        {selectedRequest.isConfirmed ? <CheckCircle className="h-3.5 w-3.5" /> : <span className="text-xs font-bold">2</span>}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">Confirmed (Stock Manager)</p>
+                        {selectedRequest.isConfirmed ? (
+                          <p className="text-xs text-green-600">
+                            {selectedRequest.confirmedAt ? new Date(selectedRequest.confirmedAt).toLocaleString() : 'Done'}
+                            {selectedRequest.confirmedBy && <span className="text-muted-foreground ml-1">by {selectedRequest.confirmedBy}</span>}
+                          </p>
+                        ) : <p className="text-xs text-muted-foreground">Sets stock to {requiredAmountDisplay} {selectedRequest.unit}</p>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button variant="outline" onClick={() => setIsDetailOpen(false)}>Close</Button>
                 </div>
               </div>
-
-              <div className="border-t pt-4">
-                <h4 className="font-semibold mb-2">Workflow Timeline</h4>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/30 rounded">
-                    <div className="flex items-center gap-2">
-                      <Truck className="h-4 w-4 text-blue-600" />
-                      <span>Delivered (Finance)</span>
-                    </div>
-                    <div>
-                      {selectedRequest.isDelivered ? (
-                        <span className="text-green-600 text-sm">
-                          ✓ {selectedRequest.deliveredAt ? new Date(selectedRequest.deliveredAt).toLocaleString() : 'Completed'}
-                          {selectedRequest.deliveredBy && <span className="text-xs text-muted-foreground ml-1">by {selectedRequest.deliveredBy}</span>}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Pending</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/30 rounded">
-                    <div className="flex items-center gap-2">
-                      <ShoppingCart className="h-4 w-4 text-purple-600" />
-                      <span>Purchased (Finance)</span>
-                    </div>
-                    <div>
-                      {selectedRequest.isPurchased ? (
-                        <span className="text-green-600 text-sm">
-                          ✓ {selectedRequest.purchasedAt ? new Date(selectedRequest.purchasedAt).toLocaleString() : 'Completed'}
-                          {selectedRequest.purchasedBy && <span className="text-xs text-muted-foreground ml-1">by {selectedRequest.purchasedBy}</span>}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Pending</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/30 rounded">
-                    <div className="flex items-center gap-2">
-                      <UserCheck className="h-4 w-4 text-green-600" />
-                      <span>Confirmed (Stock Manager)</span>
-                    </div>
-                    <div>
-                      {selectedRequest.isConfirmed ? (
-                        <span className="text-green-600 text-sm">
-                          ✓ {selectedRequest.confirmedAt ? new Date(selectedRequest.confirmedAt).toLocaleString() : 'Completed'}
-                          {selectedRequest.confirmedBy && <span className="text-xs text-muted-foreground ml-1">by {selectedRequest.confirmedBy}</span>}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Pending</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {selectedRequest.notes && (
-                <div className="border-t pt-4">
-                  <h4 className="font-semibold mb-2">Notes</h4>
-                  <p className="text-sm text-muted-foreground">{selectedRequest.notes}</p>
-                </div>
-              )}
-            </div>
-          )}
+            )
+          })()}
         </DialogContent>
       </Dialog>
     </div>

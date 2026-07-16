@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     }
     
     if (role === 'finance') {
-      query.status = { $in: ['pending', 'delivered', 'purchased'] };
+      query.status = { $in: ['pending', 'purchased'] };
     } else if (role === 'stock_manager') {
       query.status = { $in: ['purchased', 'completed'] };
     }
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
       }
     }));
     
-    const groupedByDate = requestsWithStockInfo.reduce((acc: any, request) => {
+    const groupedByDate = requestsWithStockInfo.reduce((acc: any, request: any) => {
       const date = request.requestDate;
       if (!acc[date]) {
         acc[date] = {
@@ -77,7 +77,6 @@ export async function GET(req: NextRequest) {
           totalRequests: 0,
           totalEstimatedCost: 0,
           pending: 0,
-          delivered: 0,
           purchased: 0,
           completed: 0,
         };

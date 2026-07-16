@@ -11,13 +11,16 @@ function daysBetween(date1: Date, date2: Date): number {
 function getFrequencyDays(frequency: string): number {
   const map: Record<string, number> = {
     daily: 1,
+    "3days": 3,
+    "5days": 5,
     weekly: 7,
-    "15days": 15,
+    "9days": 9,
+    "11days": 11,
+    "2weeks": 14,
     monthly: 30,
     "2months": 60,
     "3months": 90,
     "6months": 180,
-    "9months": 270,
     yearly: 365,
   };
   return map[frequency] || 30;

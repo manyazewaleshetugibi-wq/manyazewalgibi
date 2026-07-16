@@ -83,7 +83,7 @@ const stockSchema = z.object({
   minimumStock: z.number().min(0, "Minimum stock must be 0 or greater"),
   currentStock: z.number().min(0, "Current stock must be 0 or greater"),
   requiredAmount: z.number().min(0, "Required amount must be 0 or greater"),
-  reorderFrequency: z.enum(["daily", "weekly", "15days", "monthly", "2months", "3months", "6months", "9months", "yearly"]),
+  reorderFrequency: z.enum(["daily", "3days", "5days", "weekly", "9days", "11days", "2weeks", "monthly", "2months", "3months", "6months", "yearly"]),
 })
 
 const purchaseSchema = z.object({
@@ -98,13 +98,16 @@ const purchaseSchema = z.object({
 const getFrequencyLabel = (frequency: string) => {
   const labels: Record<string, string> = {
     daily: "Daily",
+    "3days": "3 Days",
+    "5days": "5 Days",
     weekly: "Weekly",
-    "15days": "15 Days",
+    "9days": "9 Days",
+    "11days": "11 Days",
+    "2weeks": "2 Weeks",
     monthly: "Monthly",
     "2months": "2 Months",
     "3months": "3 Months",
     "6months": "6 Months",
-    "9months": "9 Months",
     yearly: "Yearly"
   }
   return labels[frequency] || frequency
@@ -1116,13 +1119,16 @@ export function StockManagementUI({
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="3days">3 Days</SelectItem>
+                        <SelectItem value="5days">5 Days</SelectItem>
                         <SelectItem value="weekly">Weekly</SelectItem>
-                        <SelectItem value="15days">15 Days</SelectItem>
+                        <SelectItem value="9days">9 Days</SelectItem>
+                        <SelectItem value="11days">11 Days</SelectItem>
+                        <SelectItem value="2weeks">2 Weeks</SelectItem>
                         <SelectItem value="monthly">Monthly</SelectItem>
                         <SelectItem value="2months">2 Months</SelectItem>
                         <SelectItem value="3months">3 Months</SelectItem>
                         <SelectItem value="6months">6 Months</SelectItem>
-                        <SelectItem value="9months">9 Months</SelectItem>
                         <SelectItem value="yearly">Yearly</SelectItem>
                       </SelectContent>
                     </Select>

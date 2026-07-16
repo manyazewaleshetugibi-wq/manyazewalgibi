@@ -6,13 +6,16 @@ import { createResponse } from "@/lib/utils";
 function getNextReorderDate(frequency: string, fromDate: Date): Date {
   const map: Record<string, number> = {
     daily: 1,
+    "3days": 3,
+    "5days": 5,
     weekly: 7,
-    "15days": 15,
+    "9days": 9,
+    "11days": 11,
+    "2weeks": 14,
     monthly: 30,
     "2months": 60,
     "3months": 90,
     "6months": 180,
-    "9months": 270,
     yearly: 365,
   };
   const days = map[frequency] || 30;
@@ -80,23 +83,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       notes: notes || request.notes,
     };
     
-    if (action === 'delivered') {
-      updateData.isDelivered = !request.isDelivered;
-      if (updateData.isDelivered) {
-        updateData.deliveredAt = new Date();
-        updateData.deliveredBy = userId;
-        updateData.status = 'delivered';
-      } else {
-        updateData.deliveredAt = null;
-        updateData.deliveredBy = null;
-        updateData.status = 'pending';
-      }
-    } 
-    else if (action === 'purchased') {
-      if (!request.isDelivered) {
-        return createResponse(400, false, "Cannot mark as purchased before delivery", null);
-      }
-      
+    if (action === 'purchased') {
       updateData.isPurchased = !request.isPurchased;
       if (updateData.isPurchased) {
         updateData.purchasedAt = new Date();
@@ -110,7 +97,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       } else {
         updateData.purchasedAt = null;
         updateData.purchasedBy = null;
-        updateData.status = 'delivered';
+        updateData.status = 'pending';
         updateData.actualUnitPrice = null;
         updateData.actualTotalCost = null;
       }

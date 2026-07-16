@@ -76,6 +76,7 @@ import {
   BellRing,
   Lock,
   Unlock,
+  VolumeX,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useNotificationSound } from '@/hooks/useNotificationSound';
