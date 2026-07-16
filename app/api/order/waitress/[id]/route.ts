@@ -815,7 +815,9 @@ export async function PUT(
       tax,
       totalAmount,
       finalAmount,
-      waiterId
+      waiterId,
+      restaurantId,
+      restaurantName
     } = body;
 
     if (!orderId) {
@@ -944,6 +946,8 @@ export async function PUT(
     if (discount !== undefined) updateData.discount = discount;
     if (tax !== undefined) updateData.tax = tax;
     if (totalAmount !== undefined) updateData.totalAmount = totalAmount;
+    if (restaurantId !== undefined) updateData.restaurantId = restaurantId;
+    if (restaurantName !== undefined) updateData.restaurantName = restaurantName;
     
     // Calculate final amount
     const updatedTotalAmount = updateData.totalAmount || existingOrder.totalAmount || 0;

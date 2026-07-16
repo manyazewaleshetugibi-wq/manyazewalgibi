@@ -25,6 +25,7 @@ const ROLE_ROUTE_PERMISSIONS = {
       '/blog',
       '/contents',
       '/applications',
+      '/books',
       '/sales',
       '/expe',
       '/profit',
@@ -134,6 +135,7 @@ const ROLE_ROUTE_PERMISSIONS = {
       '/daily-tasks',
       '/profile',
       '/change-password',
+      '/books',
     ],
     apiRoutes: [
       '/api/items',

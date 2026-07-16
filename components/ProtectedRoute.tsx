@@ -11,7 +11,7 @@ const ALL_ROUTES = {
   ADMIN: [
     '/dashboard', '/Culture','/entenfsandretreat','/stock', '/scategory', '/stockReport', '/purchase-request',
     '/items', '/catagory', '/healthy-menu', '/menu-profitability','/qr',
-    '/orders', '/delivery', '/blog', '/contents', '/applications',
+    '/orders', '/delivery', '/blog', '/contents', '/applications', '/books',
     '/sales', '/expe', '/profit', '/training', '/Pregister',
     '/preparation', '/Sregister', '/standards', '/staffregister',
     '/waitress', '/restaurants', '/BirthDate', '/prizes',
@@ -26,7 +26,7 @@ const ALL_ROUTES = {
   FB: [
     '/Culture', '/items', '/catagory', '/menu-profitability',
     '/Pregister', '/Sregister', '/training', '/preparation',
-    '/standards', '/daily-tasks', '/profile', '/change-password'
+    '/standards', '/daily-tasks', '/profile', '/change-password', '/books'
   ],
   MARKETING: [
     '/Culture', '/entenfsandretreat', '/blog', '/contents', '/training',

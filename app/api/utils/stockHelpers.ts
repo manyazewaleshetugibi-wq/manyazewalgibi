@@ -153,12 +153,33 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
     }
   }
 
-  // Collect ingredients
+  // Process book quantity decrements
+  // Books are stored in the "books" collection — just minus sold quantity, no stock/ingredient processing
+  const bookItemIds: string[] = [];
+  for (const [itemIdString, aggItem] of aggregatedItems.entries()) {
+    if (!ObjectId.isValid(itemIdString)) continue;
+
+    const bookData = await db.collection("books").findOne({ _id: new ObjectId(itemIdString) });
+    if (!bookData) continue;
+
+    bookItemIds.push(itemIdString);
+
+    const newQuantity = Math.max(0, (Number(bookData.quantity) || 0) - aggItem.quantity);
+    await db.collection("books").updateOne(
+      { _id: new ObjectId(itemIdString) },
+      { $set: { quantity: newQuantity, updatedAt: new Date() } }
+    );
+
+    debugLog(`📚 Book "${aggItem.itemName}": ${bookData.quantity} -> ${newQuantity} (sold ${aggItem.quantity})`);
+  }
+
+  // Collect ingredients (skip books — they have no stock/ingredients)
   const allIngredients = new Map<string, any>();
   let hasIngredients = false;
 
   for (const [itemIdString, aggItem] of aggregatedItems.entries()) {
     if (!ObjectId.isValid(itemIdString)) continue;
+    if (bookItemIds.includes(itemIdString)) continue; // skip books
     
     const itemData = await db.collection("items").findOne({ _id: new ObjectId(itemIdString) });
     if (!itemData?.requiredStock?.length) continue;

@@ -34,7 +34,8 @@ import {
   Volume2,
   VolumeX,
   Home,
-  Building2
+  Building2,
+  BookOpen
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -71,6 +72,7 @@ interface MenuItem {
   calories: number
   tags: string[]
   stock?: number
+  bookQuantity?: number
   requiredStock?: {
     stockId: string
     stockName?: string
@@ -383,6 +385,7 @@ const getCategoryIcon = (type: string) => {
     case "pizza": return <Pizza className="h-4 w-4 sm:h-5 sm:w-5" />
     case "burger": return <Hamburger className="h-4 w-4 sm:h-5 sm:w-5" />
     case "dessert": return <IceCream className="h-4 w-4 sm:h-5 sm:w-5" />
+    case "book": return <BookOpen className="h-4 w-4 sm:h-5 sm:w-5" />
     default: return <Utensils className="h-4 w-4 sm:h-5 sm:w-5" />
   }
 }
@@ -848,6 +851,63 @@ function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: M
   );
 }
 
+// Book card component - cover image + name only, styled like a book
+function BookCard({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) {
+  const isOutOfStock = item.bookQuantity !== undefined && item.bookQuantity <= 0;
+  const isLowStock = item.bookQuantity !== undefined && item.bookQuantity > 0 && item.bookQuantity <= 3;
+
+  return (
+    <Card className={`overflow-hidden h-full transition-all duration-300 bg-background rounded-lg border-amber-200 group min-w-0 ${isOutOfStock ? 'opacity-60 grayscale' : 'hover:shadow-lg hover:scale-[1.02] hover:border-amber-400'}`}>
+      <div className="relative aspect-[3/4] overflow-hidden rounded-t-lg bg-gradient-to-br from-amber-900 via-amber-800 to-amber-950">
+        <Image
+          src={item.imageUrl || "/placeholder.svg"}
+          alt={item.name}
+          fill
+          sizes="(max-width: 640px) 150px, (max-width: 1200px) 200px, 250px"
+          className="object-cover transition-transform duration-500 group-hover:scale-110"
+          loading="lazy"
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            target.src = "/placeholder.svg";
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+        <div className="absolute top-2 right-2 bg-amber-600/90 text-white text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm flex flex-col items-end">
+          <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}</span>
+        </div>
+        {isOutOfStock && (
+          <div className="absolute top-2 left-2 bg-red-600/90 text-white text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded-md backdrop-blur-sm">
+            Out of Stock
+          </div>
+        )}
+        {!isOutOfStock && (
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); addToCart(item); }}
+              className="rounded-full shadow-lg hover:shadow-amber-500/25 transition-all duration-300 transform hover:scale-105 bg-amber-600/90 backdrop-blur-sm text-xs sm:text-sm px-2 sm:px-3"
+            >
+              <Plus className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
+              Add
+            </Button>
+          </div>
+        )}
+      </div>
+      <CardContent className="p-2 sm:p-3 flex flex-col gap-1 h-full">
+        <div className="space-y-0.5 flex-grow">
+          <h3 className="font-semibold text-xs sm:text-sm line-clamp-2 group-hover:text-amber-700 transition-colors">{item.name}</h3>
+          {item.bookQuantity !== undefined && (
+            <p className={`text-[10px] sm:text-xs ${isOutOfStock ? 'text-red-600 font-semibold' : isLowStock ? 'text-amber-600 font-medium' : 'text-gray-500'}`}>
+              {isOutOfStock ? 'Out of stock' : isLowStock ? `Only ${item.bookQuantity} left` : `${item.bookQuantity} in stock`}
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Lazy loaded components
 const MenuItemComponent = lazy(() => {
   return new Promise<{ default: React.ComponentType<any> }>((resolve) => {
@@ -997,6 +1057,7 @@ export default function POSPage() {
   const [waiters, setWaiters] = useState<Waiter[]>([])
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [selectedCategory, setSelectedCategory] = useState("all")
+  const [bookCategoryId, setBookCategoryId] = useState<string | null>(null)
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedWaiter, setSelectedWaiter] = useState("")
   const [selectedRestaurant, setSelectedRestaurant] = useState<string>(getDefaultRestaurantId())
@@ -1219,21 +1280,81 @@ export default function POSPage() {
     fetchWaiters();
   }, [isPOS, selectedWaiter]);
 
-  // Fetch items and categories
+  // Fetch items, categories, and books
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        const [itemsRes, categoriesRes] = await Promise.all([
+        const [itemsRes, categoriesRes, booksRes] = await Promise.all([
           fetch("/api/items"),
           fetch("/api/item-category"),
+          fetch("/api/books"),
         ]);
 
         const itemsData = await itemsRes.json();
         const categoriesData = await categoriesRes.json();
+        const booksData = await booksRes.json();
 
-        setItems(itemsData.items || []);
-        setCategories(categoriesData.data || []);
+        let cats = categoriesData.data || [];
+
+        // Find or create the "Books" category
+        let booksCat = cats.find((c: Category) => c.name === "Books" || c.type === "BOOK");
+        if (!booksCat) {
+          try {
+            const createRes = await fetch("/api/item-category", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: "Books",
+                description: "Books for sale",
+                type: "BOOK",
+                isActive: true,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              }),
+            });
+            const createData = await createRes.json();
+            if (createData.data) {
+              booksCat = createData.data;
+              cats = [...cats, booksCat];
+            }
+          } catch (e) {
+            console.error("Failed to create Books category:", e);
+          }
+        }
+
+        if (booksCat) {
+          setBookCategoryId(booksCat._id);
+        }
+
+        // Deduplicate categories by name (keep first occurrence)
+        const seen = new Set<string>();
+        const uniqueCats = cats.filter((c: Category) => {
+          const key = c.name.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setCategories(uniqueCats);
+
+        // Merge books into items list as menu items
+        const books = booksData.books || booksData.data || [];
+        const booksAsItems: MenuItem[] = books.map((book: any) => ({
+          _id: book._id,
+          name: book.title,
+          description: book.category || "",
+          price: book.price,
+          imageUrl: book.cloudinaryData?.url || book.imageUrl || "/placeholder.svg",
+          categoryId: booksCat?._id || "",
+          preparationTime: 0,
+          calories: 0,
+          tags: ["book"],
+          bookQuantity: book.quantity,
+          stock: undefined,
+          requiredStock: undefined,
+        }));
+
+        setItems([...(itemsData.items || []), ...booksAsItems]);
       } catch (error) {
         console.error("Error fetching data:", error);
         toast.error("Failed to load menu data");
@@ -1360,6 +1481,12 @@ export default function POSPage() {
     if (item.stock !== undefined && item.stock <= 0) {
       toast.error(`Sorry, ${item.name} is out of stock!`);
       setInsufficientStockItem(item.name);
+      return;
+    }
+
+    // Check book quantity
+    if (item.tags?.includes("book") && item.bookQuantity !== undefined && item.bookQuantity <= 0) {
+      toast.error(`Sorry, "${item.name}" is out of stock!`);
       return;
     }
 
@@ -1688,6 +1815,10 @@ export default function POSPage() {
 
       if (response.ok) {
         toast.success("Order placed successfully!", { id: orderToast })
+
+        // Book quantity is now decremented when the order status changes to COMPLETED
+        // (handled in processOrderStockUsage in stockHelpers.ts)
+
         setCart([])
         setOrderNumber(`ORD-${Date.now()}`)
         setIsCartOpen(false)
@@ -2036,25 +2167,33 @@ export default function POSPage() {
                   : "flex flex-col gap-2 pb-24"
               }>
                 <AnimatePresence mode="popLayout">
-                  {filteredItems.map((item, index) => (
-                    <motion.div
-                      key={item._id + '-' + activeView}
-                      layout
-                      initial="initial"
-                      animate="animate"
-                      exit="exit"
-                      variants={fadeInUp}
-                      transition={{ duration: 0.25, delay: index * 0.02 }}
-                    >
-                      {activeView === 'grid' ? (
-                        <Suspense fallback={<MenuItemFallback />}>
-                          <MenuItemComponent item={item} addToCart={(item: MenuItem) => addToCart(item, items.flatMap(i => i.requiredStock || []).map(rs => ({ _id: rs.stockId, name: rs.stockName || 'Unknown' })) as Stock[])} />
-                        </Suspense>
-                      ) : (
-                        <ListViewItem item={item} addToCart={(item: MenuItem) => addToCart(item, items.flatMap(i => i.requiredStock || []).map(rs => ({ _id: rs.stockId, name: rs.stockName || 'Unknown' })) as Stock[])} />
-                      )}
-                    </motion.div>
-                  ))}
+                  {filteredItems.map((item, index) => {
+                    const isBook = item.tags?.includes("book");
+                    const addCartFn = (item: MenuItem) => addToCart(item, items.flatMap(i => i.requiredStock || []).map(rs => ({ _id: rs.stockId, name: rs.stockName || 'Unknown' })) as Stock[]);
+                    return (
+                      <motion.div
+                        key={item._id + '-' + activeView}
+                        layout
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        variants={fadeInUp}
+                        transition={{ duration: 0.25, delay: index * 0.02 }}
+                      >
+                        {activeView === 'grid' ? (
+                          isBook ? (
+                            <BookCard item={item} addToCart={addCartFn} />
+                          ) : (
+                            <Suspense fallback={<MenuItemFallback />}>
+                              <MenuItemComponent item={item} addToCart={addCartFn} />
+                            </Suspense>
+                          )
+                        ) : (
+                          <ListViewItem item={item} addToCart={addCartFn} />
+                        )}
+                      </motion.div>
+                    );
+                  })}
                 </AnimatePresence>
               </div>
             ) : (

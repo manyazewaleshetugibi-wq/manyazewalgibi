@@ -61,4 +61,25 @@ export const api = {
     fetchWithRetry(`${API_BASE_URL}/items/${id}`, { 
       method: "DELETE" 
     }),
+
+  fetchBooks: () => fetchWithRetry(`${API_BASE_URL}/books`),
+
+  createBook: (formData: FormData) =>
+    fetchWithRetry(`${API_BASE_URL}/books`, {
+      method: "POST",
+      body: formData,
+    }),
+
+  updateBook: (id: string, formData: FormData) =>
+    fetchWithRetry(`${API_BASE_URL}/books/${id}`, {
+      method: "PUT",
+      body: formData,
+    }),
+
+  deleteBook: (id: string) =>
+    fetchWithRetry(`${API_BASE_URL}/books`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    }),
 }

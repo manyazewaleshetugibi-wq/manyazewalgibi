@@ -117,6 +117,13 @@ interface Waiter {
   avatar?: string;
 }
 
+interface Restaurant {
+  _id: string;
+  name: string;
+  shortName?: string;
+  isActive: boolean;
+}
+
 interface CartItem extends MenuItem {
   quantity: number;
   specialInstructions?: string;
@@ -185,6 +192,8 @@ interface Order {
     name: string;
     role: string;
   };
+  restaurantId?: string;
+  restaurantName?: string;
   editRequest?: EditRequest;
   _id?: string;
 }
@@ -271,7 +280,7 @@ const MenuItemComponent = ({ item, addToCart, isOrderLocked }: { item: MenuItem;
   const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
   
   return (
-    <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/30 group">
+    <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/30 group min-w-0">
       <div className="relative aspect-square sm:aspect-[4/3] overflow-hidden rounded-t-lg">
         <Image
           src={item.imageUrl || "/placeholder.svg"}
@@ -281,14 +290,14 @@ const MenuItemComponent = ({ item, addToCart, isOrderLocked }: { item: MenuItem;
           className="object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
         />
-        <div className="absolute top-2 right-2 bg-black/75 text-white text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm flex flex-col items-end">
+        <div className="absolute top-2 right-2 bg-black/75 text-white text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded-md backdrop-blur-sm flex flex-col items-end">
           <span>${item.price.toFixed(2)}</span>
-          <span className="text-[8px] opacity-80">incl. VAT</span>
+          <span className="text-[6px] sm:text-[7px] opacity-80">incl. VAT</span>
         </div>
         
         {item.tags?.includes('bestseller') && (
-          <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-[9px] font-medium px-1.5 py-0.5 rounded-md backdrop-blur-sm flex items-center gap-1">
-            <Sparkles className="h-2.5 w-2.5" />
+          <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-[8px] sm:text-[9px] font-medium px-1.5 py-0.5 rounded-md backdrop-blur-sm flex items-center gap-1">
+            <Sparkles className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
             Best
           </div>
         )}
@@ -309,11 +318,11 @@ const MenuItemComponent = ({ item, addToCart, isOrderLocked }: { item: MenuItem;
                 });
               }
             }}
-            className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm"
+            className="rounded-full shadow-lg hover:shadow-primary/25 transition-all duration-300 transform hover:scale-105 bg-primary/90 backdrop-blur-sm text-xs sm:text-sm px-2 sm:px-3"
             disabled={isOrderLocked}
           >
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            Add to cart
+            <Plus className="mr-1 h-3 w-3 sm:h-3.5 sm:w-3.5" />
+            Add
           </Button>
         </div>
       </div>
@@ -321,17 +330,17 @@ const MenuItemComponent = ({ item, addToCart, isOrderLocked }: { item: MenuItem;
       <CardContent className="p-2 sm:p-3 flex flex-col gap-1 sm:gap-2 h-full">
         <div className="space-y-0.5 flex-grow">
           <h3 className="font-medium text-xs sm:text-sm line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
-          <p className="text-[10px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2">{item.description}</p>
+          <p className="text-[9px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2">{item.description}</p>
         </div>
 
         <div className="flex items-center justify-between mt-auto pt-1">
-          <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
-            <Badge variant="outline" className="h-4 px-1 text-[8px] font-normal flex items-center gap-0.5">
-              <Clock className="h-2 w-2" />
+          <div className="flex items-center gap-1 text-[8px] sm:text-[9px] text-muted-foreground">
+            <Badge variant="outline" className="h-3.5 px-1 text-[7px] sm:text-[8px] font-normal flex items-center gap-0.5">
+              <Clock className="h-1.5 w-1.5 sm:h-2 sm:w-2" />
               {item.preparationTime}m
             </Badge>
-            <Badge variant="outline" className="h-4 px-1 text-[8px] font-normal flex items-center gap-0.5">
-              <Utensils className="h-2 w-2" />
+            <Badge variant="outline" className="h-3.5 px-1 text-[7px] sm:text-[8px] font-normal flex items-center gap-0.5">
+              <Utensils className="h-1.5 w-1.5 sm:h-2 sm:w-2" />
               {item.calories}cal
             </Badge>
           </div>
@@ -351,10 +360,10 @@ const MenuItemComponent = ({ item, addToCart, isOrderLocked }: { item: MenuItem;
                 });
               }
             }}
-            className="h-6 w-6 sm:h-7 sm:w-7 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0 relative overflow-hidden transition-transform hover:scale-110"
+            className="h-5 w-5 sm:h-6 sm:w-6 rounded-full bg-primary/10 hover:bg-primary/20 text-primary p-0 relative overflow-hidden transition-transform hover:scale-110"
             disabled={isOrderLocked}
           >
-            <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+            <Plus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
             <span className="sr-only">Add to cart</span>
           </Button>
         </div>
@@ -388,6 +397,11 @@ const CartPanel = ({
   setCustomerName,
   tableNumber,
   setTableNumber,
+  restaurantId,
+  setRestaurantId,
+  restaurantName,
+  setRestaurantName,
+  restaurants,
   onAddItems,
   onRefreshCart,
   isSaving,
@@ -613,6 +627,40 @@ const CartPanel = ({
                       placeholder="Customer Name"
                       disabled={isOrderLocked}
                     />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="restaurant" className="text-xs text-muted-foreground">Restaurant</Label>
+                  <div className="relative">
+                    <Utensils className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <Select
+                      value={restaurantId || 'none'}
+                      onValueChange={(v) => {
+                        if (isOrderLocked) return;
+                        if (v === 'none') {
+                          setRestaurantId('');
+                          setRestaurantName('');
+                        } else {
+                          const r = restaurants.find((rest: Restaurant) => rest._id === v);
+                          setRestaurantId(v);
+                          setRestaurantName(r?.name || '');
+                        }
+                      }}
+                      disabled={isOrderLocked}
+                    >
+                      <SelectTrigger id="restaurant" className="h-9 pl-8 text-sm bg-muted/30">
+                        <SelectValue placeholder="Select Restaurant" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No Restaurant</SelectItem>
+                        {restaurants.map((restaurant: Restaurant) => (
+                          <SelectItem key={restaurant._id} value={restaurant._id}>
+                            {restaurant.shortName || restaurant.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 
@@ -886,6 +934,9 @@ export default function OrderEditPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [waiters, setWaiters] = useState<Waiter[]>([]);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [selectedRestaurantId, setSelectedRestaurantId] = useState('');
+  const [selectedRestaurantName, setSelectedRestaurantName] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderStatus, setOrderStatus] = useState('PENDING');
   const [notes, setNotes] = useState('');
@@ -952,6 +1003,7 @@ export default function OrderEditPage() {
       fetchOrders();
       fetchMenuData();
       fetchWaiters();
+      fetchRestaurants();
     }
   }, [session, status]);
 
@@ -971,6 +1023,18 @@ export default function OrderEditPage() {
       setWaiters(arr);
     } catch (error) {
       console.error("Error fetching waiters:", error);
+    }
+  }, []);
+
+  const fetchRestaurants = useCallback(async () => {
+    try {
+      const response = await fetch("/api/restaurants");
+      const data = await response.json();
+      const arr = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+      const active = arr.filter((r: Restaurant) => r.isActive !== false);
+      setRestaurants(active);
+    } catch (error) {
+      console.error("Error fetching restaurants:", error);
     }
   }, []);
 
@@ -1127,6 +1191,8 @@ export default function OrderEditPage() {
     setCustomerName(order.customerName || '');
     setNumberOfGuests(order.numberOfGuests || 1);
     setApplyDiscount(order.discount > 0);
+    setSelectedRestaurantId(order.restaurantId || '');
+    setSelectedRestaurantName(order.restaurantName || '');
   }, [menuItems]);
 
   const handleSelectOrder = (order: Order) => {
@@ -1441,7 +1507,9 @@ export default function OrderEditPage() {
         subtotal: newSubtotal,
         totalAmount: newSubtotal + newTax + uneditableTotal,
         finalAmount: newTotal,
-        waiterId: session.user.id
+        waiterId: session.user.id,
+        restaurantId: selectedRestaurantId || null,
+        restaurantName: selectedRestaurantName || null
       };
 
       const response = await fetch(`/api/order/waitress/${session.user.id}`, {
@@ -1918,6 +1986,37 @@ export default function OrderEditPage() {
                         {orderStatus}
                       </div>
                     </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="restaurant">Restaurant</Label>
+                      <Select
+                        value={selectedRestaurantId || 'none'}
+                        onValueChange={(v) => {
+                          const isLocked = selectedOrder?.status === 'COMPLETED' || hasPendingRequest || isOrderFullyUneditable;
+                          if (isLocked) return;
+                          if (v === 'none') {
+                            setSelectedRestaurantId('');
+                            setSelectedRestaurantName('');
+                          } else {
+                            const r = restaurants.find((rest: Restaurant) => rest._id === v);
+                            setSelectedRestaurantId(v);
+                            setSelectedRestaurantName(r?.name || '');
+                          }
+                        }}
+                        disabled={selectedOrder?.status === 'COMPLETED' || hasPendingRequest || isOrderFullyUneditable}
+                      >
+                        <SelectTrigger id="restaurant" className="h-10 text-sm">
+                          <SelectValue placeholder="Select Restaurant" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Restaurant</SelectItem>
+                          {restaurants.map((restaurant: Restaurant) => (
+                            <SelectItem key={restaurant._id} value={restaurant._id}>
+                              {restaurant.shortName || restaurant.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
 
                   {/* Order Items with Tax Breakdown and Lock Status */}
@@ -2145,107 +2244,100 @@ export default function OrderEditPage() {
         </TabsContent>
 
         {/* Menu Tab */}
-        <TabsContent value="menu" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <CardTitle>Menu</CardTitle>
-                  <CardDescription>
-                    Browse and add items to your order
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search menu items..." 
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-8 w-full md:w-64"
-                    />
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setIsCartOpen(!isCartOpen)}
-                    className="relative"
-                  >
-                    <ShoppingCart className="h-4 w-4" />
-                    {cart.length > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground text-[9px] rounded-full h-4 w-4 flex items-center justify-center">
-                        {cart.length}
-                      </span>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {/* Categories */}
-              <div className="flex w-full overflow-x-auto pb-4 mb-6">
-                <div className="flex space-x-2">
-                  <Button
-                    variant={selectedCategory === 'all' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setSelectedCategory('all')}
-                    className="rounded-full shrink-0"
-                  >
-                    All
-                  </Button>
-                  {categories.map((category) => (
-                    <Button
-                      key={category._id}
-                      variant={selectedCategory === category._id ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setSelectedCategory(category._id)}
-                      className="rounded-full whitespace-nowrap shrink-0"
-                    >
-                      <span className="flex items-center gap-1">
-                        <Utensils className="h-4 w-4" />
-                        {category.name}
-                      </span>
-                    </Button>
-                  ))}
-                </div>
+        <TabsContent value="menu" className="space-y-0 -mt-2">
+          <div className="sticky top-0 z-10 bg-background border-b">
+            <div className="flex items-center gap-1.5 px-2 py-1.5">
+              <div className="relative shrink-0">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-7 h-8 text-xs w-[150px] bg-background"
+                />
               </div>
 
-              {/* Menu Items */}
-              {isMenuLoading ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-                    <div key={i} className="h-64 bg-muted/40 animate-pulse rounded-lg"></div>
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="w-[120px] h-8 text-xs bg-background/70 shrink-0">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all"><span className="flex items-center gap-1.5 text-xs"><Utensils className="h-3.5 w-3.5" />All</span></SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={category._id} value={category._id}>
+                      <span className="flex items-center gap-1.5 text-xs">{category.name}</span>
+                    </SelectItem>
                   ))}
-                </div>
-              ) : filteredMenuItems.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  <AnimatePresence mode="popLayout">
-                    {filteredMenuItems.map((item, index) => (
-                      <motion.div
-                        key={item._id}
-                        layout
-                        initial="initial"
-                        animate="animate"
-                        exit="exit"
-                        variants={fadeInUp}
-                        transition={{ duration: 0.25, delay: index * 0.02 }}
-                      >
-                        <MenuItemComponent item={item} addToCart={addToCart} isOrderLocked={isOrderFullyUneditable || !!hasPendingRequest || selectedOrder?.status === 'COMPLETED'} />
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <Search className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No items found</h3>
-                  <p className="text-muted-foreground">
-                    Try adjusting your search or selecting a different category.
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </SelectContent>
+              </Select>
+
+              <Button
+                variant="default"
+                size="icon"
+                className="relative shrink-0 h-8 w-8 ml-auto"
+                onClick={() => {
+                  if (!selectedOrder) {
+                    toast({
+                      title: "No Order Selected",
+                      description: "Please select an order first to add items.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  setActiveTab('orders');
+                }}
+                title={selectedOrder ? "Go to order" : "Select an order first"}
+              >
+                <ShoppingCart className="h-4 w-4" />
+                {cart.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-[9px] rounded-full h-4 w-4 flex items-center justify-center font-bold">{cart.length}</span>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          <div className="p-2 overflow-auto">
+            {isMenuLoading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 pb-24">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+                  <div key={i} className="bg-muted/40 animate-pulse rounded-lg overflow-hidden">
+                    <div className="aspect-square sm:aspect-[4/3] bg-muted/60 animate-pulse rounded-t-lg"></div>
+                    <div className="p-2 sm:p-3 space-y-1.5">
+                      <div className="h-3 bg-muted/60 animate-pulse rounded-md w-3/4"></div>
+                      <div className="h-2 bg-muted/60 animate-pulse rounded-md w-full"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : filteredMenuItems.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 pb-24">
+                <AnimatePresence mode="popLayout">
+                  {filteredMenuItems.map((item, index) => (
+                    <motion.div
+                      key={item._id}
+                      layout
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      variants={fadeInUp}
+                      transition={{ duration: 0.25, delay: index * 0.02 }}
+                    >
+                      <MenuItemComponent item={item} addToCart={addToCart} isOrderLocked={isOrderFullyUneditable || !!hasPendingRequest || selectedOrder?.status === 'COMPLETED'} />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-[50vh] text-center p-4">
+                <Search className="h-8 w-8 sm:h-12 sm:w-12 mx-auto text-muted-foreground mb-2 sm:mb-4" />
+                <h3 className="text-sm sm:text-base font-medium mb-1">No items found</h3>
+                <p className="text-[10px] sm:text-xs text-muted-foreground max-w-md">Try adjusting your search or selecting a different category.</p>
+                {searchQuery && (
+                  <Button variant="outline" className="mt-2 sm:mt-3 text-xs" onClick={() => setSearchQuery('')}>Clear Search</Button>
+                )}
+              </div>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -2284,6 +2376,11 @@ export default function OrderEditPage() {
             setCustomerName={setCustomerName}
             tableNumber={tableNumber}
             setTableNumber={setTableNumber}
+            restaurantId={selectedRestaurantId}
+            setRestaurantId={setSelectedRestaurantId}
+            restaurantName={selectedRestaurantName}
+            setRestaurantName={setSelectedRestaurantName}
+            restaurants={restaurants}
             onAddItems={() => {
               setActiveTab('menu');
               setIsCartOpen(false);

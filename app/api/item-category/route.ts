@@ -8,7 +8,7 @@ import { z } from "zod";
 const ItemCategorySchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
-  type: z.enum(["FOOD", "DRINK", "OTHER"]),
+  type: z.enum(["FOOD", "DRINK", "OTHER", "BOOK"]),
   imageUrl: z.string().optional(), // Made optional
   isActive: z.boolean(),
   createdAt: z.date(),

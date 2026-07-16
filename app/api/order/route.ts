@@ -447,9 +447,16 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const itemData = await db
+      let itemData = await db
         .collection("items")
         .findOne({ _id: new ObjectId(item.itemId) });
+
+      // If not found in items, try the books collection
+      if (!itemData) {
+        itemData = await db
+          .collection("books")
+          .findOne({ _id: new ObjectId(item.itemId) });
+      }
 
       if (!itemData) {
         return NextResponse.json(
@@ -469,7 +476,7 @@ export async function POST(req: NextRequest) {
       
       const processedItem = {
         itemId: item.itemId,
-        itemName: itemData.name,
+        itemName: itemData.name || itemData.title || "Unknown Item",
         quantity: quantity,
         unitPrice: priceWithTax,
         priceWithTax: priceWithTax,

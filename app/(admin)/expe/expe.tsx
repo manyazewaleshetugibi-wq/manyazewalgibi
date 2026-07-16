@@ -437,11 +437,13 @@ function ModuleCard({
 function ZReportMobileCard({ 
   row, 
   isExpanded, 
-  onToggle 
+  onToggle,
+  onEdit
 }: { 
   row: DailyZReport
   isExpanded: boolean
   onToggle: () => void
+  onEdit?: () => void
 }) {
   const isRowBalanced = Math.abs(row.difference) < 1
   
@@ -461,18 +463,30 @@ function ZReportMobileCard({
               {isRowBalanced ? '✅ Balanced' : '⚠️ Check'}
             </Badge>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onToggle}
-            className="h-7 w-7 p-0 rounded-full hover:bg-purple-100 dark:hover:bg-purple-900/30"
-          >
-            {isExpanded ? (
-              <ChevronUp className="h-4 w-4 text-purple-600" />
-            ) : (
-              <ChevronDown className="h-4 w-4 text-purple-600" />
+          <div className="flex items-center gap-1">
+            {onEdit && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                className="h-7 w-7 p-0 rounded-full hover:bg-purple-100 dark:hover:bg-purple-900/30"
+              >
+                <Edit className="h-3.5 w-3.5 text-purple-600" />
+              </Button>
             )}
-          </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggle}
+              className="h-7 w-7 p-0 rounded-full hover:bg-purple-100 dark:hover:bg-purple-900/30"
+            >
+              {isExpanded ? (
+                <ChevronUp className="h-4 w-4 text-purple-600" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-purple-600" />
+              )}
+            </Button>
+          </div>
         </div>
         
         {/* Main Metrics Grid */}
@@ -572,7 +586,8 @@ function DailyZReportTable({
   stockPurchases,
   dailySales,
   startDate,
-  endDate
+  endDate,
+  onEditEntry
 }: { 
   entries: DailyCashEntry[]
   casualExpenses: any[]
@@ -580,6 +595,7 @@ function DailyZReportTable({
   dailySales: Record<string, number>
   startDate: Date
   endDate: Date
+  onEditEntry?: (entry: DailyCashEntry) => void
 }) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
@@ -748,6 +764,10 @@ function DailyZReportTable({
             row={row}
             isExpanded={expandedRows.has(row.date)}
             onToggle={() => toggleRow(row.date)}
+            onEdit={onEditEntry ? () => {
+              const cashEntry = entries.find(e => e.date.startsWith(row.date))
+              if (cashEntry) onEditEntry(cashEntry)
+            } : undefined}
           />
         ))}
       </div>
@@ -768,6 +788,7 @@ function DailyZReportTable({
                   <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Bank (Today)</th>
                   <th className="text-right p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Sales (Yesterday)</th>
                   <th className="text-center p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Status</th>
+                  <th className="text-center p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Actions</th>
                   <th className="text-center p-2 sm:p-3 font-semibold text-purple-900 dark:text-purple-300 whitespace-nowrap">Details</th>
                 </tr>
               </thead>
@@ -813,6 +834,21 @@ function DailyZReportTable({
                           </Badge>
                         </td>
                         <td className="text-center p-2 sm:p-3 whitespace-nowrap">
+                          {onEditEntry && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                const cashEntry = entries.find(e => e.date.startsWith(row.date))
+                                if (cashEntry) onEditEntry(cashEntry)
+                              }}
+                              className="h-7 w-7 p-0 rounded-full hover:bg-purple-100 dark:hover:bg-purple-900/30"
+                            >
+                              <Edit className="h-3.5 w-3.5 text-purple-600" />
+                            </Button>
+                          )}
+                        </td>
+                        <td className="text-center p-2 sm:p-3 whitespace-nowrap">
                           <Button
                             variant="ghost"
                             size="sm"
@@ -830,7 +866,7 @@ function DailyZReportTable({
                       
                       {isExpanded && (
                         <tr className="bg-purple-50/50 dark:bg-purple-950/20">
-                          <td colSpan={10} className="p-3 sm:p-4">
+                          <td colSpan={11} className="p-3 sm:p-4">
                             <Card className="border-0 shadow-sm bg-white dark:bg-gray-900">
                               <CardContent className="p-3 sm:p-4">
                                 <h5 className="text-xs sm:text-sm font-semibold mb-2 sm:mb-3 text-purple-900 dark:text-purple-300">
@@ -930,6 +966,7 @@ function DailyZReportTable({
                       {isOverallBalanced ? '✅' : '⚠️'}
                     </Badge>
                   </td>
+                  <td className="text-center p-2 sm:p-3"></td>
                   <td className="text-center p-2 sm:p-3"></td>
                 </tr>
               </tbody>
@@ -1159,6 +1196,17 @@ function DailyCashManager({
         dailySales={dailySales}
         startDate={start}
         endDate={end}
+        onEditEntry={(entry) => {
+          setEditingEntry(entry)
+          setFormData({
+            date: entry.date.split('T')[0],
+            cashAmount: String(entry.cashAmount || ''),
+            bankAmount: String(entry.bankAmount || ''),
+            zedAmount: String(entry.zedAmount || ''),
+            notes: entry.notes || '',
+          })
+          setShowForm(true)
+        }}
       />
 
       {/* Create/Edit Modal - Mobile First */}
