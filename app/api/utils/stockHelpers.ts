@@ -290,6 +290,8 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
   }
 
   // Process all sufficient ingredients in a transaction
+  const newlyInsufficient: LowStockItem[] = [];
+
   if (sufficientIngredients.size > 0) {
     await withTransactionRetry(dbClient, async (session) => {
       for (const [stockIdString, ing] of sufficientIngredients.entries()) {
@@ -304,11 +306,23 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
         const stockItem = await db.collection("stocks").findOne({ _id: stockId }, { session });
         if (!stockItem) continue;
 
+        // Re-check stock inside transaction — if another order consumed it, skip gracefully
         if (Number(stockItem.currentStock) < ing.totalQuantityUsed) {
-          throw new Error(`Insufficient stock: ${ing.stockName}`);
+          newlyInsufficient.push({
+            stockId: stockIdString,
+            stockName: ing.stockName,
+            currentStock: Number(stockItem.currentStock) || 0,
+            requiredQuantity: ing.totalQuantityUsed,
+            deficit: ing.totalQuantityUsed - (Number(stockItem.currentStock) || 0),
+            unit: ing.stockUnit,
+            orderNumber: order.orderNumber,
+            menuItemName: ing.items[0]?.itemName || "Unknown",
+            orderId: order._id.toString()
+          });
+          continue;
         }
 
-        await db.collection("stocks").updateOne(
+        const updateResult = await db.collection("stocks").updateOne(
           { _id: stockId, currentStock: { $gte: ing.totalQuantityUsed } },
           {
             $inc: { currentStock: -ing.totalQuantityUsed },
@@ -316,6 +330,22 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
           },
           { session }
         );
+
+        // If $gte guard failed (concurrent deduction won the race), treat as insufficient
+        if (updateResult.matchedCount === 0) {
+          newlyInsufficient.push({
+            stockId: stockIdString,
+            stockName: ing.stockName,
+            currentStock: Number(stockItem.currentStock) || 0,
+            requiredQuantity: ing.totalQuantityUsed,
+            deficit: ing.totalQuantityUsed - (Number(stockItem.currentStock) || 0),
+            unit: ing.stockUnit,
+            orderNumber: order.orderNumber,
+            menuItemName: ing.items[0]?.itemName || "Unknown",
+            orderId: order._id.toString()
+          });
+          continue;
+        }
 
         await db.collection("used_stock").insertOne({
           orderId: order._id,
@@ -337,6 +367,9 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
 
     debugLog(`✅ Order ${order.orderNumber}: processed ${sufficientIngredients.size} sufficient stocks`);
   }
+
+  // Merge original low stock items with newly discovered ones from race conditions
+  lowStockItems.push(...newlyInsufficient);
 
   // If some ingredients were insufficient, save them as pending and mark partial
   if (lowStockItems.length > 0) {

@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { ObjectId } from "mongodb";
-import clientPromise from "@/lib/mongodb";
-import { getToken } from "next-auth/jwt";
+import { auth } from "@/auth";
 
 export const DEBUG = true;
 
@@ -25,39 +24,34 @@ export function normalizeStatus(status: string): string {
   return status?.toUpperCase() || "PENDING";
 }
 
-export async function getCurrentUserData(req: NextRequest) {
+export async function getCurrentUserData(req?: NextRequest) {
   try {
-    const token = await getToken({ 
-      req, 
-      secret: process.env.NEXTAUTH_SECRET 
-    });
+    const session = await auth();
     
-    if (!token) {
-      debugLog("No authentication token found");
+    if (!session?.user) {
+      debugLog("No session found");
       return null;
     }
+
+    const user = session.user as any;
     
-    debugLog("Token data received:", {
-      id: token.sub || token.id,
-      name: token.name,
-      email: token.email,
-      role: token.role,
-      employeeId: token.employeeId,
-      hasSub: !!token.sub,
-      hasId: !!token.id,
-      allTokenFields: Object.keys(token)
+    debugLog("Session data received:", {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      employeeId: user.employeeId,
     });
     
     return {
-      ...token,
-      id: token.sub || token.id || "unknown",
-      name: token.name || "Unknown User",
-      email: token.email || "unknown@example.com",
-      role: token.role || "employee",
-      employeeId: token.employeeId || null
+      id: user.id || "unknown",
+      name: user.name || "Unknown User",
+      email: user.email || "unknown@example.com",
+      role: user.role || "employee",
+      employeeId: user.employeeId || null,
     };
   } catch (error) {
-    debugError("Error getting user data from token:", error);
+    debugError("Error getting user data from session:", error);
     return null;
   }
 }

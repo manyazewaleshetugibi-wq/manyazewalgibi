@@ -120,7 +120,7 @@ export async function GET(
     const usersCollection = db.collection('users');
     
     if (!ObjectId.isValid(id)) {
-      return new NextResponse('Invalid user ID format', { status: 400 });
+      return NextResponse.json({ success: false, message: 'Invalid user ID format' }, { status: 400 });
     }
     
     const user = await usersCollection.findOne(
@@ -129,15 +129,14 @@ export async function GET(
     );
     
     if (!user) {
-      return new NextResponse('User not found', { status: 404 });
+      return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
     }
     
-    // Return ONLY the user's name as text, NO JSON data
-    return new NextResponse(`Staff member: ${user.name}`, { status: 200 });
+    return NextResponse.json({ success: true, message: `Staff member: ${user.name}`, user }, { status: 200 });
     
   } catch (error: any) {
     console.error('Error fetching user:', error);
-    return new NextResponse('Failed to fetch staff member', { status: 500 });
+    return NextResponse.json({ success: false, message: 'Failed to fetch staff member' }, { status: 500 });
   }
 }
 
@@ -154,7 +153,7 @@ export async function PUT(
     const usersCollection = db.collection('users');
     
     if (!ObjectId.isValid(id)) {
-      return new NextResponse('Invalid user ID format', { status: 400 });
+      return NextResponse.json({ success: false, message: 'Invalid user ID format' }, { status: 400 });
     }
     
     const body = await request.json();
@@ -172,7 +171,7 @@ export async function PUT(
     // Check if user exists
     const existingUser = await usersCollection.findOne({ _id: new ObjectId(id) });
     if (!existingUser) {
-      return new NextResponse('User not found', { status: 404 });
+      return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
     }
     
     // Check if email is being changed and already exists
@@ -182,7 +181,7 @@ export async function PUT(
         _id: { $ne: new ObjectId(id) }
       });
       if (emailExists) {
-        return new NextResponse('Email already in use', { status: 400 });
+        return NextResponse.json({ success: false, message: 'Email already in use' }, { status: 400 });
       }
     }
     
@@ -193,7 +192,7 @@ export async function PUT(
         _id: { $ne: new ObjectId(id) }
       });
       if (employeeIdExists) {
-        return new NextResponse('Employee ID already exists', { status: 400 });
+        return NextResponse.json({ success: false, message: 'Employee ID already exists' }, { status: 400 });
       }
     }
     
@@ -201,7 +200,7 @@ export async function PUT(
     if (role) {
       const validRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'fb', 'marketing', 'finance', 'pos', 'waitress'];
       if (!validRoles.includes(role)) {
-        return new NextResponse('Invalid role', { status: 400 });
+        return NextResponse.json({ success: false, message: 'Invalid role' }, { status: 400 });
       }
     }
     
@@ -209,7 +208,7 @@ export async function PUT(
     if (status) {
       const validStatuses = ['active', 'inactive', 'suspended'];
       if (!validStatuses.includes(status)) {
-        return new NextResponse('Invalid status', { status: 400 });
+        return NextResponse.json({ success: false, message: 'Invalid status' }, { status: 400 });
       }
     }
     
@@ -251,15 +250,14 @@ export async function PUT(
     );
     
     if (!result) {
-      return new NextResponse('Failed to update user', { status: 500 });
+      return NextResponse.json({ success: false, message: 'Failed to update user' }, { status: 500 });
     }
     
-    // Return ONLY text message - NO JSON data
-    return new NextResponse('Staff member updated successfully', { status: 200 });
+    return NextResponse.json({ success: true, message: 'Staff member updated successfully' }, { status: 200 });
     
   } catch (error: any) {
     console.error('Error updating user:', error);
-    return new NextResponse('Failed to update staff member', { status: 500 });
+    return NextResponse.json({ success: false, message: 'Failed to update staff member' }, { status: 500 });
   }
 }
 
@@ -276,31 +274,30 @@ export async function DELETE(
     const usersCollection = db.collection('users');
     
     if (!ObjectId.isValid(id)) {
-      return new NextResponse('Invalid user ID format', { status: 400 });
+      return NextResponse.json({ success: false, message: 'Invalid user ID format' }, { status: 400 });
     }
     
     const user = await usersCollection.findOne({ _id: new ObjectId(id) });
     
     if (!user) {
-      return new NextResponse('User not found', { status: 404 });
+      return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
     }
     
     // Prevent deleting the last admin user
     if (user.role === 'admin') {
       const adminCount = await usersCollection.countDocuments({ role: 'admin' });
       if (adminCount <= 1) {
-        return new NextResponse('Cannot delete the last admin user', { status: 400 });
+        return NextResponse.json({ success: false, message: 'Cannot delete the last admin user' }, { status: 400 });
       }
     }
     
     await usersCollection.deleteOne({ _id: new ObjectId(id) });
     
-    // Return ONLY text message - NO JSON data
-    return new NextResponse('Staff member deleted successfully', { status: 200 });
+    return NextResponse.json({ success: true, message: 'Staff member deleted successfully' }, { status: 200 });
     
   } catch (error: any) {
     console.error('Error deleting user:', error);
-    return new NextResponse('Failed to delete staff member', { status: 500 });
+    return NextResponse.json({ success: false, message: 'Failed to delete staff member' }, { status: 500 });
   }
 }
 
@@ -317,33 +314,33 @@ export async function PATCH(
     const usersCollection = db.collection('users');
     
     if (!ObjectId.isValid(id)) {
-      return new NextResponse('Invalid user ID format', { status: 400 });
+      return NextResponse.json({ success: false, message: 'Invalid user ID format' }, { status: 400 });
     }
     
     const body = await request.json();
     const { currentPassword, newPassword } = body;
     
     if (!currentPassword || !newPassword) {
-      return new NextResponse('Current password and new password are required', { status: 400 });
+      return NextResponse.json({ success: false, message: 'Current password and new password are required' }, { status: 400 });
     }
     
     // Validate new password strength
     if (newPassword.length < 8) {
-      return new NextResponse('New password must be at least 8 characters long', { status: 400 });
+      return NextResponse.json({ success: false, message: 'New password must be at least 8 characters long' }, { status: 400 });
     }
     
     // Get user with password
     const user = await usersCollection.findOne({ _id: new ObjectId(id) });
     
     if (!user) {
-      return new NextResponse('User not found', { status: 404 });
+      return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
     }
     
     // Verify current password using bcrypt
     const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
     
     if (!isPasswordValid) {
-      return new NextResponse('Current password is incorrect', { status: 401 });
+      return NextResponse.json({ success: false, message: 'Current password is incorrect' }, { status: 401 });
     }
     
     // Hash new password
@@ -361,11 +358,10 @@ export async function PATCH(
       }
     );
     
-    // Return ONLY text message - NO JSON data
-    return new NextResponse('Password updated successfully', { status: 200 });
+    return NextResponse.json({ success: true, message: 'Password updated successfully' }, { status: 200 });
     
   } catch (error: any) {
     console.error('Error updating password:', error);
-    return new NextResponse('Failed to update password', { status: 500 });
+    return NextResponse.json({ success: false, message: 'Failed to update password' }, { status: 500 });
   }
 }

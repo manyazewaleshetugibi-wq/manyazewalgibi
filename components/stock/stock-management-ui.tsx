@@ -74,6 +74,7 @@ import { Progress } from "@/components/ui/progress"
 import type { Stock, Category, Purchase, StockStatus } from "../../app/(admin)/stock/page"
 import { RegisterWastageModal } from "./RegisterWastageModal"
 import { RegisterTransferModal } from "./RegisterTransferModal"
+import { StockUsageDetailView } from "./StockUsageDetailView"
 
 // Schemas
 const stockSchema = z.object({
@@ -207,6 +208,10 @@ export function StockManagementUI({
   const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery)
   const [stockTransfers, setStockTransfers] = useState<any[]>([])
   const [isLoadingTransfers, setIsLoadingTransfers] = useState(false)
+
+  // Stock usage detail state
+  const [stockUsageDetailStockId, setStockUsageDetailStockId] = useState<string | null>(null)
+  const [isStockUsageDetailOpen, setIsStockUsageDetailOpen] = useState(false)
   
   // Wastage state
   const [isRegisterWastageOpen, setIsRegisterWastageOpen] = useState(false)
@@ -580,7 +585,7 @@ export function StockManagementUI({
       },
     },
     {
-      id: "actions",
+      accessorKey: "actions",
       enableHiding: false,
       cell: ({ row }) => {
         const stock = row.original
@@ -597,6 +602,13 @@ export function StockManagementUI({
               <DropdownMenuItem onClick={() => handleViewStockDetail(stock)}>
                 <Eye className="mr-2 h-4 w-4" />
                 View Details
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                setStockUsageDetailStockId(stock._id)
+                setIsStockUsageDetailOpen(true)
+              }}>
+                <ShoppingCart className="mr-2 h-4 w-4" />
+                Stock Usage Details
               </DropdownMenuItem>
               {canEdit && (
                 <>

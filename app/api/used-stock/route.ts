@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { auth } from "@/auth";
 
 // GET all used stock records with filtering
 export async function GET(req: NextRequest) {
   try {
+    const authSession = await auth();
+    if (!authSession?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
     const stockId = url.searchParams.get('stockId');
     const orderId = url.searchParams.get('orderId');
@@ -81,63 +87,14 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// GET single used stock record by ID
-export async function GET_BY_ID(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const { id } = params;
-
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid ID" },
-        { status: 400 }
-      );
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
-
-    const record = await db.collection("used_stock").findOne({
-      _id: new ObjectId(id),
-    });
-
-    if (!record) {
-      return NextResponse.json(
-        { success: false, error: "Record not found" },
-        { status: 404 }
-      );
-    }
-
-    // Convert ObjectIds to strings
-    const serializedRecord = {
-      ...record,
-      _id: record._id.toString(),
-      stockId: record.stockId.toString(),
-      orderId: record.orderId?.toString(),
-      items: record.items?.map((item: any) => ({
-        ...item,
-        itemId: item.itemId?.toString(),
-      })),
-    };
-
-    return NextResponse.json({
-      success: true,
-      data: serializedRecord,
-    });
-  } catch (error) {
-    console.error("Error fetching used stock record:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch used stock record" },
-      { status: 500 }
-    );
-  }
-}
-
 // POST - Create new used stock record (from order processing)
 export async function POST(req: NextRequest) {
   try {
+    const authSession = await auth();
+    if (!authSession?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
     const {
       orderId,
@@ -190,7 +147,7 @@ export async function POST(req: NextRequest) {
     const db = client.db("gold");
 
     // Get current stock to update quantity
-    const stock = await db.collection("stock").findOne({ _id: new ObjectId(stockId) });
+    const stock = await db.collection("stocks").findOne({ _id: new ObjectId(stockId) });
     
     if (!stock) {
       return NextResponse.json(
@@ -244,22 +201,18 @@ export async function POST(req: NextRequest) {
 
       const result = await db.collection("used_stock").insertOne(usedStockRecord, { session });
 
-      // Update stock current quantity (subtract used quantity)
-      const newStockQuantity = parseFloat((stock.currentStock - formattedQuantity).toFixed(3));
-      
-      await db.collection("stock").updateOne(
-        { _id: new ObjectId(stockId) },
+      // Update stock current quantity (atomic decrement with guard)
+      const updateResult = await db.collection("stocks").updateOne(
+        { _id: new ObjectId(stockId), currentStock: { $gte: formattedQuantity } },
         {
-          $set: {
-            currentStock: newStockQuantity,
-            updatedAt: new Date(),
-          },
+          $inc: { currentStock: -formattedQuantity },
+          $set: { updatedAt: new Date() },
           $push: {
             transactions: {
               type: 'used',
               quantity: formattedQuantity,
               previousQuantity: stock.currentStock,
-              newQuantity: newStockQuantity,
+              newQuantity: stock.currentStock - formattedQuantity,
               orderId: new ObjectId(orderId),
               orderNumber,
               items: items?.map((item: any) => ({
@@ -275,6 +228,15 @@ export async function POST(req: NextRequest) {
         },
         { session }
       );
+
+      if (updateResult.matchedCount === 0) {
+        await session.abortTransaction();
+        await session.endSession();
+        return NextResponse.json(
+          { success: false, error: "Insufficient stock — concurrent deduction detected" },
+          { status: 400 }
+        );
+      }
 
       await session.commitTransaction();
 
@@ -313,6 +275,11 @@ export async function POST(req: NextRequest) {
 // GET summary statistics
 export async function PUT(req: NextRequest) {
   try {
+    const authSession = await auth();
+    if (!authSession?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
     const action = url.searchParams.get('action');
 
@@ -471,137 +438,14 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// GET usage by order
-export async function GET_BY_ORDER(req: NextRequest) {
-  try {
-    const url = new URL(req.url);
-    const orderId = url.searchParams.get('orderId');
-
-    if (!orderId) {
-      return NextResponse.json(
-        { success: false, error: "Order ID is required" },
-        { status: 400 }
-      );
-    }
-
-    if (!ObjectId.isValid(orderId)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid Order ID" },
-        { status: 400 }
-      );
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
-
-    const records = await db
-      .collection("used_stock")
-      .find({ orderId: new ObjectId(orderId) })
-      .sort({ usedAt: -1 })
-      .toArray();
-
-    const serializedRecords = records.map(record => ({
-      ...record,
-      _id: record._id.toString(),
-      stockId: record.stockId.toString(),
-      orderId: record.orderId.toString(),
-      items: record.items?.map((item: any) => ({
-        ...item,
-        itemId: item.itemId?.toString(),
-      })),
-    }));
-
-    // Calculate total for this order
-    const orderTotal = records.reduce((sum, r) => sum + r.totalQuantityUsed, 0);
-    const orderCost = records.reduce((sum, r) => sum + r.totalCost, 0);
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        records: serializedRecords,
-        summary: {
-          totalQuantityUsed: parseFloat(orderTotal.toFixed(3)),
-          totalCost: orderCost,
-          uniqueStocks: records.length,
-        },
-      },
-    });
-  } catch (error) {
-    console.error("Error fetching order usage:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch order usage" },
-      { status: 500 }
-    );
-  }
-}
-
-// GET usage by stock
-export async function GET_BY_STOCK(req: NextRequest) {
-  try {
-    const url = new URL(req.url);
-    const stockId = url.searchParams.get('stockId');
-
-    if (!stockId) {
-      return NextResponse.json(
-        { success: false, error: "Stock ID is required" },
-        { status: 400 }
-      );
-    }
-
-    if (!ObjectId.isValid(stockId)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid Stock ID" },
-        { status: 400 }
-      );
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
-
-    const records = await db
-      .collection("used_stock")
-      .find({ stockId: new ObjectId(stockId) })
-      .sort({ usedAt: -1 })
-      .toArray();
-
-    const serializedRecords = records.map(record => ({
-      ...record,
-      _id: record._id.toString(),
-      stockId: record.stockId.toString(),
-      orderId: record.orderId?.toString(),
-      items: record.items?.map((item: any) => ({
-        ...item,
-        itemId: item.itemId?.toString(),
-      })),
-    }));
-
-    // Calculate total usage for this stock
-    const totalUsed = records.reduce((sum, r) => sum + r.totalQuantityUsed, 0);
-    const totalCost = records.reduce((sum, r) => sum + r.totalCost, 0);
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        records: serializedRecords,
-        summary: {
-          totalUsed: parseFloat(totalUsed.toFixed(3)),
-          totalCost,
-          usageCount: records.length,
-        },
-      },
-    });
-  } catch (error) {
-    console.error("Error fetching stock usage:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch stock usage" },
-      { status: 500 }
-    );
-  }
-}
-
 // DELETE a used stock record (for corrections)
 export async function DELETE(req: NextRequest) {
   try {
+    const authSession = await auth();
+    if (!authSession?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
     const id = url.searchParams.get('id');
     const restoreStock = url.searchParams.get('restoreStock') === 'true';
@@ -645,7 +489,7 @@ export async function DELETE(req: NextRequest) {
 
       // Restore stock quantity if requested
       if (restoreStock) {
-        const stock = await db.collection("stock").findOne(
+        const stock = await db.collection("stocks").findOne(
           { _id: record.stockId },
           { session }
         );
@@ -653,7 +497,7 @@ export async function DELETE(req: NextRequest) {
         if (stock) {
           const newQuantity = parseFloat((stock.currentStock + record.totalQuantityUsed).toFixed(3));
           
-          await db.collection("stock").updateOne(
+          await db.collection("stocks").updateOne(
             { _id: record.stockId },
             {
               $set: { 
