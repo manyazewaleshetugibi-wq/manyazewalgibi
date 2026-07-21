@@ -32,20 +32,8 @@ export async function POST(req: NextRequest) {
 
     const client = await clientPromise;
     const db = client.db("gold");
-    const { ObjectId } = await import("mongodb");
 
     const result = await db.collection("stock_purchases").insertOne(parsed);
-
-    // Update stock currentStock and currentUnitPrice with latest purchase
-    if (ObjectId.isValid(parsed.stockId)) {
-      await db.collection("stocks").updateOne(
-        { _id: new ObjectId(parsed.stockId) },
-        {
-          $inc: { currentStock: parsed.quantity },
-          $set: { currentUnitPrice: parsed.unitPrice, updatedAt: new Date() }
-        }
-      );
-    }
 
     return NextResponse.json({ 
       success: true, 

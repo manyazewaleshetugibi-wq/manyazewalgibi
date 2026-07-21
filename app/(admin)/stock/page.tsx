@@ -159,10 +159,10 @@ export default function StockManagementPage() {
     const stock = stocks.find(s => s._id === stockId)
     if (!stock) return 0
     
-    // Get last purchase price
+    // Get last purchase price (by insertion order, not date)
     const stockPurchases = purchases
       .filter(p => p.stockId === stockId)
-      .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
+      .sort((a, b) => b._id.localeCompare(a._id))
     
     const lastPurchasePrice = stockPurchases.length > 0 ? stockPurchases[0].unitPrice : 0
     

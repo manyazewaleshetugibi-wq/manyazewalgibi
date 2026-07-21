@@ -1203,6 +1203,7 @@ export function StockManagementUI({
                   </FormItem>
                 )}
               />
+
               <FormField
                 control={purchaseForm.control}
                 name="quantity"
