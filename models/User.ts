@@ -8,7 +8,9 @@ export enum UserRole {
   FINANCE = 'finance',
   STOCK_MANAGER = 'stock_manager',
   POS = 'pos',
-  CUSTOMER = 'customer'
+  CUSTOMER = 'customer',
+  BARISTA = 'barista',
+  COFFEE_MAKER = 'coffee_maker'
 }
 
 export interface User {
@@ -286,6 +288,20 @@ export const getDefaultPermissions = (role: UserRole): string[] => {
         'view_menu',
         'place_orders',
         'view_own_orders'
+      ];
+    case UserRole.BARISTA:
+      return [
+        'view_orders',
+        'update_order_status',
+        'view_menu',
+        'view_inventory'
+      ];
+    case UserRole.COFFEE_MAKER:
+      return [
+        'view_orders',
+        'update_order_status',
+        'view_menu',
+        'view_inventory'
       ];
     default:
       return [];

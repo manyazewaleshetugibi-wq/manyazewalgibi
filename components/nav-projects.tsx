@@ -34,7 +34,13 @@ export function NavProjects({
     icon: LucideIcon
   }[]
 }) {
-  const { isMobile } = useSidebar()
+  const { isMobile, setOpenMobile } = useSidebar()
+
+  const closeMobileSidebar = () => {
+    if (isMobile) {
+      setOpenMobile(false)
+    }
+  }
 
   // Don't render anything if there are no projects
   if (!projects || projects.length === 0) {
@@ -48,7 +54,7 @@ export function NavProjects({
         {projects.map((item) => (
           <SidebarMenuItem key={item.name}>
             <SidebarMenuButton asChild>
-              <a href={item.url}>
+              <a href={item.url} onClick={closeMobileSidebar}>
                 <item.icon />
                 <span>{item.name}</span>
               </a>

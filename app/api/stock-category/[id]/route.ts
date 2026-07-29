@@ -4,9 +4,9 @@ import { StockCategorySubschema } from "@/models/Stock";
 import { ObjectId } from "mongodb";
 
 // ✅ GET category by ID    
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await params;
     if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
     const client = await clientPromise;
@@ -23,9 +23,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 // ✅ PUT (Update Category by ID)
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await params;
     if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
     const body = await req.json();
@@ -48,9 +48,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 // ✅ DELETE Category
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = params;
+    const { id } = await params;
     if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
     const client = await clientPromise;

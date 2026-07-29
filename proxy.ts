@@ -325,6 +325,54 @@ const ROLE_ROUTE_PERMISSIONS = {
     defaultRedirect: '/pos'
   },
   
+  BARISTA: {
+    routes: [
+      '/Culture',
+      '/orders',
+      '/training',
+      '/preparation',
+      '/standards',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/order',
+      '/api/orders',
+      '/api/training',
+      '/api/preparation',
+      '/api/standards',
+      '/api/daily-tasks',
+      '/api/item-category',
+      '/api/items',
+    ],
+    defaultRedirect: '/orders'
+  },
+  
+  COFFEE_MAKER: {
+    routes: [
+      '/Culture',
+      '/orders',
+      '/training',
+      '/preparation',
+      '/standards',
+      '/daily-tasks',
+      '/profile',
+      '/change-password',
+    ],
+    apiRoutes: [
+      '/api/order',
+      '/api/orders',
+      '/api/training',
+      '/api/preparation',
+      '/api/standards',
+      '/api/daily-tasks',
+      '/api/item-category',
+      '/api/items',
+    ],
+    defaultRedirect: '/orders'
+  },
+  
   DEFAULT: {
     routes: [
       '/Culture',

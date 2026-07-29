@@ -54,6 +54,12 @@ export const redirectByRole = (role: string, router: any, requiresPasswordChange
     case "waitress":
       router.replace("/pos");
       break;
+    case "barista":
+      router.replace("/orders");
+      break;
+    case "coffee_maker":
+      router.replace("/orders");
+      break;
     case "customer":
       router.replace("/blogs");
       break;

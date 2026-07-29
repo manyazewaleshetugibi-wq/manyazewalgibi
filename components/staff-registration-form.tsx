@@ -131,6 +131,18 @@ const rolePermissions = {
     "view_orders",
     "create_orders",
     "process_payments"
+  ],
+  barista: [
+    "view_orders",
+    "update_order_status",
+    "view_menu",
+    "view_inventory"
+  ],
+  coffee_maker: [
+    "view_orders",
+    "update_order_status",
+    "view_menu",
+    "view_inventory"
   ]
 };
 
@@ -146,11 +158,11 @@ const getPasswordStrength = (password: string) => {
   if (/[^A-Za-z0-9]/.test(password)) score++;
   
   const strength = [
-    { text: "Very Weak", color: "bg-red-500" },
-    { text: "Weak", color: "bg-orange-500" },
-    { text: "Fair", color: "bg-yellow-500" },
-    { text: "Good", color: "bg-blue-500" },
-    { text: "Strong", color: "bg-green-500" }
+    { score: 0, text: "Very Weak", color: "bg-red-500" },
+    { score: 1, text: "Weak", color: "bg-orange-500" },
+    { score: 2, text: "Fair", color: "bg-yellow-500" },
+    { score: 3, text: "Good", color: "bg-blue-500" },
+    { score: 4, text: "Strong", color: "bg-green-500" }
   ];
   
   return strength[Math.min(score, 4)];
@@ -162,7 +174,7 @@ const formSchema = z.object({
   email: z.string().email("Invalid email address"),
   phone: z.string().min(10, "Phone number must be at least 10 digits"),
   employeeId: z.string().min(3, "Employee ID must be at least 3 characters"),
-  role: z.enum(["admin", "kitchen", "stock_manager", "purchasing", "delivery", "fb", "marketing", "finance", "pos"]),
+  role: z.enum(["admin", "kitchen", "stock_manager", "purchasing", "delivery", "fb", "marketing", "finance", "pos", "barista", "coffee_maker"]),
   password: z.string()
     .min(8, "Password must be at least 8 characters")
     .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
@@ -228,6 +240,8 @@ export function StaffRegistrationForm({ onSuccess }: StaffRegistrationFormProps)
       marketing: "MKT",
       finance: "FIN",
       pos: "POS",
+      barista: "BRST",
+      coffee_maker: "CFMK",
     };
     const prefix = roleMap[role] || "EMP";
     const randomNum = Math.floor(1000 + Math.random() * 9000);
@@ -342,6 +356,8 @@ export function StaffRegistrationForm({ onSuccess }: StaffRegistrationFormProps)
     marketing: "Marketing and content creation",
     finance: "Financial management and reporting",
     pos: "Point of Sale operations",
+    barista: "Beverage preparation (juice, hot drinks, mocktails)",
+    coffee_maker: "Coffee preparation and service",
   };
 
   const roleIcons = {
@@ -354,6 +370,8 @@ export function StaffRegistrationForm({ onSuccess }: StaffRegistrationFormProps)
     marketing: <User className="h-4 w-4" />,
     finance: <User className="h-4 w-4" />,
     pos: <User className="h-4 w-4" />,
+    barista: <User className="h-4 w-4" />,
+    coffee_maker: <User className="h-4 w-4" />,
   };
 
   const passwordStrength = getPasswordStrength(password);

@@ -191,6 +191,7 @@ interface DailySummary {
   totalStockValue: number
   totalStockCost: number
   averageStockCost: number
+  staffFoodCost: number
 }
 
 interface StockValuation {
@@ -718,9 +719,10 @@ export default function DailyProfitPage() {
           totalIngredients: 0,
           totalStockValue: 0,
           totalStockCost: 0,
-          averageStockCost: 0
+          averageStockCost: 0,
+          staffFoodCost: 0
         })
-        
+
         if (ordersData.length === 0) {
           setError("No completed orders found for today. Check if there are any orders in the system.")
         }
@@ -835,7 +837,8 @@ export default function DailyProfitPage() {
           totalIngredients: 0,
           totalStockValue: stockValuation?.totalStockValue || 0,
           totalStockCost: stockValuation?.totalStockCost || 0,
-          averageStockCost: stockValuation?.averageCost || 0
+          averageStockCost: stockValuation?.averageCost || 0,
+          staffFoodCost: 0
         })
         return
       }
@@ -931,6 +934,14 @@ export default function DailyProfitPage() {
       const lossItems = results.filter(i => i.status === 'loss').length
       const totalIngredients = results.reduce((sum, item) => sum + item.ingredients.length, 0)
 
+      // Calculate staff food cost
+      const staffFoodCost = results
+        .filter(item => 
+          item.categoryName?.toLowerCase().includes('staff food') || 
+          item.categoryName?.toLowerCase().includes('staff meal')
+        )
+        .reduce((sum, item) => sum + item.totalIngredientCost, 0)
+
       setSummary({
         date: format(new Date(), 'PPP'),
         totalRevenue,
@@ -945,7 +956,8 @@ export default function DailyProfitPage() {
         totalIngredients,
         totalStockValue: stockValuation?.totalStockValue || 0,
         totalStockCost: stockValuation?.totalStockCost || 0,
-        averageStockCost: stockValuation?.averageCost || 0
+        averageStockCost: stockValuation?.averageCost || 0,
+        staffFoodCost
       })
     } catch (error) {
       console.error("Error calculating profitability:", error)
@@ -1265,6 +1277,12 @@ export default function DailyProfitPage() {
                       <p className="text-[8px] md:text-xs text-muted-foreground">
                         {summary.profitableItems} profitable
                       </p>
+                      {summary.staffFoodCost > 0 && (
+                        <Badge variant="outline" className="mt-1 bg-orange-50 text-orange-700 border-orange-200 rounded-full text-[7px] md:text-[8px] font-medium px-1.5 py-0 h-4">
+                          <Package className="h-2 w-2 mr-0.5" />
+                          Staff Food Cost: {formatCurrency(summary.staffFoodCost)}
+                        </Badge>
+                      )}
                     </div>
                     <div className={`p-2 md:p-3 ${summary.totalProfit >= 0 ? 'bg-blue-100' : 'bg-red-100'} rounded-xl md:rounded-2xl`}>
                       <TrendingUp className={`h-4 w-4 md:h-6 md:w-6 ${summary.totalProfit >= 0 ? 'text-blue-600' : 'text-red-600'}`} />

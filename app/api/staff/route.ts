@@ -85,6 +85,18 @@ const rolePermissions: Record<string, string[]> = {
     'create_orders',
     'update_order_status',
     'view_menu'
+  ],
+  barista: [
+    'view_orders',
+    'update_order_status',
+    'view_menu',
+    'view_inventory'
+  ],
+  coffee_maker: [
+    'view_orders',
+    'update_order_status',
+    'view_menu',
+    'view_inventory'
   ]
 };
 
@@ -194,7 +206,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Validate role
-    const validRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'fb', 'marketing', 'finance', 'pos', 'waitress'];
+    const validRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'fb', 'marketing', 'finance', 'pos', 'waitress', 'barista', 'coffee_maker'];
     if (!validRoles.includes(role)) {
       return new NextResponse(`Invalid role. Must be one of: ${validRoles.join(', ')}`, { status: 400 });
     }

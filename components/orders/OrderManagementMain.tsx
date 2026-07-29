@@ -68,6 +68,7 @@ import { SoundToggleButton, SoundControlDialog } from "./SoundControls"
 import { NotificationToast, notificationStyles } from "./NotificationToast"
 import { TableCell, TableRow } from "../ui/table"
 import { AnimatePresence } from "framer-motion"
+import { getStationsForRole, type CategoryStationMap } from "@/lib/station-filter"
 
 // Configure axios instance - NO TIMEOUT LIMITS
 const api = axios.create({
@@ -181,6 +182,10 @@ export default function OrderManagementMain() {
     message: string
     showCompletedLimit?: number
   } | null>(null)
+  
+  // Station filtering state
+  const [categoryStationMap, setCategoryStationMap] = useState<CategoryStationMap>({})
+  const [itemCategoryMap, setItemCategoryMap] = useState<Record<string, string>>({})
   
   // Stock processing states
   const [pendingStockCount, setPendingStockCount] = useState<number>(0)
@@ -912,6 +917,9 @@ export default function OrderManagementMain() {
 
   // ========== FILTERED ORDERS ==========
   const filteredAndSortedOrders = useMemo(() => {
+    const allowedStations = getStationsForRole(userRole)
+    const hasFullAccess = allowedStations.length === 3
+
     let filtered = orders.filter((order) => {
       // Skip deleted orders
       if (order.deletedAt) return false;
@@ -936,6 +944,18 @@ export default function OrderManagementMain() {
             return false;
           }
         }
+      }
+
+      // Station-based item filtering: hide orders where all items are filtered out
+      if (!hasFullAccess && Object.keys(categoryStationMap).length > 0) {
+        const orderItems = order.orderItems || order.items || []
+        const visibleItems = orderItems.filter((item: any) => {
+          const categoryId = itemCategoryMap[item.itemId || ""]
+          if (!categoryId) return true
+          const station = categoryStationMap[categoryId] || "ALL"
+          return allowedStations.includes(station)
+        })
+        if (visibleItems.length === 0) return false
       }
 
       // Stock status filter
@@ -1006,6 +1026,25 @@ export default function OrderManagementMain() {
              matchesType && matchesRestaurant && matchesMarked;
     });
 
+    // For station-filtered roles, attach visible items to each order
+    if (!hasFullAccess && Object.keys(categoryStationMap).length > 0) {
+      filtered = filtered.map((order) => {
+        const orderItems = order.orderItems || order.items || []
+        const visibleItems = orderItems.filter((item: any) => {
+          const categoryId = itemCategoryMap[item.itemId || ""]
+          if (!categoryId) return true
+          const station = categoryStationMap[categoryId] || "ALL"
+          return allowedStations.includes(station)
+        })
+        return {
+          ...order,
+          _stationFilteredItems: visibleItems,
+          _visibleItemCount: visibleItems.length,
+          _totalItemCount: orderItems.length,
+        } as any
+      })
+    }
+
     filtered.sort((a, b) => {
       const aValue = a[sortField];
       const bValue = b[sortField];
@@ -1019,7 +1058,8 @@ export default function OrderManagementMain() {
 
     return filtered;
   }, [orders, searchTerm, statusFilter, waitressFilter, restaurantFilter, dateFilter, 
-      orderTypeFilter, sortField, sortDirection, showMarkedOnly, restaurants, isAdmin, stockStatusFilter]);
+      orderTypeFilter, sortField, sortDirection, showMarkedOnly, restaurants, isAdmin, stockStatusFilter,
+      userRole, categoryStationMap, itemCategoryMap]);
 
   useEffect(() => {
     setTotalPages(Math.ceil(filteredAndSortedOrders.length / itemsPerPage));
@@ -1044,6 +1084,56 @@ export default function OrderManagementMain() {
     setStockStatusFilter("ALL");
   }, []);
 
+  // ========== FETCH STATION DATA (categories + items) for role-based filtering ==========
+  const fetchStationData = useCallback(async () => {
+    try {
+      const [catRes, itemRes] = await Promise.all([
+        api.get('/item-category').catch(() => null),
+        api.get('/items').catch(() => null)
+      ])
+
+      const categories = catRes?.data?.data || []
+      const items = itemRes?.data?.items || []
+
+      const COFFEE_NAMES = ["coffee"]
+      const HIDDEN_NAMES = ["food", "staff foods", "books"]
+
+      const cMap: CategoryStationMap = {}
+      let needsUpdate = false
+      for (const cat of categories) {
+        const lowerName = cat.name?.toLowerCase().trim() || ""
+        let station = cat.station
+        if (!station || station === "ALL") {
+          if (COFFEE_NAMES.includes(lowerName)) {
+            station = "COFFEE_MAKER"
+          } else if (HIDDEN_NAMES.includes(lowerName)) {
+            station = "ALL"
+          } else {
+            station = "BARISTA"
+          }
+          if (cat.station !== station) needsUpdate = true
+        }
+        cMap[cat._id] = station
+      }
+
+      const iMap: Record<string, string> = {}
+      for (const item of items) {
+        iMap[item._id || item.id] = item.categoryId
+      }
+
+      if (isMountedRef.current) {
+        setCategoryStationMap(cMap)
+        setItemCategoryMap(iMap)
+      }
+
+      if (needsUpdate) {
+        api.get('/admin/migrate-stations').catch(() => {})
+      }
+    } catch (error) {
+      console.error("Error fetching station data:", error)
+    }
+  }, [])
+
   // ========== INITIALIZE ==========
   useEffect(() => {
     isMountedRef.current = true;
@@ -1052,7 +1142,8 @@ export default function OrderManagementMain() {
       await Promise.allSettled([
         fetchOrders(true),
         loadRestaurants(),
-        fetchWaitresses()
+        fetchWaitresses(),
+        fetchStationData()
       ]);
       
       pollingIntervalRef.current = setInterval(() => {
@@ -1363,8 +1454,8 @@ export default function OrderManagementMain() {
             <tbody>
               {paginatedOrders.map((order) => {
                 const waitress = waitresses.find((w) => w._id === order.waiterId);
-                const displayItems = order.orderItems || order.items || [];
-                const lockedCount = displayItems.filter((item) => item.isUneditable).length;
+                const displayItems = (order as any)._stationFilteredItems || order.orderItems || order.items || [];
+                const lockedCount = displayItems.filter((item: any) => item.isUneditable).length;
 
                 return (
                   <TableRow key={order._id} className={order.markedForDeletion ? "bg-yellow-50/50" : ""}>

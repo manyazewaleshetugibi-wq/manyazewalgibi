@@ -9,7 +9,7 @@ import { useTheme } from "next-themes"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Users, User, Shield, Utensils, Package, DollarSign, ShoppingCart, Trash2, X, Search, Plus, ArrowLeft, TrendingUp, Clock, Calendar, Truck } from "lucide-react"
+import { Users, User, Shield, Utensils, Package, DollarSign, ShoppingCart, Trash2, X, Search, Plus, ArrowLeft, TrendingUp, Clock, Calendar, Truck, Coffee } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -59,6 +59,8 @@ const roleIcons = {
   finance: DollarSign,
   pos: ShoppingCart,
   waitress: User,
+  barista: Coffee,
+  coffee_maker: Coffee,
   default: User
 }
 
@@ -73,7 +75,9 @@ const roleColors = {
   marketing: "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800/30",
   finance: "bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-900/20 dark:text-cyan-300 dark:border-cyan-800/30",
   pos: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800/30",
-  waitress: "bg-pink-100 text-pink-700 border-pink-200 dark:bg-pink-900/20 dark:text-pink-300 dark:border-pink-800/30"
+  waitress: "bg-pink-100 text-pink-700 border-pink-200 dark:bg-pink-900/20 dark:text-pink-300 dark:border-pink-800/30",
+  barista: "bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-900/20 dark:text-teal-300 dark:border-teal-800/30",
+  coffee_maker: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800/30"
 }
 
 const LoadingSpinner = () => (

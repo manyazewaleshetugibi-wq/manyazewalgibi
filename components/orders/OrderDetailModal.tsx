@@ -185,7 +185,7 @@ export const OrderDetailModal = React.memo(function OrderDetailModal({
   const [menuItems, setMenuItems] = useState<Map<string, MenuItem>>(new Map())
   const [loadingItems, setLoadingItems] = useState(true)
 
-  const displayItems = order.orderItems || order.items
+  const displayItems: OrderItem[] = (order as any)._stationFilteredItems || order.orderItems || order.items
   const orderTypeBadge = order.inTable ? orderTypeBadges.intable : order.delivery ? orderTypeBadges.delivery : orderTypeBadges.pos
   
   // Find restaurant dynamically

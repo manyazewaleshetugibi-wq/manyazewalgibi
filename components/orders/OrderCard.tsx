@@ -47,7 +47,7 @@ import {
   RefreshCw,
   Loader2,
 } from "lucide-react"
-import type { Order, Waitress, Restaurant, OrderStatus } from "@/types/order"
+import type { Order, Waitress, Restaurant, OrderStatus, OrderItem } from "@/types/order"
 import { OrderDetailModal } from "./OrderDetailModal"
 
 // Status constants
@@ -191,8 +191,8 @@ export function OrderCard({
   const hasSpecialRequirements = !!(order.specialRequirements || order.notes)
   const edited = order.isEdited || false
   const markedForDeletion = order.markedForDeletion || false
-  const displayItems = order.orderItems || order.items
-  const uneditableCount = displayItems.filter((item) => item.isUneditable).length
+  const displayItems: OrderItem[] = (order as any)._stationFilteredItems || order.orderItems || order.items
+  const uneditableCount = displayItems.filter((item: any) => item.isUneditable).length
   const hasStockError = !order.stockProcessed && order.stockProcessingError
 
   // Get order type badge

@@ -115,6 +115,32 @@ interface Stock {
   currentStock?: number;
 }
 
+interface Purchase {
+  _id: string
+  stockId: string
+  purchaseDate: string
+  quantity: number
+  unitPrice: number
+  supplier: string
+}
+
+function getLatestPrice(stockId: string, purchases: Purchase[]): number {
+  const stockPurchases = purchases
+    .filter(p => p.stockId === stockId)
+    .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
+  return stockPurchases.length > 0 ? stockPurchases[0].unitPrice : 0
+}
+
+function getStockName(stockId: string, stocks: Stock[]): string {
+  const stock = stocks.find(s => s._id === stockId)
+  return stock ? stock.name : "Unknown"
+}
+
+function getStockUnit(stockId: string, stocks: Stock[]): string {
+  const stock = stocks.find(s => s._id === stockId)
+  return stock ? stock.unit ?? "unit" : "unit"
+}
+
 interface OrderItem {
   id: string
   menuItemId: string
@@ -811,14 +837,15 @@ function CartPanel({
 }
 
 // List View Item Component with tax info
-function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) {
+function ListViewItem({ item, addToCart, stockCost, categoryName }: { item: MenuItem; addToCart: (item: MenuItem) => void; stockCost?: number; categoryName?: string }) {
   const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+  const isStaffFood = categoryName?.toLowerCase().includes('staff food') || categoryName?.toLowerCase().includes('staff meal');
   
   return (
     <div className="flex border border-border/40 rounded-lg overflow-hidden hover:border-primary/30 transition-all bg-background hover:bg-background/95 hover:shadow-sm group">
       <div className="relative h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0 overflow-hidden">
         <Image src={item.imageUrl || "/placeholder.svg"} alt={item.name} fill sizes="56px" className="object-cover" />
-        {item.tags?.includes('bestseller') && (
+        {item.tags?.includes('bestseller') && !isStaffFood && (
           <div className="absolute top-0.5 left-0.5 bg-primary/90 text-primary-foreground text-[6px] sm:text-[7px] font-medium px-1 py-0.5 rounded">Best</div>
         )}
       </div>
@@ -827,6 +854,12 @@ function ListViewItem({ item, addToCart }: { item: MenuItem; addToCart: (item: M
           <div className="flex-1 min-w-0">
             <h3 className="font-medium text-[10px] sm:text-xs line-clamp-1">{item.name}</h3>
             <p className="text-[8px] sm:text-[9px] text-muted-foreground line-clamp-1">{item.description}</p>
+            {isStaffFood && stockCost !== undefined && stockCost > 0 && (
+              <div className="flex items-center gap-1 mt-0.5 text-[7px] sm:text-[8px] bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 font-medium px-1 py-0.5 rounded w-fit">
+                <Package className="h-2 w-2 sm:h-2.5 sm:w-2.5 flex-shrink-0" />
+                Stock Cost: {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(stockCost)}
+              </div>
+            )}
           </div>
           <div className="flex flex-col items-end">
             <span className="text-[9px] sm:text-[10px] font-medium text-primary">
@@ -913,8 +946,9 @@ const MenuItemComponent = lazy(() => {
   return new Promise<{ default: React.ComponentType<any> }>((resolve) => {
     setTimeout(() => {
       resolve({
-        default: ({ item, addToCart }: { item: MenuItem; addToCart: (item: MenuItem) => void }) => {
+        default: ({ item, addToCart, stockCost, categoryName }: { item: MenuItem; addToCart: (item: MenuItem) => void; stockCost?: number; categoryName?: string }) => {
           const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price);
+          const isStaffFood = categoryName?.toLowerCase().includes('staff food') || categoryName?.toLowerCase().includes('staff meal');
           
           return (
             <Card className="overflow-hidden h-full transition-all duration-300 hover:shadow-md hover:scale-[1.01] bg-background hover:bg-background/95 rounded-lg border-border/40 hover:border-primary/300 group min-w-0">
@@ -935,7 +969,7 @@ const MenuItemComponent = lazy(() => {
                   <span>{new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(item.price)}</span>
                   <span className="text-[6px] sm:text-[7px] opacity-80">incl. VAT</span>
                 </div>
-                {item.tags?.includes('bestseller') && (
+                {item.tags?.includes('bestseller') && !isStaffFood && (
                   <div className="absolute top-2 left-2 bg-primary/90 text-primary-foreground text-[8px] sm:text-[9px] font-medium px-1.5 py-0.5 rounded-md backdrop-blur-sm flex items-center gap-1">
                     <Sparkles className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
                     Best
@@ -957,6 +991,12 @@ const MenuItemComponent = lazy(() => {
                 <div className="space-y-0.5 flex-grow">
                   <h3 className="font-medium text-xs sm:text-sm line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
                   <p className="text-[9px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2">{item.description}</p>
+                  {isStaffFood && stockCost !== undefined && stockCost > 0 && (
+                    <div className="flex items-center gap-1 mt-1 text-[9px] sm:text-xs bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 font-medium px-1.5 py-0.5 rounded">
+                      <Package className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
+                      Stock Cost: {new Intl.NumberFormat('en-ET', { style: 'currency', currency: 'ETB' }).format(stockCost)}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center justify-between mt-auto pt-1">
                   <div className="flex items-center gap-1 text-[8px] sm:text-[9px] text-muted-foreground">
@@ -1083,6 +1123,8 @@ export default function POSPage() {
   const [altPickerOpen, setAltPickerOpen] = useState(false)
   const [altPickerItem, setAltPickerItem] = useState<MenuItem | null>(null)
   const [altPickerIngredients, setAltPickerIngredients] = useState<IngredientChoice[]>([])
+  const [purchases, setPurchases] = useState<Purchase[]>([])
+  const [allStocks, setAllStocks] = useState<Stock[]>([])
   
   // Get user role
   const userRole = currentUser?.role;
@@ -1280,20 +1322,42 @@ export default function POSPage() {
     fetchWaiters();
   }, [isPOS, selectedWaiter]);
 
-  // Fetch items, categories, and books
+  // Fetch items, categories, books, purchases, and stocks
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        const [itemsRes, categoriesRes, booksRes] = await Promise.all([
+        const [itemsRes, categoriesRes, booksRes, purchasesRes, stocksRes] = await Promise.all([
           fetch("/api/items"),
           fetch("/api/item-category"),
           fetch("/api/books"),
+          fetch("/api/stock-purchase"),
+          fetch("/api/stock"),
         ]);
 
         const itemsData = await itemsRes.json();
         const categoriesData = await categoriesRes.json();
         const booksData = await booksRes.json();
+        const purchasesData = await purchasesRes.json();
+        const stocksData = await stocksRes.json();
+
+        // Extract purchases
+        const purchasesList: Purchase[] = purchasesData.success && purchasesData.data
+          ? purchasesData.data
+          : purchasesData.data && Array.isArray(purchasesData.data)
+            ? purchasesData.data
+            : purchasesData.purchases && Array.isArray(purchasesData.purchases)
+              ? purchasesData.purchases
+              : Array.isArray(purchasesData) ? purchasesData : []
+        setPurchases(purchasesList);
+
+        // Extract stocks
+        const stocksList: Stock[] = stocksData.success && stocksData.data
+          ? stocksData.data
+          : stocksData.data && Array.isArray(stocksData.data)
+            ? stocksData.data
+            : Array.isArray(stocksData) ? stocksData : []
+        setAllStocks(stocksList);
 
         let cats = categoriesData.data || [];
 
@@ -1476,6 +1540,33 @@ export default function POSPage() {
       return matchesCategory && matchesSearch
     })
   }, [items, selectedCategory, debouncedSearchQuery])
+
+  // Build a map: categoryId -> category name
+  const categoryNameMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const cat of categories) {
+      map[cat._id] = cat.name
+    }
+    return map
+  }, [categories])
+
+  // Calculate stock cost for each item using requiredStock + latest purchase prices
+  const stockCostMap = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const item of items) {
+      if (!item.requiredStock || item.requiredStock.length === 0) {
+        map[item._id] = 0
+        continue
+      }
+      let totalCost = 0
+      for (const req of item.requiredStock) {
+        const latestPrice = getLatestPrice(req.stockId, purchases)
+        totalCost += req.quantity * latestPrice
+      }
+      map[item._id] = totalCost
+    }
+    return map
+  }, [items, purchases])
 
   const addToCart = useCallback((item: MenuItem, stocks: Stock[]) => {
     if (item.stock !== undefined && item.stock <= 0) {
@@ -2185,11 +2276,21 @@ export default function POSPage() {
                             <BookCard item={item} addToCart={addCartFn} />
                           ) : (
                             <Suspense fallback={<MenuItemFallback />}>
-                              <MenuItemComponent item={item} addToCart={addCartFn} />
+                              <MenuItemComponent
+                                item={item}
+                                addToCart={addCartFn}
+                                stockCost={stockCostMap[item._id] || 0}
+                                categoryName={categoryNameMap[item.categoryId] || 'Uncategorized'}
+                              />
                             </Suspense>
                           )
                         ) : (
-                          <ListViewItem item={item} addToCart={addCartFn} />
+                          <ListViewItem
+                            item={item}
+                            addToCart={addCartFn}
+                            stockCost={stockCostMap[item._id] || 0}
+                            categoryName={categoryNameMap[item.categoryId] || 'Uncategorized'}
+                          />
                         )}
                       </motion.div>
                     );

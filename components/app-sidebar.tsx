@@ -101,6 +101,14 @@ const ALL_ROUTES = {
     '/Culture', '/pos', '/myorders', '/table-arrangement',
     '/training', '/daily-tasks', '/profile', '/change-password'
   ],
+  BARISTA: [
+    '/Culture', '/orders', '/training', '/preparation', '/standards',
+    '/daily-tasks', '/profile', '/change-password'
+  ],
+  COFFEE_MAKER: [
+    '/Culture', '/orders', '/training', '/preparation', '/standards',
+    '/daily-tasks', '/profile', '/change-password'
+  ],
   DEFAULT: [
     '/Culture', '/training', '/daily-tasks', '/profile',
     
@@ -470,6 +478,48 @@ const roleBasedNavigation = {
     ],
   },
 
+  BARISTA: {
+    navMain: [
+      {
+        title: "Orders Management",
+        url: "#",
+        icon: ShoppingCart,
+        items: [
+          { title: "Orders", url: "/orders" },
+        ],
+      },
+    ],
+    projects: [
+      { name: "Dashboard", url: "/dashboard", icon: Tag },
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "Preparation", url: "/preparation", icon: ChefHat },
+      { name: "Standards", url: "/standards", icon: ClipboardCheck },
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+      { name: "Culture", url: "/Culture", icon: AudioWaveform },
+    ],
+  },
+
+  COFFEE_MAKER: {
+    navMain: [
+      {
+        title: "Orders Management",
+        url: "#",
+        icon: ShoppingCart,
+        items: [
+          { title: "Orders", url: "/orders" },
+        ],
+      },
+    ],
+    projects: [
+      { name: "Dashboard", url: "/dashboard", icon: Tag },
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "Preparation", url: "/preparation", icon: ChefHat },
+      { name: "Standards", url: "/standards", icon: ClipboardCheck },
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+      { name: "Culture", url: "/Culture", icon: AudioWaveform },
+    ],
+  },
+
   DEFAULT: {
     navMain: [],
     projects: [
@@ -517,7 +567,7 @@ const filterNavItemsByRole = (items: any[], role: string): any[] => {
     if (item.items && Array.isArray(item.items)) {
       const filteredItems = item.items
         .map(filterItems)
-        .filter(subItem => {
+        .filter((subItem: any) => {
           if (subItem.url && subItem.url !== '#') {
             return allowedRoutes.includes(subItem.url);
           }
@@ -526,7 +576,7 @@ const filterNavItemsByRole = (items: any[], role: string): any[] => {
           }
           return subItem.items && subItem.items.length > 0;
         })
-        .filter(subItem => {
+        .filter((subItem: any) => {
           if (subItem.url === '#' && subItem.items && subItem.items.length === 0) {
             return false;
           }
@@ -586,6 +636,8 @@ const getDefaultRedirect = (role: string): string => {
     DELIVERY: '/delivery',
     POS: '/pos',
     WAITRESS: '/pos',
+    BARISTA: '/orders',
+    COFFEE_MAKER: '/orders',
     DEFAULT: '/dashboard'
   };
   return defaults[role as keyof typeof defaults] || '/dashboard';

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
-import { validateItemCategoryData } from "@/app/api/item-category/route";
 import { uploadImage } from "@/types/utils/uploadImages";
 import { ObjectId } from "mongodb";
 
@@ -24,16 +23,21 @@ export async function PUT(
       delete body.imageBase64;
     }
 
-    const parsed = validateItemCategoryData({
-      ...body,
+    const updateData = {
+      ...(body.name && { name: body.name }),
+      ...(body.description !== undefined && { description: body.description }),
+      ...(body.type && { type: body.type }),
+      ...(body.station && { station: body.station }),
+      ...(body.imageUrl && { imageUrl: body.imageUrl }),
+      ...(body.isActive !== undefined && { isActive: body.isActive }),
       updatedAt: new Date(),
-    });
+    };
 
     const client = await clientPromise;
     const db = client.db("gold");
     const result = await db.collection("itemCategories").updateOne(
       { _id: new ObjectId(id) },
-      { $set: parsed }
+      { $set: updateData }
     );
 
     if (result.matchedCount === 0) return createResponse(404, false, "Category not found");

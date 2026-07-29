@@ -18,6 +18,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar,
 } from "@/components/ui/sidebar"
 
 // Extended item type to support nested items with icons and URLs
@@ -35,6 +36,13 @@ export function NavMain({
   items: NavItem[]
 }) {
   const pathname = usePathname()
+  const { isMobile, setOpenMobile } = useSidebar()
+  
+  const closeMobileSidebar = () => {
+    if (isMobile) {
+      setOpenMobile(false)
+    }
+  }
   
   // Don't render anything if there are no items
   if (!items || items.length === 0) {
@@ -129,7 +137,7 @@ export function NavMain({
         return (
           <SidebarMenuItem key={item.title}>
             <SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title}>
-              <Link href={item.url}>
+              <Link href={item.url} onClick={closeMobileSidebar}>
                 {item.icon && <item.icon />}
                 <span>{item.title}</span>
               </Link>
@@ -141,7 +149,7 @@ export function NavMain({
         return (
           <SidebarMenuSubItem key={item.title}>
             <SidebarMenuSubButton asChild isActive={pathname === item.url}>
-              <Link href={item.url}>
+              <Link href={item.url} onClick={closeMobileSidebar}>
                 {item.icon && <item.icon className="mr-2 h-4 w-4" />}
                 <span>{item.title}</span>
               </Link>
@@ -152,7 +160,7 @@ export function NavMain({
         // Third level and deeper items - use regular div to avoid nested li
         return (
           <div key={item.title} className="w-full">
-            <Link href={item.url}>
+            <Link href={item.url} onClick={closeMobileSidebar}>
               <div className={`flex items-center gap-2 w-full px-2 py-1 text-sm rounded-md transition-colors ${
                 pathname === item.url 
                   ? 'bg-accent text-accent-foreground' 
