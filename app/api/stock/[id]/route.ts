@@ -3,9 +3,13 @@ import clientPromise from "@/lib/mongodb";
 import { StockSchema, ReorderFrequencyEnum } from "@/models/Stock";
 import { ObjectId } from "mongodb";
 import { createResponse } from "@/lib/utils";
+import { requireRole } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "stock_manager", "pos"]);
+    if (response) return response;
+
     const { id } = await params;
 
     if (!ObjectId.isValid(id)) {
@@ -29,6 +33,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager", "kitchen"]);
+    if (response) return response;
+
     const { id } = await params;
     if (!ObjectId.isValid(id)) {
       return createResponse(400, false, "Invalid stock ID format");
@@ -74,6 +81,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager", "kitchen"]);
+    if (response) return response;
+
     const { id } = await params;
 
     if (!ObjectId.isValid(id)) {

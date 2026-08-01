@@ -1347,6 +1347,7 @@ export default function DailyProfitPage() {
                 </CardContent>
               </Card>
             </div>
+
           </>
         )}
 

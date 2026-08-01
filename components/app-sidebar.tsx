@@ -27,6 +27,8 @@ import {
   SearchCheckIcon,
   DollarSign,
   QrCode,
+  Clock,
+  Shield,
 } from "lucide-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -55,7 +57,7 @@ const ALL_ROUTES = {
     '/waitress', '/restaurants', '/BirthDate', '/prizes',
     '/pos', '/search', '/daily-tasks', '/profile', '/change-password',
     '/table-arrangement', '/feedback', '/edit', '/myorders', '/expenses',
-    '/qr' // ✅ ADDED QR PAGE - ADMIN ONLY
+    '/qr', '/attendance', '/salary', '/audit'
   ],
   KITCHEN: [
     '/Culture', '/orders', '/delivery', '/training',
@@ -176,6 +178,7 @@ const roleBasedNavigation = {
         url: "#",
         icon: ChefHat,
         items: [
+          { title: "Attendance", url: "/attendance", icon: Clock },
           { title: "Training", url: "/training", icon: BookCheckIcon },
           { title: "Culture", url: "/Culture", icon: AudioWaveform },
           {
@@ -197,6 +200,8 @@ const roleBasedNavigation = {
         icon: ChefHat,
         items: [
           { title: "Staff Management", url: "/staffregister", icon: ListChecks },
+          { title: "Salary", url: "/salary", icon: DollarSign },
+          { title: "Audit Log", url: "/audit", icon: Shield },
           { title: "Waitress", url: "/waitress", icon: UserSquare2Icon },
           { title: "Restaurant-Management", url: "/restaurants", icon: ListChecks },
         ],

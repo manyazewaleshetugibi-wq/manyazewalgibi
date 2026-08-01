@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { BlogSchema } from "@/models/Blogs";
 import { ObjectId } from "mongodb";
+import { requireRole } from "@/lib/api-auth";
+import { sanitizeBlogHtml } from "@/lib/sanitize";
 
 // Cloudinary Configuration
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
@@ -281,11 +283,14 @@ export async function GET(req: NextRequest) {
 // Create a new blog with Cloudinary upload
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+
     const formData = await req.formData();
     console.log("Received POST request with FormData");
     
     const title = formData.get("title") as string;
-    const content = formData.get("content") as string;
+    const content = sanitizeBlogHtml(formData.get("content") as string);
     const category = formData.get("category") as any;
     const tagsString = formData.get("tags") as string;
     const publishedAt = formData.get("publishedAt") as string;
@@ -645,6 +650,9 @@ export async function POST(req: NextRequest) {
 // Update blog (for updates, we use JSON - no file upload)
 export async function PUT(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+
     const url = new URL(req.url);
     const id = url.pathname.split('/').pop();
     const body = await req.json();
@@ -653,7 +661,7 @@ export async function PUT(req: NextRequest) {
     
     const { 
       title, 
-      content, 
+      content: rawContent, 
       category, 
       tags, 
       imageBase64, 
@@ -664,6 +672,7 @@ export async function PUT(req: NextRequest) {
       publishedAt, 
       isActive
     } = body;
+    const content = sanitizeBlogHtml(rawContent);
 
     if (!id) {
       return NextResponse.json(
@@ -842,6 +851,9 @@ export async function PUT(req: NextRequest) {
 // Delete blog
 export async function DELETE(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+
     const url = new URL(req.url);
     const id = url.pathname.split('/').pop();
 

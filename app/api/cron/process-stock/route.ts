@@ -1,6 +1,8 @@
 // app/api/cron/process-stock/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { processAllCompletedOrders } from "../../utils/stockHelpers";
+import { ObjectId } from "mongodb";
+import clientPromise from "@/lib/mongodb";
+import { processAllCompletedOrders, processOrderStockUsage } from "../../utils/stockHelpers";
 import { debugLog, debugError } from "../../utils/orderHelpers";
 
 // Simple rate limiting - only prevent too frequent runs
@@ -87,12 +89,93 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const body = await req.json().catch(() => ({}));
+    const { orderId, retryFailed } = body;
+
+    // Per-order processing (used by the "Retry stock" button)
+    if (orderId) {
+      if (!ObjectId.isValid(orderId)) {
+        return NextResponse.json(
+          { success: false, error: "Invalid order ID" },
+          { status: 400 }
+        );
+      }
+
+      const dbClient = await clientPromise;
+      const db = dbClient.db("gold");
+      const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+
+      if (!order) {
+        return NextResponse.json(
+          { success: false, error: "Order not found" },
+          { status: 404 }
+        );
+      }
+
+      debugLog(`Manual stock processing for order: ${order.orderNumber}`);
+      const result = await processOrderStockUsage(order);
+
+      return NextResponse.json({
+        success: result.success,
+        orderId,
+        orderNumber: order.orderNumber,
+        processedOrders: result.success && !result.partiallyProcessed && !result.alreadyProcessed ? 1 : 0,
+        partialOrders: result.partiallyProcessed || result.stillPending ? 1 : 0,
+        failedOrders: result.success ? 0 : 1,
+        alreadyProcessed: result.alreadyProcessed || false,
+        lowStockItems: result.lowStockItems || [],
+        message: result.message || null,
+        error: result.error || (result.success ? null : (result.message || "Processing failed")),
+      });
+    }
+
+    // Retry only previously-failed orders
+    if (retryFailed) {
+      const dbClient = await clientPromise;
+      const db = dbClient.db("gold");
+
+      const failedOrders = await db.collection("orders").find({
+        status: { $regex: /^completed$/i },
+        stockProcessed: { $ne: true },
+        stockProcessingError: { $exists: true, $ne: "" },
+      }).limit(50).toArray();
+
+      let processed = 0;
+      let stillFailed = 0;
+      for (const order of failedOrders) {
+        try {
+          const result = await processOrderStockUsage(order);
+          if (result.success && !result.partiallyProcessed && !result.stillPending) {
+            processed++;
+          } else if (result.stillPending || result.partiallyProcessed) {
+            // still waiting — leave as-is
+          } else {
+            stillFailed++;
+          }
+        } catch (error: any) {
+          stillFailed++;
+          debugError(`Failed to retry ${order.orderNumber}:`, error);
+          await db.collection("orders").updateOne(
+            { _id: order._id },
+            { $set: { stockProcessingError: error?.message || String(error), stockProcessingFailedAt: new Date() } }
+          );
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        processedOrders: processed,
+        failedOrders: stillFailed,
+        partialOrders: failedOrders.length - processed - stillFailed,
+      });
+    }
+
+    // Default: process the batch of pending + partial orders
     debugLog(`Manual stock processing triggered`);
-    
     const startTime = Date.now();
-    const result = await processAllCompletedOrders(undefined, 100);
+    const result = await processAllCompletedOrders(undefined, 10);
     const duration = Date.now() - startTime;
-    
+
     return NextResponse.json({
       success: true,
       duration: `${duration}ms`,
@@ -103,7 +186,7 @@ export async function POST(req: NextRequest) {
       lowStockItems: result.lowStockItems || [],
       errors: result.errors || []
     });
-    
+
   } catch (error) {
     debugError("Manual processing error:", error);
     return NextResponse.json(

@@ -3,9 +3,13 @@ import clientPromise from "@/lib/mongodb";
 import { StockSchema } from "@/models/Stock";
 import { ObjectId } from "mongodb";
 import { createResponse } from "@/lib/utils";
+import { requireRole } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "stock_manager", "pos"]);
+    if (response) return response;
+
     const client = await clientPromise;
     const db = client.db("gold");
     const stocks = await db.collection("stocks").find().toArray();
@@ -19,6 +23,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager", "kitchen"]);
+    if (response) return response;
+
     const body = await req.json();
     const parsedData = StockSchema.parse(body);
     parsedData.createdAt = new Date();

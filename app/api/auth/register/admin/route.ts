@@ -1,14 +1,24 @@
 import { NextResponse } from "next/server"
 import clientPromise from "@/lib/mongodb"
 import bcrypt from "bcrypt"
+import { requireAdmin } from "@/lib/api-auth"
 
 export async function POST(request: Request) {
   try {
+    const { response: adminResponse } = await requireAdmin()
+    if (adminResponse) return adminResponse
+
     const body = await request.json()
     const { email, password, name, role } = body
 
-    
-    
+    const allowedRoles = ["admin", "kitchen", "fb", "marketing", "finance", "stock_manager", "pos", "delivery", "barista", "coffee_maker", "other"]
+    if (!role || !allowedRoles.includes(String(role).toLowerCase())) {
+      return NextResponse.json(
+        { message: "Invalid role" },
+        { status: 400 }
+      );
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10)
 
     const client = await clientPromise

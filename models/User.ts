@@ -10,7 +10,8 @@ export enum UserRole {
   POS = 'pos',
   CUSTOMER = 'customer',
   BARISTA = 'barista',
-  COFFEE_MAKER = 'coffee_maker'
+  COFFEE_MAKER = 'coffee_maker',
+  OTHER = 'other'
 }
 
 export interface User {
@@ -33,6 +34,7 @@ export interface User {
   phone?: string; // Add phone field
   specialization?: string; // Add specialization field
   shift?: string; // Add shift field
+  pin?: string; // Hashed 4-digit PIN for attendance
 }
 
 // For database queries
@@ -56,6 +58,7 @@ export interface UserDocument {
   phone?: string;
   specialization?: string;
   shift?: string;
+  pin?: string;
 }
 
 export interface UserWithoutId extends Omit<User, '_id'> {}
@@ -303,6 +306,8 @@ export const getDefaultPermissions = (role: UserRole): string[] => {
         'view_menu',
         'view_inventory'
       ];
+    case UserRole.OTHER:
+      return ['view_attendance'];
     default:
       return [];
   }

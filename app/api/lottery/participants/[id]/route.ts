@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
+import { requireAdmin } from '@/lib/api-auth';
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     // Await the params in Next.js 15+
     const { id } = await params;
     

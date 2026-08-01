@@ -3,6 +3,7 @@ import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { DeliveryOrderSchema } from "@/models/DeliveryOrders";
 import { auth } from "@/auth"; // ✅ Changed from getServerSession import
+import { requireRole } from "@/lib/api-auth";
 
 // Define valid statuses directly to avoid import issues
 const VALID_STATUSES = [
@@ -174,6 +175,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "delivery"]);
+    if (response) return response;
+
     const { id } = await params;
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
@@ -269,6 +273,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "delivery"]);
+    if (response) return response;
+
     const { id } = await params;
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
@@ -370,6 +377,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "delivery"]);
+    if (response) return response;
+
     const { id } = await params;
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
+import { requireAdmin } from '@/lib/api-auth';
 
 export async function POST(request: NextRequest) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const client = await clientPromise;
     const db = client.db();
 

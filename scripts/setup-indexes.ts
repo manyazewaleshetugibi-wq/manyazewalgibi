@@ -6,15 +6,6 @@ async function setupIndexes() {
     const client = await clientPromise
     const db = client.db(process.env.MONGODB_DB || 'retreat_management')
     
-    // Retreat Participants indexes
-    const participantsCollection = db.collection('retreatParticipants')
-    await participantsCollection.createIndex({ serialNumber: 1 }, { unique: true })
-    await participantsCollection.createIndex({ phoneNumber: 1 })
-    await participantsCollection.createIndex({ fullName: 1 })
-    await participantsCollection.createIndex({ paymentStatus: 1 })
-    await participantsCollection.createIndex({ attendanceStatus: 1 })
-    console.log('✅ Retreat Participants indexes created')
-    
     // Podcast Guests indexes
     const guestsCollection = db.collection('podcastGuests')
     await guestsCollection.createIndex({ serialNumber: 1 }, { unique: true })

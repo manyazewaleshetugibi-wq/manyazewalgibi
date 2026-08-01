@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
+import { requireAdmin } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const dbClient = await clientPromise;
     const db = dbClient.db("gold"); // Use the correct database name
     

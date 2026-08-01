@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from "@/lib/mongodb";
+import { requireRole } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "pos", "delivery", "barista", "coffee_maker", "stock_manager", "fb"]);
+    if (response) return response;
+
     const { searchParams } = new URL(request.url);
     const waiterId = searchParams.get('waiterId');
     

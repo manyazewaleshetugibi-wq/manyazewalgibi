@@ -4,6 +4,7 @@ import { ObjectId } from "mongodb";
 import { DeliveryOrderSchema } from "@/models/DeliveryOrders";
 
 import { auth } from "@/auth";
+import { requireRole } from "@/lib/api-auth";
 
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
 const CLOUDINARY_PHOTO_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
@@ -267,6 +268,9 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "delivery"]);
+    if (response) return response;
+
     const dbClient = await clientPromise;
     const db = dbClient.db("gold");
 

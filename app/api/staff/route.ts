@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
 import bcrypt from 'bcrypt';
+import { requireAdmin } from '@/lib/api-auth';
 
 // Define role-based permissions
 const rolePermissions: Record<string, string[]> = {
@@ -97,6 +98,9 @@ const rolePermissions: Record<string, string[]> = {
     'update_order_status',
     'view_menu',
     'view_inventory'
+  ],
+  other: [
+    'view_attendance'
   ]
 };
 
@@ -116,6 +120,9 @@ const hashPassword = async (password: string): Promise<string> => {
 // GET all staff - Returns only text message
 export async function GET(request: NextRequest) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');
@@ -139,7 +146,7 @@ export async function GET(request: NextRequest) {
       query.status = status;
     }
     
-    const users = await usersCollection.find(query).sort({ createdAt: -1 }).toArray();
+    const users = await usersCollection.find(query, { projection: { password: 0 } }).sort({ createdAt: -1 }).toArray();
     
     return NextResponse.json({ success: true, data: users }, { status: 200 });
     
@@ -152,6 +159,9 @@ export async function GET(request: NextRequest) {
 // POST create new user - Returns only text message
 export async function POST(request: NextRequest) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const client = await clientPromise;
     if (!client) {
       return new NextResponse('Database connection failed', { status: 500 });
@@ -206,7 +216,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Validate role
-    const validRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'fb', 'marketing', 'finance', 'pos', 'waitress', 'barista', 'coffee_maker'];
+    const validRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'fb', 'marketing', 'finance', 'pos', 'waitress', 'barista', 'coffee_maker', 'other'];
     if (!validRoles.includes(role)) {
       return new NextResponse(`Invalid role. Must be one of: ${validRoles.join(', ')}`, { status: 400 });
     }
@@ -260,6 +270,9 @@ export async function POST(request: NextRequest) {
 // PUT update user - Returns only text message
 export async function PUT(request: NextRequest) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');
@@ -308,6 +321,9 @@ export async function PUT(request: NextRequest) {
 // DELETE user - Returns only text message
 export async function DELETE(request: NextRequest) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const client = await clientPromise;
     const db = client.db('gold');
     const usersCollection = db.collection('users');

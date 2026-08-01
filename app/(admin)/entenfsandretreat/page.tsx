@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { 
-  Users, 
   Mic, 
   Heart, 
   Plus, 
@@ -16,9 +15,7 @@ import {
   Clock,
   Tag,
   Star,
-  CheckCircle,
   XCircle,
-  AlertCircle,
   Edit,
   Trash2,
   Eye,
@@ -71,20 +68,6 @@ import { toast } from "@/hooks/use-toast"
 // TYPES
 // ============================================================================
 
-interface RetreatParticipant {
-  _id: string
-  serialNumber: number
-  fullName: string
-  phoneNumber: string
-  paymentStatus: 'Paid' | 'Partial' | 'Pending'
-  paymentApp: string
-  specialNeeds: string
-  attendanceStatus: 'Attended' | 'Absent' | 'Partial' | 'Pending'
-  residence: string
-  createdAt: string
-  updatedAt: string
-}
-
 interface PodcastGuest {
   _id: string
   serialNumber: number
@@ -133,41 +116,6 @@ interface OtherContact {
 // ============================================================================
 // API FUNCTIONS
 // ============================================================================
-
-// Retreat Participants APIs
-async function fetchRetreatParticipants(): Promise<RetreatParticipant[]> {
-  const response = await fetch("/api/podcastandentenfs/retreat-participants")
-  if (!response.ok) throw new Error("Failed to fetch retreat participants")
-  const data = await response.json()
-  return data.data || []
-}
-
-async function createRetreatParticipant(data: Partial<RetreatParticipant>): Promise<RetreatParticipant> {
-  const response = await fetch('/api/podcastandentenfs/retreat-participants', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!response.ok) throw new Error("Failed to create participant")
-  const result = await response.json()
-  return result.data
-}
-
-async function updateRetreatParticipant(id: string, data: Partial<RetreatParticipant>): Promise<RetreatParticipant> {
-  const response = await fetch(`/api/podcastandentenfs/retreat-participants/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!response.ok) throw new Error("Failed to update participant")
-  const result = await response.json()
-  return result.data
-}
-
-async function deleteRetreatParticipant(id: string): Promise<boolean> {
-  const response = await fetch(`/api/podcastandentenfs/retreat-participants/${id}`, { method: 'DELETE' })
-  return response.ok
-}
 
 // Podcast Guests APIs
 async function fetchPodcastGuests(): Promise<PodcastGuest[]> {
@@ -277,301 +225,6 @@ async function deleteOtherContact(id: string): Promise<boolean> {
 // ============================================================================
 // RETREAT PARTICIPANTS TABLE
 // ============================================================================
-
-function RetreatParticipantsTable() {
-  const [participants, setParticipants] = useState<RetreatParticipant[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [editingItem, setEditingItem] = useState<RetreatParticipant | null>(null)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [filterStatus, setFilterStatus] = useState<string>("all")
-  const [formData, setFormData] = useState<Partial<RetreatParticipant>>({
-    serialNumber: 0,
-    fullName: "",
-    phoneNumber: "",
-    paymentStatus: "Pending",
-    paymentApp: "",
-    specialNeeds: "",
-    attendanceStatus: "Pending",
-    residence: "",
-  })
-
-  const loadData = async () => {
-    setIsLoading(true)
-    try {
-      const data = await fetchRetreatParticipants()
-      setParticipants(data)
-    } catch (error) {
-      console.error("Error loading participants:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  useEffect(() => { loadData() }, [])
-
-  const filteredParticipants = participants.filter(p => {
-    const matchSearch = p.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        p.phoneNumber.includes(searchTerm)
-    const matchStatus = filterStatus === "all" || p.paymentStatus === filterStatus
-    return matchSearch && matchStatus
-  })
-
-  const handleSubmit = async () => {
-    try {
-      if (editingItem) {
-        await updateRetreatParticipant(editingItem._id, formData)
-        toast({ title: "Success", description: "Participant updated successfully" })
-      } else {
-        await createRetreatParticipant({ ...formData, serialNumber: participants.length + 1 })
-        toast({ title: "Success", description: "Participant added successfully" })
-      }
-      await loadData()
-      setShowForm(false)
-      setEditingItem(null)
-      resetForm()
-    } catch (error) {
-      console.error("Error saving:", error)
-      toast({ title: "Error", description: "Failed to save participant", variant: "destructive" })
-    }
-  }
-
-  const resetForm = () => {
-    setFormData({
-      serialNumber: 0,
-      fullName: "",
-      phoneNumber: "",
-      paymentStatus: "Pending",
-      paymentApp: "",
-      specialNeeds: "",
-      attendanceStatus: "Pending",
-      residence: "",
-    })
-  }
-
-  const handleEdit = (item: RetreatParticipant) => {
-    setEditingItem(item)
-    setFormData(item)
-    setShowForm(true)
-  }
-
-  const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this participant?")) {
-      try {
-        await deleteRetreatParticipant(id)
-        await loadData()
-        toast({ title: "Success", description: "Participant deleted successfully" })
-      } catch (error) {
-        console.error("Error deleting:", error)
-        toast({ title: "Error", description: "Failed to delete participant", variant: "destructive" })
-      }
-    }
-  }
-
-  const getPaymentStatusBadge = (status: string) => {
-    const styles = {
-      Paid: "bg-green-100 text-green-700",
-      Partial: "bg-yellow-100 text-yellow-700",
-      Pending: "bg-red-100 text-red-700",
-    }
-    return styles[status as keyof typeof styles] || "bg-gray-100 text-gray-700"
-  }
-
-  const getAttendanceBadge = (status: string) => {
-    const styles = {
-      Attended: "bg-green-100 text-green-700",
-      Partial: "bg-yellow-100 text-yellow-700",
-      Absent: "bg-red-100 text-red-700",
-      Pending: "bg-gray-100 text-gray-700",
-    }
-    return styles[status as keyof typeof styles] || "bg-gray-100 text-gray-700"
-  }
-
-  if (isLoading) return <Skeleton className="h-[400px] w-full" />
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input 
-              placeholder="Search by name or phone..." 
-              className="pl-10 w-[250px]"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-[150px]">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="Paid">Paid</SelectItem>
-              <SelectItem value="Partial">Partial</SelectItem>
-              <SelectItem value="Pending">Pending</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button onClick={() => { resetForm(); setEditingItem(null); setShowForm(true); }} className="bg-blue-600">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Participant
-        </Button>
-      </div>
-
-      <Card>
-        <CardContent className="pt-6">
-          <div className="rounded-md border overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted">
-                  <TableHead className="w-[60px]">#</TableHead>
-                  <TableHead>Full Name</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Payment Status</TableHead>
-                  <TableHead>Payment App</TableHead>
-                  <TableHead>Special Needs</TableHead>
-                  <TableHead>Attendance</TableHead>
-                  <TableHead>Residence</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredParticipants.map((p) => (
-                  <TableRow key={p._id} className="hover:bg-muted/50">
-                    <TableCell>{p.serialNumber}</TableCell>
-                    <TableCell className="font-medium">{p.fullName}</TableCell>
-                    <TableCell>{p.phoneNumber}</TableCell>
-                    <TableCell>
-                      <Badge className={getPaymentStatusBadge(p.paymentStatus)}>
-                        {p.paymentStatus}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{p.paymentApp || "—"}</TableCell>
-                    <TableCell className="max-w-[150px] truncate">{p.specialNeeds || "—"}</TableCell>
-                    <TableCell>
-                      <Badge className={getAttendanceBadge(p.attendanceStatus)}>
-                        {p.attendanceStatus}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{p.residence || "—"}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => handleEdit(p)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" className="text-red-600" onClick={() => handleDelete(p._id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredParticipants.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                      No participants found
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Form Dialog */}
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{editingItem ? "Edit Participant" : "Add New Participant"}</DialogTitle>
-            <DialogDescription>
-              {editingItem ? "Update participant information" : "Enter participant details for the retreat"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-4">
-            <div>
-              <Label>Full Name *</Label>
-              <Input 
-                value={formData.fullName || ""} 
-                onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                placeholder="Enter full name"
-              />
-            </div>
-            <div>
-              <Label>Phone Number *</Label>
-              <Input 
-                value={formData.phoneNumber || ""} 
-                onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                placeholder="Enter phone number"
-              />
-            </div>
-            <div>
-              <Label>Payment Status</Label>
-              <Select 
-                value={formData.paymentStatus || "Pending"} 
-                onValueChange={(v: any) => setFormData({ ...formData, paymentStatus: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Paid">Paid</SelectItem>
-                  <SelectItem value="Partial">Partial</SelectItem>
-                  <SelectItem value="Pending">Pending</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Payment App</Label>
-              <Input 
-                value={formData.paymentApp || ""} 
-                onChange={(e) => setFormData({ ...formData, paymentApp: e.target.value })}
-                placeholder="e.g., CBE Birr, TeleBirr"
-              />
-            </div>
-            <div className="col-span-2">
-              <Label>Special Needs</Label>
-              <Input 
-                value={formData.specialNeeds || ""} 
-                onChange={(e) => setFormData({ ...formData, specialNeeds: e.target.value })}
-                placeholder="Dietary, health, accessibility needs"
-              />
-            </div>
-            <div>
-              <Label>Attendance Status</Label>
-              <Select 
-                value={formData.attendanceStatus || "Pending"} 
-                onValueChange={(v: any) => setFormData({ ...formData, attendanceStatus: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Attended">Attended</SelectItem>
-                  <SelectItem value="Partial">Partial</SelectItem>
-                  <SelectItem value="Absent">Absent</SelectItem>
-                  <SelectItem value="Pending">Pending</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Residence (Neighborhood)</Label>
-              <Input 
-                value={formData.residence || ""} 
-                onChange={(e) => setFormData({ ...formData, residence: e.target.value })}
-                placeholder="Enter neighborhood"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button onClick={handleSubmit}>{editingItem ? "Update" : "Save"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
 
 // ============================================================================
 // PODCAST GUESTS TABLE
@@ -1520,34 +1173,18 @@ function OtherContactsTable() {
 // STATS CARDS
 // ============================================================================
 
-function StatsCards({ participants, guests, cases, contacts }: { 
-  participants: RetreatParticipant[], 
+function StatsCards({ guests, cases, contacts }: { 
   guests: PodcastGuest[], 
   cases: EntenfesCase[],
   contacts: OtherContact[]
 }) {
-  const totalPaid = participants.filter(p => p.paymentStatus === 'Paid').length
-  const totalAttended = participants.filter(p => p.attendanceStatus === 'Attended').length
   const highPriorityCases = cases.filter(c => c.priority === 'High').length
   const resolvedCases = cases.filter(c => c.status === 'Resolved').length
   const pendingContacts = contacts.filter(c => c.status === 'New' || c.status === 'InProgress').length
   const prayerRequests = contacts.filter(c => c.callType === 'Prayer').length
 
   return (
-    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-sm text-muted-foreground">Total Participants</p>
-              <p className="text-2xl font-bold text-blue-600">{participants.length}</p>
-              <p className="text-xs text-green-600">{totalPaid} paid</p>
-            </div>
-            <Users className="h-8 w-8 text-blue-400" />
-          </div>
-        </CardContent>
-      </Card>
-      
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
       <Card>
         <CardContent className="pt-6">
           <div className="flex justify-between items-start">
@@ -1587,20 +1224,6 @@ function StatsCards({ participants, guests, cases, contacts }: {
         </CardContent>
       </Card>
       
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-sm text-muted-foreground">Attendance Rate</p>
-              <p className="text-2xl font-bold text-green-600">
-                {participants.length > 0 ? Math.round((totalAttended / participants.length) * 100) : 0}%
-              </p>
-              <p className="text-xs">{totalAttended} attended</p>
-            </div>
-            <CheckCircle className="h-8 w-8 text-green-400" />
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }
@@ -1610,8 +1233,7 @@ function StatsCards({ participants, guests, cases, contacts }: {
 // ============================================================================
 
 export default function RetreatManagementPage() {
-  const [activeTab, setActiveTab] = useState("participants")
-  const [participants, setParticipants] = useState<RetreatParticipant[]>([])
+  const [activeTab, setActiveTab] = useState("podcast")
   const [guests, setGuests] = useState<PodcastGuest[]>([])
   const [cases, setCases] = useState<EntenfesCase[]>([])
   const [contacts, setContacts] = useState<OtherContact[]>([])
@@ -1620,13 +1242,11 @@ export default function RetreatManagementPage() {
   const loadAllData = async () => {
     setIsLoading(true)
     try {
-      const [pData, gData, cData, oData] = await Promise.all([
-        fetchRetreatParticipants(),
+      const [gData, cData, oData] = await Promise.all([
         fetchPodcastGuests(),
         fetchEntenfesCases(),
         fetchOtherContacts(),
       ])
-      setParticipants(pData)
       setGuests(gData)
       setCases(cData)
       setContacts(oData)
@@ -1642,7 +1262,6 @@ export default function RetreatManagementPage() {
   }, [])
 
   const tabConfigs = [
-    { id: "participants", label: "Retreat Participants", icon: Users, color: "blue", component: RetreatParticipantsTable },
     { id: "podcast", label: "Podcast Guests", icon: Mic, color: "purple", component: PodcastGuestsTable },
     { id: "entenfes", label: "Entenfes Cases", icon: Heart, color: "red", component: EntenfesCasesTable },
     { id: "others", label: "Other Contacts", icon: MessageSquare, color: "teal", component: OtherContactsTable },
@@ -1667,16 +1286,16 @@ export default function RetreatManagementPage() {
       <div className="flex flex-col gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Retreat & Podcast Management</h2>
-          <p className="text-muted-foreground">Track retreat participants, podcast guests, Entenfes program cases, and other contacts</p>
+          <p className="text-muted-foreground">Track podcast guests, Entenfes program cases, and other contacts</p>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <StatsCards participants={participants} guests={guests} cases={cases} contacts={contacts} />
+      <StatsCards guests={guests} cases={cases} contacts={contacts} />
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           {tabConfigs.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2">
               <tab.icon className={`h-4 w-4 text-${tab.color}-500`} />

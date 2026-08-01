@@ -48,7 +48,7 @@ const StaffSchema: Schema = new Schema({
   role: {
     type: String,
     required: [true, 'Role is required'],
-    enum: ['admin', 'kitchen', 'stock_manager', 'fb', 'marketing', 'finance', 'pos'],
+    enum: ['admin', 'kitchen', 'stock_manager', 'fb', 'marketing', 'finance', 'pos', 'other'],
     default: 'pos'
   },
   status: {

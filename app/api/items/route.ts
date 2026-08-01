@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { validateItemData } from "@/models/Item";
 import { ObjectId } from "mongodb";
+import { requireRole } from "@/lib/api-auth";
 
 // Cloudinary Configuration
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
@@ -103,6 +104,9 @@ async function uploadToCloudinary(
  */
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "stock_manager"]);
+    if (response) return response;
+
     const formData = await req.formData();
     console.log("Received item creation request");
     
@@ -273,6 +277,9 @@ export async function POST(req: NextRequest) {
 // ✅ GET all items — enriched with stock names for requiredStock & alternatives
 export async function GET() {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "stock_manager", "pos", "barista", "coffee_maker"]);
+    if (response) return response;
+
     const client = await clientPromise;
     const db = client.db("gold");
     const items = await db.collection("items").find({}).toArray();
@@ -327,6 +334,9 @@ export async function GET() {
 // ✅ PUT - Update item with optional image update
 export async function PUT(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "stock_manager"]);
+    if (response) return response;
+
     const url = new URL(req.url);
     const id = url.pathname.split('/').pop();
     
@@ -519,6 +529,9 @@ export async function PUT(req: NextRequest) {
 // ✅ DELETE - Delete item and optionally delete from Cloudinary
 export async function DELETE(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "stock_manager"]);
+    if (response) return response;
+
     const url = new URL(req.url);
     const id = url.pathname.split('/').pop();
 

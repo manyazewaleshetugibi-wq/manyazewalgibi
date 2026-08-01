@@ -8,21 +8,13 @@ export async function POST(request: NextRequest) {
   console.log('🔐 Change password API called');
   
   try {
-    // Try proxy-injected headers first, fall back to getToken
-    let userId = request.headers.get('x-user-id');
-    let userEmail = request.headers.get('x-user-email');
-
-    if (!userId) {
-      const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET || '' });
-      if (!token) {
-        return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
-      }
-      userId = token.id as string;
-      userEmail = token.email as string;
+    // Identity comes exclusively from the signed session cookie (never from request headers)
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    if (!token) {
+      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
     }
-
-    // Fake token shape for the rest of the handler
-    const token = { id: userId, email: userEmail };
+    const userId = token.id as string;
+    const userEmail = token.email as string;
 
     console.log('👤 User ID from token:', token.id);
     console.log('📧 User email from token:', token.email);

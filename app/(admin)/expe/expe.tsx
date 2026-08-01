@@ -266,6 +266,7 @@ function getDateRangeLabel(filterType: DateFilterType, customStart?: Date, custo
   const { start, end } = getDateRange(filterType, customStart, customEnd)
   switch (filterType) {
     case 'today': return 'Today'
+    
     case 'yesterday': return 'Yesterday'
     case 'week': return `This Week`
     case 'month': return format(start, 'MMMM yyyy')
@@ -1492,6 +1493,12 @@ export default function FinancialManagementPage() {
       value: formatCurrency(metrics.dailyRevenue),
       subtitle: `${metrics.dailyOrderCount} orders • ${formatCurrency(metrics.dailyAverageOrderValue)} avg`,
     },
+    {
+      id: 'salary' as const,
+      title: `Salary Management`,
+      value: `Register & Pay`,
+      subtitle: `Track staff salaries monthly`,
+    },
   ]
 
   if (isLoading) {
@@ -1499,8 +1506,8 @@ export default function FinancialManagementPage() {
       <div className="flex-1 space-y-3 sm:space-y-6 p-2 sm:p-8 pt-3 sm:pt-6">
         <Skeleton className="h-8 sm:h-10 w-32 sm:w-48 rounded-xl sm:rounded-2xl" />
         <Skeleton className="h-10 sm:h-14 w-full rounded-xl sm:rounded-2xl" />
-        <div className="grid gap-1.5 sm:gap-3 grid-cols-2 sm:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="grid gap-1.5 sm:gap-3 grid-cols-2 sm:grid-cols-2 lg:grid-cols-5">
+          {[1, 2, 3, 4, 5].map((i) => (
             <Skeleton key={i} className="h-16 sm:h-20 w-full rounded-xl sm:rounded-2xl" />
           ))}
         </div>
@@ -1550,7 +1557,7 @@ export default function FinancialManagementPage() {
       />
 
       {/* Four Module Cards - Mobile First Grid */}
-      <div className="grid gap-1.5 sm:gap-3 grid-cols-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-1.5 sm:gap-3 grid-cols-2 sm:grid-cols-2 lg:grid-cols-5">
         {modules.map((module) => {
           let isActive = false
           let onClick = () => {}
@@ -1567,6 +1574,9 @@ export default function FinancialManagementPage() {
           } else if (module.id === 'revenue') {
             isActive = false
             onClick = goToSalesPage
+          } else if (module.id === 'salary') {
+            isActive = false
+            onClick = () => router.push('/salary')
           }
           
           return (

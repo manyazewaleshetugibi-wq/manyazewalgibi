@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
 import bcrypt from 'bcrypt';
+import { requireAdmin } from '@/lib/api-auth';
 
 // Define role-based permissions
 const rolePermissions: Record<string, string[]> = {
@@ -85,6 +86,9 @@ const rolePermissions: Record<string, string[]> = {
     'create_orders',
     'update_order_status',
     'view_menu'
+  ],
+  other: [
+    'view_attendance'
   ]
 };
 
@@ -113,6 +117,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const { id } = await params;
     
     const client = await clientPromise;
@@ -146,6 +153,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const { id } = await params;
     
     const client = await clientPromise;
@@ -198,7 +208,7 @@ export async function PUT(
     
     // Validate role if provided
     if (role) {
-      const validRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'fb', 'marketing', 'finance', 'pos', 'waitress'];
+      const validRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'fb', 'marketing', 'finance', 'pos', 'waitress', 'other'];
       if (!validRoles.includes(role)) {
         return NextResponse.json({ success: false, message: 'Invalid role' }, { status: 400 });
       }
@@ -267,6 +277,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const { id } = await params;
     
     const client = await clientPromise;
@@ -307,6 +320,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const { id } = await params;
     
     const client = await clientPromise;
@@ -318,6 +334,22 @@ export async function PATCH(
     }
     
     const body = await request.json();
+    
+    // Handle PIN update
+    if (body.pin !== undefined) {
+      const { pin } = body;
+      if (!/^\d{4}$/.test(pin)) {
+        return NextResponse.json({ success: false, message: 'PIN must be exactly 4 digits' }, { status: 400 });
+      }
+      const hashedPin = await bcrypt.hash(pin, 10);
+      await usersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { pin: hashedPin, updatedAt: new Date() } }
+      );
+      return NextResponse.json({ success: true, message: 'PIN updated successfully' }, { status: 200 });
+    }
+    
+    // Handle password update
     const { currentPassword, newPassword } = body;
     
     if (!currentPassword || !newPassword) {
@@ -361,7 +393,7 @@ export async function PATCH(
     return NextResponse.json({ success: true, message: 'Password updated successfully' }, { status: 200 });
     
   } catch (error: any) {
-    console.error('Error updating password:', error);
-    return NextResponse.json({ success: false, message: 'Failed to update password' }, { status: 500 });
+    console.error('Error updating user:', error);
+    return NextResponse.json({ success: false, message: 'Failed to update user' }, { status: 500 });
   }
 }

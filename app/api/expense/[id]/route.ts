@@ -2,9 +2,13 @@ import { type NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongodb"
 import type { Expense } from "@/models/Expense"
 import { ObjectId } from "mongodb"
+import { requireRole } from "@/lib/api-auth"
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+
     const { id } = await params // Unwrap the params Promise
     
     const client = await clientPromise
@@ -25,6 +29,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+
     const { id } = await params // Unwrap the params Promise
     
     const client = await clientPromise
@@ -52,6 +59,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+
     const { id } = await params // Unwrap the params Promise
     
     const client = await clientPromise

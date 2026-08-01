@@ -3,6 +3,8 @@ import clientPromise from "@/lib/mongodb";
 import { BlogSchema } from "@/models/Blogs";
 import { uploadImage } from "@/types/utils/uploadImages";
 import { ObjectId } from "mongodb";
+import { requireRole } from "@/lib/api-auth";
+import { sanitizeBlogHtml } from "@/lib/sanitize";
 
 // Cloudinary Configuration (for thumbnail generation)
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
@@ -194,6 +196,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+
     // Await params first
     const { id } = await params;
     
@@ -208,7 +213,7 @@ export async function PUT(
     const body = await req.json();
     let { 
       title, 
-      content, 
+      content: rawContent, 
       category, 
       tags, 
       imageBase64, 
@@ -218,6 +223,7 @@ export async function PUT(
       publishedAt, 
       isActive 
     } = body;
+    const content = sanitizeBlogHtml(rawContent);
 
     // For updates, we only handle text changes and URL updates, not file uploads
     // File uploads should be done through the main POST endpoint
@@ -336,6 +342,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+
     // Await params first
     const { id } = await params;
     

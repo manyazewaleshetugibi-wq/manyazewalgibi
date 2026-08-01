@@ -16,7 +16,8 @@ const ALL_ROUTES = {
     '/preparation', '/Sregister', '/standards', '/staffregister',
     '/waitress', '/restaurants', '/BirthDate', '/prizes',
     '/pos', '/search', '/daily-tasks', '/profile', '/change-password',
-    '/table-arrangement', '/feedback', '/edit', '/myorders', '/expenses'
+    '/table-arrangement', '/feedback', '/edit', '/myorders', '/expenses',
+    '/attendance', '/salary', '/audit'
   ],
   KITCHEN: [
     '/Culture', '/orders', '/delivery', '/training',
@@ -83,7 +84,7 @@ const normalizeRole = (role: string | undefined): string => {
 };
 
 const isPublicRoute = (pathname: string): boolean => {
-  const publicRoutes = ['/', '/login', '/belog', '/register', '/home', '/about', '/blogs', '/contact', '/contactus'];
+  const publicRoutes = ['/', '/login', '/belog', '/register', '/home', '/about', '/blogs', '/contact', '/contactus', '/attendance/clock', '/scan'];
   return publicRoutes.some(route => pathname === route || pathname.startsWith(route + '/'));
 };
 

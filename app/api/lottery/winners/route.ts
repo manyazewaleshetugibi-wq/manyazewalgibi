@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
+import { requireAdmin } from '@/lib/api-auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const client = await clientPromise;
     const db = client.db();
 
@@ -48,6 +52,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const client = await clientPromise;
     const db = client.db();
     const winnerData = await request.json();

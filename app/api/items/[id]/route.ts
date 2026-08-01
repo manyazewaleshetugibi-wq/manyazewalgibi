@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { requireRole } from "@/lib/api-auth";
 
 // Cloudinary Configuration
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
@@ -102,6 +103,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "stock_manager", "pos", "barista", "coffee_maker"]);
+    if (response) return response;
+
     const { id } = await params
     
     if (!ObjectId.isValid(id)) {
@@ -137,6 +141,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "stock_manager"]);
+    if (response) return response;
+
     const { id } = await params;
     if (!ObjectId.isValid(id)) {
       return NextResponse.json({ success: false, message: "Invalid Item ID" }, { status: 400 });
@@ -292,6 +299,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "stock_manager"]);
+    if (response) return response;
+
     const { id } = await params;
     if (!ObjectId.isValid(id)) {
       return NextResponse.json({ success: false, message: "Invalid Item ID" }, { status: 400 });

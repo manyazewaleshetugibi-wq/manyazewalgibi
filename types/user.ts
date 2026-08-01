@@ -10,7 +10,8 @@ export enum UserRole {
   POS = 'pos',
   CUSTOMER = 'customer',
   BARISTA = 'barista',
-  COFFEE_MAKER = 'coffee_maker'
+  COFFEE_MAKER = 'coffee_maker',
+  OTHER = 'other'
 }
 
 export interface User {

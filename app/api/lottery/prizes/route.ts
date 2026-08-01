@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
+import { requireAdmin } from '@/lib/api-auth';
 
 // Define the constants directly in the file since the import is failing
 const DEFAULT_COLORS = {
@@ -19,6 +20,9 @@ const DEFAULT_GRADIENTS = {
 
 export async function GET(request: NextRequest) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const client = await clientPromise;
     const db = client.db();
 
@@ -64,6 +68,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const client = await clientPromise;
     const db = client.db();
     const prizeData = await request.json();

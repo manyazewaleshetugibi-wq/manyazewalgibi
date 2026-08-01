@@ -388,6 +388,7 @@ export default function OrderManagementMain() {
       if (result.success) {
         const processed = result.processedOrders || 0
         const failed = result.failedOrders || 0
+        const partial = result.partialOrders || 0
         const lowStockItems = result.lowStockItems || []
         const errors = result.errors || []
         
@@ -395,6 +396,14 @@ export default function OrderManagementMain() {
         if (processed > 0) {
           toast.success(`✅ Successfully processed ${processed} orders!`)
           await safePlaySound()
+        }
+
+        // Show partially processed orders (stock still pending)
+        if (partial > 0) {
+          toast(`⚠️ ${partial} orders partially processed — stock still pending`, {
+            icon: "⚠️",
+            duration: 8000,
+          })
         }
         
         // Show failed orders
@@ -450,7 +459,7 @@ export default function OrderManagementMain() {
           console.warn('Low stock items:', lowStockItems)
         }
         
-        if (processed === 0 && failed === 0) {
+        if (processed === 0 && failed === 0 && partial === 0) {
           toast.success('No pending orders to process', { icon: 'ℹ️' })
         }
         
@@ -769,6 +778,10 @@ export default function OrderManagementMain() {
           await fetchOrders(false)
           await checkPendingStockOrders()
           await safePlaySound()
+        } else if (result.success && result.partialOrders > 0) {
+          toast(`⚠️ Order partially processed — some stocks still pending`, { icon: "⚠️" })
+          await fetchOrders(false)
+          await checkPendingStockOrders()
         } else if (result.success && result.processedOrders === 0) {
           toast.success(`No pending stock to process for this order`, { icon: 'ℹ️' })
         } else {
