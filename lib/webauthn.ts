@@ -4,6 +4,7 @@ import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } from '@simplewebauthn/server';
+import { isoUint8Array } from '@simplewebauthn/server/helpers';
 import clientPromise from '@/lib/mongodb';
 
 const RP_NAME = 'Manyazewal Eshetu Gibi';
@@ -34,11 +35,11 @@ export async function saveCredential(userId: string, credential: any) {
   const db = client.db('gold');
   await db.collection('webAuthnCredentials').insertOne({
     userId,
-    credentialId: credential.credentialID,
-    publicKey: credential.credentialPublicKey,
+    credentialId: credential.id,
+    publicKey: credential.publicKey,
     counter: credential.counter,
     transports: credential.transports || [],
-    deviceName: credential.deviceName || '',
+    deviceName: '',
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -66,7 +67,7 @@ export async function createRegistrationOptions(userId: string, userName: string
     rpName,
     rpID,
     userName,
-    userID: userId,
+    userID: isoUint8Array.fromUTF8String(userId),
     attestationType: 'none',
     excludeCredentials,
     authenticatorSelection: {
@@ -97,14 +98,14 @@ export async function verifyRegistration(userId: string, response: any) {
   }
 
   const verification = await verifyRegistrationResponse({
-    credential: response,
+    response,
     expectedChallenge: challengeDoc.challenge,
     expectedOrigin: origin,
     expectedRPID: rpID,
   });
 
   if (verification.verified && verification.registrationInfo) {
-    await saveCredential(userId, verification.registrationInfo);
+    await saveCredential(userId, verification.registrationInfo.credential);
     await db.collection('webAuthnChallenges').deleteOne({ userId });
   }
 

@@ -70,7 +70,10 @@ export const {
       },
 
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
+        const email = credentials?.email
+        const password = credentials?.password
+
+        if (typeof email !== "string" || typeof password !== "string") {
           throw new Error("Email and password required")
         }
 
@@ -78,7 +81,7 @@ export const {
         const db = dbClient.db(DATABASE_NAME!)
 
         const user = await db.collection("users").findOne({
-          email: credentials.email.toLowerCase().trim(),
+          email: email.toLowerCase().trim(),
         })
 
         if (!user) throw new Error("Invalid credentials")
@@ -89,10 +92,7 @@ export const {
 
         if (!user.password) throw new Error("Invalid credentials")
 
-        const validPassword = await bcrypt.compare(
-          credentials.password,
-          user.password
-        )
+        const validPassword = await bcrypt.compare(password, user.password)
 
         if (!validPassword) {
           const attempts = (user.loginAttempts || 0) + 1

@@ -238,7 +238,7 @@ export async function POST(req: NextRequest) {
     const result = await db.collection("items").insertOne({
       ...validatedData,
       categoryId: new ObjectId(validatedData.categoryId),
-      requiredStock: validatedData.requiredStock.map((stock: any) => ({
+      requiredStock: (validatedData.requiredStock || []).map((stock: any) => ({
         stockId: new ObjectId(stock.stockId),
         quantity: stock.quantity,
         alternatives: (stock.alternatives || []).map((alt: any) => ({
@@ -277,9 +277,6 @@ export async function POST(req: NextRequest) {
 // ✅ GET all items — enriched with stock names for requiredStock & alternatives
 export async function GET() {
   try {
-    const { response } = await requireRole(["admin", "kitchen", "stock_manager", "pos", "barista", "coffee_maker"]);
-    if (response) return response;
-
     const client = await clientPromise;
     const db = client.db("gold");
     const items = await db.collection("items").find({}).toArray();
@@ -300,7 +297,7 @@ export async function GET() {
     const stockUnitMap = new Map<string, string>();
     if (allStockIds.size > 0) {
       const stocks = await db.collection("stocks")
-        .find({ _id: { $in: [...allStockIds].map(id => { try { return new ObjectId(id) } catch { return null } }).filter(Boolean) } })
+        .find({ _id: { $in: [...allStockIds].map(id => { try { return new ObjectId(id) } catch { return null } }).filter((id): id is ObjectId => id !== null) } })
         .project({ _id: 1, name: 1, unit: 1 })
         .toArray();
       for (const s of stocks) {

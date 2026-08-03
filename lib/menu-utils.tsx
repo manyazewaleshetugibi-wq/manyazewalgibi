@@ -2,6 +2,12 @@
 import axios from 'axios'
 import { Category, Waiter } from '@/types'
 
+declare module 'axios' {
+  interface InternalAxiosRequestConfig {
+    retryCount?: number
+  }
+}
+
 export const API_TIMEOUT = 30000 // Increased from 15000 to 30000 (30 seconds)
 
 export const api = axios.create({

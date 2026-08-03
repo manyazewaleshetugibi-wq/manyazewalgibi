@@ -2,12 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createRegistrationOptions } from '@/lib/webauthn';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
+import { verifyAttendanceIdentity } from '@/lib/attendance-auth';
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, name } = await request.json();
+    const { userId, name, token } = await request.json();
     if (!userId) {
       return NextResponse.json({ success: false, error: 'userId required' }, { status: 400 });
+    }
+
+    const proven = await verifyAttendanceIdentity(request, typeof token === 'string' ? token : null, userId);
+    if (!proven) {
+      return NextResponse.json({
+        success: false,
+        error: 'Please verify your identity (password or fingerprint) before registering a fingerprint.'
+      }, { status: 401 });
     }
 
     const client = await clientPromise;

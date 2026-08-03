@@ -41,6 +41,9 @@ const PUBLIC_API_RULES: { prefix: string; methods?: string[] }[] = [
   { prefix: "/api/attendance", methods: ["POST"] }, // clock-in kiosk
   { prefix: "/api/webauthn" }, // passkey clock-in flows
   { prefix: "/api/blog", methods: ["GET"] }, // public blog reading only
+  { prefix: "/api/items", methods: ["GET"] }, // public menu items
+  { prefix: "/api/item-category", methods: ["GET"] }, // public menu categories
+  { prefix: "/api/waitress", methods: ["GET"] }, // public waitress list
   { prefix: "/api/order", methods: ["POST"] }, // landing page ordering
   { prefix: "/api/delivery", methods: ["POST"] }, // landing page delivery booking
   { prefix: "/api/tables/arrangement", methods: ["GET"] }, // public table lookup

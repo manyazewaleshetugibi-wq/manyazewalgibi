@@ -30,11 +30,11 @@ import { QRScannerDialog } from '@/components/cart/QRScannerDialog';
 import { Input } from "@/components/ui/input";
 
 interface TableData {
-  id: string;
+  id?: string;
   number: number;
   capacity: number;
-  status: 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance';
-  shape: string;
+  status?: 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance';
+  shape?: string;
   location?: string;
   description?: string;
   features?: string[];
@@ -907,7 +907,7 @@ export const CartPanel = memo(({
           onTableSelect={handleManualTableSelect}
           selectedTable={selectedTableData}
           isUserLoggedIn={isUserLoggedIn}
-          onLoginRequired={onLoginRequired}
+          onLoginRequired={() => onLoginRequired('Please login to select a table')}
           arrangementId={arrangementId}
           allowUnselect={true}
           autoSwitchTables={true}

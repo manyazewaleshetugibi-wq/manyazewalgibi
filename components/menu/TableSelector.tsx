@@ -84,7 +84,7 @@ export interface TableData {
     orderNumber?: string;
     customerName?: string;
     orderStatus?: string;
-  };
+  } | null;
 }
 
 interface RestaurantData {
@@ -96,6 +96,12 @@ interface RestaurantData {
   availableTables?: number;
   occupiedTables?: number;
   totalCapacity?: number;
+}
+
+export interface SelectedTableInfo {
+  id?: string;
+  number: number;
+  capacity: number;
 }
 
 interface ActiveSelection {
@@ -112,7 +118,7 @@ interface ActiveSelection {
 
 interface TableSelectorProps {
   onTableSelect: (table: TableData | null, restaurantId: string, floor: string) => void;
-  selectedTable?: TableData | null;
+  selectedTable?: SelectedTableInfo | null;
   isUserLoggedIn?: boolean;
   onLoginRequired?: () => void;
   open?: boolean;
@@ -122,6 +128,7 @@ interface TableSelectorProps {
   floor?: string;
   showOrderInfo?: boolean;
   autoSwitchTables?: boolean;
+  arrangementId?: string;
 }
 
 const STATUS_CONFIG: Record<TableData['status'], { 
@@ -384,7 +391,7 @@ const SelectedTableBanner = ({
   isSelecting,
   compact = false,
 }: { 
-  selectedTable: TableData | null;
+  selectedTable: SelectedTableInfo | null;
   activeSelection: ActiveSelection | null;
   onUnselect: () => void;
   isSelecting: boolean;
@@ -979,7 +986,7 @@ export function TableSelector({
   const fetchAllRestaurants = useCallback(async () => {
     if (isSessionExpired) return;
     try {
-      const response = await axios.get('/api/tables/arrangement', { params: { fetchAll: true }, ...getAxiosConfig() });
+      const response = await axios.get<{ success: boolean; data?: RestaurantData | RestaurantData[] }>('/api/tables/arrangement', { params: { fetchAll: true }, ...getAxiosConfig() });
       if (response.data.success && response.data.data) {
         const restaurantsArray = Array.isArray(response.data.data) ? response.data.data : [response.data.data];
         setRestaurants(restaurantsArray);
@@ -1261,7 +1268,7 @@ export function TableSelector({
     lastSelectionAttemptRef.current = now;
     
     if (activeSelection && activeSelection.tableId === table.id) {
-      toast.info(`Table ${table.number} already selected`);
+      toast(`Table ${table.number} already selected`);
       setOpen(false);
       onTableSelect({ ...table, restaurantId: selectedRestaurantId, restaurantName: currentRestaurantName, floor: selectedFloor }, selectedRestaurantId, selectedFloor);
       return;

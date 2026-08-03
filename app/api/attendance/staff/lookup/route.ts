@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import bcrypt from 'bcrypt';
+import { createClockinToken, checkRateLimit } from '@/lib/attendance-auth';
+
+const MAX_ATTEMPTS = 5;
+const WINDOW_MS = 15 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
   try {
     const { password } = await request.json();
     if (!password?.trim()) {
       return NextResponse.json({ success: false, error: 'Password is required' }, { status: 400 });
+    }
+
+    const limit = checkRateLimit(request, MAX_ATTEMPTS, WINDOW_MS);
+    if (!limit.allowed) {
+      return NextResponse.json({
+        success: false,
+        error: `Too many attempts. Try again in ${limit.retryAfterSec} seconds.`
+      }, { status: 429 });
     }
 
     const client = await clientPromise;
@@ -25,6 +37,7 @@ export async function POST(request: NextRequest) {
         if (match) {
           return NextResponse.json({
             success: true,
+            token: createClockinToken(user._id.toString()),
             data: {
               _id: user._id,
               name: user.name,

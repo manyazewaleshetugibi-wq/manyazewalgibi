@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Fragment } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -185,9 +185,8 @@ export default function AuditPage() {
                 </TableCell></TableRow>
               )}
               {!loading && logs.map(log => (
-                <>
+                <Fragment key={log._id}>
                   <TableRow
-                    key={log._id}
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => setExpanded(expanded === log._id ? null : log._id)}
                   >
@@ -220,7 +219,7 @@ export default function AuditPage() {
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                </Fragment>
               ))}
             </TableBody>
           </Table>

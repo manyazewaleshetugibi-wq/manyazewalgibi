@@ -14,6 +14,7 @@ import toast from "react-hot-toast"
 const OFFICE_LAT = Number(process.env.NEXT_PUBLIC_OFFICE_LAT) || 8.99410
 const OFFICE_LNG = Number(process.env.NEXT_PUBLIC_OFFICE_LNG) || 38.79260
 const RADIUS_METERS = Number(process.env.NEXT_PUBLIC_ATTENDANCE_RADIUS_METERS) || 5
+const BYPASS_LOCATION = process.env.NEXT_PUBLIC_BYPASS_CLOCKIN_LOCATION === 'true'
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000
@@ -42,8 +43,36 @@ function ClockInForm() {
   const [userLat, setUserLat] = useState<number | null>(null)
   const [userLng, setUserLng] = useState<number | null>(null)
   const [needsFingerprintReg, setNeedsFingerprintReg] = useState(false)
+  const [proofToken, setProofToken] = useState("")
+
+  const checkFingerprintThenProceed = async (user: any) => {
+    if (!user) return
+    setSelectedUser(user)
+    try {
+      const res = await fetch('/api/webauthn/authenticate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user._id }),
+      })
+      const data = await res.json()
+      setNeedsFingerprintReg(!(data.success && data.options.allowCredentials?.length > 0))
+    } catch {
+      setNeedsFingerprintReg(true)
+    }
+    setStep('fingerprint')
+  }
 
   const requestLocation = useCallback(() => {
+    if (BYPASS_LOCATION) {
+      setUserLat(OFFICE_LAT)
+      setUserLng(OFFICE_LNG)
+      if (session?.user?.id) {
+        checkFingerprintThenProceed({ _id: session.user.id, name: session.user.name, role: session.user.role })
+      } else {
+        setStep('choice')
+      }
+      return
+    }
     if (!navigator.geolocation) {
       setStep('location-error')
       setError("Geolocation not supported on this device")
@@ -59,8 +88,7 @@ function ClockInForm() {
           setUserLat(lat)
           setUserLng(lng)
           if (session?.user?.id) {
-            setSelectedUser({ _id: session.user.id, name: session.user.name, role: session.user.role })
-            setStep('fingerprint')
+            checkFingerprintThenProceed({ _id: session.user.id, name: session.user.name, role: session.user.role })
           } else {
             setStep('choice')
           }
@@ -75,23 +103,7 @@ function ClockInForm() {
       },
       { enableHighAccuracy: false, timeout: 30000 }
     )
-  }, [session])
-
-  const checkFingerprintThenProceed = async () => {
-    if (!selectedUser) return
-    try {
-      const res = await fetch('/api/webauthn/authenticate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: selectedUser._id }),
-      })
-      const data = await res.json()
-      setNeedsFingerprintReg(!(data.success && data.options.allowCredentials?.length > 0))
-    } catch {
-      setNeedsFingerprintReg(true)
-    }
-    setStep('fingerprint')
-  }
+  }, [session, checkFingerprintThenProceed])
 
   const handleFingerprintRegister = async () => {
     if (!selectedUser) return
@@ -101,7 +113,7 @@ function ClockInForm() {
       const regRes = await fetch('/api/webauthn/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: selectedUser._id, name: selectedUser.name }),
+        body: JSON.stringify({ userId: selectedUser._id, name: selectedUser.name, token: proofToken }),
       })
       const regData = await regRes.json()
       if (!regData.success) throw new Error(regData.error || "Failed to start registration")
@@ -109,11 +121,12 @@ function ClockInForm() {
       const verifyRes = await fetch('/api/webauthn/register/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: selectedUser._id, response: attResp }),
+        body: JSON.stringify({ userId: selectedUser._id, response: attResp, token: proofToken }),
       })
       const verifyData = await verifyRes.json()
       if (!verifyData.success) throw new Error(verifyData.error || "Verification failed")
-      await doClockIn()
+      if (verifyData.token) setProofToken(verifyData.token)
+      await doClockIn(verifyData.token || proofToken)
     } catch (err: any) {
       setError(err.message || "Fingerprint registration failed")
     } finally {
@@ -141,7 +154,8 @@ function ClockInForm() {
       })
       const verifyData = await verifyRes.json()
       if (!verifyData.success) throw new Error(verifyData.error || "Authentication failed")
-      await doClockIn()
+      if (verifyData.token) setProofToken(verifyData.token)
+      await doClockIn(verifyData.token || proofToken)
     } catch (err: any) {
       setError(err.message || "Fingerprint scan failed")
     } finally {
@@ -149,12 +163,12 @@ function ClockInForm() {
     }
   }
 
-  const doClockIn = async () => {
+  const doClockIn = async (tokenOverride?: string) => {
     try {
       const res = await fetch("/api/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: selectedUser._id, latitude: userLat, longitude: userLng }),
+        body: JSON.stringify({ userId: selectedUser._id, latitude: userLat, longitude: userLng, token: tokenOverride || proofToken }),
       })
       const data = await res.json()
       if (data.success) {
@@ -240,7 +254,7 @@ function ClockInForm() {
             <Button
               variant="ghost"
               className="w-full rounded-xl"
-              onClick={() => { setSelectedUser({ _id: session.user.id, name: session.user.name, role: session.user.role }); setStep('fingerprint') }}
+              onClick={() => checkFingerprintThenProceed({ _id: session.user.id, name: session.user.name, role: session.user.role })}
             >
               Clock in as {session.user.name}
             </Button>
@@ -281,6 +295,7 @@ function ClockInForm() {
                 if (!data.success) throw new Error(data.error || "Registration failed")
                 setSelectedUser(data.data)
                 setGeneratedPassword(data.data.password)
+                if (data.data.token) setProofToken(data.data.token)
                 setStep('password-shown')
               } catch (err: any) {
                 setError(err.message || "Registration failed")
@@ -364,6 +379,7 @@ function ClockInForm() {
                 const data = await res.json()
                 if (!data.success) throw new Error(data.error || "Invalid password")
                 setSelectedUser(data.data)
+                if (data.token) setProofToken(data.token)
                 setStep('returning-welcome')
               } catch (err: any) {
                 setError(err.message || "Invalid password")
@@ -393,7 +409,7 @@ function ClockInForm() {
           <p className="text-lg font-semibold">{selectedUser?.name}</p>
           {selectedUser?.department && <Badge variant="secondary">{selectedUser.department}</Badge>}
           <p className="text-sm text-muted-foreground">Scan fingerprint to clock in</p>
-          <Button onClick={() => checkFingerprintThenProceed()} className="w-full rounded-xl">
+          <Button onClick={() => checkFingerprintThenProceed(selectedUser)} className="w-full rounded-xl">
             Continue to Fingerprint Scan
           </Button>
           <Button variant="ghost" className="w-full rounded-xl" onClick={() => { setStep('choice'); setSelectedUser(null); setReturningPassword("") }}>

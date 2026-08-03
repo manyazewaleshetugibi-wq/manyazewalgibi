@@ -89,11 +89,15 @@ export default function SalaryPage() {
       const d = await r.json()
       if (!d.success) return
       const map: Record<string, AttendanceInfo> = {}
+      const seen = new Set<string>()
       for (const rec of (d.data || [])) {
+        const key = `${rec.userId}|${rec.date}`
+        if (seen.has(key)) continue
+        seen.add(key)
         if (!map[rec.userId]) map[rec.userId] = { present: 0, absent: 0, late: 0, days: 0 }
         const info = map[rec.userId]
         info.days++
-        if (rec.clockIn && rec.clockOut) {
+        if (rec.clockIn) {
           info.present++
           if (rec.status === 'late' || (rec.lateMinutes && rec.lateMinutes > 0)) info.late++
         }

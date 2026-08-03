@@ -2,7 +2,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Toaster } from "react-hot-toast";
+import { Toaster as ToastToaster } from "react-hot-toast";
+import { Toaster } from "@/components/ui/toaster";
 import { Providers } from "./Provider";
 import { UserDataProvider } from '@/providers/UserDataProvider';
 import { UnauthorizedBanner } from '../components/UnauthorizedAlert';
@@ -19,8 +20,6 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
-
-import type { Viewport } from "next";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -57,7 +56,8 @@ export default function RootLayout({
             </Suspense>
           </UserDataProvider>
         </Providers>
-        <Toaster position="bottom-right" />
+        <ToastToaster position="bottom-right" />
+        <Toaster />
       </body>
     </html>
   );

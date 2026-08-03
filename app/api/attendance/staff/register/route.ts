@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import bcrypt from 'bcrypt';
+import { createClockinToken, checkRateLimit } from '@/lib/attendance-auth';
+
+const MAX_REGISTRATIONS = 5;
+const WINDOW_MS = 30 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
   try {
     const { name, department } = await request.json();
     if (!name?.trim()) {
       return NextResponse.json({ success: false, error: 'Name is required' }, { status: 400 });
+    }
+
+    const limit = checkRateLimit(request, MAX_REGISTRATIONS, WINDOW_MS);
+    if (!limit.allowed) {
+      return NextResponse.json({
+        success: false,
+        error: `Too many registrations. Try again in ${limit.retryAfterSec} seconds.`
+      }, { status: 429 });
     }
 
     const client = await clientPromise;
@@ -51,6 +63,7 @@ export async function POST(request: NextRequest) {
         department: newUser.department,
         role: newUser.role,
         password,
+        token: createClockinToken(result.insertedId.toString()),
       },
     });
   } catch (error: any) {

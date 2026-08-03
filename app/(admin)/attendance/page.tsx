@@ -11,6 +11,7 @@ import { QRCodeCanvas } from "qrcode.react"
 import { toast } from "react-hot-toast"
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, parseISO, isSameDay, addMonths, subMonths } from "date-fns"
 import { Search, QrCode, CheckCircle, XCircle, RefreshCw, Printer, ChevronLeft, ChevronRight, User } from "lucide-react"
+import { localDateStr } from "@/lib/attendance-date"
 
 interface StaffUser {
   _id: string
@@ -38,7 +39,7 @@ export default function AttendancePage() {
   const [roleFilter, setRoleFilter] = useState("all")
   const [currentMonth, setCurrentMonth] = useState(() => new Date())
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDateStr()
 
   const loadData = async () => {
     setIsLoading(true)

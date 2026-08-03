@@ -1780,7 +1780,7 @@ export default function MenuPage() {
     return ''
   }, [orderType, tableNumber, waiters])
 
-  const handleOrderTypeChange = (type: 'table' | 'delivery') => {
+  const handleOrderTypeChange = (type: 'table' | 'delivery' | '') => {
     setOrderType(type)
     if (type !== 'delivery') {
       setDeliveryFee(null)
@@ -2969,7 +2969,7 @@ export default function MenuPage() {
           categoryName={categories.find(c => c._id === selectedItem.categoryId)?.name || 'Uncategorized'} 
           isOpen={showItemDetail} 
           onOpenChange={setShowItemDetail} 
-          onAddToCart={addToCart} 
+          onAddToCart={(item, specialInstructions) => addToCart(item, 1, specialInstructions)} 
           isUserLoggedIn={true}
           onLoginRequired={() => {}}
         />

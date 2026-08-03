@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
         // 3. Check which POS users are not yet registered as waitresses
         for (const user of posUsers) {
             if (!existingWaitressUserIds.has(user._id.toString())) {
-                const userShift = user.shift?.toUpperCase() as keyof typeof ShiftType;
+                const userShift = user.shift?.toUpperCase() as ShiftType;
                 const newWaitress: Waitress = {
                     _id: new ObjectId(),
                     name: user.name,

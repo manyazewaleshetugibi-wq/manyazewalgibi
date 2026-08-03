@@ -4,7 +4,18 @@ import clientPromise from '@/lib/mongodb'
 async function setupIndexes() {
   try {
     const client = await clientPromise
-    const db = client.db(process.env.MONGODB_DB || 'retreat_management')
+    const db = client.db(process.env.DATABASE_NAME || process.env.MONGODB_DB || 'gold')
+
+    // Attendance: one record per user per day (also prevents duplicate clock-ins)
+    const attendanceCollection = db.collection('attendance')
+    try {
+      await attendanceCollection.createIndex({ userId: 1, date: 1 }, { unique: true })
+      await attendanceCollection.createIndex({ date: 1 })
+      await attendanceCollection.createIndex({ userId: 1 })
+      console.log('✅ Attendance indexes created')
+    } catch (indexError) {
+      console.warn('⚠️ Attendance unique index not created (existing duplicates?):', (indexError as Error).message)
+    }
     
     // Podcast Guests indexes
     const guestsCollection = db.collection('podcastGuests')
