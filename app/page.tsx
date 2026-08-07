@@ -1449,9 +1449,9 @@ export default function MenuPage() {
       }, 5000)
 
       const [categoriesRes, itemsRes, waitersRes] = await Promise.allSettled([
-        api.get('/item-category', { signal: controller.signal, timeout: 10000 }),
-        api.get('/items', { signal: controller.signal, timeout: 10000 }),
-        api.get('/waitress', { signal: controller.signal, timeout: 10000 }).catch(() => ({ data: [] }))
+        api.get('/item-category', { signal: controller.signal, timeout: 60000 }),
+        api.get('/items', { signal: controller.signal, timeout: 60000 }),
+        api.get('/waitress', { signal: controller.signal, timeout: 60000 }).catch(() => ({ data: [] }))
       ])
 
       clearTimeout(timeoutId)
