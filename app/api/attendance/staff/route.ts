@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
+import { prisma } from '@/lib/prisma';
 import { getToken } from 'next-auth/jwt';
 
 export async function GET(request: NextRequest) {
@@ -13,15 +13,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Access denied for your role' }, { status: 403 });
     }
 
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const staff = await db.collection('users')
-      .find(
-        { status: 'active', role: { $ne: 'customer' } },
-        { projection: { password: 0, pin: 0 } }
-      )
-      .sort({ name: 1 })
-      .toArray();
+    const staff = (await prisma.user.findMany({
+      where: {
+        status: 'active',
+        OR: [{ role: { not: 'customer' } }, { role: null }],
+      },
+      orderBy: { name: 'asc' },
+    })).map(({ password, pin, ...rest }) => ({ ...rest, _id: rest.id }));
     return NextResponse.json({ success: true, data: staff });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

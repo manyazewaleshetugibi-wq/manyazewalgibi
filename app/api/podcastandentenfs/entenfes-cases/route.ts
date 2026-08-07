@@ -1,39 +1,18 @@
-// app/api/entenfes-cases/route.ts
+// app/api/podcastandentenfs/entenfes-cases/route.ts
 import { NextRequest, NextResponse } from "next/server"
-import clientPromise from "@/lib/mongodb"
-import { ObjectId } from "mongodb"
-
-interface EntenfesCase {
-  _id?: ObjectId
-  serialNumber: number
-  userName: string
-  phoneNumber: string
-  category: 'Family' | 'Work' | 'Health' | 'Financial' | 'Spiritual' | 'Other'
-  summary: string
-  priority: 'High' | 'Medium' | 'Low'
-  status: 'Called' | 'AppointmentScheduled' | 'InProgress' | 'Resolved' | 'Pending'
-  createdAt: Date
-  updatedAt: Date
-}
-
-const DB_NAME = process.env.MONGODB_DB || 'retreat_management'
-const COLLECTION = 'entenfesCases'
+import { prisma } from "@/lib/prisma"
+import { randomUUID } from "crypto"
 
 // GET - Fetch all Entenfes cases
 export async function GET() {
   try {
-    const client = await clientPromise
-    const db = client.db(DB_NAME)
-    const collection = db.collection(COLLECTION)
-    
-    const cases = await collection
-      .find({})
-      .sort({ serialNumber: 1 })
-      .toArray()
+    const cases = await prisma.entenfisCase.findMany({
+      orderBy: { serialNumber: 'asc' }
+    })
     
     return NextResponse.json({
       success: true,
-      data: cases,
+      data: cases.map(c => ({ ...c, _id: c.id })),
       count: cases.length
     })
   } catch (error) {
@@ -49,9 +28,6 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const client = await clientPromise
-    const db = client.db(DB_NAME)
-    const collection = db.collection(COLLECTION)
     
     // Validate required fields
     const requiredFields = ['userName', 'phoneNumber', 'category', 'priority']
@@ -94,34 +70,33 @@ export async function POST(request: NextRequest) {
     }
     
     // Get the next serial number
-    const lastCase = await collection
-      .find({})
-      .sort({ serialNumber: -1 })
-      .limit(1)
-      .toArray()
+    const lastCase = await prisma.entenfisCase.findFirst({
+      orderBy: { serialNumber: 'desc' }
+    })
     
-    const nextSerialNumber = lastCase.length > 0 
-      ? lastCase[0].serialNumber + 1 
+    const nextSerialNumber = lastCase
+      ? (lastCase.serialNumber ?? 0) + 1
       : 1
     
     // Create new case
-    const newCase: EntenfesCase = {
-      serialNumber: nextSerialNumber,
-      userName: body.userName,
-      phoneNumber: body.phoneNumber,
-      category: body.category,
-      summary: body.summary || '',
-      priority: body.priority,
-      status: body.status || 'Pending',
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
-    
-    const result = await collection.insertOne(newCase)
+    const result = await prisma.entenfisCase.create({
+      data: {
+        id: randomUUID(),
+        serialNumber: nextSerialNumber,
+        userName: body.userName,
+        phoneNumber: body.phoneNumber,
+        category: body.category,
+        summary: body.summary || '',
+        priority: body.priority,
+        status: body.status || 'Pending',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    })
     
     return NextResponse.json({
       success: true,
-      data: { ...newCase, _id: result.insertedId },
+      data: { ...result, _id: result.id },
       message: "Entenfes case created successfully"
     }, { status: 201 })
   } catch (error) {
@@ -147,16 +122,6 @@ export async function PUT(request: NextRequest) {
     }
     
     const body = await request.json()
-    const client = await clientPromise
-    const db = client.db(DB_NAME)
-    const collection = db.collection(COLLECTION)
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid case ID" },
-        { status: 400 }
-      )
-    }
     
     // Validate category if provided
     if (body.category) {
@@ -194,30 +159,26 @@ export async function PUT(request: NextRequest) {
     // Remove fields that shouldn't be updated
     const { _id, serialNumber, createdAt, ...updateData } = body
     
-    const result = await collection.findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      { 
-        $set: { 
-          ...updateData,
-          updatedAt: new Date()
-        } 
-      },
-      { returnDocument: 'after' }
-    )
+    const result = await prisma.entenfisCase.update({
+      where: { id },
+      data: {
+        ...updateData,
+        updatedAt: new Date()
+      }
+    })
     
-    if (!result) {
+    return NextResponse.json({
+      success: true,
+      data: { ...result, _id: result.id },
+      message: "Entenfes case updated successfully"
+    })
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2025') {
       return NextResponse.json(
         { success: false, error: "Entenfes case not found" },
         { status: 404 }
       )
     }
-    
-    return NextResponse.json({
-      success: true,
-      data: result,
-      message: "Entenfes case updated successfully"
-    })
-  } catch (error) {
     console.error("Error updating Entenfes case:", error)
     return NextResponse.json(
       { success: false, error: "Failed to update Entenfes case" },
@@ -239,20 +200,9 @@ export async function DELETE(request: NextRequest) {
       )
     }
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid case ID" },
-        { status: 400 }
-      )
-    }
+    const result = await prisma.entenfisCase.deleteMany({ where: { id } })
     
-    const client = await clientPromise
-    const db = client.db(DB_NAME)
-    const collection = db.collection(COLLECTION)
-    
-    const result = await collection.deleteOne({ _id: new ObjectId(id) })
-    
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: "Entenfes case not found" },
         { status: 404 }

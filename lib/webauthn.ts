@@ -5,7 +5,8 @@ import {
   verifyAuthenticationResponse,
 } from '@simplewebauthn/server';
 import { isoUint8Array } from '@simplewebauthn/server/helpers';
-import clientPromise from '@/lib/mongodb';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 
 const RP_NAME = 'Manyazewal Eshetu Gibi';
 const RP_ID = process.env.NEXT_PUBLIC_RP_ID
@@ -19,39 +20,34 @@ export function getRelyingParty() {
 }
 
 export async function getCredentialsByUserId(userId: string) {
-  const client = await clientPromise;
-  const db = client.db('gold');
-  return db.collection('webAuthnCredentials').find({ userId }).toArray();
+  return prisma.webAuthnCredential.findMany({ where: { userId } });
 }
 
 export async function getCredentialById(credentialId: string) {
-  const client = await clientPromise;
-  const db = client.db('gold');
-  return db.collection('webAuthnCredentials').findOne({ credentialId });
+  return prisma.webAuthnCredential.findFirst({ where: { credentialId } });
 }
 
 export async function saveCredential(userId: string, credential: any) {
-  const client = await clientPromise;
-  const db = client.db('gold');
-  await db.collection('webAuthnCredentials').insertOne({
-    userId,
-    credentialId: credential.id,
-    publicKey: credential.publicKey,
-    counter: credential.counter,
-    transports: credential.transports || [],
-    deviceName: '',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+  await prisma.webAuthnCredential.create({
+    data: {
+      id: randomUUID(),
+      userId,
+      credentialId: credential.id,
+      publicKey: credential.publicKey,
+      counter: credential.counter,
+      transports: credential.transports || [],
+      deviceName: '',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
   });
 }
 
 export async function updateCredentialCounter(credentialId: string, counter: number) {
-  const client = await clientPromise;
-  const db = client.db('gold');
-  await db.collection('webAuthnCredentials').updateOne(
-    { credentialId },
-    { $set: { counter, updatedAt: new Date() } }
-  );
+  await prisma.webAuthnCredential.updateMany({
+    where: { credentialId },
+    data: { counter, updatedAt: new Date() },
+  });
 }
 
 export async function createRegistrationOptions(userId: string, userName: string) {
@@ -76,22 +72,26 @@ export async function createRegistrationOptions(userId: string, userName: string
     },
   });
 
-  const client = await clientPromise;
-  const db = client.db('gold');
-  await db.collection('webAuthnChallenges').updateOne(
-    { userId },
-    { $set: { challenge: options.challenge, createdAt: new Date() } },
-    { upsert: true }
-  );
+  await prisma.webAuthnChallenge.upsert({
+    where: { userId: userId || '' },
+    create: {
+      id: randomUUID(),
+      userId,
+      challenge: options.challenge,
+      createdAt: new Date(),
+    },
+    update: {
+      challenge: options.challenge,
+      createdAt: new Date(),
+    },
+  });
 
   return options;
 }
 
 export async function verifyRegistration(userId: string, response: any) {
   const { rpID, origin } = getRelyingParty();
-  const client = await clientPromise;
-  const db = client.db('gold');
-  const challengeDoc = await db.collection('webAuthnChallenges').findOne({ userId });
+  const challengeDoc = await prisma.webAuthnChallenge.findFirst({ where: { userId } });
 
   if (!challengeDoc) {
     throw new Error('No registration challenge found');
@@ -99,14 +99,14 @@ export async function verifyRegistration(userId: string, response: any) {
 
   const verification = await verifyRegistrationResponse({
     response,
-    expectedChallenge: challengeDoc.challenge,
+    expectedChallenge: challengeDoc.challenge || '',
     expectedOrigin: origin,
     expectedRPID: rpID,
   });
 
   if (verification.verified && verification.registrationInfo) {
     await saveCredential(userId, verification.registrationInfo.credential);
-    await db.collection('webAuthnChallenges').deleteOne({ userId });
+    await prisma.webAuthnChallenge.deleteMany({ where: { userId } });
   }
 
   return verification.verified;
@@ -127,22 +127,26 @@ export async function createAuthenticationOptions(userId: string) {
     userVerification: 'preferred',
   });
 
-  const client = await clientPromise;
-  const db = client.db('gold');
-  await db.collection('webAuthnChallenges').updateOne(
-    { userId },
-    { $set: { challenge: options.challenge, createdAt: new Date() } },
-    { upsert: true }
-  );
+  await prisma.webAuthnChallenge.upsert({
+    where: { userId: userId || '' },
+    create: {
+      id: randomUUID(),
+      userId,
+      challenge: options.challenge,
+      createdAt: new Date(),
+    },
+    update: {
+      challenge: options.challenge,
+      createdAt: new Date(),
+    },
+  });
 
   return options;
 }
 
 export async function verifyAuthentication(userId: string, response: any) {
   const { rpID, origin } = getRelyingParty();
-  const client = await clientPromise;
-  const db = client.db('gold');
-  const challengeDoc = await db.collection('webAuthnChallenges').findOne({ userId });
+  const challengeDoc = await prisma.webAuthnChallenge.findFirst({ where: { userId } });
 
   if (!challengeDoc) {
     throw new Error('No authentication challenge found');
@@ -155,20 +159,20 @@ export async function verifyAuthentication(userId: string, response: any) {
 
   const verification = await verifyAuthenticationResponse({
     response,
-    expectedChallenge: challengeDoc.challenge,
+    expectedChallenge: challengeDoc.challenge || '',
     expectedOrigin: origin,
     expectedRPID: rpID,
     credential: {
-      id: credential.credentialId,
-      publicKey: credential.publicKey,
-      counter: credential.counter,
-      transports: credential.transports,
+      id: credential.credentialId || '',
+      publicKey: Buffer.from(credential.publicKey || '', 'base64'),
+      counter: credential.counter || 0,
+      transports: credential.transports as any,
     },
   });
 
   if (verification.verified) {
     await updateCredentialCounter(response.id, verification.authenticationInfo.newCounter);
-    await db.collection('webAuthnChallenges').deleteOne({ userId });
+    await prisma.webAuthnChallenge.deleteMany({ where: { userId } });
   }
 
   return verification.verified;

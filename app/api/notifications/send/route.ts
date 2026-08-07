@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import webpush from 'web-push';
-import clientPromise from '@/lib/mongodb';
+import { prisma } from '@/lib/prisma';
+import { requireRole } from '@/lib/api-auth';
 
 // Configure VAPID keys
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -25,6 +26,9 @@ if (vapidPublicKey && vapidPrivateKey && vapidSubject) {
 
 export async function POST(req: Request) {
   try {
+    const { response } = await requireRole(["admin", "manager"]);
+    if (response) return response;
+
     // Check if VAPID is configured
     if (!vapidPublicKey || !vapidPrivateKey || !vapidSubject) {
       return NextResponse.json(
@@ -35,11 +39,6 @@ export async function POST(req: Request) {
         { status: 503 }
       );
     }
-
-    // Connect to MongoDB
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const subscriptionsCollection = db.collection('subscriptions');
 
     // Parse request body
     const body = await req.json();
@@ -54,7 +53,7 @@ export async function POST(req: Request) {
     }
 
     // Fetch all active subscriptions
-    const subscriptions = await subscriptionsCollection.find({}).toArray();
+    const subscriptions = await prisma.subscription.findMany({});
 
     if (subscriptions.length === 0) {
       return NextResponse.json({
@@ -64,7 +63,7 @@ export async function POST(req: Request) {
       });
     }
 
-    console.log(`[Push Notification] Sending to ${subscriptions.length} subscribers`);
+
 
     // Prepare notification payload
     const payload = JSON.stringify({
@@ -79,27 +78,27 @@ export async function POST(req: Request) {
     // Send notifications to all subscribers
     const sendPromises = subscriptions.map(async (subDoc) => {
       try {
-        if (!subDoc.subscription || !subDoc.subscription.endpoint) {
-          console.warn(`[Push] Invalid subscription: ${subDoc._id}`);
+        if (!subDoc.subscription || !(subDoc.subscription as any).endpoint) {
+          console.warn(`[Push] Invalid subscription: ${subDoc.id}`);
           return null;
         }
 
-        await webpush.sendNotification(subDoc.subscription, payload);
-        console.log(`[Push] ✅ Sent to: ${subDoc.subscription.endpoint}`);
+        await webpush.sendNotification(subDoc.subscription as any, payload);
+
         
-        return { success: true, id: subDoc._id };
+        return { success: true, id: subDoc.id };
 
       } catch (error: any) {
         // Handle subscription errors
         if (error.statusCode === 410 || error.statusCode === 404) {
           // Subscription expired or revoked - remove from database
-          console.log(`[Push] 🗑️ Removing invalid subscription: ${subDoc._id}`);
-          await subscriptionsCollection.deleteOne({ _id: subDoc._id });
-          return { success: false, id: subDoc._id, removed: true, error: 'Subscription expired' };
+
+          await prisma.subscription.delete({ where: { id: subDoc.id } });
+          return { success: false, id: subDoc.id, removed: true, error: 'Subscription expired' };
         }
 
-        console.error(`[Push] ❌ Failed to send to ${subDoc._id}:`, error.message);
-        return { success: false, id: subDoc._id, error: error.message };
+        console.error(`[Push] ❌ Failed to send to ${subDoc.id}:`, error.message);
+        return { success: false, id: subDoc.id, error: error.message };
       }
     });
 
@@ -109,7 +108,7 @@ export async function POST(req: Request) {
     const removed = results.filter(r => r?.removed).length;
     const failed = results.filter(r => r && !r.success && !r.removed).length;
 
-    console.log(`[Push] Summary: ✅ ${successful} sent, 🗑️ ${removed} removed, ❌ ${failed} failed`);
+
 
     return NextResponse.json({
       success: true,
@@ -138,11 +137,7 @@ export async function POST(req: Request) {
 // GET: Get notification status and stats
 export async function GET(req: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const subscriptionsCollection = db.collection('subscriptions');
-
-    const count = await subscriptionsCollection.countDocuments();
+    const count = await prisma.subscription.count();
 
     return NextResponse.json({
       success: true,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import { getCurrentUserData } from "../utils/orderHelpers";
 import { Standard, DepartmentRole, departmentOptions } from "@/types/standards";
 
@@ -13,28 +13,27 @@ const isAdminRole = (role: string | undefined): boolean => {
 // GET endpoint - Fetch all standards
 export async function GET(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const url = new URL(req.url);
     const standardId = url.searchParams.get("id");
     const role = url.searchParams.get("role");
     const all = url.searchParams.get("all") === "true";
 
-    let query: any = { isActive: { $ne: false } };
-    if (standardId && ObjectId.isValid(standardId)) {
-      query._id = new ObjectId(standardId);
+    let query: any = { isActive: { not: false } };
+    if (standardId) {
+      query.id = standardId;
     }
     if (role) {
       query.role = role;
     }
 
-    const standards = await db.collection("standards")
-      .find(query)
-      .sort({ role: 1, version: -1 })
-      .toArray();
+    const standards = await prisma.standard.findMany({
+      where: query,
+      orderBy: [{ role: 'asc' }, { version: 'desc' }]
+    });
 
     // If all is true, return all standards, else return only active ones
-    const filteredStandards = all ? standards : standards.filter(s => s.isActive !== false);
+    const filteredStandards = (all ? standards : standards.filter(s => s.isActive !== false))
+      .map((s: any) => ({ ...s, _id: s.id }));
 
     return NextResponse.json({
       success: true,
@@ -55,8 +54,6 @@ export async function GET(req: NextRequest) {
 // POST endpoint - Create new standards
 export async function POST(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const body = await req.json();
     
     const { role, standards, description, effectiveFrom, reviewDate } = body;
@@ -76,9 +73,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Check if standards already exist for this role
-    const existingStandards = await db.collection("standards").findOne({ 
-      role: role,
-      isActive: { $ne: false }
+    const existingStandards = await prisma.standard.findFirst({
+      where: {
+        role: role,
+        isActive: { not: false }
+      }
     });
     
     if (existingStandards) {
@@ -86,7 +85,7 @@ export async function POST(req: NextRequest) {
         success: false,
         error: `Standards already exist for this role`,
         exists: true,
-        standardId: existingStandards._id,
+        standardId: existingStandards.id,
         standard: existingStandards
       }, { status: 409 });
     }
@@ -124,8 +123,8 @@ export async function POST(req: NextRequest) {
         }))
       })),
       description: description || "",
-      effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : null,
-      reviewDate: reviewDate ? new Date(reviewDate) : null,
+      effectiveFrom: effectiveFrom ? new Date(effectiveFrom).toISOString() : null,
+      reviewDate: reviewDate ? new Date(reviewDate).toISOString() : null,
       createdBy: userData?.name || userData?.email || "Unknown",
       createdByRole: userData?.role,
       isAdminCreated: isAdmin,
@@ -135,25 +134,30 @@ export async function POST(req: NextRequest) {
       version: 1
     };
 
-    const result = await db.collection("standards").insertOne(standardsData);
+    const result = await prisma.standard.create({
+      data: { id: randomUUID(), ...standardsData } as any
+    });
 
     // Create activity log
-    await db.collection("standards_logs").insertOne({
-      action: "CREATE",
-      standardId: result.insertedId,
-      role: role,
-      standardsCount: standards.length,
-      createdBy: userData?.name || userData?.email,
-      createdAt: new Date()
+    await prisma.standardsLog.create({
+      data: {
+        id: randomUUID(),
+        action: "CREATE",
+        standardId: result.id,
+        role: role,
+        standardsCount: standards.length,
+        createdBy: userData?.name || userData?.email,
+        createdAt: new Date()
+      }
     });
 
     return NextResponse.json({
       success: true,
       message: "Standards created successfully",
-      standardId: result.insertedId,
+      standardId: result.id,
       standard: {
         ...standardsData,
-        _id: result.insertedId
+        _id: result.id
       }
     }, { status: 201 });
 
@@ -169,12 +173,10 @@ export async function POST(req: NextRequest) {
 // PUT endpoint - Update existing standards
 export async function PUT(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const body = await req.json();
     const { standardId, role, standards, description, effectiveFrom, reviewDate } = body;
 
-    if (!standardId || !ObjectId.isValid(standardId)) {
+    if (!standardId) {
       return NextResponse.json(
         { success: false, error: "Valid standard ID is required" },
         { status: 400 }
@@ -191,7 +193,7 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const existingStandard = await db.collection("standards").findOne({ _id: new ObjectId(standardId) });
+    const existingStandard = await prisma.standard.findUnique({ where: { id: standardId } });
     if (!existingStandard) {
       return NextResponse.json(
         { success: false, error: "Standards not found" },
@@ -226,31 +228,30 @@ export async function PUT(req: NextRequest) {
         }))
       })),
       description: description || "",
-      effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : null,
-      reviewDate: reviewDate ? new Date(reviewDate) : null,
+      effectiveFrom: effectiveFrom ? new Date(effectiveFrom).toISOString() : null,
+      reviewDate: reviewDate ? new Date(reviewDate).toISOString() : null,
       updatedAt: new Date(),
       updatedBy: userData?.name || userData?.email,
       version: (existingStandard.version || 0) + 1
     };
 
-    const result = await db.collection("standards").updateOne(
-      { _id: new ObjectId(standardId) },
-      { $set: updateData }
+    const result = await prisma.standard.updateMany(
+      { where: { id: standardId }, data: updateData }
     );
 
-    await db.collection("standards_logs").insertOne({
-      action: "UPDATE",
-      standardId: new ObjectId(standardId),
-      role: role,
-      updatedBy: userData?.name || userData?.email,
-      updatedAt: new Date(),
-      version: updateData.version
+    await prisma.standardsLog.create({
+      data: {
+        id: randomUUID(),
+        action: "UPDATE",
+        standardId,
+        role: role,
+      }
     });
 
     return NextResponse.json({
       success: true,
       message: "Standards updated successfully",
-      modifiedCount: result.modifiedCount,
+      modifiedCount: result.count,
       version: updateData.version
     }, { status: 200 });
 
@@ -266,12 +267,10 @@ export async function PUT(req: NextRequest) {
 // DELETE endpoint - Soft delete standards
 export async function DELETE(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const url = new URL(req.url);
     const standardId = url.searchParams.get("id");
 
-    if (!standardId || !ObjectId.isValid(standardId)) {
+    if (!standardId) {
       return NextResponse.json(
         { success: false, error: "Valid standard ID is required" },
         { status: 400 }
@@ -288,7 +287,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const standard = await db.collection("standards").findOne({ _id: new ObjectId(standardId) });
+    const standard = await prisma.standard.findUnique({ where: { id: standardId } });
     if (!standard) {
       return NextResponse.json(
         { success: false, error: "Standards not found" },
@@ -297,29 +296,23 @@ export async function DELETE(req: NextRequest) {
     }
 
     // Soft delete
-    const result = await db.collection("standards").updateOne(
-      { _id: new ObjectId(standardId) },
-      { 
-        $set: { 
-          isActive: false,
-          deletedAt: new Date(),
-          deletedBy: userData?.name || userData?.email
-        } 
-      }
+    const result = await prisma.standard.updateMany(
+      { where: { id: standardId }, data: { isActive: false } }
     );
 
-    await db.collection("standards_logs").insertOne({
-      action: "DELETE",
-      standardId: new ObjectId(standardId),
-      role: standard.role,
-      deletedBy: userData?.name || userData?.email,
-      deletedAt: new Date()
+    await prisma.standardsLog.create({
+      data: {
+        id: randomUUID(),
+        action: "DELETE",
+        standardId,
+        role: standard.role,
+      }
     });
 
     return NextResponse.json({
       success: true,
       message: "Standards deleted successfully",
-      modifiedCount: result.modifiedCount
+      modifiedCount: result.count
     }, { status: 200 });
 
   } catch (error) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import { PurchaseSchema } from "@/models/Stock";
 
 // ✅ GET purchase by ID - RETURNS ACTUAL DATA
@@ -10,17 +10,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Invalid purchase ID" 
-      }, { status: 400 });
-    }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const purchase = await db.collection("stock_purchases").findOne({ _id: new ObjectId(id) });
+    const purchase = await prisma.stockPurchase.findUnique({ where: { id } });
 
     if (!purchase) {
       return NextResponse.json({ 
@@ -51,19 +42,10 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Invalid purchase ID" 
-      }, { status: 400 });
-    }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const result = await db.collection("stock_purchases").deleteOne({ _id: new ObjectId(id) });
+    const result = await prisma.stockPurchase.deleteMany({ where: { id } });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ 
         success: false,
         error: "Purchase not found" 
@@ -92,13 +74,6 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Invalid purchase ID" 
-      }, { status: 400 });
-    }
 
     const body = await req.json();
 
@@ -109,24 +84,22 @@ export async function PUT(
 
     const parsed = PurchaseSchema.partial().parse(body);
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     // Update the document
-    const result = await db.collection("stock_purchases").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: parsed }
-    );
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Purchase not found" 
-      }, { status: 404 });
+    let updatedPurchase;
+    try {
+      updatedPurchase = await prisma.stockPurchase.update({
+        where: { id },
+        data: parsed,
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json({ 
+          success: false,
+          error: "Purchase not found" 
+        }, { status: 404 });
+      }
+      throw e;
     }
-
-    // Get the updated document
-    const updatedPurchase = await db.collection("stock_purchases").findOne({ _id: new ObjectId(id) });
 
     // ✅ Return the updated data
     return NextResponse.json({ 

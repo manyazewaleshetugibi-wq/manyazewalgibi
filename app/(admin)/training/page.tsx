@@ -250,14 +250,6 @@ export default function TrainingPage() {
       formData.append("linkUrl", newTraining.linkUrl.trim());
     }
 
-    console.log("Submitting training data:", {
-      title: newTraining.title,
-      description: newTraining.description,
-      type: newTraining.type,
-      fileName: uploadedFile?.name,
-      fileSize: uploadedFile?.size,
-      fileType: uploadedFile?.type,
-    })
 
     try {
       const response = await fetch("/api/training", {
@@ -265,12 +257,10 @@ export default function TrainingPage() {
         body: formData,
       })
 
-      console.log("Response status:", response.status, response.statusText)
 
       let data
       try {
         data = await response.json()
-        console.log("Response data:", data)
       } catch (jsonError) {
         console.error("Failed to parse JSON response:", jsonError)
         throw new Error(`Server returned invalid response: ${response.status}`)
@@ -853,13 +843,34 @@ export default function TrainingPage() {
                             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                             allowFullScreen
                           />
-                        ) : training.thumbnailUrl ? (
-                          <img src={training.thumbnailUrl} alt={training.title} className="w-full h-full object-cover" />
+                        ) : training.thumbnailUrl || (training.publicId ? getVideoThumbnail(training.publicId) : "") ? (
+                          <img
+                            src={training.thumbnailUrl || (training.publicId ? getVideoThumbnail(training.publicId) : "")}
+                            alt={training.title}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                            }}
+                          />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                             {getIcon(training.type)}
                           </div>
                         )
+                      ) : training.type === 'audio' && training.fileUrl ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center p-4 space-y-2">
+                          <FileAudio className="w-12 h-12 text-muted-foreground mb-1" />
+                          <audio
+                            src={training.fileUrl}
+                            controls
+                            preload="none"
+                            className="w-full max-w-[280px]"
+                            onClick={(e) => e.stopPropagation()}
+                            onPlay={(e) => e.stopPropagation()}
+                          >
+                            Your browser does not support the audio element.
+                          </audio>
+                        </div>
                       ) : training.type === 'document' && isPdf(training.fileUrl) ? (
                         <div className="w-full h-full flex items-center justify-center text-center p-4">
                           <div>

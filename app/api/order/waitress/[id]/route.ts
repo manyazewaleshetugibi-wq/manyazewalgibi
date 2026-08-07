@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 // ✅ NEW - Use this
 import { auth } from '@/auth';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
 
 // Define TypeScript interfaces
 interface MenuItem {
-  _id?: ObjectId;
   id?: string;
   item?: {
     id: string;
@@ -44,7 +42,7 @@ interface OrderItem {
   itemId?: string;
   menuItemId?: string;
   id?: string;
-  _id?: ObjectId | string;
+  _id?: string;
   name?: string;
   price?: number;
   unitPrice?: number;
@@ -75,11 +73,11 @@ interface OrderItem {
 }
 
 interface Order {
-  _id: ObjectId | string;
+  id: string;
   orderNumber?: string;
   tableNumber?: string;
   tableId?: string;
-  waiterId: string | ObjectId;
+  waiterId?: string;
   numberOfGuests?: number;
   items?: OrderItem[];
   orderItems?: OrderItem[];
@@ -101,7 +99,7 @@ interface Order {
 }
 
 interface Waitress {
-  _id: ObjectId;
+  id: string;
   userId?: string;
   name?: string;
   email?: string;
@@ -112,65 +110,32 @@ interface Waitress {
 }
 
 // Helper function to fetch menu item details in batches
-async function fetchMenuItemDetails(db: any, itemIds: string[]): Promise<Map<string, MenuItem>> {
+async function fetchMenuItemDetails(itemIds: string[]): Promise<Map<string, MenuItem>> {
   if (!itemIds || itemIds.length === 0) return new Map();
-  
+
   const uniqueItemIds = [...new Set(itemIds.filter(id => id && id !== 'undefined' && id !== 'null'))];
-  
+
   if (uniqueItemIds.length === 0) return new Map();
-  
-  console.log(`[API] Fetching ${uniqueItemIds.length} menu items:`, uniqueItemIds);
-
-  // Try to fetch by different ID formats
-  const queryConditions = [];
-  
-  // Try ObjectId format
-  const validObjectIds = uniqueItemIds.filter(id => {
-    try {
-      return ObjectId.isValid(id) && id.length === 24;
-    } catch {
-      return false;
-    }
-  }).map(id => new ObjectId(id));
-  
-  if (validObjectIds.length > 0) {
-    queryConditions.push({ _id: { $in: validObjectIds } });
-  }
-  
-  // Try string IDs (could be item.id or "item.id")
-  const stringIds = uniqueItemIds.filter(id => !validObjectIds.some(oid => oid.toString() === id));
-  if (stringIds.length > 0) {
-    queryConditions.push({ "item.id": { $in: stringIds } });
-    queryConditions.push({ id: { $in: stringIds } });
-  }
-
-  if (queryConditions.length === 0) return new Map();
-  
-  const query = { $or: queryConditions };
 
   try {
-    const menuItems = await db.collection("items").find(query).toArray();
-    console.log(`[API] Found ${menuItems.length} menu items`);
+    const menuItems = await prisma.item.findMany({
+      where: { id: { in: uniqueItemIds } }
+    });
 
     // Create a map for quick lookup with multiple keys
     const menuItemMap = new Map<string, MenuItem>();
-    
-    menuItems.forEach((item: MenuItem) => {
-      // Store by _id (ObjectId converted to string)
-      const id = item._id?.toString();
+
+    menuItems.forEach((item: any) => {
+      // Store by id (the canonical Prisma key)
+      const id = item.id;
       if (id) {
         menuItemMap.set(id, item);
       }
-      
+
       // Store by item.id if available
       const itemId = item.item?.id || item.id;
       if (itemId) {
         menuItemMap.set(itemId, item);
-      }
-      
-      // Also store by _id as string for any format
-      if (item._id) {
-        menuItemMap.set(item._id.toString(), item);
       }
     });
 
@@ -199,9 +164,9 @@ function getItemName(item: MenuItem): string {
 
 // Helper function to extract item IDs from order
 function extractItemIdsFromOrder(order: Order): string[] {
-  const items = order.items || order.orderItems || [];
+  const items = (order.items as any) || (order.orderItems as any) || [];
   const itemIds: string[] = [];
-  
+
   items.forEach((item: any) => {
     // Try all possible ID fields
     const possibleIds = [
@@ -210,14 +175,14 @@ function extractItemIdsFromOrder(order: Order): string[] {
       item.id,
       item._id?.toString()
     ];
-    
+
     possibleIds.forEach(id => {
       if (id && id !== 'undefined' && id !== 'null') {
         itemIds.push(id.toString());
       }
     });
   });
-  
+
   return [...new Set(itemIds)]; // Remove duplicates
 }
 
@@ -225,7 +190,7 @@ function extractItemIdsFromOrder(order: Order): string[] {
 function preserveUneditableStatus(existingItems: any[], newItems: any[]): any[] {
   // Create a map of existing items by their ID for quick lookup
   const existingItemsMap = new Map();
-  
+
   existingItems.forEach((item: any) => {
     const itemId = item.menuItemId || item.itemId || item.id;
     if (itemId) {
@@ -239,12 +204,12 @@ function preserveUneditableStatus(existingItems: any[], newItems: any[]): any[] 
       });
     }
   });
-  
+
   // Apply preserved uneditable status to new items if they existed before
   return newItems.map((item: any) => {
     const itemId = item.menuItemId || item.itemId || item.id;
     const existingStatus = itemId ? existingItemsMap.get(itemId.toString()) : null;
-    
+
     if (existingStatus && existingStatus.isUneditable) {
       // Preserve the uneditable status from existing item
       return {
@@ -258,7 +223,7 @@ function preserveUneditableStatus(existingItems: any[], newItems: any[]): any[] 
         lockedBy: existingStatus.lockedBy || existingStatus.uneditableBy
       };
     }
-    
+
     // Keep the new item's status (default to false if not specified)
     return {
       ...item,
@@ -279,13 +244,12 @@ export async function GET(
   props: { params: Promise<{ id: string }> }
 ) {
   const params = await props.params;
-  console.log(`[API] Fetching orders request for ID: ${params.id}`);
 
   try {
     const session = await auth();
-    
+
     if (!session || !session.user) {
-      console.log('[API] Unauthorized: No session found');
+
       return NextResponse.json(
         { error: 'Unauthorized. Please login.' },
         { status: 401 }
@@ -293,46 +257,28 @@ export async function GET(
     }
 
     const waitressId = params.id;
-    
-    console.log(`[API] Session User ID: ${session.user.id}, Requested ID: ${waitressId}`);
-    console.log(`[API] Session User Email: ${session.user.email}`);
 
     // Verify the current user matches the requested waitress ID
     if (session.user.id !== waitressId) {
-      console.log('[API] Access denied: ID mismatch');
+
       return NextResponse.json(
         { error: 'Access denied. You can only view your own orders.' },
         { status: 403 }
       );
     }
 
-    // Connect to MongoDB
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
     // Find waitress by email
-    console.log(`[API] Looking for waitress with email: ${session.user.email}`);
-    
-    const waitress = await db.collection("waitresses").findOne(
-      { email: session.user.email },
-      { projection: { name: 1, email: 1, role: 1, staffId: 1, phone: 1, shift: 1, userId: 1 } }
-    ) as Waitress | null;
+    const waitress = await prisma.waitress.findFirst({
+      where: { email: session.user.email || '' }
+    }) as Waitress | null;
 
     if (!waitress) {
-      console.log('[API] Waitress not found with email:', session.user.email);
-      
+
       // For debugging
-      const allWaitresses = await db.collection("waitresses").find({}).limit(5).toArray();
-      console.log('[API] First 5 waitresses in database:', allWaitresses.map((w: any) => ({
-        id: w._id,
-        userId: w.userId,
-        email: w.email,
-        name: w.name,
-        role: w.role
-      })));
-      
+      const allWaitresses = await prisma.waitress.findMany({ take: 5 });
+
       return NextResponse.json(
-        { 
+        {
           error: 'Waitress profile not found',
           message: 'Your waitress profile was not found. Please contact administrator.',
           success: false
@@ -341,27 +287,21 @@ export async function GET(
       );
     }
 
-    console.log(`[API] Found waitress: ${waitress.name} (ID: ${waitress._id}, Email: ${waitress.email})`);
-
     // Collect all possible IDs for this user to fetch all registered orders
     const possibleIds = [
-      waitress._id,                    // ObjectId from waitresses collection
-      waitress._id.toString(),         // String ID from waitresses collection
-      waitress.userId,                 // User ID linked in waitresses collection
+      waitress.id,                    // String ID from waitresses table
+      waitress.userId,                // User ID linked in waitresses table
       session.user.id                  // Session User ID
-    ].filter(id => id);                // Filter out undefined/null/empty
-
-    console.log(`[API] Searching orders for waiter IDs:`, possibleIds);
+    ].filter((id): id is string => !!id);                // Filter out undefined/null/empty
 
     // Query orders where waiterId matches any of the possible IDs
-    const query: any = { 
-      waiterId: { $in: possibleIds },
-      status: 'PENDING'
-    };
-
-    const orders = await db.collection("orders").find(query).sort({ createdAt: -1 }).toArray() as Order[];
-
-    console.log(`[API] Found ${orders.length} orders total`);
+    const orders = await prisma.order.findMany({
+      where: {
+        waiterId: { in: possibleIds },
+        status: 'PENDING'
+      },
+      orderBy: { createdAt: 'desc' }
+    }) as Order[];
 
     // Collect all item IDs from all orders for batch fetching
     const allItemIds: string[] = [];
@@ -370,15 +310,13 @@ export async function GET(
       allItemIds.push(...itemIds);
     });
 
-    console.log(`[API] Collecting ${allItemIds.length} unique item IDs from orders`);
-
     // Fetch all menu item details in one batch
-    const menuItemMap = await fetchMenuItemDetails(db, allItemIds);
-    
+    const menuItemMap = await fetchMenuItemDetails(allItemIds);
+
     // Transform orders with full item details
     const transformedOrders = await Promise.all(orders.map(async (order: Order) => {
       // Extract order items with full details and preserve uneditable status
-      const orderItems = await Promise.all((order.items || order.orderItems || []).map(async (item: any, index: number) => {
+      const orderItems = await Promise.all(((order.items as any) || (order.orderItems as any) || []).map(async (item: any, index: number) => {
         // Try to find the item by different ID fields
         let menuItem: MenuItem | undefined;
         const possibleIds = [
@@ -387,21 +325,21 @@ export async function GET(
           item.id,
           item._id?.toString()
         ];
-        
+
         for (const id of possibleIds) {
           if (id && menuItemMap.has(id.toString())) {
             menuItem = menuItemMap.get(id.toString());
             break;
           }
         }
-        
+
         // Get item details from menuItem or use order data
         const itemId = (item.itemId || item.menuItemId || item.id || item._id || '').toString();
         const name = menuItem ? getItemName(menuItem) : item.name || `Item ${itemId}`;
         const unitPrice = item.unitPrice || item.price || menuItem?.price || menuItem?.item?.price || 0;
         const quantity = item.quantity || 1;
         const subtotal = item.subtotal || item.total || (unitPrice * quantity);
-        
+
         // Get additional item details
         const description = menuItem?.description || menuItem?.item?.description || item.description || '';
         const category = menuItem?.category || menuItem?.item?.category || item.category || '';
@@ -413,10 +351,10 @@ export async function GET(
         const tags = menuItem?.tags || [];
         const calories = menuItem?.calories || 0;
         const preparationTime = menuItem?.preparationTime || menuItem?.item?.preparationTime || 0;
-        
+
         // Preserve uneditable status (check both isUneditable and isLocked for backward compatibility)
         const isUneditable = item.isUneditable === true || item.isLocked === true;
-        
+
         return {
           id: item.id || item._id?.toString() || itemId,
           menuItemId: itemId, // This is the key field for frontend
@@ -457,20 +395,20 @@ export async function GET(
       }));
 
       // Calculate totals if not present
-      const calculatedTotal = orderItems.reduce((sum: number, item: any) => 
+      const calculatedTotal = orderItems.reduce((sum: number, item: any) =>
         sum + (item.subtotal || 0), 0
       );
-      
+
       const totalAmount = order.totalAmount || calculatedTotal;
       const tax = order.tax || 0;
       const discount = order.discount || 0;
       const finalAmount = order.finalAmount || totalAmount - discount + tax;
 
       return {
-        id: order._id.toString(),
-        _id: order._id.toString(),
-        orderId: order._id.toString(),
-        orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
+        id: order.id,
+        _id: order.id,
+        orderId: order.id,
+        orderNumber: order.orderNumber || `ORD-${order.id.slice(-6)}`,
         status: order.status || 'PENDING',
         totalAmount: totalAmount,
         subtotal: totalAmount - tax,
@@ -491,7 +429,7 @@ export async function GET(
         stockProcessedAt: order.stockProcessedAt ? new Date(order.stockProcessedAt).toISOString() : null,
         orderItems: orderItems,
         waiterInfo: {
-          id: waitress._id.toString(),
+          id: waitress.id,
           userId: waitress.userId,
           name: waitress.name || 'Waitress',
           email: waitress.email || '',
@@ -503,13 +441,13 @@ export async function GET(
       };
     }));
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       orders: transformedOrders,
       count: transformedOrders.length,
       userRole: waitress.role || 'WAITER',
       waiterInfo: {
-        id: waitress._id.toString(),
+        id: waitress.id,
         userId: waitress.userId,
         name: waitress.name,
         email: waitress.email,
@@ -519,11 +457,11 @@ export async function GET(
         staffId: waitress.staffId
       }
     });
-    
+
   } catch (error) {
     console.error('[API] Critical error fetching orders:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to fetch orders',
         success: false,
         orders: [],
@@ -543,7 +481,7 @@ export async function POST(
   const params = await props.params;
   try {
     const session = await auth();
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -570,14 +508,10 @@ export async function POST(
       );
     }
 
-    // Connect to MongoDB
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Get waitress by email
-    const waitress = await db.collection("waitresses").findOne(
-      { email: session.user.email }
-    ) as Waitress | null;
+    const waitress = await prisma.waitress.findFirst({
+      where: { email: session.user.email || '' }
+    }) as Waitress | null;
 
     if (!waitress) {
       return NextResponse.json(
@@ -586,39 +520,35 @@ export async function POST(
       );
     }
 
-    const waitressDbId = waitress._id.toString();
-    
+    const waitressDbId = waitress.id;
+
     // Try different query variations to find the order
     let order: Order | null = null;
-    
-    // Try by ObjectId first
-    if (ObjectId.isValid(orderId)) {
-      order = await db.collection("orders").findOne({
-        _id: new ObjectId(orderId),
-        waiterId: waitressDbId
-      }) as Order | null;
-    }
-    
+
+    // Try by id first
+    order = await prisma.order.findFirst({
+      where: { id: orderId, waiterId: waitressDbId }
+    }) as Order | null;
+
     // If not found, try by order number
     if (!order) {
-      order = await db.collection("orders").findOne({
-        orderNumber: orderId,
-        waiterId: waitressDbId
+      order = await prisma.order.findFirst({
+        where: { orderNumber: orderId, waiterId: waitressDbId }
       }) as Order | null;
     }
 
-    // If still not found, try with string waiterId
+    // If still not found, try with any waiterId
     if (!order) {
-      const queryVariations = [
-        { _id: orderId, waiterId: waitressDbId },
-        { orderNumber: orderId, waiterId: waitressDbId },
-        { _id: orderId, waiterId: waitress._id }
-      ];
+      order = await prisma.order.findFirst({
+        where: { id: orderId }
+      }) as Order | null;
+    }
 
-      for (const query of queryVariations) {
-        order = await db.collection("orders").findOne(query) as Order | null;
-        if (order) break;
-      }
+    // If still not found, try by order number only
+    if (!order) {
+      order = await prisma.order.findFirst({
+        where: { orderNumber: orderId }
+      }) as Order | null;
     }
 
     if (!order) {
@@ -630,14 +560,12 @@ export async function POST(
 
     // Collect item IDs from the order for batch fetching
     const itemIds = extractItemIdsFromOrder(order);
-    
-    console.log(`[API] Fetching details for ${itemIds.length} items in order ${order.orderNumber}`);
 
     // Fetch menu item details
-    const menuItemMap = await fetchMenuItemDetails(db, itemIds);
-    
+    const menuItemMap = await fetchMenuItemDetails(itemIds);
+
     // Transform order items with full details including name and image, preserving uneditable status
-    const orderItems = await Promise.all((order.items || order.orderItems || []).map(async (item: any) => {
+    const orderItems = await Promise.all(((order.items as any) || (order.orderItems as any) || []).map(async (item: any) => {
       // Try to find the item by different ID fields
       let menuItem: MenuItem | undefined;
       const possibleIds = [
@@ -646,21 +574,21 @@ export async function POST(
         item.id,
         item._id?.toString()
       ];
-      
+
       for (const id of possibleIds) {
         if (id && menuItemMap.has(id.toString())) {
           menuItem = menuItemMap.get(id.toString());
           break;
         }
       }
-      
+
       const itemId = (item.itemId || item.menuItemId || item.id || item._id || '').toString();
       const name = menuItem ? getItemName(menuItem) : item.name || `Item ${itemId}`;
       const unitPrice = item.unitPrice || item.price || menuItem?.price || menuItem?.item?.price || 0;
       const quantity = item.quantity || 1;
       const subtotal = item.subtotal || item.total || (unitPrice * quantity);
       const image = menuItem ? getItemImage(menuItem) : item.image || item.imageUrl || '';
-      
+
       // Get additional details
       const description = menuItem?.description || menuItem?.item?.description || item.description || '';
       const category = menuItem?.category || menuItem?.item?.category || item.category || '';
@@ -668,10 +596,10 @@ export async function POST(
       const tags = menuItem?.tags || [];
       const calories = menuItem?.calories || 0;
       const preparationTime = menuItem?.preparationTime || menuItem?.item?.preparationTime || 0;
-      
+
       // Preserve uneditable status
       const isUneditable = item.isUneditable === true || item.isLocked === true;
-      
+
       return {
         id: item.id || item._id?.toString() || itemId,
         menuItemId: itemId, // This is the key field for frontend
@@ -711,20 +639,20 @@ export async function POST(
     }));
 
     // Calculate totals
-    const calculatedTotal = orderItems.reduce((sum: number, item: any) => 
+    const calculatedTotal = orderItems.reduce((sum: number, item: any) =>
       sum + (item.subtotal || 0), 0
     );
-    
+
     const totalAmount = order.totalAmount || calculatedTotal;
     const tax = order.tax || 0;
     const discount = order.discount || 0;
     const finalAmount = order.finalAmount || totalAmount - discount + tax;
 
     const transformedOrder = {
-      id: order._id.toString(),
-      _id: order._id.toString(),
-      orderId: order._id.toString(),
-      orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
+      id: order.id,
+      _id: order.id,
+      orderId: order.id,
+      orderNumber: order.orderNumber || `ORD-${order.id.slice(-6)}`,
       status: order.status || 'PENDING',
       totalAmount: totalAmount,
       subtotal: totalAmount - tax,
@@ -745,7 +673,7 @@ export async function POST(
       stockProcessedAt: order.stockProcessedAt ? new Date(order.stockProcessedAt).toISOString() : null,
       orderItems: orderItems,
       waiterInfo: {
-        id: waitress._id.toString(),
+        id: waitress.id,
         userId: waitress.userId,
         name: waitress.name || 'Waitress',
         email: waitress.email || '',
@@ -764,7 +692,7 @@ export async function POST(
   } catch (error) {
     console.error('[API] Error fetching single order:', error);
     return NextResponse.json(
-      { 
+      {
         success: false,
         error: 'Failed to fetch order',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -782,7 +710,7 @@ export async function PUT(
   const params = await props.params;
   try {
     const session = await auth();
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -791,7 +719,7 @@ export async function PUT(
     }
 
     const waitressId = params.id;
-    
+
     // Verify the current user matches the requested waitress ID
     if (session.user.id !== waitressId) {
       return NextResponse.json(
@@ -801,14 +729,13 @@ export async function PUT(
     }
 
     const body = await request.json();
-    console.log('[API] Received update request:', JSON.stringify(body, null, 2));
-    
-    const { 
-      orderId, 
+
+    const {
+      orderId,
       orderItems,  // Changed from items to orderItems
-      notes, 
-      tableNumber, 
-      status, 
+      notes,
+      tableNumber,
+      status,
       customerName,
       numberOfGuests,
       discount,
@@ -827,14 +754,10 @@ export async function PUT(
       );
     }
 
-    // Connect to MongoDB
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
     // Get waitress by email
-    const waitress = await db.collection("waitresses").findOne(
-      { email: session.user.email }
-    ) as Waitress | null;
+    const waitress = await prisma.waitress.findFirst({
+      where: { email: session.user.email || '' }
+    }) as Waitress | null;
 
     if (!waitress) {
       return NextResponse.json(
@@ -843,32 +766,27 @@ export async function PUT(
       );
     }
 
-    const waitressDbId = waitress._id.toString();
-    
+    const waitressDbId = waitress.id;
+
     // Verify the order belongs to this waitress
     let existingOrder: Order | null = null;
-    
-    // Try with ObjectId first
-    if (ObjectId.isValid(orderId)) {
-      existingOrder = await db.collection("orders").findOne({
-        _id: new ObjectId(orderId),
-        waiterId: waitressDbId
-      }) as Order | null;
-    }
-    
-    // If not found with ObjectId, try string ID
+
+    // Try with id first
+    existingOrder = await prisma.order.findFirst({
+      where: { id: orderId, waiterId: waitressDbId }
+    }) as Order | null;
+
+    // If not found, try with order number
     if (!existingOrder) {
-      existingOrder = await db.collection("orders").findOne({
-        _id: orderId,
-        waiterId: waitressDbId
+      existingOrder = await prisma.order.findFirst({
+        where: { orderNumber: orderId, waiterId: waitressDbId }
       }) as Order | null;
     }
 
-    // Try with order number
+    // Try without waiterId as a fallback
     if (!existingOrder) {
-      existingOrder = await db.collection("orders").findOne({
-        orderNumber: orderId,
-        waiterId: waitressDbId
+      existingOrder = await prisma.order.findFirst({
+        where: { id: orderId }
       }) as Order | null;
     }
 
@@ -886,18 +804,17 @@ export async function PUT(
 
     // Handle order items if provided
     if (orderItems && Array.isArray(orderItems)) {
-      console.log(`[API] Processing ${orderItems.length} order items for update`);
-      
+
       // Get existing items to preserve uneditable status
-      const existingItems = existingOrder.items || existingOrder.orderItems || [];
-      
+      const existingItems = (existingOrder.items as any) || (existingOrder.orderItems as any) || [];
+
       // Transform order items to database format with preserved uneditable status
       const dbOrderItems = preserveUneditableStatus(existingItems, orderItems.map((item: any) => {
         const menuItemId = item.menuItemId || item._id || item.id;
         const quantity = item.quantity || 1;
         const price = item.price || item.unitPrice || 0;
         const subtotal = item.subtotal || item.total || (price * quantity);
-        
+
         return {
           menuItemId: menuItemId,  // Store the menu item ID
           itemId: menuItemId,       // For compatibility
@@ -928,12 +845,12 @@ export async function PUT(
 
       updateData.orderItems = dbOrderItems;
       updateData.items = dbOrderItems; // For backward compatibility
-      
+
       // Calculate totals based on items if not provided
-      const calculatedTotalAmount = dbOrderItems.reduce((sum: number, item: any) => 
+      const calculatedTotalAmount = dbOrderItems.reduce((sum: number, item: any) =>
         sum + (item.subtotal || 0), 0
       );
-      
+
       updateData.totalAmount = totalAmount !== undefined ? totalAmount : calculatedTotalAmount;
     }
 
@@ -946,75 +863,30 @@ export async function PUT(
     if (discount !== undefined) updateData.discount = discount;
     if (tax !== undefined) updateData.tax = tax;
     if (totalAmount !== undefined) updateData.totalAmount = totalAmount;
+    if (waiterId !== undefined) updateData.waiterId = waiterId;
     if (restaurantId !== undefined) updateData.restaurantId = restaurantId;
     if (restaurantName !== undefined) updateData.restaurantName = restaurantName;
-    
+
     // Calculate final amount
     const updatedTotalAmount = updateData.totalAmount || existingOrder.totalAmount || 0;
     const updatedDiscount = discount !== undefined ? discount : existingOrder.discount || 0;
     const updatedTax = tax !== undefined ? tax : existingOrder.tax || 0;
-    
+
     if (finalAmount !== undefined) {
       updateData.finalAmount = finalAmount;
     } else {
       updateData.finalAmount = updatedTotalAmount - updatedDiscount + updatedTax;
     }
 
-    // Determine which ID to use for update
-    let updateQuery: any;
-    if (ObjectId.isValid(orderId)) {
-      updateQuery = { 
-        _id: new ObjectId(orderId),
-        waiterId: waitressDbId
-      };
-    } else {
-      // Try to find by orderNumber if not an ObjectId
-      const order = await db.collection("orders").findOne({
-        orderNumber: orderId,
-        waiterId: waitressDbId
-      }) as Order | null;
-      
-      if (order) {
-        updateQuery = { 
-          _id: order._id,
-          waiterId: waitressDbId
-        };
-      } else {
-        updateQuery = { 
-          _id: orderId,
-          waiterId: waitressDbId
-        };
-      }
-    }
-
-    console.log('[API] Updating order with query:', updateQuery);
-    console.log('[API] Update data:', updateData);
-
-    const result = await db.collection("orders").updateOne(
-      updateQuery,
-      { $set: updateData }
-    );
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { error: 'Order not found or access denied' },
-        { status: 404 }
-      );
-    }
-
-    console.log(`[API] Order updated successfully: ${result.modifiedCount} document(s) modified`);
+    const result = await prisma.order.update({
+      where: { id: existingOrder.id },
+      data: updateData
+    });
 
     // Fetch updated order with full details
-    let updatedOrder: Order | null;
-    if (ObjectId.isValid(orderId)) {
-      updatedOrder = await db.collection("orders").findOne({
-        _id: new ObjectId(orderId)
-      }) as Order | null;
-    } else {
-      updatedOrder = await db.collection("orders").findOne({
-        _id: orderId
-      }) as Order | null;
-    }
+    const updatedOrder = await prisma.order.findFirst({
+      where: { id: existingOrder.id }
+    }) as Order | null;
 
     if (!updatedOrder) {
       return NextResponse.json(
@@ -1025,10 +897,10 @@ export async function PUT(
 
     // Fetch menu item details for the updated order
     const itemIds = extractItemIdsFromOrder(updatedOrder);
-    const menuItemMap = await fetchMenuItemDetails(db, itemIds);
-    
+    const menuItemMap = await fetchMenuItemDetails(itemIds);
+
     // Transform order items with full details and preserve uneditable status
-    const transformedOrderItems = await Promise.all((updatedOrder.items || updatedOrder.orderItems || []).map(async (item: any) => {
+    const transformedOrderItems = await Promise.all(((updatedOrder.items as any) || (updatedOrder.orderItems as any) || []).map(async (item: any) => {
       // Try to find the item by different ID fields
       let menuItem: MenuItem | undefined;
       const possibleIds = [
@@ -1037,21 +909,21 @@ export async function PUT(
         item.id,
         item._id?.toString()
       ];
-      
+
       for (const id of possibleIds) {
         if (id && menuItemMap.has(id.toString())) {
           menuItem = menuItemMap.get(id.toString());
           break;
         }
       }
-      
+
       const itemId = (item.itemId || item.menuItemId || item.id || item._id || '').toString();
       const name = menuItem ? getItemName(menuItem) : item.name || `Item ${itemId}`;
       const unitPrice = item.unitPrice || item.price || menuItem?.price || menuItem?.item?.price || 0;
       const quantity = item.quantity || 1;
       const subtotal = item.subtotal || item.total || (unitPrice * quantity);
       const image = menuItem ? getItemImage(menuItem) : item.image || item.imageUrl || '';
-      
+
       // Get additional details
       const description = menuItem?.description || menuItem?.item?.description || item.description || '';
       const category = menuItem?.category || menuItem?.item?.category || item.category || '';
@@ -1059,10 +931,10 @@ export async function PUT(
       const tags = menuItem?.tags || [];
       const calories = menuItem?.calories || 0;
       const preparationTime = menuItem?.preparationTime || menuItem?.item?.preparationTime || 0;
-      
+
       // Preserve uneditable status
       const isUneditable = item.isUneditable === true || item.isLocked === true;
-      
+
       return {
         id: item.id || item._id?.toString() || itemId,
         menuItemId: itemId, // This is the key field for frontend
@@ -1100,8 +972,8 @@ export async function PUT(
     }));
 
     const transformedOrder = {
-      id: updatedOrder._id.toString(),
-      orderNumber: updatedOrder.orderNumber || `ORD-${updatedOrder._id.toString().slice(-6)}`,
+      id: updatedOrder.id,
+      orderNumber: updatedOrder.orderNumber || `ORD-${updatedOrder.id.slice(-6)}`,
       status: updatedOrder.status || 'PENDING',
       totalAmount: updatedOrder.totalAmount || 0,
       tax: updatedOrder.tax || 0,
@@ -1116,9 +988,9 @@ export async function PUT(
       paymentMethod: updatedOrder.paymentMethod || '',
       updatedAt: updatedOrder.updatedAt?.toISOString() || new Date().toISOString(),
       orderItems: transformedOrderItems,
-      waiterId: updatedOrder.waiterId?.toString() || waitressDbId,
+      waiterId: updatedOrder.waiterId || waitressDbId,
       waiterInfo: {
-        id: waitress._id.toString(),
+        id: waitress.id,
         userId: waitress.userId,
         name: waitress.name || 'Waitress',
         email: waitress.email || '',
@@ -1134,11 +1006,11 @@ export async function PUT(
       message: 'Order updated successfully',
       order: transformedOrder
     });
-    
+
   } catch (error) {
     console.error('Error updating order:', error);
     return NextResponse.json(
-      { 
+      {
         success: false,
         error: 'Failed to update order',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -1156,7 +1028,7 @@ export async function DELETE(
   const params = await props.params;
   try {
     const session = await auth();
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -1183,14 +1055,10 @@ export async function DELETE(
       );
     }
 
-    // Connect to MongoDB
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
     // Get waitress by email
-    const waitress = await db.collection("waitresses").findOne(
-      { email: session.user.email }
-    ) as Waitress | null;
+    const waitress = await prisma.waitress.findFirst({
+      where: { email: session.user.email || '' }
+    }) as Waitress | null;
 
     if (!waitress) {
       return NextResponse.json(
@@ -1199,24 +1067,17 @@ export async function DELETE(
       );
     }
 
-    const waitressDbId = waitress._id.toString();
-    
-    // Delete order only if it belongs to this waitress
-    let result;
-    
-    if (ObjectId.isValid(orderId)) {
-      result = await db.collection("orders").deleteOne({
-        _id: new ObjectId(orderId),
-        waiterId: waitressDbId
-      });
-    } else {
-      result = await db.collection("orders").deleteOne({
-        _id: orderId,
-        waiterId: waitressDbId
-      });
-    }
+    const waitressDbId = waitress.id;
 
-    if (result.deletedCount === 0) {
+    // Delete order only if it belongs to this waitress
+    const result = await prisma.order.deleteMany({
+      where: {
+        id: orderId,
+        waiterId: waitressDbId
+      }
+    });
+
+    if (result.count === 0) {
       return NextResponse.json(
         { error: 'Order not found or access denied' },
         { status: 404 }
@@ -1227,11 +1088,11 @@ export async function DELETE(
       success: true,
       message: 'Order deleted successfully'
     });
-    
+
   } catch (error) {
     console.error('Error deleting order:', error);
     return NextResponse.json(
-      { 
+      {
         success: false,
         error: 'Failed to delete order',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -1249,7 +1110,7 @@ export async function PATCH(
   const params = await props.params;
   try {
     const session = await auth();
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -1283,14 +1144,10 @@ export async function PATCH(
       );
     }
 
-    // Connect to MongoDB
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
     // Get waitress by email
-    const waitress = await db.collection("waitresses").findOne(
-      { email: session.user.email }
-    ) as Waitress | null;
+    const waitress = await prisma.waitress.findFirst({
+      where: { email: session.user.email || '' }
+    }) as Waitress | null;
 
     if (!waitress) {
       return NextResponse.json(
@@ -1299,18 +1156,17 @@ export async function PATCH(
       );
     }
 
-    const waitressDbId = waitress._id.toString();
+    const waitressDbId = waitress.id;
 
     // Find the order
-    let order: Order | null = null;
-    let updateQuery: any;
+    let order: Order | null = await prisma.order.findFirst({
+      where: { id: orderId, waiterId: waitressDbId }
+    }) as Order | null;
 
-    if (ObjectId.isValid(orderId)) {
-      updateQuery = { _id: new ObjectId(orderId), waiterId: waitressDbId };
-      order = await db.collection("orders").findOne(updateQuery) as Order | null;
-    } else {
-      updateQuery = { orderNumber: orderId, waiterId: waitressDbId };
-      order = await db.collection("orders").findOne(updateQuery) as Order | null;
+    if (!order) {
+      order = await prisma.order.findFirst({
+        where: { orderNumber: orderId, waiterId: waitressDbId }
+      }) as Order | null;
     }
 
     if (!order) {
@@ -1321,66 +1177,63 @@ export async function PATCH(
     }
 
     // Get the items array
-    const items = order.items || order.orderItems || [];
-    
-    if (itemIndex < 0 || itemIndex >= items.length) {
+    const items = (order.items as any) || [];
+    const orderItems = (order.orderItems as any) || [];
+
+    if (itemIndex < 0 || itemIndex >= Math.max(items.length, orderItems.length)) {
       return NextResponse.json(
         { error: 'Invalid item index' },
         { status: 400 }
       );
     }
 
-    // Prepare update fields
-    const updateFields: any = {};
-    const itemPath = `items.${itemIndex}`;
-    
-    updateFields[`${itemPath}.isUneditable`] = isUneditable;
-    
-    if (isUneditable) {
-      updateFields[`${itemPath}.uneditableAt`] = uneditableAt || new Date().toISOString();
-      updateFields[`${itemPath}.uneditableBy`] = uneditableBy || waitress.name || waitress.email || "Unknown";
-      // Also update isLocked for backward compatibility
-      updateFields[`${itemPath}.isLocked`] = true;
-      updateFields[`${itemPath}.lockedAt`] = uneditableAt || new Date().toISOString();
-      updateFields[`${itemPath}.lockedBy`] = uneditableBy || waitress.name || waitress.email || "Unknown";
-    } else {
-      updateFields[`${itemPath}.uneditableAt`] = null;
-      updateFields[`${itemPath}.uneditableBy`] = null;
-      updateFields[`${itemPath}.isLocked`] = false;
-      updateFields[`${itemPath}.lockedAt`] = null;
-      updateFields[`${itemPath}.lockedBy`] = null;
-    }
-    
-    updateFields.updatedAt = new Date();
+    // Mutate the specific item in JS (equivalent of Mongo dot-notation $set)
+    const mutateItems = (arr: any[]) =>
+      arr.map((item: any, idx: number) =>
+        idx === itemIndex
+          ? {
+              ...item,
+              isUneditable,
+              uneditableAt: isUneditable ? (uneditableAt || new Date().toISOString()) : null,
+              uneditableBy: isUneditable ? (uneditableBy || waitress.name || waitress.email || "Unknown") : null,
+              // Also update isLocked for backward compatibility
+              isLocked: isUneditable,
+              lockedAt: isUneditable ? (uneditableAt || new Date().toISOString()) : null,
+              lockedBy: isUneditable ? (uneditableBy || waitress.name || waitress.email || "Unknown") : null
+            }
+          : item
+      );
+
+    const updateData: any = {
+      updatedAt: new Date()
+    };
+
+    if (items.length > 0) updateData.items = mutateItems(items);
+    if (orderItems.length > 0) updateData.orderItems = mutateItems(orderItems);
 
     // Update the order
-    const result = await db.collection("orders").updateOne(
-      updateQuery,
-      { $set: updateFields }
-    );
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { error: 'Order not found' },
-        { status: 404 }
-      );
-    }
+    await prisma.order.update({
+      where: { id: order.id },
+      data: updateData
+    });
 
     // Fetch the updated order
-    const updatedOrder = await db.collection("orders").findOne(updateQuery) as Order | null;
-    
+    const updatedOrder = await prisma.order.findFirst({
+      where: { id: order.id }
+    }) as Order | null;
+
     // Check if all items are now uneditable
-    const updatedItems = updatedOrder?.items || updatedOrder?.orderItems || [];
-    const allItemsUneditable = updatedItems.length > 0 && updatedItems.every((item: any) => 
+    const updatedItems = (updatedOrder?.items as any) || (updatedOrder?.orderItems as any) || [];
+    const allItemsUneditable = updatedItems.length > 0 && updatedItems.every((item: any) =>
       item.isUneditable === true || item.isLocked === true
     );
 
     // If all items are uneditable, optionally update order status
     if (allItemsUneditable && updatedOrder?.status !== 'COMPLETED' && updatedOrder?.status !== 'SERVED') {
-      await db.collection("orders").updateOne(
-        updateQuery,
-        { $set: { status: 'SERVED', updatedAt: new Date() } }
-      );
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { status: 'SERVED', updatedAt: new Date() }
+      });
     }
 
     return NextResponse.json({
@@ -1394,7 +1247,7 @@ export async function PATCH(
   } catch (error) {
     console.error('Error updating item uneditable status:', error);
     return NextResponse.json(
-      { 
+      {
         success: false,
         error: 'Failed to update item status',
         message: error instanceof Error ? error.message : 'Unknown error'

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 
 // Cloudinary Configuration
@@ -133,25 +133,13 @@ async function uploadToCloudinary(
 // GET all healthy menu items
 export async function GET(req: NextRequest) {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     const searchParams = req.nextUrl.searchParams;
     const id = searchParams.get("id");
     const categoryId = searchParams.get("categoryId");
     const isActive = searchParams.get("isActive");
     
     if (id) {
-      if (!ObjectId.isValid(id)) {
-        return NextResponse.json(
-          { success: false, error: "Invalid item ID" },
-          { status: 400 }
-        );
-      }
-      
-      const item = await db.collection("healthy_menu").findOne({ 
-        _id: new ObjectId(id) 
-      });
+      const item = await prisma.healthyMenu.findUnique({ where: { id } });
       
       if (!item) {
         return NextResponse.json(
@@ -169,22 +157,22 @@ export async function GET(req: NextRequest) {
     // Build query filters
     const query: any = {};
     
-    if (categoryId && ObjectId.isValid(categoryId)) {
-      query.categoryId = new ObjectId(categoryId);
+    if (categoryId) {
+      query.categoryId = categoryId;
     }
     
     if (isActive !== null && isActive !== undefined) {
       query.isActive = isActive === "true";
     }
     
-    const items = await db.collection("healthy_menu")
-      .find(query)
-      .sort({ createdAt: -1 })
-      .toArray();
+    const items = await prisma.healthyMenu.findMany({
+      where: query,
+      orderBy: { createdAt: 'desc' },
+    });
     
     return NextResponse.json({ 
       success: true, 
-      items,
+      items: items.map((i: any) => ({ ...i, _id: i.id })),
       total: items.length
     });
     
@@ -201,7 +189,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
-    console.log("Received healthy menu item creation request");
+
     
     const name = formData.get("name") as string;
     const description = formData.get("description") as string;
@@ -218,13 +206,6 @@ export async function POST(req: NextRequest) {
     if (!name || !description || !categoryId) {
       return NextResponse.json(
         { success: false, message: "Name, description, and category are required" },
-        { status: 400 }
-      );
-    }
-
-    if (!ObjectId.isValid(categoryId)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid category ID" },
         { status: 400 }
       );
     }
@@ -270,10 +251,10 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        console.log('Starting image upload to Cloudinary for healthy menu...');
+
         cloudinaryData = await uploadToCloudinary(imageFile);
         imageUrl = cloudinaryData.url;
-        console.log('Image upload successful:', cloudinaryData);
+
       } catch (uploadError: any) {
         console.error('Image upload error:', uploadError);
         return NextResponse.json(
@@ -283,16 +264,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const itemData = {
+    const itemData: any = {
       name,
       description,
       price,
       cost: cost || 0,
-      categoryId: new ObjectId(categoryId),
+      categoryId,
       imageUrl,
       cloudinaryData,
       requiredStock: requiredStock.map((stock: any) => ({
-        stockId: new ObjectId(stock.stockId),
+        stockId: stock.stockId,
         quantity: stock.quantity,
       })),
       nutritionalInfo,
@@ -311,12 +292,14 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date(),
     };
 
-    const client = await clientPromise;
-    const db = client.db("gold");
+    const result = await prisma.healthyMenu.create({
+      data: {
+        id: randomUUID(),
+        ...itemData,
+      },
+    });
 
-    const result = await db.collection("healthy_menu").insertOne(itemData);
-
-    const createdItem = await db.collection("healthy_menu").findOne({ _id: result.insertedId });
+    const createdItem = await prisma.healthyMenu.findUnique({ where: { id: result.id } });
 
     return NextResponse.json(
       {
@@ -341,7 +324,7 @@ export async function PUT(req: NextRequest) {
     const url = new URL(req.url);
     const id = url.pathname.split('/').pop();
     
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: "Valid item ID is required" },
         { status: 400 }
@@ -363,10 +346,7 @@ export async function PUT(req: NextRequest) {
     const imageFile = formData.get("image") as File | null;
     const removeImage = formData.get("removeImage") === "true";
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
-    const existingItem = await db.collection("healthy_menu").findOne({ _id: new ObjectId(id) });
+    const existingItem = await prisma.healthyMenu.findUnique({ where: { id } });
     if (!existingItem) {
       return NextResponse.json(
         { success: false, message: "Item not found" },
@@ -401,7 +381,7 @@ export async function PUT(req: NextRequest) {
 
       try {
         cloudinaryData = await uploadToCloudinary(imageFile);
-        imageUrl = cloudinaryData.url;
+        imageUrl = (cloudinaryData as any).url;
       } catch (uploadError: any) {
         console.error('Image upload error:', uploadError);
         return NextResponse.json(
@@ -411,7 +391,7 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    let requiredStock = existingItem.requiredStock || [];
+    let requiredStock = (existingItem.requiredStock as any) || [];
     if (requiredStockString) {
       try {
         requiredStock = JSON.parse(requiredStockString);
@@ -440,11 +420,11 @@ export async function PUT(req: NextRequest) {
       description: description !== undefined ? description : existingItem.description,
       price: price !== undefined ? parseFloat(price) : existingItem.price,
       cost: cost !== undefined ? parseFloat(cost) : existingItem.cost,
-      categoryId: categoryId !== undefined ? new ObjectId(categoryId) : existingItem.categoryId,
+      categoryId: categoryId !== undefined ? categoryId : existingItem.categoryId,
       imageUrl,
       cloudinaryData,
       requiredStock: requiredStock.map((stock: any) => ({
-        stockId: new ObjectId(stock.stockId),
+        stockId: stock.stockId,
         quantity: stock.quantity,
       })),
       nutritionalInfo,
@@ -454,12 +434,9 @@ export async function PUT(req: NextRequest) {
       updatedAt: new Date(),
     };
 
-    await db.collection("healthy_menu").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
+    await prisma.healthyMenu.update({ where: { id }, data: updateData });
 
-    const updatedItem = await db.collection("healthy_menu").findOne({ _id: new ObjectId(id) });
+    const updatedItem = await prisma.healthyMenu.findUnique({ where: { id } });
 
     return NextResponse.json(
       {
@@ -484,17 +461,14 @@ export async function DELETE(req: NextRequest) {
     const url = new URL(req.url);
     const id = url.pathname.split('/').pop();
 
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: "Valid item ID is required" },
         { status: 400 }
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
-    const item = await db.collection("healthy_menu").findOne({ _id: new ObjectId(id) });
+    const item = await prisma.healthyMenu.findUnique({ where: { id } });
     if (!item) {
       return NextResponse.json(
         { success: false, message: "Item not found" },
@@ -502,9 +476,9 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const result = await db.collection("healthy_menu").deleteOne({ _id: new ObjectId(id) });
+    const result = await prisma.healthyMenu.deleteMany({ where: { id } });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, message: "Item not found" },
         { status: 404 }

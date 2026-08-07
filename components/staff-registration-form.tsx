@@ -309,7 +309,7 @@ export function StaffRegistrationForm({ onSuccess }: StaffRegistrationFormProps)
         permissions: rolePermissions[values.role] || [],
       };
 
-      console.log("Sending staff data:", staffData);
+
 
       const response = await axios.post("/api/staff", staffData);
       

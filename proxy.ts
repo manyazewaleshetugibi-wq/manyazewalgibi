@@ -37,7 +37,6 @@ const PUBLIC_API_RULES: { prefix: string; methods?: string[] }[] = [
   { prefix: "/api/user/register", methods: ["POST"] }, // public account registration
   { prefix: "/api/user/validate-inviter", methods: ["GET"] },
   { prefix: "/api/attendance/staff/lookup", methods: ["POST"] },
-  { prefix: "/api/attendance/staff/register", methods: ["POST"] },
   { prefix: "/api/attendance", methods: ["POST"] }, // clock-in kiosk
   { prefix: "/api/webauthn" }, // passkey clock-in flows
   { prefix: "/api/blog", methods: ["GET"] }, // public blog reading only

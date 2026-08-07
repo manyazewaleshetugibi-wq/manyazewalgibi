@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { randomUUID } from "crypto";
+import prisma from "@/lib/prisma";
 
 import { auth } from "@/auth";
 
@@ -9,7 +9,7 @@ const DEBUG = true;
 
 function debugLog(message: string, data?: any) {
   if (DEBUG) {
-    console.log(`[DEBUG] ${message}`, data ? data : '');
+
   }
 }
 
@@ -57,13 +57,9 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    // Connect to MongoDB
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
     // Get waitress by email
-    const waitress = await db.collection("waitresses").findOne(
-      { email: session.user.email }
+    const waitress = await prisma.waitress.findFirst(
+      { where: { email: session.user.email } }
     );
 
     if (!waitress) {
@@ -73,20 +69,11 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const waitressDbId = waitress._id.toString();
+    const waitressDbId = waitress.id;
     
-    // Verify the order belongs to this waitress using robust ID check
-    let query: any = { _id: orderId, waiterId: waitressDbId };
-    let existingOrder = await db.collection("orders").findOne(query);
-
-    if (!existingOrder) {
-      try {
-        query = { _id: new ObjectId(orderId), waiterId: waitressDbId };
-        existingOrder = await db.collection("orders").findOne(query);
-      } catch {
-        // Invalid ObjectId format, will fail check below
-      }
-    }
+    // Verify the order belongs to this waitress
+    const query: any = { id: orderId, waiterId: waitressDbId };
+    let existingOrder = await prisma.order.findFirst({ where: query });
 
     if (!existingOrder) {
       return NextResponse.json(
@@ -116,17 +103,8 @@ export async function PUT(req: NextRequest) {
         if (!itemId) continue;
 
         // Fetch item details from DB to ensure valid price/name
-        let dbItem;
-        try {
-          if (ObjectId.isValid(itemId)) {
-            dbItem = await db.collection("items").findOne({ _id: new ObjectId(itemId) });
-          }
-        } catch (e) {}
+        const dbItem = await prisma.item.findFirst({ where: { id: itemId } });
         
-        if (!dbItem) {
-          dbItem = await db.collection("items").findOne({ _id: itemId });
-        }
-
         if (dbItem) {
           const quantity = Number(item.quantity) || 0;
           const price = dbItem.price || 0;
@@ -135,7 +113,7 @@ export async function PUT(req: NextRequest) {
           totalAmount += subtotal;
 
           processedItems.push({
-            id: item.id || new ObjectId().toString(),
+            id: item.id || randomUUID(),
             itemId: itemId,
             menuItemId: itemId,
             name: dbItem.name,
@@ -146,7 +124,7 @@ export async function PUT(req: NextRequest) {
             subtotal: subtotal,
             specialInstructions: item.specialInstructions || "",
             status: item.status || "PENDING",
-            image: dbItem.imageUrl || dbItem.image || ""
+            image: dbItem.imageUrl || ""
           });
         }
       }
@@ -178,12 +156,11 @@ export async function PUT(req: NextRequest) {
     if (paymentStatus !== undefined) updateData.paymentStatus = paymentStatus;
 
     // Execute update
-    let result = await db.collection("orders").updateOne(
-      query,
-      { $set: updateData }
+    let result = await prisma.order.updateMany(
+      { where: query, data: updateData }
     );
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { error: 'Failed to update order in database' },
         { status: 500 }
@@ -191,7 +168,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // Fetch updated order
-    const updatedOrder = await db.collection("orders").findOne(query);
+    const updatedOrder = await prisma.order.findFirst({ where: query });
 
     if (!updatedOrder) {
       return NextResponse.json(
@@ -202,19 +179,19 @@ export async function PUT(req: NextRequest) {
 
     // Transform order for response
     const transformedOrder = {
-      id: updatedOrder._id.toString(),
-      orderNumber: updatedOrder.orderNumber || `ORD-${updatedOrder._id.toString().slice(-6)}`,
+      id: updatedOrder.id,
+      orderNumber: updatedOrder.orderNumber || `ORD-${updatedOrder.id.slice(-6)}`,
       status: updatedOrder.status || 'PENDING',
       totalAmount: updatedOrder.totalAmount || 0,
       finalAmount: updatedOrder.finalAmount || updatedOrder.totalAmount || 0,
       notes: updatedOrder.notes || '',
       updatedAt: updatedOrder.updatedAt?.toISOString() || new Date().toISOString(),
       orderItems: updatedOrder.items || updatedOrder.orderItems || [],
-      tableNumber: updatedOrder.tableNumber || updatedOrder.tableId || '',
+      tableNumber: updatedOrder.tableNumber || (updatedOrder.tableId as any) || '',
       customerName: updatedOrder.customerName || '',
       numberOfGuests: updatedOrder.numberOfGuests || 1,
       specialRequirements: updatedOrder.specialRequirements || '',
-      waiterId: updatedOrder.waiterId?.toString() || waitressDbId
+      waiterId: updatedOrder.waiterId || waitressDbId
     };
 
     return NextResponse.json({
@@ -258,13 +235,9 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Connect to MongoDB
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
     // Get waitress by email
-    const waitress = await db.collection("waitresses").findOne(
-      { email: session.user.email }
+    const waitress = await prisma.waitress.findFirst(
+      { where: { email: session.user.email } }
     );
 
     if (!waitress) {
@@ -274,22 +247,17 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const waitressDbId = waitress._id.toString();
+    const waitressDbId = waitress.id;
     
     // Verify the order belongs to this waitress
-    let query: any = { _id: orderId, waiterId: waitressDbId };
-    let existingOrder = await db.collection("orders").findOne(query);
+    const query: any = { id: orderId, waiterId: waitressDbId };
+    const existingOrder = await prisma.order.findFirst({ where: query });
 
     if (!existingOrder) {
-      try {
-        query = { _id: new ObjectId(orderId), waiterId: waitressDbId };
-        existingOrder = await db.collection("orders").findOne(query);
-      } catch {
-        return NextResponse.json(
-          { error: 'Order not found or access denied' },
-          { status: 404 }
-        );
-      }
+      return NextResponse.json(
+        { error: 'Order not found or access denied' },
+        { status: 404 }
+      );
     }
 
     debugLog(`PATCH update for order ${orderId} by waitress ${waitress.name}`, updates);
@@ -329,12 +297,11 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Execute partial update
-    const result = await db.collection("orders").updateOne(
-      query,
-      { $set: updateData }
+    const result = await prisma.order.updateMany(
+      { where: query, data: updateData }
     );
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { error: 'Failed to update order' },
         { status: 500 }
@@ -342,7 +309,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Fetch updated order
-    const updatedOrder = await db.collection("orders").findOne(query);
+    const updatedOrder = await prisma.order.findFirst({ where: query });
 
     if (!updatedOrder) {
       return NextResponse.json(
@@ -355,7 +322,7 @@ export async function PATCH(req: NextRequest) {
       success: true,
       message: 'Order updated successfully',
       order: {
-        id: updatedOrder._id.toString(),
+        id: updatedOrder.id,
         orderNumber: updatedOrder.orderNumber,
         status: updatedOrder.status,
         totalAmount: updatedOrder.totalAmount,
@@ -402,13 +369,9 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Connect to MongoDB
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
     // Get waitress by email
-    const waitress = await db.collection("waitresses").findOne(
-      { email: session.user.email }
+    const waitress = await prisma.waitress.findFirst(
+      { where: { email: session.user.email } }
     );
 
     if (!waitress) {
@@ -418,27 +381,14 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const waitressDbId = waitress._id.toString();
+    const waitressDbId = waitress.id;
     
     // Delete order only if it belongs to this waitress
-    let result = await db.collection("orders").deleteOne({
-      _id: orderId,
-      waiterId: waitressDbId
+    let result = await prisma.order.deleteMany({
+      where: { id: orderId, waiterId: waitressDbId }
     });
 
-    // If not deleted with string ID, try ObjectId
-    if (result.deletedCount === 0) {
-      try {
-        result = await db.collection("orders").deleteOne({
-          _id: new ObjectId(orderId),
-          waiterId: waitressDbId
-        });
-      } catch {
-        // ObjectId conversion failed
-      }
-    }
-
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { error: 'Order not found or access denied' },
         { status: 404 }

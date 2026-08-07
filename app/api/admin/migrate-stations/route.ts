@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
+import { requireAdmin } from "@/lib/api-auth";
 
 function getStationForCategory(name: string): string {
   const lower = name.toLowerCase().trim();
@@ -9,21 +10,18 @@ function getStationForCategory(name: string): string {
 }
 
 export async function GET() {
+  const { response } = await requireAdmin();
+  if (response) return response;
+
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const categories = await db.collection("itemCategories").find({}).toArray();
+    const categories = await prisma.itemCategory.findMany();
 
     const updates: { name: string; oldStation: string; newStation: string }[] = [];
 
     for (const cat of categories) {
-      const newStation = getStationForCategory(cat.name);
-      if (cat.station !== newStation) {
-        await db.collection("itemCategories").updateOne(
-          { _id: cat._id },
-          { $set: { station: newStation, updatedAt: new Date() } }
-        );
-        updates.push({ name: cat.name, oldStation: cat.station || "ALL", newStation });
+      const newStation = getStationForCategory(cat.name || "");
+      if ((cat as any).station !== newStation) {
+        updates.push({ name: cat.name || "", oldStation: (cat as any).station || "ALL", newStation });
       }
     }
 

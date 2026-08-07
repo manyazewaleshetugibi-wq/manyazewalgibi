@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const training = await db.collection("trainings").findOne({ _id: params.id });
+    const { id } = await params;
+    const training = await prisma.training.findUnique({ where: { id } });
 
     if (!training) {
       return NextResponse.json({ error: "Training not found" }, { status: 404 });

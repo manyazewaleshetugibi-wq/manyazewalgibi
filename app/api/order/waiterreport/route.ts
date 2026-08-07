@@ -1,7 +1,6 @@
 // app/api/order/waiterreport/route.ts (FIXED)
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 
 // GET: Fetch orders for reports with filtering by date, waiter, and restaurant
@@ -35,20 +34,16 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Connect to MongoDB
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Get current waitress if no specific waiterId is provided or if it's 'all'
     let targetWaiterId = waiterId;
     if (waiterId === 'all' || !waiterId) {
       targetWaiterId = 'all';
     } else if (waiterId === 'current') {
-      const currentWaitress = await db.collection("waitresses").findOne(
-        { email: session.user.email }
+      const currentWaitress = await prisma.waitress.findFirst(
+        { where: { email: session.user.email } }
       );
       if (currentWaitress) {
-        targetWaiterId = currentWaitress._id.toString();
+        targetWaiterId = currentWaitress.id;
       }
     }
 
@@ -66,216 +61,153 @@ export async function GET(req: NextRequest) {
       toDate = new Date(new Date(endDate + 'T23:59:59.999Z').getTime() - ETH_OFFSET_MS)
     }
 
-    const query: any = {
+    const where: any = {
       createdAt: {
-        $gte: fromDate,
-        $lte: toDate,
+        gte: fromDate,
+        lte: toDate,
       },
       status: 'COMPLETED',
     };
 
     // Exclude calculated orders if requested
     if (excludeCalculated) {
-      query.calculated = { $ne: true };
+      where.OR = [
+        { calculated: { not: true } },
+        { calculated: null },
+      ];
     }
 
     // Add waiter filter if specified and not 'all'
-    if (targetWaiterId && targetWaiterId !== 'all' && ObjectId.isValid(targetWaiterId)) {
-      query.waiterId = targetWaiterId;
+    if (targetWaiterId && targetWaiterId !== 'all') {
+      where.waiterId = targetWaiterId;
     }
 
     // Add restaurant filter if specified
     if (restaurantId && restaurantId !== 'all' && restaurantId !== 'unassigned') {
-      if (ObjectId.isValid(restaurantId)) {
-        query.restaurantId = restaurantId;
-      } else {
-        query.restaurantId = restaurantId;
-      }
+      where.restaurantId = restaurantId;
     }
 
     // Add payment method filter if specified
     if (paymentMethod && paymentMethod !== 'all') {
-      query.paymentMethod = paymentMethod;
+      where.paymentMethod = paymentMethod;
     }
 
     // Get total count for pagination
-    const totalCount = await db.collection("orders").countDocuments(query);
+    const totalCount = await prisma.order.count({ where });
 
-    // Build aggregation pipeline
-    const pipeline: any[] = [
-      { $match: query },
-      {
-        $lookup: {
-          from: 'waitresses',
-          localField: 'waiterId',
-          foreignField: '_id',
-          as: 'waiterInfo',
-        },
-      },
-      {
-        $unwind: {
-          path: '$waiterInfo',
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      {
-        $lookup: {
-          from: 'restaurants',
-          localField: 'restaurantId',
-          foreignField: '_id',
-          as: 'restaurantInfo',
-        },
-      },
-      {
-        $unwind: {
-          path: '$restaurantInfo',
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      {
-        $lookup: {
-          from: 'items',
-          localField: 'items.itemId',
-          foreignField: '_id',
-          as: 'itemDetails',
-        },
-      },
-      {
-        $addFields: {
-          waiterName: { $ifNull: ['$waiterInfo.name', '$waiterName'] },
-          enrichedRestaurantName: {
-            $ifNull: ['$restaurantInfo.name', '$restaurantName']
-          },
-          enrichedRestaurantId: {
-            $ifNull: ['$restaurantInfo._id', '$restaurantId']
-          }
-        }
-      },
-      {
-        $sort: { createdAt: -1 },
-      },
-    ];
+    // Fetch orders with pagination
+    const orders = await prisma.order.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      ...(limit ? { take: limit } : { skip: (page - 1) * pageSize, take: pageSize }),
+    });
 
-    // Add pagination if limit is specified
-    if (limit) {
-      pipeline.push({ $limit: limit });
-    } else {
-      const skip = (page - 1) * pageSize;
-      pipeline.push({ $skip: skip });
-      pipeline.push({ $limit: pageSize });
-    }
+    // Enrich orders with waiter/restaurant/item details (equivalent of $lookup pipeline)
+    const waiterIds = [...new Set(orders.map(o => o.waiterId).filter(Boolean))] as string[];
+    const restaurantIds = [...new Set(orders.map(o => o.restaurantId).filter(Boolean))] as string[];
+    const itemIds = [...new Set(
+      orders.flatMap(o => ((o.items as any) || []).map((i: any) => i.itemId).filter(Boolean))
+    )] as string[];
 
-    // ✅ FIX: Fetch orders
-    const orders = await db.collection("orders")
-      .aggregate(pipeline)
-      .toArray();
+    const [waiters, restaurants, itemDocs] = await Promise.all([
+      waiterIds.length
+        ? prisma.waitress.findMany({ where: { id: { in: waiterIds } } })
+        : Promise.resolve([]),
+      restaurantIds.length
+        ? prisma.restaurant.findMany({ where: { id: { in: restaurantIds } } })
+        : Promise.resolve([]),
+      itemIds.length
+        ? prisma.item.findMany({ where: { id: { in: itemIds } } })
+        : Promise.resolve([]),
+    ]);
 
-    // Get summary statistics (without pagination)
-    const summaryPipeline = [
-      { $match: query },
-      {
-        $group: {
-          _id: null,
-          totalOrders: { $sum: 1 },
-          totalSales: { $sum: '$finalAmount' },
-          totalTax: { $sum: '$tax' },
-          totalDiscount: { $sum: '$discount' },
-          totalItems: { $sum: { $sum: '$items.quantity' } },
-          totalGuests: { $sum: '$numberOfGuests' },
-          averageOrderValue: { $avg: '$finalAmount' },
-        },
-      },
-    ];
+    const waiterMap = new Map(waiters.map(w => [w.id, w]));
+    const restaurantMap = new Map(restaurants.map(r => [r.id, r]));
 
-    const summaryResult = await db.collection("orders")
-      .aggregate(summaryPipeline)
-      .toArray();
+    const enrichedOrders = orders.map(o => ({
+      ...o,
+      _id: o.id,
+      waiterName: (o.waiterId && waiterMap.get(o.waiterId)?.name) || o.waiterName,
+      enrichedRestaurantName:
+        (o.restaurantId && restaurantMap.get(o.restaurantId)?.name) || o.restaurantName,
+      enrichedRestaurantId:
+        (o.restaurantId && restaurantMap.get(o.restaurantId)?.id) || o.restaurantId,
+      waiterInfo: (o.waiterId && waiterMap.get(o.waiterId)) || null,
+      restaurantInfo: (o.restaurantId && restaurantMap.get(o.restaurantId)) || null,
+      itemDetails: ((o.items as any) || [])
+        .map((i: any) => itemDocs.find(it => it.id === i.itemId))
+        .filter(Boolean) || [],
+    }));
 
-    const summary = summaryResult[0] || {
-      totalOrders: 0,
-      totalSales: 0,
-      totalTax: 0,
-      totalDiscount: 0,
-      totalItems: 0,
-      totalGuests: 0,
-      averageOrderValue: 0,
+    // Get summary statistics (computed in JS from all matching orders)
+    const summaryOrders = await prisma.order.findMany({ where });
+
+    const totalSales = summaryOrders.reduce((acc, o) => acc + (o.finalAmount || 0), 0);
+    const summary = {
+      totalOrders: summaryOrders.length,
+      totalSales,
+      totalTax: summaryOrders.reduce((acc, o) => acc + (o.tax || 0), 0),
+      totalDiscount: summaryOrders.reduce((acc, o) => acc + (o.discount || 0), 0),
+      totalItems: summaryOrders.reduce(
+        (acc, o) => acc + ((o.items as any) || []).reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0),
+        0
+      ),
+      totalGuests: summaryOrders.reduce((acc, o) => acc + (o.numberOfGuests || 0), 0),
+      averageOrderValue: summaryOrders.length ? totalSales / summaryOrders.length : 0,
     };
 
-    // ✅ FIX: Calculate breakdowns
-    const breakdownPipeline = [
-      { $match: query },
-      {
-        $facet: {
-          byStatus: [
-            { $group: { _id: '$status', count: { $sum: 1 }, total: { $sum: '$finalAmount' } } }
-          ],
-          byPayment: [
-            { $group: { _id: '$paymentMethod', count: { $sum: 1 }, total: { $sum: '$finalAmount' } } }
-          ]
-        }
-      }
-    ];
-
-    const breakdownResult = await db.collection("orders")
-      .aggregate(breakdownPipeline)
-      .toArray();
-
-    const breakdown = breakdownResult[0] || { byStatus: [], byPayment: [] };
-
-    // Convert breakdown arrays to objects
+    // Calculate breakdowns
     const byStatus: Record<string, { count: number; total: number }> = {};
-    breakdown.byStatus.forEach((item: any) => {
-      byStatus[item._id || 'Unknown'] = { count: item.count, total: item.total };
-    });
-
     const byPayment: Record<string, { count: number; total: number }> = {};
-    breakdown.byPayment.forEach((item: any) => {
-      byPayment[item._id || 'Unknown'] = { count: item.count, total: item.total };
-    });
+    for (const o of summaryOrders) {
+      const s = o.status || 'Unknown';
+      byStatus[s] = {
+        count: (byStatus[s]?.count || 0) + 1,
+        total: (byStatus[s]?.total || 0) + (o.finalAmount || 0),
+      };
+      const p = o.paymentMethod || 'Unknown';
+      byPayment[p] = {
+        count: (byPayment[p]?.count || 0) + 1,
+        total: (byPayment[p]?.total || 0) + (o.finalAmount || 0),
+      };
+    }
 
-    // ✅ FIX: Calculate top items
-    const topItemsPipeline = [
-      { $match: query },
-      { $unwind: '$items' },
-      {
-        $group: {
-          _id: '$items.itemId',
-          name: { $first: '$items.name' },
-          quantity: { $sum: '$items.quantity' },
-          revenue: { $sum: { $multiply: ['$items.quantity', '$items.unitPrice'] } }
-        }
-      },
-      { $sort: { revenue: -1 } },
-      { $limit: 10 }
-    ];
+    // Calculate top items
+    const itemAgg = new Map<string, { name: string; quantity: number; revenue: number }>();
+    for (const o of summaryOrders) {
+      for (const it of (o.items as any) || []) {
+        const id = it.itemId || 'Unknown';
+        const cur = itemAgg.get(id) || { name: it.name || 'Unknown Item', quantity: 0, revenue: 0 };
+        const qty = Number(it.quantity) || 0;
+        cur.quantity += qty;
+        cur.revenue += qty * (Number(it.unitPrice) || 0);
+        itemAgg.set(id, cur);
+      }
+    }
+    const topItems = Array.from(itemAgg.entries())
+      .map(([id, v]) => ({ id, name: v.name, quantity: v.quantity, revenue: v.revenue }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10);
 
-    const topItems = await db.collection("orders")
-      .aggregate(topItemsPipeline)
-      .toArray();
-
-    // ✅ FIX: Calculate daily sales
-    const dailySalesPipeline = [
-      { $match: query },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-          total: { $sum: '$finalAmount' },
-          orders: { $sum: 1 },
-          averageOrderValue: { $avg: '$finalAmount' }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ];
-
-    const dailySales = await db.collection("orders")
-      .aggregate(dailySalesPipeline)
-      .toArray();
+    // Calculate daily sales (grouped by UTC date, matching $dateToString %Y-%m-%d)
+    const dailyMap = new Map<string, { total: number; orders: number; averageOrderValue: number }>();
+    for (const o of summaryOrders) {
+      if (!o.createdAt) continue;
+      const key = o.createdAt.toISOString().slice(0, 10);
+      const cur = dailyMap.get(key) || { total: 0, orders: 0, averageOrderValue: 0 };
+      cur.total += o.finalAmount || 0;
+      cur.orders += 1;
+      dailyMap.set(key, cur);
+    }
+    const dailySales = Array.from(dailyMap.entries())
+      .map(([date, v]) => ({ date, total: v.total, orders: v.orders, averageOrderValue: v.total / v.orders }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
     // ✅ FIX: Return COMPLETE data with orders
     return NextResponse.json({
       success: true,
       message: "Report data retrieved successfully",
-      orders: orders, // ✅ THIS WAS MISSING!
+      orders: enrichedOrders, // ✅ THIS WAS MISSING!
       summary: {
         totalOrders: summary.totalOrders || 0,
         totalSales: summary.totalSales || 0,
@@ -289,14 +221,14 @@ export async function GET(req: NextRequest) {
         byStatus,
         byPayment,
       },
-      topItems: topItems.map((item: any) => ({
-        id: item._id,
+      topItems: topItems.map((item) => ({
+        id: item.id,
         name: item.name || 'Unknown Item',
         quantity: item.quantity || 0,
         revenue: item.revenue || 0,
       })),
-      dailySales: dailySales.map((day: any) => ({
-        date: day._id,
+      dailySales: dailySales.map((day) => ({
+        date: day.date,
         total: day.total || 0,
         orders: day.orders || 0,
         averageOrderValue: day.averageOrderValue || 0,

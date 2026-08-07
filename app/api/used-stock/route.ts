@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { auth } from "@/auth";
+
+class HttpError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.name = "HttpError";
+    this.statusCode = statusCode;
+  }
+}
 
 // GET all used stock records with filtering
 export async function GET(req: NextRequest) {
@@ -20,49 +30,45 @@ export async function GET(req: NextRequest) {
     const page = parseInt(url.searchParams.get('page') || '1');
     const skip = (page - 1) * limit;
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // Build query
-    const query: any = {};
-    
+    const where: any = {};
+
     if (stockId && stockId !== 'all') {
-      query.stockId = new ObjectId(stockId);
+      where.stockId = stockId;
     }
 
     if (orderId) {
-      query.orderId = new ObjectId(orderId);
+      where.orderId = orderId;
     }
 
     if (startDate || endDate) {
-      query.usedAt = {};
+      where.usedAt = {};
       if (startDate) {
-        query.usedAt.$gte = new Date(startDate);
+        where.usedAt.gte = new Date(startDate);
       }
       if (endDate) {
-        query.usedAt.$lte = new Date(endDate);
+        where.usedAt.lte = new Date(endDate);
       }
     }
 
     // Get total count for pagination
-    const total = await db.collection("used_stock").countDocuments(query);
+    const total = await prisma.usedStock.count({ where });
 
     // Get used stock records with pagination
-    const usedStock = await db
-      .collection("used_stock")
-      .find(query)
-      .sort({ usedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .toArray();
+    const usedStock = await prisma.usedStock.findMany({
+      where,
+      orderBy: { usedAt: 'desc' },
+      skip,
+      take: limit,
+    });
 
-    // Convert ObjectIds to strings for JSON serialization
+    // Convert ids to strings for JSON serialization
     const serializedUsedStock = usedStock.map(record => ({
       ...record,
-      _id: record._id.toString(),
-      stockId: record.stockId.toString(),
-      orderId: record.orderId?.toString(),
-      items: record.items?.map((item: any) => ({
+      _id: record.id,
+      stockId: record.stockId,
+      orderId: record.orderId,
+      items: (record.items as any)?.map((item: any) => ({
         ...item,
         itemId: item.itemId?.toString(),
       })),
@@ -114,9 +120,9 @@ export async function POST(req: NextRequest) {
     // Validate required fields
     if (!orderId || !stockId || !stockName || totalQuantityUsed === undefined) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: "Order ID, Stock ID, Stock Name, and Quantity are required" 
+        {
+          success: false,
+          error: "Order ID, Stock ID, Stock Name, and Quantity are required"
         },
         { status: 400 }
       );
@@ -125,9 +131,9 @@ export async function POST(req: NextRequest) {
     // Validate quantity
     if (typeof totalQuantityUsed !== 'number' || totalQuantityUsed <= 0) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: "Quantity must be a positive number" 
+        {
+          success: false,
+          error: "Quantity must be a positive number"
         },
         { status: 400 }
       );
@@ -136,19 +142,9 @@ export async function POST(req: NextRequest) {
     // Ensure quantity has proper decimal places (max 3)
     const formattedQuantity = parseFloat(totalQuantityUsed.toFixed(3));
 
-    if (!ObjectId.isValid(orderId) || !ObjectId.isValid(stockId)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid ID format" },
-        { status: 400 }
-      );
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // Get current stock to update quantity
-    const stock = await db.collection("stocks").findOne({ _id: new ObjectId(stockId) });
-    
+    const stock = await prisma.stock.findFirst({ where: { id: stockId } });
+
     if (!stock) {
       return NextResponse.json(
         { success: false, error: "Stock item not found" },
@@ -156,100 +152,81 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const stockAny = stock as any;
+
     // Check if stock has enough quantity (with decimal precision)
-    if (stock.currentStock < formattedQuantity) {
+    if (stock.currentStock != null && stock.currentStock < formattedQuantity) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: `Insufficient stock. Available: ${stock.currentStock} ${stock.unit || 'units'}, Requested: ${formattedQuantity} ${stock.unit || 'units'}` 
+        {
+          success: false,
+          error: `Insufficient stock. Available: ${stock.currentStock} ${stock.unit || 'units'}, Requested: ${formattedQuantity} ${stock.unit || 'units'}`
         },
         { status: 400 }
       );
     }
 
     // Calculate total cost if not provided
-    const calculatedTotalCost = totalCost || (formattedQuantity * (unitCost || stock.costPerUnit || 0));
-
-    // Start a session for transaction
-    const session = client.startSession();
+    const calculatedTotalCost = totalCost || (formattedQuantity * (unitCost || stockAny.costPerUnit || 0));
+    const computedNotes = notes || `Used in ${items?.length || 1} item type(s) for order ${orderNumber}`;
 
     try {
-      session.startTransaction();
-
-      // Create used stock record with formatted quantity
-      const usedStockRecord = {
-        orderId: new ObjectId(orderId),
-        orderNumber,
-        stockId: new ObjectId(stockId),
-        stockName,
-        stockCategory: stockCategory || stock.category || 'General',
-        stockUnit: stockUnit || stock.unit || 'unit',
-        unitCost: unitCost || stock.costPerUnit || 0,
-        totalQuantityUsed: formattedQuantity, // Store with proper formatting
-        totalCost: calculatedTotalCost,
-        items: items?.map((item: any) => ({
-          itemId: new ObjectId(item.itemId),
-          itemName: item.itemName,
-          quantityUsed: parseFloat(item.quantityUsed.toFixed(3)), // Format item quantities too
-        })) || [],
-        usedAt: usedAt ? new Date(usedAt) : new Date(),
-        processedAt: new Date(),
-        notes: notes || `Used in ${items?.length || 1} item type(s) for order ${orderNumber}`,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const result = await db.collection("used_stock").insertOne(usedStockRecord, { session });
-
-      // Update stock current quantity (atomic decrement with guard)
-      const updateResult = await db.collection("stocks").updateOne(
-        { _id: new ObjectId(stockId), currentStock: { $gte: formattedQuantity } },
-        {
-          $inc: { currentStock: -formattedQuantity },
-          $set: { updatedAt: new Date() },
-          $push: {
-            transactions: {
-              type: 'used',
-              quantity: formattedQuantity,
-              previousQuantity: stock.currentStock,
-              newQuantity: stock.currentStock - formattedQuantity,
-              orderId: new ObjectId(orderId),
-              orderNumber,
-              items: items?.map((item: any) => ({
-                itemId: new ObjectId(item.itemId),
-                itemName: item.itemName,
-                quantityUsed: parseFloat(item.quantityUsed.toFixed(3)),
-              })),
-              reason: `Order ${orderNumber}`,
-              performedBy: 'system',
-              createdAt: new Date(),
-            },
+      // Create used stock record with formatted quantity inside a transaction
+      const created = await prisma.$transaction(async (tx) => {
+        const createdRecord = await tx.usedStock.create({
+          data: {
+            id: randomUUID(),
+            orderId,
+            orderNumber,
+            stockId,
+            stockName,
+            stockCategory: stockCategory || stockAny.category || 'General',
+            stockUnit: stockUnit || stock.unit || 'unit',
+            unitCost: unitCost || stockAny.costPerUnit || 0,
+            totalQuantityUsed: formattedQuantity, // Store with proper formatting
+            totalCost: calculatedTotalCost,
+            items: items && (items as any[]).length > 0 ? (items as Prisma.InputJsonValue) : Prisma.DbNull,
+            usedAt: usedAt ? new Date(usedAt) : new Date(),
+            processedAt: new Date(),
+            createdAt: new Date(),
           },
-        },
-        { session }
-      );
+        });
 
-      if (updateResult.matchedCount === 0) {
-        await session.abortTransaction();
-        await session.endSession();
-        return NextResponse.json(
-          { success: false, error: "Insufficient stock — concurrent deduction detected" },
-          { status: 400 }
+        // Update stock current quantity (atomic decrement with guard)
+        const updateResult = await tx.stock.updateMany(
+          {
+            where: { id: stockId, currentStock: { gte: formattedQuantity } },
+            data: { currentStock: { decrement: formattedQuantity }, updatedAt: new Date() },
+          }
         );
-      }
 
-      await session.commitTransaction();
+        if (updateResult.count === 0) {
+          throw new HttpError("Insufficient stock — concurrent deduction detected", 400);
+        }
 
-      // Convert ObjectIds to strings for response
+        return createdRecord;
+      });
+
+      // Convert ids to strings for response
       const createdRecord = {
-        ...usedStockRecord,
-        _id: result.insertedId.toString(),
-        orderId: usedStockRecord.orderId.toString(),
-        stockId: usedStockRecord.stockId.toString(),
-        items: usedStockRecord.items?.map((item: any) => ({
+        orderId: created.orderId,
+        orderNumber: created.orderNumber,
+        stockId: created.stockId,
+        stockName: created.stockName,
+        stockCategory: created.stockCategory,
+        stockUnit: created.stockUnit,
+        unitCost: created.unitCost,
+        totalQuantityUsed: created.totalQuantityUsed,
+        totalCost: created.totalCost,
+        items: (created.items as any)?.map((item: any) => ({
           ...item,
-          itemId: item.itemId.toString(),
-        })),
+          itemId: item.itemId?.toString(),
+        })) || [],
+        usedAt: created.usedAt,
+        processedAt: created.processedAt,
+        notes: computedNotes,
+        createdAt: created.createdAt,
+        updatedAt: new Date(),
+        _id: created.id,
       };
 
       return NextResponse.json({
@@ -257,11 +234,11 @@ export async function POST(req: NextRequest) {
         message: "Stock usage recorded successfully",
         data: createdRecord,
       });
-    } catch (error) {
-      await session.abortTransaction();
+    } catch (error: any) {
+      if (error instanceof HttpError) {
+        return NextResponse.json({ success: false, error: error.message }, { status: error.statusCode });
+      }
       throw error;
-    } finally {
-      await session.endSession();
     }
   } catch (error) {
     console.error("Error creating used stock record:", error);
@@ -284,129 +261,133 @@ export async function PUT(req: NextRequest) {
     const action = url.searchParams.get('action');
 
     if (action === 'summary') {
-      const client = await clientPromise;
-      const db = client.db("gold");
+      // Fetch all used_stock records once and compute statistics in JS
+      const allRecords = await prisma.usedStock.findMany({
+        select: {
+          stockId: true,
+          stockName: true,
+          stockCategory: true,
+          stockUnit: true,
+          totalQuantityUsed: true,
+          totalCost: true,
+          orderId: true,
+          usedAt: true,
+        },
+      });
 
-      const [totalStats, topUsed, dailyUsage, categoryStats] = await Promise.all([
-        // Total statistics
-        db.collection("used_stock").aggregate([
-          {
-            $group: {
-              _id: null,
-              totalQuantity: { $sum: "$totalQuantityUsed" },
-              totalCost: { $sum: "$totalCost" },
-              totalRecords: { $sum: 1 },
-              uniqueOrders: { $addToSet: "$orderId" },
-              uniqueStocks: { $addToSet: "$stockId" },
-            },
-          },
-          {
-            $project: {
-              totalQuantity: { $round: ["$totalQuantity", 3] },
-              totalCost: 1,
-              totalRecords: 1,
-              uniqueOrders: { $size: "$uniqueOrders" },
-              uniqueStocks: { $size: "$uniqueStocks" },
-            },
-          },
-        ]).toArray(),
+      // Total statistics
+      let totalQuantity = 0;
+      let totalCostTotal = 0;
+      const uniqueOrders = new Set<string>();
+      const uniqueStocks = new Set<string>();
+      allRecords.forEach((record) => {
+        totalQuantity += record.totalQuantityUsed || 0;
+        totalCostTotal += record.totalCost || 0;
+        uniqueOrders.add(record.orderId || '');
+        uniqueStocks.add(record.stockId || '');
+      });
 
-        // Top used items
-        db.collection("used_stock").aggregate([
-          {
-            $group: {
-              _id: "$stockId",
-              stockName: { $first: "$stockName" },
-              stockCategory: { $first: "$stockCategory" },
-              stockUnit: { $first: "$stockUnit" },
-              totalUsed: { $sum: "$totalQuantityUsed" },
-              totalCost: { $sum: "$totalCost" },
-              usageCount: { $sum: 1 },
-            },
-          },
-          {
-            $project: {
-              stockId: "$_id",
-              stockName: 1,
-              stockCategory: 1,
-              stockUnit: 1,
-              totalUsed: { $round: ["$totalUsed", 3] },
-              totalCost: 1,
-              usageCount: 1,
-            },
-          },
-          { $sort: { totalUsed: -1 } },
-          { $limit: 10 },
-        ]).toArray(),
+      const totalStats = [{
+        totalQuantity: parseFloat(totalQuantity.toFixed(3)),
+        totalCost: totalCostTotal,
+        totalRecords: allRecords.length,
+        uniqueOrders: uniqueOrders.size,
+        uniqueStocks: uniqueStocks.size,
+      }];
 
-        // Daily usage for last 30 days
-        db.collection("used_stock").aggregate([
-          {
-            $match: {
-              usedAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
-            },
-          },
-          {
-            $group: {
-              _id: {
-                year: { $year: "$usedAt" },
-                month: { $month: "$usedAt" },
-                day: { $dayOfMonth: "$usedAt" },
-              },
-              totalUsed: { $sum: "$totalQuantityUsed" },
-              totalCost: { $sum: "$totalCost" },
-              count: { $sum: 1 },
-            },
-          },
-          {
-            $project: {
-              date: {
-                $dateToString: {
-                  format: "%Y-%m-%d",
-                  date: {
-                    $dateFromParts: {
-                      year: "$_id.year",
-                      month: "$_id.month",
-                      day: "$_id.day",
-                    },
-                  },
-                },
-              },
-              totalUsed: { $round: ["$totalUsed", 3] },
-              totalCost: 1,
-              count: 1,
-            },
-          },
-          { $sort: { date: 1 } },
-        ]).toArray(),
+      // Top used items
+      const topMap = new Map<string, any>();
+      allRecords.forEach((record) => {
+        const sid = record.stockId || '';
+        if (!topMap.has(sid)) {
+          topMap.set(sid, {
+            stockId: sid,
+            stockName: record.stockName || '',
+            stockCategory: record.stockCategory || '',
+            stockUnit: record.stockUnit || '',
+            totalUsed: 0,
+            totalCost: 0,
+            usageCount: 0,
+          });
+        }
+        const entry = topMap.get(sid)!;
+        entry.totalUsed += record.totalQuantityUsed || 0;
+        entry.totalCost += record.totalCost || 0;
+        entry.usageCount += 1;
+      });
 
-        // Usage by category
-        db.collection("used_stock").aggregate([
-          {
-            $group: {
-              _id: "$stockCategory",
-              totalUsed: { $sum: "$totalQuantityUsed" },
-              totalCost: { $sum: "$totalCost" },
-              count: { $sum: 1 },
-            },
-          },
-          {
-            $project: {
-              category: "$_id",
-              totalUsed: { $round: ["$totalUsed", 3] },
-              totalCost: 1,
-              count: 1,
-            },
-          },
-          { $sort: { totalUsed: -1 } },
-        ]).toArray(),
-      ]);
+      const topUsed = Array.from(topMap.values())
+        .map((item: any) => ({
+          ...item,
+          totalUsed: parseFloat((item.totalUsed || 0).toFixed(3)),
+        }))
+        .sort((a: any, b: any) => (b.totalUsed || 0) - (a.totalUsed || 0))
+        .slice(0, 10);
 
       // Format top used items to include _id as string
       const formattedTopUsed = topUsed.map((item: any) => ({
         ...item,
-        _id: item._id.toString(),
+        _id: item.stockId?.toString() || '',
       }));
+
+      // Daily usage for last 30 days
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const dailyMap = new Map<string, { year: number; month: number; day: number; totalUsed: number; totalCost: number; count: number }>();
+      allRecords.forEach((record) => {
+        const usedAt = record.usedAt;
+        if (!usedAt || usedAt.getTime() < cutoff.getTime()) return;
+        const date = usedAt.toISOString().split('T')[0];
+        if (!dailyMap.has(date)) {
+          dailyMap.set(date, {
+            year: usedAt.getUTCFullYear(),
+            month: usedAt.getUTCMonth() + 1,
+            day: usedAt.getUTCDate(),
+            totalUsed: 0,
+            totalCost: 0,
+            count: 0,
+          });
+        }
+        const entry = dailyMap.get(date)!;
+        entry.totalUsed += record.totalQuantityUsed || 0;
+        entry.totalCost += record.totalCost || 0;
+        entry.count += 1;
+      });
+
+      const dailyUsage = Array.from(dailyMap.entries())
+        .map(([date, entry]) => ({
+          _id: { year: entry.year, month: entry.month, day: entry.day },
+          date,
+          totalUsed: parseFloat(entry.totalUsed.toFixed(3)),
+          totalCost: entry.totalCost,
+          count: entry.count,
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      // Usage by category
+      const categoryMap = new Map<string, any>();
+      allRecords.forEach((record) => {
+        const category = record.stockCategory || '';
+        if (!categoryMap.has(category)) {
+          categoryMap.set(category, {
+            _id: category,
+            category,
+            totalUsed: 0,
+            totalCost: 0,
+            count: 0,
+          });
+        }
+        const entry = categoryMap.get(category)!;
+        entry.totalUsed += record.totalQuantityUsed || 0;
+        entry.totalCost += record.totalCost || 0;
+        entry.count += 1;
+      });
+
+      const categoryStats = Array.from(categoryMap.values())
+        .map((item: any) => ({
+          ...item,
+          totalUsed: parseFloat((item.totalUsed || 0).toFixed(3)),
+        }))
+        .sort((a: any, b: any) => (b.totalUsed || 0) - (a.totalUsed || 0));
 
       return NextResponse.json({
         success: true,
@@ -457,80 +438,45 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid ID" },
-        { status: 400 }
-      );
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
-
-    // Start a session for transaction
-    const session = client.startSession();
-
-    try {
-      session.startTransaction();
-
+    await prisma.$transaction(async (tx) => {
       // Get the record first
-      const record = await db.collection("used_stock").findOne(
-        { _id: new ObjectId(id) },
-        { session }
-      );
+      const record = await tx.usedStock.findFirst({ where: { id } });
 
       if (!record) {
-        await session.abortTransaction();
-        return NextResponse.json(
-          { success: false, error: "Record not found" },
-          { status: 404 }
-        );
+        throw new HttpError("Record not found", 404);
       }
 
       // Restore stock quantity if requested
       if (restoreStock) {
-        const stock = await db.collection("stocks").findOne(
-          { _id: record.stockId },
-          { session }
-        );
+        const stock = await tx.stock.findFirst({ where: { id: record.stockId || '' } });
 
         if (stock) {
-          const newQuantity = parseFloat((stock.currentStock + record.totalQuantityUsed).toFixed(3));
-          
-          await db.collection("stocks").updateOne(
-            { _id: record.stockId },
-            {
-              $set: { 
-                currentStock: newQuantity,
-                updatedAt: new Date() 
-              },
+          const newQuantity = parseFloat(((stock.currentStock || 0) + (record.totalQuantityUsed || 0)).toFixed(3));
+
+          await tx.stock.update({
+            where: { id: stock.id },
+            data: {
+              currentStock: newQuantity,
+              updatedAt: new Date()
             },
-            { session }
-          );
+          });
         }
       }
 
       // Delete the record
-      const result = await db.collection("used_stock").deleteOne(
-        { _id: new ObjectId(id) },
-        { session }
-      );
+      await tx.usedStock.deleteMany({ where: { id } });
+    });
 
-      await session.commitTransaction();
-
-      return NextResponse.json({
-        success: true,
-        message: restoreStock 
-          ? "Used stock record deleted and stock restored" 
-          : "Used stock record deleted",
-      });
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      await session.endSession();
+    return NextResponse.json({
+      success: true,
+      message: restoreStock
+        ? "Used stock record deleted and stock restored"
+        : "Used stock record deleted",
+    });
+  } catch (error: any) {
+    if (error instanceof HttpError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.statusCode });
     }
-  } catch (error) {
     console.error("Error deleting used stock:", error);
     return NextResponse.json(
       { success: false, error: "Failed to delete used stock record" },

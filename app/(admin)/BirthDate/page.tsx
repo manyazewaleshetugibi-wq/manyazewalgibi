@@ -257,8 +257,8 @@ export default function BirthdayLotteryPage() {
     winAudioRef.current = new Audio('/sounds/win.mp3')
     
     // Handle audio errors silently
-    spinAudioRef.current.onerror = () => console.log('Spin sound not available')
-    winAudioRef.current.onerror = () => console.log('Win sound not available')
+    spinAudioRef.current.onerror = () => void 0
+    winAudioRef.current.onerror = () => void 0
   }, [])
 
   // Fetch all data on mount

@@ -1,7 +1,6 @@
 // app/api/restaurants/[id]/route.ts (UPDATED - with location support)
 import { NextRequest, NextResponse } from 'next/server'
-import clientPromise from '@/lib/mongodb'
-import { ObjectId } from 'mongodb'
+import { prisma } from '@/lib/prisma'
 
 // GET - Fetch single restaurant
 export async function GET(
@@ -11,18 +10,7 @@ export async function GET(
   try {
     const { id } = await params
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid restaurant ID' },
-        { status: 400 }
-      )
-    }
-
-    const client = await clientPromise
-    const db = client.db('gold')
-    const collection = db.collection('restaurants')
-
-    const restaurant = await collection.findOne({ _id: new ObjectId(id) })
+    const restaurant = await prisma.restaurant.findUnique({ where: { id } })
 
     if (!restaurant) {
       return NextResponse.json(
@@ -53,17 +41,6 @@ export async function PUT(
   try {
     const { id } = await params
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid restaurant ID' },
-        { status: 400 }
-      )
-    }
-
-    const client = await clientPromise
-    const db = client.db('gold')
-    const collection = db.collection('restaurants')
-
     const body = await request.json()
     const { 
       name, 
@@ -86,9 +63,11 @@ export async function PUT(
     }
 
     // Check for duplicate name (excluding current restaurant)
-    const existing = await collection.findOne({
-      _id: { $ne: new ObjectId(id) },
-      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') }
+    const existing = await prisma.restaurant.findFirst({
+      where: {
+        id: { not: id },
+        name: { contains: name.trim(), mode: 'insensitive' }
+      }
     })
 
     if (existing) {
@@ -123,16 +102,16 @@ export async function PUT(
       updateData.location = null
     }
 
-    const result = await collection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    )
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Restaurant not found' },
-        { status: 404 }
-      )
+    try {
+      await prisma.restaurant.update({ where: { id }, data: updateData })
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json(
+          { success: false, error: 'Restaurant not found' },
+          { status: 404 }
+        )
+      }
+      throw e
     }
 
     return NextResponse.json({
@@ -158,35 +137,25 @@ export async function PATCH(
   try {
     const { id } = await params
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid restaurant ID' },
-        { status: 400 }
-      )
-    }
-
-    const client = await clientPromise
-    const db = client.db('gold')
-    const collection = db.collection('restaurants')
-
     const body = await request.json()
     const { isActive } = body
 
-    const result = await collection.updateOne(
-      { _id: new ObjectId(id) },
-      { 
-        $set: { 
+    try {
+      await prisma.restaurant.update({
+        where: { id },
+        data: { 
           isActive: isActive,
           updatedAt: new Date()
-        } 
+        }
+      })
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json(
+          { success: false, error: 'Restaurant not found' },
+          { status: 404 }
+        )
       }
-    )
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Restaurant not found' },
-        { status: 404 }
-      )
+      throw e
     }
 
     return NextResponse.json({
@@ -211,20 +180,9 @@ export async function DELETE(
   try {
     const { id } = await params
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid restaurant ID' },
-        { status: 400 }
-      )
-    }
+    const result = await prisma.restaurant.deleteMany({ where: { id } })
 
-    const client = await clientPromise
-    const db = client.db('gold')
-    const collection = db.collection('restaurants')
-
-    const result = await collection.deleteOne({ _id: new ObjectId(id) })
-
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: 'Restaurant not found' },
         { status: 404 }

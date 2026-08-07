@@ -1,13 +1,9 @@
 import { NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
-
-const DB_NAME = process.env.DB_NAME || 'gold';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 
 export async function GET(request: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     const { searchParams } = new URL(request.url);
     const isActive = searchParams.get('isActive');
     
@@ -16,11 +12,10 @@ export async function GET(request: Request) {
       query.isActive = isActive === 'true';
     }
     
-    const expenses = await db
-      .collection('commonExpenses')
-      .find(query)
-      .sort({ createdAt: -1 })
-      .toArray();
+    const expenses = await prisma.commonExpense.findMany({
+      where: query,
+      orderBy: { createdAt: 'desc' },
+    });
     
     const formattedExpenses = expenses.map(expense => {
       // Helper function to safely convert to ISO string
@@ -63,7 +58,7 @@ export async function GET(request: Request) {
 
       return {
         ...expense,
-        _id: expense._id.toString(),
+        _id: expense.id,
         // Safely convert dates to ISO strings
         startDate: safeToISOString(expense.startDate),
         endDate: safeToISOString(expense.endDate),
@@ -84,8 +79,6 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     const body = await request.json();
     
     if (!body.title || !body.amount || !body.frequency || !body.startDate) {
@@ -116,7 +109,7 @@ export async function POST(request: Request) {
       startDate: new Date(body.startDate),
       endDate: body.endDate ? new Date(body.endDate) : null,
       tags: processedTags,
-      isActive: body.isActive !== undefined ? body.isActive : true,
+      isActive: body.isActive !== undefined ? (body.isActive === true || body.isActive === 'true') : true,
       priority: body.priority || 'Medium',
       notes: body.notes || '',
       createdBy: body.createdBy || 'admin',
@@ -124,7 +117,9 @@ export async function POST(request: Request) {
       updatedAt: new Date(),
     };
 
-    const result = await db.collection('commonExpenses').insertOne(newExpense);
+    const created = await prisma.commonExpense.create({
+      data: { id: randomUUID(), ...newExpense },
+    });
     
     // Helper function for date conversion
     const safeToISOString = (dateValue: any): string | null => {
@@ -147,7 +142,7 @@ export async function POST(request: Request) {
     
     const insertedExpense = {
       ...newExpense,
-      _id: result.insertedId.toString(),
+      _id: created.id,
       startDate: safeToISOString(newExpense.startDate),
       endDate: safeToISOString(newExpense.endDate),
       createdAt: safeToISOString(newExpense.createdAt),
@@ -166,21 +161,12 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     
     if (!id) {
       return NextResponse.json(
         { success: false, error: 'ID is required' },
-        { status: 400 }
-      );
-    }
-
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid ID format' },
         { status: 400 }
       );
     }
@@ -209,28 +195,27 @@ export async function PUT(request: Request) {
       startDate: new Date(body.startDate),
       endDate: body.endDate ? new Date(body.endDate) : null,
       tags: processedTags,
-      isActive: body.isActive !== undefined ? body.isActive : true,
+      isActive: body.isActive !== undefined ? (body.isActive === true || body.isActive === 'true') : true,
       priority: body.priority || 'Medium',
       notes: body.notes || '',
       updatedAt: new Date(),
     };
 
-    const result = await db
-      .collection('commonExpenses')
-      .findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: updateData },
-        { returnDocument: 'after' }
-      );
-
-    if (!result || !result.value) {
-      return NextResponse.json(
-        { success: false, error: 'Expense not found' },
-        { status: 404 }
-      );
+    let updatedExpense: any;
+    try {
+      updatedExpense = await prisma.commonExpense.update({
+        where: { id },
+        data: updateData,
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json(
+          { success: false, error: 'Expense not found' },
+          { status: 404 }
+        );
+      }
+      throw e;
     }
-
-    const updatedExpense = result.value;
     
     // Helper function for date conversion
     const safeToISOString = (dateValue: any): string | null => {
@@ -255,7 +240,7 @@ export async function PUT(request: Request) {
       success: true, 
       data: { 
         ...updatedExpense, 
-        _id: updatedExpense._id.toString(),
+        _id: updatedExpense.id,
         startDate: safeToISOString(updatedExpense.startDate),
         endDate: safeToISOString(updatedExpense.endDate),
         createdAt: safeToISOString(updatedExpense.createdAt),
@@ -273,8 +258,6 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     
@@ -284,19 +267,10 @@ export async function DELETE(request: Request) {
         { status: 400 }
       );
     }
-
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid ID format' },
-        { status: 400 }
-      );
-    }
     
-    const result = await db
-      .collection('commonExpenses')
-      .deleteOne({ _id: new ObjectId(id) });
+    const result = await prisma.commonExpense.deleteMany({ where: { id } });
     
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: 'Expense not found' },
         { status: 404 }
@@ -319,21 +293,12 @@ export async function DELETE(request: Request) {
 // Optional: Add PATCH method for partial updates
 export async function PATCH(request: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     
     if (!id) {
       return NextResponse.json(
         { success: false, error: 'ID is required' },
-        { status: 400 }
-      );
-    }
-
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid ID format' },
         { status: 400 }
       );
     }
@@ -361,29 +326,29 @@ export async function PATCH(request: Request) {
     if (body.amount !== undefined) updateData.amount = parseFloat(body.amount);
     if (body.category !== undefined) updateData.category = body.category;
     if (body.frequency !== undefined) updateData.frequency = body.frequency;
-    if (body.startDate !== undefined) updateData.startDate = new Date(body.startDate);
+    if (body.startDate !== undefined) updateData.startDate = body.startDate ? new Date(body.startDate) : null;
     if (body.endDate !== undefined) updateData.endDate = body.endDate ? new Date(body.endDate) : null;
     if (processedTags !== undefined) updateData.tags = processedTags;
-    if (body.isActive !== undefined) updateData.isActive = body.isActive;
+    if (body.isActive !== undefined) updateData.isActive = body.isActive === true || body.isActive === 'true';
     if (body.priority !== undefined) updateData.priority = body.priority;
     if (body.notes !== undefined) updateData.notes = body.notes;
+    if (body.createdBy !== undefined) updateData.createdBy = body.createdBy;
 
-    const result = await db
-      .collection('commonExpenses')
-      .findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: updateData },
-        { returnDocument: 'after' }
-      );
-
-    if (!result || !result.value) {
-      return NextResponse.json(
-        { success: false, error: 'Expense not found' },
-        { status: 404 }
-      );
+    let updatedExpense: any;
+    try {
+      updatedExpense = await prisma.commonExpense.update({
+        where: { id },
+        data: updateData,
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json(
+          { success: false, error: 'Expense not found' },
+          { status: 404 }
+        );
+      }
+      throw e;
     }
-
-    const updatedExpense = result.value;
     
     // Helper function for date conversion
     const safeToISOString = (dateValue: any): string | null => {
@@ -408,7 +373,7 @@ export async function PATCH(request: Request) {
       success: true, 
       data: { 
         ...updatedExpense, 
-        _id: updatedExpense._id.toString(),
+        _id: updatedExpense.id,
         startDate: safeToISOString(updatedExpense.startDate),
         endDate: safeToISOString(updatedExpense.endDate),
         createdAt: safeToISOString(updatedExpense.createdAt),

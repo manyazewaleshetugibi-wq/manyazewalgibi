@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 import { requireAdmin } from '@/lib/api-auth';
 
 export async function GET(request: NextRequest) {
   try {
     const { response } = await requireAdmin();
     if (response) return response;
-
-    const client = await clientPromise;
-    const db = client.db();
 
     const { searchParams } = new URL(request.url);
     const month = searchParams.get('month');
@@ -22,16 +19,16 @@ export async function GET(request: NextRequest) {
       query.month = `${year}-${month.toString().padStart(2, '0')}`;
     }
 
-    const winners = await db.collection('lottery_winners')
-      .find(query)
-      .sort({ winDate: -1 })
-      .limit(limit)
-      .toArray();
+    const winners = await prisma.lotteryWinner.findMany({
+      where: query,
+      orderBy: { winDate: 'desc' },
+      take: limit
+    });
 
     // Map to ensure _id is string
     const mappedWinners = winners.map(winner => ({
       ...winner,
-      id: winner._id.toString(),
+      id: winner.id,
       _id: undefined
     }));
 
@@ -55,8 +52,6 @@ export async function POST(request: NextRequest) {
     const { response } = await requireAdmin();
     if (response) return response;
 
-    const client = await clientPromise;
-    const db = client.db();
     const winnerData = await request.json();
 
     // Validate required fields
@@ -67,18 +62,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const winner = {
+    const winner: any = {
       ...winnerData,
       claimed: winnerData.claimed || false,
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
-    const result = await db.collection('lottery_winners').insertOne(winner);
+    const result = await prisma.lotteryWinner.create({
+      data: { id: randomUUID(), ...winner }
+    });
 
     return NextResponse.json({
       success: true,
-      data: { id: result.insertedId.toString(), ...winnerData }
+      data: { id: result.id, ...winnerData }
     });
 
   } catch (error: any) {

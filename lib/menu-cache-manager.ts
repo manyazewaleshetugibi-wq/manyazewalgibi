@@ -43,7 +43,6 @@ export class MenuCacheManager {
       this.storage.setItem(keys.timestamp, Date.now())
       this.storage.setItem(keys.version, 'v2')
       
-      console.log('✅ Menu data saved securely')
     } catch (error) {
       console.error('Failed to save menu data:', error)
       throw error
@@ -99,13 +98,11 @@ export class MenuCacheManager {
     Object.values(keys).forEach(key => {
       this.storage.removeItem(key)
     })
-    console.log('🗑️ Menu cache cleared')
   }
 
   // Migrate old plain text data to encrypted
   async migrateOldData(): Promise<boolean> {
     try {
-      console.log('🔄 Starting migration of old data...')
       
       const oldKeys = ['menu_categories', 'menu_items', 'menu_waiters', 'menu_timestamp', 'menu_version']
       const newKeys = this.getKeys()
@@ -129,7 +126,6 @@ export class MenuCacheManager {
             localStorage.removeItem(oldKey)
             
             migrated = true
-            console.log(`✅ Migrated ${oldKey} to encrypted ${newKey}`)
           } catch (e) {
             console.warn(`⚠️ Could not migrate ${oldKey}, skipping...`)
           }

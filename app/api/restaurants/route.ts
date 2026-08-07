@@ -1,23 +1,18 @@
 // app/api/restaurants/route.ts (UPDATED - with location support)
 import { NextRequest, NextResponse } from 'next/server'
-import clientPromise from '@/lib/mongodb'
-import { ObjectId } from 'mongodb'
+import { prisma } from '@/lib/prisma'
+import { randomUUID } from 'crypto'
 
 // GET - Fetch all restaurants
 export async function GET() {
   try {
-    const client = await clientPromise
-    const db = client.db('gold')
-    const collection = db.collection('restaurants')
-
-    const restaurants = await collection
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray()
+    const restaurants = await prisma.restaurant.findMany({
+      orderBy: { createdAt: 'desc' }
+    })
 
     return NextResponse.json({
       success: true,
-      data: restaurants
+      data: restaurants.map((r: any) => ({ ...r, _id: r.id }))
     })
 
   } catch (error) {
@@ -32,10 +27,6 @@ export async function GET() {
 // POST - Create new restaurant
 export async function POST(request: NextRequest) {
   try {
-    const client = await clientPromise
-    const db = client.db('gold')
-    const collection = db.collection('restaurants')
-
     const body = await request.json()
     const { 
       name, 
@@ -58,8 +49,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Check for duplicate
-    const existing = await collection.findOne({
-      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') }
+    const existing = await prisma.restaurant.findFirst({
+      where: {
+        name: { contains: name.trim(), mode: 'insensitive' }
+      }
     })
 
     if (existing) {
@@ -82,7 +75,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const restaurant = {
+    const restaurant: any = {
       name: name.trim(),
       description: description?.trim() || '',
       address: address?.trim() || '',
@@ -96,12 +89,17 @@ export async function POST(request: NextRequest) {
       updatedAt: now
     }
 
-    const result = await collection.insertOne(restaurant)
+    const result = await prisma.restaurant.create({
+      data: {
+        id: randomUUID(),
+        ...restaurant,
+      }
+    })
 
     return NextResponse.json({
       success: true,
       message: 'Restaurant created successfully',
-      data: { ...restaurant, _id: result.insertedId }
+      data: { ...restaurant, _id: result.id }
     }, { status: 201 })
 
   } catch (error) {

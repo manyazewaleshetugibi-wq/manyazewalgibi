@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
-
-const DB_NAME = "podcast-app"; // Database name
+import { prisma } from "@/lib/prisma";
 
 // GET - Fetch applications with filtering and pagination
 export async function GET(req: NextRequest) {
@@ -13,7 +10,7 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || '';
 
-    console.log(`Fetching ${type} applications, page: ${page}, limit: ${limit}, search: ${search}`);
+
 
     if (!type || !['podcast', 'entenfis'].includes(type)) {
       return NextResponse.json(
@@ -21,47 +18,50 @@ export async function GET(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     
-    // CORRECT COLLECTION NAMES - matching your registration APIs
-    const collectionName = type === 'podcast' ? 'podcastApplications' : 'entenfisApplications';
-    
-    console.log(`Using collection: ${collectionName}`);
-    
-    let query: any = {};
+    let where: any = {};
     
     // Search functionality
     if (search && search.trim() !== '') {
-      query.$or = [
-        { fullName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } }
+      where.OR = [
+        { fullName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search, mode: 'insensitive' } }
       ];
     }
 
     try {
-      const total = await db.collection(collectionName).countDocuments(query);
-      console.log(`Total documents found: ${total}`);
+      const isPodcast = type === 'podcast';
+
+      const total = isPodcast
+        ? await prisma.podcastApplication.count({ where })
+        : await prisma.entenfisApplication.count({ where });
+
       
-      const applications = await db.collection(collectionName)
-        .find(query)
-        .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit)
-        .toArray();
+      const applications = isPodcast
+        ? await prisma.podcastApplication.findMany({
+            where,
+            orderBy: { createdAt: 'desc' },
+            skip: (page - 1) * limit,
+            take: limit,
+          })
+        : await prisma.entenfisApplication.findMany({
+            where,
+            orderBy: { createdAt: 'desc' },
+            skip: (page - 1) * limit,
+            take: limit,
+          });
 
-      console.log(`Retrieved ${applications.length} applications`);
 
-      // Serialize ObjectIds to strings
+
+      // Serialize ids to strings
       const serializedApplications = applications.map(app => ({
         ...app,
-        _id: app._id.toString(),
-        // Convert any other ObjectId fields if needed
-        ...(app.categoryId && { categoryId: app.categoryId.toString() }),
-        ...(app.requiredStock && {
-          requiredStock: app.requiredStock.map((stock: any) => ({
+        _id: app.id,
+        // Preserve nested fields that only exist on podcast applications
+        ...((app as any).categoryId && { categoryId: (app as any).categoryId.toString() }),
+        ...((app as any).requiredStock && {
+          requiredStock: ((app as any).requiredStock as any[]).map((stock: any) => ({
             ...stock,
             stockId: stock.stockId?.toString()
           }))
@@ -100,9 +100,9 @@ export async function POST(req: NextRequest) {
   try {
     const { id, type } = await req.json();
 
-    console.log(`Fetching single application - ID: ${id}, Type: ${type}`);
 
-    if (!id || !ObjectId.isValid(id)) {
+
+    if (!id) {
       return NextResponse.json(
         { success: false, error: "Invalid application ID" },
         { status: 400 }
@@ -115,34 +115,30 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    
+    const isPodcast = type === 'podcast';
+    
 
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     
-    // CORRECT COLLECTION NAMES
-    const collectionName = type === 'podcast' ? 'podcastApplications' : 'entenfisApplications';
-    
-    console.log(`Looking in collection: ${collectionName}`);
-    
-    const application = await db.collection(collectionName).findOne({ 
-      _id: new ObjectId(id) 
-    });
+    const application = isPodcast
+      ? await prisma.podcastApplication.findFirst({ where: { id } })
+      : await prisma.entenfisApplication.findFirst({ where: { id } });
 
     if (!application) {
-      console.log(`Application not found in ${collectionName}`);
+
       return NextResponse.json(
         { success: false, error: "Application not found" },
         { status: 404 }
       );
     }
 
-    console.log(`Application found: ${application.fullName}`);
+
 
     return NextResponse.json({
       success: true,
       data: {
         ...application,
-        _id: application._id.toString(),
+        _id: application.id,
       }
     }, { status: 200 });
 
@@ -158,31 +154,25 @@ export async function POST(req: NextRequest) {
 // PUT - Get statistics from both collections
 export async function PUT(req: NextRequest) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
+
     
-    console.log("Fetching statistics from both collections");
-    
-    // CORRECT COLLECTION NAMES
     const [podcastCount, entenfisCount] = await Promise.all([
-      db.collection('podcastApplications').countDocuments(),
-      db.collection('entenfisApplications').countDocuments()
+      prisma.podcastApplication.count(),
+      prisma.entenfisApplication.count()
     ]);
 
-    console.log(`Podcast count: ${podcastCount}, Entenfis count: ${entenfisCount}`);
+
 
     // Get recent applications from both collections
-    const recentPodcast = await db.collection('podcastApplications')
-      .find({})
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .toArray();
+    const recentPodcast = await prisma.podcastApplication.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
 
-    const recentEntenfis = await db.collection('entenfisApplications')
-      .find({})
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .toArray();
+    const recentEntenfis = await prisma.entenfisApplication.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
 
     return NextResponse.json({
       success: true,
@@ -193,8 +183,8 @@ export async function PUT(req: NextRequest) {
           totalApplications: podcastCount + entenfisCount
         },
         recent: {
-          podcast: recentPodcast.map(app => ({ ...app, _id: app._id.toString() })),
-          entenfis: recentEntenfis.map(app => ({ ...app, _id: app._id.toString() }))
+          podcast: recentPodcast.map(app => ({ ...app, _id: app.id })),
+          entenfis: recentEntenfis.map(app => ({ ...app, _id: app.id }))
         }
       }
     }, { status: 200 });
@@ -213,9 +203,9 @@ export async function PATCH(req: NextRequest) {
   try {
     const { id, type, status, notes } = await req.json();
 
-    console.log(`Updating application - ID: ${id}, Type: ${type}, Status: ${status}`);
 
-    if (!id || !ObjectId.isValid(id)) {
+
+    if (!id) {
       return NextResponse.json(
         { success: false, error: "Invalid application ID" },
         { status: 400 }
@@ -228,12 +218,6 @@ export async function PATCH(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
-    
-    // CORRECT COLLECTION NAMES
-    const collectionName = type === 'podcast' ? 'podcastApplications' : 'entenfisApplications';
     
     const updateData: any = {
       updatedAt: new Date()
@@ -242,19 +226,18 @@ export async function PATCH(req: NextRequest) {
     if (status) updateData.status = status;
     if (notes) updateData.adminNotes = notes;
     
-    const result = await db.collection(collectionName).updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
+    const result = type === 'podcast'
+      ? await prisma.podcastApplication.updateMany({ where: { id }, data: updateData })
+      : await prisma.entenfisApplication.updateMany({ where: { id }, data: updateData });
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: "Application not found" },
         { status: 404 }
       );
     }
 
-    console.log(`Application updated successfully. Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}`);
+
 
     return NextResponse.json({
       success: true,
@@ -277,9 +260,9 @@ export async function DELETE(req: NextRequest) {
     const id = searchParams.get('id');
     const type = searchParams.get('type');
 
-    console.log(`Deleting application - ID: ${id}, Type: ${type}`);
 
-    if (!id || !ObjectId.isValid(id)) {
+
+    if (!id) {
       return NextResponse.json(
         { success: false, error: "Invalid application ID" },
         { status: 400 }
@@ -292,25 +275,19 @@ export async function DELETE(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     
-    // CORRECT COLLECTION NAMES
-    const collectionName = type === 'podcast' ? 'podcastApplications' : 'entenfisApplications';
-    
-    const result = await db.collection(collectionName).deleteOne({ 
-      _id: new ObjectId(id) 
-    });
+    const result = type === 'podcast'
+      ? await prisma.podcastApplication.deleteMany({ where: { id } })
+      : await prisma.entenfisApplication.deleteMany({ where: { id } });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: "Application not found" },
         { status: 404 }
       );
     }
 
-    console.log(`Application deleted successfully. Deleted count: ${result.deletedCount}`);
+
 
     return NextResponse.json({
       success: true,

@@ -1,4 +1,5 @@
-import { ObjectId } from "mongodb";
+import { randomUUID } from "crypto";
+import { prisma } from "@/lib/prisma";
 import { debugLog, debugError } from "./orderHelpers";
 
 export async function registerOrderActivity(
@@ -39,20 +40,6 @@ export async function registerOrderActivity(
     };
     
     const normalizedType = activityTypes[activityType as keyof typeof activityTypes] || activityType;
-
-    // Create employee_rank collection if not exists and set up indexes
-    try {
-      const collections = await db.listCollections({ name: "employee_rank" }).toArray();
-      if (collections.length === 0) {
-        await db.createCollection("employee_rank");
-        await db.collection("employee_rank").createIndex({ email: 1 }, { unique: true, sparse: true });
-        await db.collection("employee_rank").createIndex({ userId: 1 }, { unique: true, sparse: true });
-        await db.collection("employee_rank").createIndex({ employeeId: 1 }, { unique: true, sparse: true });
-        debugLog("Created employee_rank collection with indexes");
-      }
-    } catch (collectionError) {
-      debugError("Error checking/creating employee_rank collection:", collectionError);
-    }
 
     const employeeId = userData.employeeId || `EMP-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substr(2, 4)}`;
     
@@ -101,7 +88,7 @@ export async function registerOrderActivity(
     else return { success: false, message: "No user identifier found" };
 
     try {
-      const existingEmployee = await db.collection("employee_rank").findOne(matchQuery);
+      const existingEmployee = await prisma.employeeRank.findFirst({ where: matchQuery });
       
       if (existingEmployee) {
         debugLog(`Found existing employee: ${existingEmployee.name}`, {
@@ -111,45 +98,37 @@ export async function registerOrderActivity(
           lastActivity: existingEmployee.lastActivityType
         });
         
-        // Build update object
-        const updateOps: any = {
-          $set: {
-            name: userData.name || existingEmployee.name,
-            email: userData.email || existingEmployee.email,
-            role: userData.role || existingEmployee.role,
-            employeeId: employeeId,
-            lastActivity: new Date(),
-            lastActivityType: normalizedType,
-            lastOrderId: order._id,
-            lastOrderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
-            updatedAt: new Date()
-          },
-          $inc: { 
-            points: pointsAwarded,
-            totalPoints: pointsAwarded
-          },
-          $push: {
-            activityHistory: {
-              $each: [activityRecord],
-              $slice: -100
-            }
-          }
+        // Build update data (emulate $set, $inc, and $push with $slice -100)
+        const newHistory = [...((existingEmployee.activityHistory as any[]) || []), activityRecord].slice(-100);
+        
+        const updateData: any = {
+          name: userData.name || existingEmployee.name,
+          email: userData.email || existingEmployee.email,
+          role: userData.role || existingEmployee.role,
+          employeeId: employeeId,
+          lastActivity: new Date(),
+          lastActivityType: normalizedType,
+          lastOrderId: order._id,
+          lastOrderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
+          updatedAt: new Date(),
+          points: { increment: pointsAwarded },
+          totalPoints: { increment: pointsAwarded },
+          activityHistory: newHistory
         };
         
         // Increment the appropriate counters
         if (shouldIncrementCompleted) {
-          updateOps.$inc.completedOrders = 1;
+          updateData.completedOrders = { increment: 1 };
           debugLog(`📊 Incrementing completedOrders by 1`);
         }
         
         if (shouldIncrementTotal) {
-          updateOps.$inc.totalOrders = 1;
+          updateData.totalOrders = { increment: 1 };
           debugLog(`📊 Incrementing totalOrders by 1`);
         }
         
-        const updateResult = await db.collection("employee_rank").updateOne(
-          { _id: existingEmployee._id },
-          updateOps
+        const updateResult = await prisma.employeeRank.update(
+          { where: { id: existingEmployee.id }, data: updateData }
         );
 
         debugLog(`✅ Employee updated: +${pointsAwarded} points, completed: ${shouldIncrementCompleted ? '+1' : '0'}, total: ${shouldIncrementTotal ? '+1' : '0'}`);
@@ -185,7 +164,7 @@ export async function registerOrderActivity(
           activityHistory: [activityRecord]
         };
 
-        await db.collection("employee_rank").insertOne(newEmployeeDoc);
+        await prisma.employeeRank.create({ data: { id: randomUUID(), ...newEmployeeDoc } as any });
 
         debugLog(`✅ New employee created with ${pointsAwarded} points`);
 
@@ -202,7 +181,7 @@ export async function registerOrderActivity(
     } catch (dbError: any) {
       debugError("Database error in registerOrderActivity:", dbError);
       
-      if (dbError.code === 11000) {
+      if (dbError.code === 'P2002') {
         const altEmployeeId = `EMP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         debugLog(`Duplicate key error, using alternative ID: ${altEmployeeId}`);
         
@@ -225,7 +204,7 @@ export async function registerOrderActivity(
           activityHistory: [activityRecord]
         };
 
-        await db.collection("employee_rank").insertOne(altEmployeeDoc);
+        await prisma.employeeRank.create({ data: { id: randomUUID(), ...altEmployeeDoc } as any });
         
         return { 
           success: true, 
@@ -252,29 +231,35 @@ export async function registerOrderActivity(
 
 export async function registerWaitressActivity(db: any, order: any, activityType: string = 'completed') {
   try {
-    if (!order.waiterId || !ObjectId.isValid(order.waiterId)) {
-      debugLog("No valid waiterId for waitress activity");
-      return { success: false, message: "No valid waiterId" };
+    if (!order.waiterId) {
+      debugLog("No waiterId for waitress activity");
+      return { success: false, message: "No waiterId" };
     }
 
-    const collectionsToCheck = ["waiters", "waitresses"];
-    let waiter = null;
+    let waiter: any = null;
     
-    for (const collectionName of collectionsToCheck) {
+    try {
+      waiter = await prisma.waitress.findFirst({ where: { id: order.waiterId } });
+      if (waiter) {
+        debugLog(`Found waiter in waitresses:`, { name: waiter.name, email: waiter.email });
+      }
+    } catch (err) {
+      debugError(`Error checking waitresses:`, err);
+    }
+
+    if (!waiter) {
       try {
-        waiter = await db.collection(collectionName).findOne({ _id: new ObjectId(order.waiterId) });
+        waiter = await prisma.waiter.findFirst({ where: { id: order.waiterId } });
         if (waiter) {
-          debugLog(`Found waiter in ${collectionName}:`, { name: waiter.name, email: waiter.email });
-          break;
+          debugLog(`Found waiter in waiters:`, { name: waiter.name, email: waiter.email });
         }
       } catch (err) {
-        debugError(`Error checking ${collectionName}:`, err);
-        continue;
+        debugError(`Error checking waiters:`, err);
       }
     }
 
     const waitressData = {
-      id: waiter?._id?.toString() || order.waiterId,
+      id: waiter?.id?.toString() || order.waiterId,
       name: waiter?.name || "Unknown Waiter",
       email: waiter?.email || "",
       role: "waitress",

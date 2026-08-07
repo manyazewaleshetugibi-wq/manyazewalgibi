@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
 import { uploadImage } from "@/types/utils/uploadImages";
-import { ObjectId } from "mongodb";
 
 const createResponse = (status: number, success: boolean, message: string, data: any = null) => {
     return NextResponse.json({ success, message, data }, { status });
@@ -14,7 +13,6 @@ export async function PUT(
 ) {
   try {
     const { id } = await params; // AWAIT the params Promise
-    if (!ObjectId.isValid(id)) return createResponse(400, false, "Invalid category ID");
 
     const body = await req.json();
 
@@ -23,24 +21,20 @@ export async function PUT(
       delete body.imageBase64;
     }
 
-    const updateData = {
+    const updateData: any = {
       ...(body.name && { name: body.name }),
       ...(body.description !== undefined && { description: body.description }),
       ...(body.type && { type: body.type }),
-      ...(body.station && { station: body.station }),
       ...(body.imageUrl && { imageUrl: body.imageUrl }),
-      ...(body.isActive !== undefined && { isActive: body.isActive }),
-      updatedAt: new Date(),
     };
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const result = await db.collection("itemCategories").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
+    try {
+      await prisma.itemCategory.update({ where: { id }, data: updateData });
+    } catch (e: any) {
+      if (e?.code === 'P2025') return createResponse(404, false, "Category not found");
+      throw e;
+    }
 
-    if (result.matchedCount === 0) return createResponse(404, false, "Category not found");
     return createResponse(200, true, "Category updated successfully");
   } catch (error) {
     console.error("PUT /item-category/[id] Error:", error);
@@ -55,11 +49,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params; // AWAIT here
-    if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const category = await db.collection("itemCategories").findOne({ _id: new ObjectId(id) });
+    const category = await prisma.itemCategory.findUnique({ where: { id } });
 
     if (!category) return NextResponse.json({ error: "Category not found" }, { status: 404 });
     return NextResponse.json({ success: true, category }, { status: 200 });
@@ -76,13 +67,10 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params; // AWAIT here
-    if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const result = await db.collection("itemCategories").deleteOne({ _id: new ObjectId(id) });
+    const result = await prisma.itemCategory.deleteMany({ where: { id } });
 
-    if (result.deletedCount === 0) return NextResponse.json({ error: "Category not found" }, { status: 404 });
+    if (result.count === 0) return NextResponse.json({ error: "Category not found" }, { status: 404 });
     return NextResponse.json({ success: true, message: "Category deleted successfully" }, { status: 200 });
   } catch (error) {
     console.error("DELETE /item-category/[id] Error:", error);

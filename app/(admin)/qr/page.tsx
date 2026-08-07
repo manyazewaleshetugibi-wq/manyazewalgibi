@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-hot-toast";
+import { encryptTableToken } from "@/lib/urlParamHandler";
 import {
     Store,
     Home,
@@ -269,6 +270,14 @@ export default function TableQRGenerator() {
         }
         if (table.tags && table.tags.length > 0) {
             params.append('tags', table.tags.join(','));
+        }
+
+        // Encrypt the internal table/restaurant ids so they are not readable
+        // or guessable in the URL. Readers fall back to plaintext params when
+        // no token is present (e.g. older QR codes).
+        const token = encryptTableToken(table.id || '', selectedRestaurantId || '');
+        if (token) {
+            params.append('t', token);
         }
 
         const queryString = params.toString();

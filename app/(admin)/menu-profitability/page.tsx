@@ -325,10 +325,6 @@ export default function MenuProfitabilityPage() {
         fetchPurchases()
       ])
       
-      console.log("📦 Menu items fetched:", items.length)
-      console.log("📁 Categories fetched:", categoryData.length)
-      console.log("📦 Stock items fetched:", stockItems.length)
-      console.log("🛒 Purchases fetched:", purchaseData.length)
 
       setMenuItems(items)
       setCategories(categoryData)

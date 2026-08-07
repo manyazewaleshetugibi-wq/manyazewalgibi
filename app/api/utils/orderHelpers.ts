@@ -1,12 +1,11 @@
 import { NextRequest } from "next/server";
-import { ObjectId } from "mongodb";
 import { auth } from "@/auth";
 
 export const DEBUG = true;
 
 export function debugLog(message: string, data?: any) {
   if (DEBUG) {
-    console.log(`[DEBUG] ${message}`, data ? data : '');
+
   }
 }
 
@@ -17,7 +16,9 @@ export function debugError(message: string, error: any) {
 export function isOrderCompleted(order: any): boolean {
   if (!order || !order.status) return false;
   const status = String(order.status).toUpperCase();
-  return status === "COMPLETED";
+  // Delivery orders end at DELIVERED (terminal state) — treat it as completed so
+  // their stock usage is processed too, not just COMPLETED orders.
+  return status === "COMPLETED" || status === "DELIVERED";
 }
 
 export function normalizeStatus(status: string): string {

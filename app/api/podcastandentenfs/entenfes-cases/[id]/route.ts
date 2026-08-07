@@ -1,10 +1,6 @@
 // app/api/podcastandentenfs/entenfes-cases/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server"
-import clientPromise from "@/lib/mongodb"
-import { ObjectId } from "mongodb"
-
-const DB_NAME = process.env.MONGODB_DB || 'retreat_management'
-const COLLECTION = 'entenfesCases'
+import { prisma } from "@/lib/prisma"
 
 // GET - Fetch a single Entenfes case by ID
 export async function GET(
@@ -21,18 +17,7 @@ export async function GET(
       )
     }
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid case ID" },
-        { status: 400 }
-      )
-    }
-    
-    const client = await clientPromise
-    const db = client.db(DB_NAME)
-    const collection = db.collection(COLLECTION)
-    
-    const caseItem = await collection.findOne({ _id: new ObjectId(id) })
+    const caseItem = await prisma.entenfisCase.findFirst({ where: { id } })
     
     if (!caseItem) {
       return NextResponse.json(
@@ -43,7 +28,7 @@ export async function GET(
     
     return NextResponse.json({
       success: true,
-      data: caseItem
+      data: { ...caseItem, _id: caseItem.id }
     })
   } catch (error) {
     console.error("Error fetching case:", error)
@@ -69,17 +54,7 @@ export async function PUT(
       )
     }
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid case ID" },
-        { status: 400 }
-      )
-    }
-    
     const body = await request.json()
-    const client = await clientPromise
-    const db = client.db(DB_NAME)
-    const collection = db.collection(COLLECTION)
     
     // Validate category if provided
     if (body.category) {
@@ -117,30 +92,26 @@ export async function PUT(
     // Remove fields that shouldn't be updated
     const { _id, serialNumber, createdAt, ...updateData } = body
     
-    const result = await collection.findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      { 
-        $set: { 
-          ...updateData,
-          updatedAt: new Date()
-        } 
-      },
-      { returnDocument: 'after' }
-    )
+    const result = await prisma.entenfisCase.update({
+      where: { id },
+      data: {
+        ...updateData,
+        updatedAt: new Date()
+      }
+    })
     
-    if (!result) {
+    return NextResponse.json({
+      success: true,
+      data: { ...result, _id: result.id },
+      message: "Entenfes case updated successfully"
+    })
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2025') {
       return NextResponse.json(
         { success: false, error: "Entenfes case not found" },
         { status: 404 }
       )
     }
-    
-    return NextResponse.json({
-      success: true,
-      data: result,
-      message: "Entenfes case updated successfully"
-    })
-  } catch (error) {
     console.error("Error updating case:", error)
     return NextResponse.json(
       { success: false, error: "Failed to update case" },
@@ -164,20 +135,9 @@ export async function DELETE(
       )
     }
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid case ID" },
-        { status: 400 }
-      )
-    }
+    const result = await prisma.entenfisCase.deleteMany({ where: { id } })
     
-    const client = await clientPromise
-    const db = client.db(DB_NAME)
-    const collection = db.collection(COLLECTION)
-    
-    const result = await collection.deleteOne({ _id: new ObjectId(id) })
-    
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: "Entenfes case not found" },
         { status: 404 }

@@ -1,16 +1,38 @@
 // app/api/cron/process-stock/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
 import { processAllCompletedOrders, processOrderStockUsage } from "../../utils/stockHelpers";
 import { debugLog, debugError } from "../../utils/orderHelpers";
+import { auth } from "@/auth";
 
 // Simple rate limiting - only prevent too frequent runs
 let lastRunTime = 0;
 const MIN_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes between runs
-const MAX_ORDERS_PER_RUN = 100; // Process 100 orders per run
+const MAX_ORDERS_PER_RUN = 50; // Process 50 orders per run
+
+const ALLOWED_ROLES = ["admin", "manager"];
+
+// GET is the scheduled cron trigger. Verify either the CRON_SECRET bearer
+// token (Vercel cron) or an authenticated admin/manager session.
+function verifyCronAuth(req: NextRequest): boolean {
+  const authHeader = req.headers.get("authorization") || "";
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) return true;
+  return false;
+}
 
 export async function GET(req: NextRequest) {
+  if (!verifyCronAuth(req)) {
+    const session = await auth();
+    const role = String((session?.user as any)?.role || "").toLowerCase();
+    if (!ALLOWED_ROLES.includes(role)) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+  }
+
   const now = Date.now();
   
   // Rate limiting - prevent too frequent runs
@@ -89,21 +111,21 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await auth();
+    const role = String((session?.user as any)?.role || "").toLowerCase();
+    if (!ALLOWED_ROLES.includes(role)) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json().catch(() => ({}));
     const { orderId, retryFailed } = body;
 
     // Per-order processing (used by the "Retry stock" button)
     if (orderId) {
-      if (!ObjectId.isValid(orderId)) {
-        return NextResponse.json(
-          { success: false, error: "Invalid order ID" },
-          { status: 400 }
-        );
-      }
-
-      const dbClient = await clientPromise;
-      const db = dbClient.db("gold");
-      const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+      const order = await prisma.order.findUnique({ where: { id: orderId } });
 
       if (!order) {
         return NextResponse.json(
@@ -131,14 +153,19 @@ export async function POST(req: NextRequest) {
 
     // Retry only previously-failed orders
     if (retryFailed) {
-      const dbClient = await clientPromise;
-      const db = dbClient.db("gold");
-
-      const failedOrders = await db.collection("orders").find({
-        status: { $regex: /^completed$/i },
-        stockProcessed: { $ne: true },
-        stockProcessingError: { $exists: true, $ne: "" },
-      }).limit(50).toArray();
+      const failedOrders = await (prisma.order as any).findMany({
+        where: {
+          OR: [
+            { status: { equals: 'completed', mode: 'insensitive' } },
+            { status: { equals: 'delivered', mode: 'insensitive' } }
+          ],
+          AND: [
+            { OR: [{ stockProcessed: { not: true } }, { stockProcessed: null }] },
+            { stockProcessingError: { not: "" } },
+          ]
+        },
+        take: 50,
+      });
 
       let processed = 0;
       let stillFailed = 0;
@@ -155,10 +182,7 @@ export async function POST(req: NextRequest) {
         } catch (error: any) {
           stillFailed++;
           debugError(`Failed to retry ${order.orderNumber}:`, error);
-          await db.collection("orders").updateOne(
-            { _id: order._id },
-            { $set: { stockProcessingError: error?.message || String(error), stockProcessingFailedAt: new Date() } }
-          );
+          await (prisma.order as any).updateMany({ where: { id: order.id }, data: { stockProcessingError: error?.message || String(error), stockProcessingFailedAt: new Date() } });
         }
       }
 
@@ -173,7 +197,7 @@ export async function POST(req: NextRequest) {
     // Default: process the batch of pending + partial orders
     debugLog(`Manual stock processing triggered`);
     const startTime = Date.now();
-    const result = await processAllCompletedOrders(undefined, 10);
+    const result = await processAllCompletedOrders(undefined, 50);
     const duration = Date.now() - startTime;
 
     return NextResponse.json({

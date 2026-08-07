@@ -1,6 +1,5 @@
 // app/api/order/export/route.ts
 import { NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
 
 export async function POST(req: Request) {
   try {
@@ -38,7 +37,7 @@ export async function POST(req: Request) {
       
       // Add orders table
       doc.fontSize(14).text('Orders', { underline: true });
-      data.orders.forEach(order => {
+      (data.orders as any[]).forEach((order: any) => {
         doc.fontSize(10).text(
           `${order.orderNumber} | ${order.date} | ${order.customer} | $${order.total.toFixed(2)}`
         );

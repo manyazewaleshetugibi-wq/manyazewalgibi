@@ -1,13 +1,13 @@
 // utils/uploadImages.ts - UPDATED VERSION
 /**
- * Processes and stores a base64 image (stores directly in MongoDB as base64)
+ * Processes and validates a base64 image before uploading to Cloudinary.
  * @param base64Image - The base64 encoded image string.
- * @returns The base64 image string (for direct MongoDB storage)
+ * @returns The base64 image string (for Cloudinary upload)
  * @throws An error if the image processing fails.
  */
 export async function uploadImage(base64Image: string): Promise<string> {
   try {
-    console.log("🖼️ Processing image upload...");
+
     
     // Validate it's a proper base64 image
     if (!base64Image.startsWith('data:image/')) {
@@ -30,7 +30,7 @@ export async function uploadImage(base64Image: string): Promise<string> {
       throw new Error(`Unsupported image type: ${mimeType}. Allowed types: ${allowedTypes.join(', ')}`);
     }
     
-    // Validate size (max 2MB recommended for MongoDB)
+    // Validate size (max 2MB recommended)
     const buffer = Buffer.from(base64Data, "base64");
     const fileSizeInMB = buffer.length / (1024 * 1024);
     const maxSizeMB = 2; // 2MB
@@ -41,9 +41,9 @@ export async function uploadImage(base64Image: string): Promise<string> {
       // return compressImage(base64Image, maxSizeMB);
     }
     
-    console.log(`✅ Image validated: ${mimeType}, ${buffer.length.toLocaleString()} bytes (${fileSizeInMB.toFixed(2)}MB)`);
+
     
-    // Return the original base64 string to store directly in MongoDB
+    // Return the original base64 string for Cloudinary upload
     return base64Image;
     
   } catch (error: any) {

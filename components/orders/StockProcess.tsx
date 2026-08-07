@@ -50,21 +50,13 @@ export function StockProcess({ onStockProcessed }: StockProcessProps) {
 
   const checkPendingStockOrders = useCallback(async () => {
     try {
-      const response = await fetch('/api/order?all=true&status=COMPLETED')
+      const response = await fetch('/api/order/stock?checkPending=true')
       if (!response.ok) throw new Error('Failed to fetch orders')
       const data = await response.json()
 
-      const completedOrders: Order[] = data.orders || []
-
-      const pending = completedOrders.filter(
-        o => o.status === "COMPLETED" && !o.stockProcessed && !o.stockProcessingError
-      )
-      const failed = completedOrders.filter(
-        o => o.status === "COMPLETED" && !o.stockProcessed && o.stockProcessingError
-      )
-      const partial = completedOrders.filter(
-        o => o.status === "COMPLETED" && o.stockProcessed && o.hasPartialStock
-      )
+      const pending: Order[] = (data.pendingOrders || []).map((o: any) => ({ ...o, _id: o._id || o.id }))
+      const failed: Order[] = (data.failedOrders || []).map((o: any) => ({ ...o, _id: o._id || o.id }))
+      const partial: Order[] = (data.partialOrders || []).map((o: any) => ({ ...o, _id: o._id || o.id }))
 
       setPendingStockCount(pending.length)
       setFailedStockCount(failed.length)

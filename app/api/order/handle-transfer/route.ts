@@ -1,7 +1,6 @@
 // app/api/order/handle-transfer/route.ts (update the cancel section)
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 import { auth } from "@/auth";
 
@@ -33,23 +32,14 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Get the order
-    let order = null;
+    let order: any = null;
     try {
-      if (ObjectId.isValid(orderId)) {
-        order = await db.collection("orders").findOne({
-          _id: new ObjectId(orderId)
-        });
-      } else {
-        order = await db.collection("orders").findOne({
-          _id: orderId
-        });
-      }
+      order = await prisma.order.findFirst({
+        where: { id: orderId }
+      });
     } catch (err) {
-      console.log("Error finding order:", err);
+
     }
 
     if (!order) {
@@ -68,31 +58,25 @@ export async function PUT(req: NextRequest) {
     }
 
     // Get the current user's waiter info
-    let currentWaiter = null;
+    let currentWaiter: any = null;
     
     if (session.user.email) {
-      currentWaiter = await db.collection("waitresses").findOne({ 
-        email: session.user.email 
+      currentWaiter = await prisma.waitress.findFirst({ 
+        where: { email: session.user.email } 
       });
     }
     
     if (!currentWaiter && waiterId) {
       try {
-        if (ObjectId.isValid(waiterId)) {
-          currentWaiter = await db.collection("waitresses").findOne({ 
-            _id: new ObjectId(waiterId) 
-          });
-        } else {
-          currentWaiter = await db.collection("waitresses").findOne({ 
-            _id: waiterId 
-          });
-        }
+        currentWaiter = await prisma.waitress.findFirst({ 
+          where: { id: waiterId } 
+        });
       } catch (err) {
-        console.log("Error finding current waiter:", err);
+
       }
     }
 
-    const currentWaiterId = currentWaiter ? currentWaiter._id.toString() : session.user.id;
+    const currentWaiterId = currentWaiter ? currentWaiter.id : session.user.id;
     
     // Verify that the requesting waiter is the target waiter
     const isTargetWaiter = order.editRequest.requestedWaiterId === currentWaiterId;
@@ -107,39 +91,42 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    const editRequest = order.editRequest ? { ...order.editRequest } : {};
+
     let updateData: any = {};
 
     if (action === 'accept') {
       // Update order with new waiter ID
       updateData = {
-        $set: {
-          waiterId: order.editRequest.requestedWaiterId,
-          waiterName: order.editRequest.requestedWaiterName,
-          'editRequest.status': 'accepted',
-          'editRequest.acceptedAt': new Date().toISOString(),
-          'editRequest.acceptedBy': currentWaiterId,
-          updatedAt: new Date()
-        }
+        waiterId: order.editRequest.requestedWaiterId,
+        waiterName: order.editRequest.requestedWaiterName,
+        editRequest: {
+          ...editRequest,
+          status: 'accepted',
+          acceptedAt: new Date().toISOString(),
+          acceptedBy: currentWaiterId
+        },
+        updatedAt: new Date()
       };
     } else {
       // Cancel the request - store who cancelled it
       updateData = {
-        $set: {
-          'editRequest.status': 'cancelled',
-          'editRequest.cancelledAt': new Date().toISOString(),
-          'editRequest.cancelledBy': currentWaiterId,
-          'editRequest.cancelledByRole': isOriginalRequester ? 'original_requester' : (isTargetWaiter ? 'target_waiter' : 'admin'),
-          updatedAt: new Date()
-        }
+        editRequest: {
+          ...editRequest,
+          status: 'cancelled',
+          cancelledAt: new Date().toISOString(),
+          cancelledBy: currentWaiterId,
+          cancelledByRole: isOriginalRequester ? 'original_requester' : (isTargetWaiter ? 'target_waiter' : 'admin')
+        },
+        updatedAt: new Date()
       };
     }
 
-    const result = await db.collection("orders").updateOne(
-      { _id: order._id },
-      updateData
+    const result = await prisma.order.updateMany(
+      { where: { id: order.id }, data: updateData }
     );
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { error: 'Failed to update order', success: false },
         { status: 500 }

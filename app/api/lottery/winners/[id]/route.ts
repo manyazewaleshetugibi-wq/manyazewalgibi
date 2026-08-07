@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 
 export async function PATCH(
@@ -14,11 +13,9 @@ export async function PATCH(
     // Must await params before accessing its properties
     const { id } = await params;
     
-    const client = await clientPromise;
-    const db = client.db();
-    const updates = await request.json();
+    const updates: any = await request.json();
 
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: 'Invalid winner ID' },
         { status: 400 }
@@ -29,17 +26,17 @@ export async function PATCH(
     delete updates._id;
     delete updates.id;
 
-    const result = await db.collection('lottery_winners').updateOne(
-      { _id: new ObjectId(id) },
-      { 
-        $set: {
+    const result = await prisma.lotteryWinner.updateMany(
+      {
+        where: { id },
+        data: {
           ...updates,
           updatedAt: new Date()
         }
       }
     );
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, message: 'Winner not found' },
         { status: 404 }

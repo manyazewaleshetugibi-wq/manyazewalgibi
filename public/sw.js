@@ -14,16 +14,16 @@ const STATIC_ASSETS = [
 // INSTALL EVENT
 // ============================================
 self.addEventListener('install', (event) => {
-  console.log('[Service Worker] Installing...');
+
   
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('[Service Worker] Caching static assets...');
+
         return cache.addAll(STATIC_ASSETS);
       })
       .then(() => {
-        console.log('[Service Worker] Install complete, skipping waiting...');
+
         return self.skipWaiting();
       })
       .catch((error) => {
@@ -36,7 +36,7 @@ self.addEventListener('install', (event) => {
 // ACTIVATE EVENT
 // ============================================
 self.addEventListener('activate', (event) => {
-  console.log('[Service Worker] Activating...');
+
   
   event.waitUntil(
     caches.keys()
@@ -44,14 +44,14 @@ self.addEventListener('activate', (event) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
             if (cacheName !== CACHE_NAME) {
-              console.log('[Service Worker] Removing old cache:', cacheName);
+
               return caches.delete(cacheName);
             }
           })
         );
       })
       .then(() => {
-        console.log('[Service Worker] Claiming clients...');
+
         return self.clients.claim();
       })
   );
@@ -109,11 +109,11 @@ self.addEventListener('fetch', (event) => {
 // PUSH EVENT - Handle push notifications
 // ============================================
 self.addEventListener('push', (event) => {
-  console.log('[Service Worker] Push event received');
+
   
   // Check if data exists
   if (!event.data) {
-    console.log('[Service Worker] No push data received');
+
     return;
   }
 
@@ -122,7 +122,7 @@ self.addEventListener('push', (event) => {
     let data;
     try {
       data = event.data.json();
-      console.log('[Service Worker] Push data parsed:', data);
+
     } catch (parseError) {
       // If data is not JSON, use it as text
       console.warn('[Service Worker] Push data is not JSON, using as text');
@@ -148,7 +148,7 @@ self.addEventListener('push', (event) => {
 
     // Check notification permission
     if (!(self.Notification && self.Notification.permission === 'granted')) {
-      console.log('[Service Worker] Notifications not granted');
+
       return;
     }
 
@@ -186,7 +186,7 @@ self.addEventListener('push', (event) => {
     }
 
     // Show the notification
-    console.log('[Service Worker] Showing notification:', data.title);
+
     event.waitUntil(
       self.registration.showNotification(data.title || 'Eresto Notification', options)
     );
@@ -216,7 +216,7 @@ self.addEventListener('push', (event) => {
 // NOTIFICATION CLICK EVENT
 // ============================================
 self.addEventListener('notificationclick', (event) => {
-  console.log('[Service Worker] Notification clicked:', event);
+
   
   // Close the notification
   event.notification.close();
@@ -233,10 +233,10 @@ self.addEventListener('notificationclick', (event) => {
 
   // Handle action clicks
   const action = event.action;
-  console.log('[Service Worker] Notification action:', action);
+
 
   if (action === 'close') {
-    console.log('[Service Worker] Notification dismissed');
+
     return;
   }
 
@@ -247,19 +247,19 @@ self.addEventListener('notificationclick', (event) => {
       includeUncontrolled: true
     })
     .then((clientList) => {
-      console.log('[Service Worker] Found clients:', clientList.length);
+
       
       // Check if there's already a window/tab open with the target URL
       for (const client of clientList) {
         if (client.url === targetUrl && 'focus' in client) {
-          console.log('[Service Worker] Focusing existing client:', targetUrl);
+
           return client.focus();
         }
       }
       
       // If not, open a new window/tab
       if (clients.openWindow) {
-        console.log('[Service Worker] Opening new window:', targetUrl);
+
         return clients.openWindow(targetUrl);
       }
     })
@@ -273,10 +273,10 @@ self.addEventListener('notificationclick', (event) => {
 // MESSAGE EVENT - Handle messages from clients
 // ============================================
 self.addEventListener('message', (event) => {
-  console.log('[Service Worker] Message received:', event.data);
+
   
   if (event.data && event.data.type === 'SKIP_WAITING') {
-    console.log('[Service Worker] Skipping waiting...');
+
     self.skipWaiting();
   }
 });
@@ -292,4 +292,3 @@ self.addEventListener('unhandledrejection', (event) => {
   console.error('[Service Worker] Unhandled rejection:', event.reason);
 });
 
-console.log('[Service Worker] Service Worker loaded successfully');

@@ -24,13 +24,13 @@ export const useNotificationSound = (): NotificationSoundHook => {
     audio.volume = 0.5;
     
     audio.addEventListener('canplaythrough', () => {
-      console.log('Notification sound loaded successfully');
+
       setAudioLoaded(true);
       setIsReady(true);
     });
     
     audio.addEventListener('error', () => {
-      console.log('Notification sound file not found, using Web Audio fallback');
+
       setAudioLoaded(false);
       // Still mark as ready because we have fallback
       setIsReady(true);
@@ -62,16 +62,16 @@ export const useNotificationSound = (): NotificationSoundHook => {
   // Play sound - will work automatically after initialization
   const play = useCallback(() => {
     if (!isEnabled) {
-      console.log('Sound is disabled');
+
       return;
     }
     
     if (!isReady) {
-      console.log('Sound not ready yet');
+
       return;
     }
     
-    console.log('Playing notification sound...');
+
     
     // Try to play audio file first
     if (audioRef.current && audioLoaded) {
@@ -80,7 +80,7 @@ export const useNotificationSound = (): NotificationSoundHook => {
       
       if (playPromise !== undefined) {
         playPromise.catch((error) => {
-          console.log('Audio file play failed, using Web Audio fallback:', error);
+
           playFallbackBeep();
         });
       }
@@ -117,7 +117,7 @@ export const useNotificationSound = (): NotificationSoundHook => {
       gainNode.gain.exponentialRampToValueAtTime(0.00001, audioContextRef.current.currentTime + 0.3);
       oscillator.stop(audioContextRef.current.currentTime + 0.3);
       
-      console.log('Fallback beep played');
+
     } catch (error) {
       console.error('Failed to play fallback beep:', error);
     }

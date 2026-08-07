@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { DeliveryOrderSchema } from "@/models/DeliveryOrders";
 import { auth } from "@/auth"; // ✅ Changed from getServerSession import
 import { requireRole } from "@/lib/api-auth";
@@ -21,50 +22,30 @@ const VALID_STATUSES = [
 type OrderStatus = typeof VALID_STATUSES[number];
 
 // Helper function to register employee activity
-async function registerEmployeeActivity(db: any, userData: any, orderData: any, action: string) {
+async function registerEmployeeActivity(userData: any, orderData: any, action: string) {
   try {
     if (!userData || !userData.id) {
-      console.log("No user data available for employee activity registration");
+
       return { success: false, message: "No user data available" };
     }
-    
-    console.log("Registering employee activity:", {
-      userId: userData.id,
-      userName: userData.name,
-      orderId: orderData._id,
-      orderNumber: orderData.orderNumber,
-      action: action
-    });
-    
-    // Check if employee_rank collection exists
-    const collections = await db.listCollections({ name: "employee_rank" }).toArray();
-    
-    if (collections.length === 0) {
-      console.log("Creating employee_rank collection...");
-      await db.createCollection("employee_rank");
-      console.log("employee_rank collection created");
-    }
-    
-    // Prepare user identifier - handle both string and ObjectId
-    let userId;
-    if (ObjectId.isValid(userData.id)) {
-      userId = new ObjectId(userData.id);
-    } else {
-      userId = userData.id;
-    }
+
+    const orderId = orderData._id || orderData.id;
+    const orderNumber = orderData.orderNumber;
+
+
     
     // Generate employee ID if not provided
     const employeeId = userData.employeeId || `EMP-${Date.now().toString().slice(-6)}`;
-    
+
     const matchQuery: any = {
-      $or: [
-        { userId: userId },
+      OR: [
+        { userId: userData.id },
         { employeeId: employeeId }
       ]
     };
 
     if (userData.email) {
-      matchQuery.$or.push({ email: userData.email });
+      matchQuery.OR.push({ email: userData.email });
     }
 
     // Determine points based on action
@@ -82,75 +63,70 @@ async function registerEmployeeActivity(db: any, userData: any, orderData: any, 
       activityType = "order_delivered";
     }
 
+    const activityRecord = {
+      type: activityType,
+      orderId: orderId,
+      orderNumber: orderNumber,
+      timestamp: new Date(),
+      pointsAwarded: pointsAwarded,
+      statusChange: action
+    };
+
     // Upsert operation: update if exists, insert if not
-    const updateResult = await db.collection("employee_rank").updateOne(
-      matchQuery,
-      {
-        $set: {
+    const existingEmployee = await prisma.employeeRank.findFirst({ where: matchQuery });
+
+    if (!existingEmployee) {
+      await prisma.employeeRank.create({
+        data: {
+          id: randomUUID(),
+          userId: userData.id,
           name: userData.name,
           email: userData.email,
           role: userData.role || "staff",
           employeeId: employeeId,
           lastActivity: new Date(),
           lastActivityType: activityType,
-          lastOrderId: orderData._id,
-          lastOrderNumber: orderData.orderNumber
-        },
-        $inc: { 
+          lastOrderId: orderId,
+          lastOrderNumber: orderNumber,
           totalOrdersProcessed: 1,
           points: pointsAwarded,
-          ...(action === "order_accepted" ? { acceptedOrders: 1 } : {}),
-          ...(action === "order_cancelled" ? { cancelledOrders: 1 } : {}),
-          ...(action === "order_delivered" ? { deliveredOrders: 1 } : {})
-        },
-        $setOnInsert: {
-          userId: userId,
-          createdAt: new Date(),
           totalPoints: pointsAwarded,
-          activityHistory: [],
-          acceptedOrders: 0,
-          cancelledOrders: 0,
-          deliveredOrders: 0
+          activityHistory: [activityRecord],
+          acceptedOrders: action === "order_accepted" ? 1 : 0,
+          cancelledOrders: action === "order_cancelled" ? 1 : 0,
+          deliveredOrders: action === "order_delivered" ? 1 : 0,
+          createdAt: new Date()
         }
-      },
-      { upsert: true }
-    );
-    
-    // Add to activity history
-    const activityRecord = {
-      type: activityType,
-      orderId: orderData._id,
-      orderNumber: orderData.orderNumber,
-      timestamp: new Date(),
-      pointsAwarded: pointsAwarded,
-      statusChange: action
-    };
-    
-    await db.collection("employee_rank").updateOne(
-      { 
-        $or: [
-          { userId: userId },
-          { employeeId: employeeId }
-        ]
-      },
-      {
-        $push: {
-          activityHistory: {
-            $each: [activityRecord],
-            $slice: -50 // Keep last 50 activities
-          }
-        }
-      }
-    );
-    
-    console.log("Employee activity registered successfully:", {
-      userId: userData.id,
-      action: action,
-      pointsAwarded: pointsAwarded,
-      upsertedId: updateResult.upsertedId,
-      matchedCount: updateResult.matchedCount,
-      modifiedCount: updateResult.modifiedCount
-    });
+      });
+    } else {
+      const updateData: any = {
+        name: userData.name,
+        email: userData.email,
+        role: userData.role || "staff",
+        employeeId: employeeId,
+        lastActivity: new Date(),
+        lastActivityType: activityType,
+        lastOrderId: orderId,
+        lastOrderNumber: orderNumber,
+        totalOrdersProcessed: { increment: 1 },
+        points: { increment: pointsAwarded },
+        ...(action === "order_accepted" ? { acceptedOrders: { increment: 1 } } : {}),
+        ...(action === "order_cancelled" ? { cancelledOrders: { increment: 1 } } : {}),
+        ...(action === "order_delivered" ? { deliveredOrders: { increment: 1 } } : {})
+      };
+
+      const existingHistory = Array.isArray(existingEmployee.activityHistory)
+        ? (existingEmployee.activityHistory as any[])
+        : [];
+      updateData.activityHistory = [...existingHistory, activityRecord].slice(-50);
+
+      await prisma.employeeRank.update({
+        where: { id: existingEmployee.id },
+        data: updateData
+      });
+    }
+
+
     
     return { 
       success: true, 
@@ -169,6 +145,36 @@ async function registerEmployeeActivity(db: any, userData: any, orderData: any, 
   }
 }
 
+// Helper to enrich an order with user details and item details (replaces Mongo $lookup pipeline)
+async function enrichOrder(order: any) {
+  const enriched: any = { ...order, _id: order.id };
+
+  // Lookup user details
+  if (order.userId) {
+    const userDetails = await prisma.user.findFirst({ where: { id: order.userId } });
+    if (userDetails) {
+      enriched.userDetails = userDetails;
+    }
+  }
+
+  // Lookup item details
+  const rawItems = Array.isArray(order.items) ? (order.items as any[]) : [];
+  const enrichedItems = [];
+  for (const item of rawItems) {
+    const enrichedItem: any = { ...item };
+    if (item?.itemId) {
+      const itemDetails = await prisma.item.findFirst({ where: { id: item.itemId } });
+      if (itemDetails) {
+        enrichedItem.itemDetails = itemDetails;
+      }
+    }
+    enrichedItems.push(enrichedItem);
+  }
+  enriched.items = enrichedItems;
+
+  return enriched;
+}
+
 // GET: Retrieve an order by ID
 export async function GET(
   req: NextRequest,
@@ -179,85 +185,18 @@ export async function GET(
     if (response) return response;
 
     const { id } = await params;
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
-    const orderId = id;
-
-    // Validate the order ID
-    if (!ObjectId.isValid(orderId)) {
-      return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
-    }
 
     // Find the order by ID with enhanced details
-    const order = await db.collection("orders").aggregate([
-      {
-        $match: { _id: new ObjectId(orderId) }
-      },
-      // Lookup User Details
-      {
-        $addFields: {
-          userIdObj: {
-            $cond: {
-              if: { $and: [{ $ne: ["$userId", null] }, { $ne: ["$userId", ""] }] },
-              then: { $toObjectId: "$userId" },
-              else: null
-            }
-          }
-        }
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "userIdObj",
-          foreignField: "_id",
-          as: "userDetails"
-        }
-      },
-      { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
-      // Lookup Item Details
-      { $unwind: "$items" },
-      {
-        $addFields: {
-          "items.itemIdObj": { $toObjectId: "$items.itemId" }
-        }
-      },
-      {
-        $lookup: {
-          from: "items",
-          localField: "items.itemIdObj",
-          foreignField: "_id",
-          as: "items.itemDetails"
-        }
-      },
-      {
-        $unwind: {
-          path: "$items.itemDetails",
-          preserveNullAndEmptyArrays: true
-        }
-      },
-      {
-        $group: {
-          _id: "$_id",
-          root: { $first: "$$ROOT" },
-          items: { $push: "$items" }
-        }
-      },
-      {
-        $replaceRoot: {
-          newRoot: {
-            $mergeObjects: ["$root", { items: "$items" }]
-          }
-        }
-      }
-    ]).toArray();
+    const order = await prisma.order.findFirst({ where: { id } });
 
-    if (order.length === 0) {
+    if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
+    const enrichedOrder = await enrichOrder(order);
+
     // Return the order
-    return NextResponse.json({ success: true, order: order[0] }, { status: 200 });
+    return NextResponse.json({ success: true, order: enrichedOrder }, { status: 200 });
   } catch (error) {
     console.error("Error fetching order:", error);
     return NextResponse.json(
@@ -277,33 +216,23 @@ export async function PUT(
     if (response) return response;
 
     const { id } = await params;
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
-    const orderId = id;
-
-    // Validate the order ID
-    if (!ObjectId.isValid(orderId)) {
-      return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
-    }
 
     const body = await req.json();
 
     // Validate the updated order data
     const validatedOrder = DeliveryOrderSchema.omit({ _id: true }).parse(body); // Omit _id for validation
 
-    // Update the order in the database
-    const result = await db.collection("orders").updateOne(
-      { _id: new ObjectId(orderId) },
-      {
-        $set: {
-          ...validatedOrder,
-          updatedAt: new Date(), // Update the updatedAt field
-        },
-      }
-    );
+    const data: any = { ...validatedOrder, updatedAt: new Date() }; // Update the updatedAt field
+    if (validatedOrder.deliveryInfo === null) data.deliveryInfo = Prisma.DbNull;
+    if (validatedOrder.paymentScreenshotUrl === null) data.paymentScreenshotUrl = Prisma.DbNull;
 
-    if (result.matchedCount === 0) {
+    // Update the order in the database
+    const result = await prisma.order.updateMany({
+      where: { id },
+      data
+    });
+
+    if (result.count === 0) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
@@ -328,15 +257,6 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
-    const orderId = id;
-
-    // Validate the order ID
-    if (!ObjectId.isValid(orderId)) {
-      return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
-    }
 
     // Auth check - admin only
     const session = await auth();
@@ -349,11 +269,9 @@ export async function DELETE(
     }
 
     // Delete the order from the database
-    const result = await db
-      .collection("orders")
-      .deleteOne({ _id: new ObjectId(orderId) });
+    const result = await prisma.order.deleteMany({ where: { id } });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
@@ -381,17 +299,9 @@ export async function PATCH(
     if (response) return response;
 
     const { id } = await params;
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    const ordersCollection = db.collection("orders");
     
     // ✅ Changed: Use auth() instead of getServerSession
     const session = await auth();
-
-    // Validate the order ID
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
-    }
 
     // Parse request body
     let body;
@@ -426,8 +336,8 @@ export async function PATCH(
     }
 
     // Get existing order before update
-    const existingOrder = await ordersCollection.findOne({ 
-      _id: new ObjectId(id) 
+    const existingOrder = await prisma.order.findFirst({ 
+      where: { id }
     });
 
     if (!existingOrder) {
@@ -495,12 +405,12 @@ export async function PATCH(
     }
 
     // Update the order status
-    const updateResult = await ordersCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
+    const updateResult = await prisma.order.updateMany({
+      where: { id },
+      data: updateData
+    });
 
-    if (updateResult.matchedCount === 0) {
+    if (updateResult.count === 0) {
       return NextResponse.json(
         { error: "Order not found" },
         { status: 404 }
@@ -521,23 +431,23 @@ export async function PATCH(
     let employeeRegistration = null;
     if (userData && employeeAction) {
       try {
-        employeeRegistration = await registerEmployeeActivity(db, userData, existingOrder, employeeAction);
-        console.log("Employee registration result:", employeeRegistration);
+        employeeRegistration = await registerEmployeeActivity(userData, existingOrder, employeeAction);
+
       } catch (empError) {
         console.error("Error registering employee activity:", empError);
       }
     }
 
     // Log to delivery_accepter if status is CONFIRMED or CANCELLED
-    if (updateResult.modifiedCount > 0 && (status === "CONFIRMED" || status === "CANCELLED")) {
+    if (updateResult.count > 0 && (status === "CONFIRMED" || status === "CANCELLED")) {
       try {
         const logEntry = {
-          orderId: existingOrder._id,
+          orderId: existingOrder.id,
           orderNumber: existingOrder.orderNumber || `ORDER-${id.slice(-6)}`,
           previousStatus: existingOrder.status,
           newStatus: status,
-          reason: reason || null,
-          accepterId: userData?.id ? (ObjectId.isValid(userData.id) ? new ObjectId(userData.id) : userData.id) : null,
+          reason: reason ? reason : Prisma.DbNull,
+          accepterId: userData?.id ? userData.id : null,
           accepterName: userData?.name || "Unknown",
           accepterEmail: userData?.email || "Unknown",
           accepterRole: userData?.role || "staff",
@@ -545,121 +455,42 @@ export async function PATCH(
           employeeRegistration: employeeRegistration?.success ? {
             employeeId: employeeRegistration.employeeId,
             pointsAwarded: employeeRegistration.pointsAwarded
-          } : null,
+          } : Prisma.DbNull,
           orderDetails: {
-            userId: existingOrder.userId ? new ObjectId(existingOrder.userId) : null,
-            userName: existingOrder.deliveryInfo?.fullName || "Unknown",
-            userEmail: existingOrder.deliveryInfo?.email || "Unknown",
+            userId: existingOrder.userId ? existingOrder.userId : null,
+            userName: (existingOrder.deliveryInfo as any)?.fullName || "Unknown",
+            userEmail: (existingOrder.deliveryInfo as any)?.email || "Unknown",
             totalAmount: existingOrder.totalAmount || 0,
             finalAmount: existingOrder.finalAmount || 0,
             delivery: existingOrder.delivery || false,
-            itemCount: existingOrder.items?.length || 0
+            itemCount: (existingOrder.items as any)?.length || 0
           }
         };
         
-        await db.collection("delivery_accepter").insertOne(logEntry);
+        await prisma.deliveryAccepter.create({
+          data: { id: randomUUID(), ...logEntry }
+        });
       } catch (logError) {
         console.error("Error logging delivery acceptance:", logError);
       }
     }
 
-    // If order is cancelled, restore stock if it was deducted during order creation
-    if (status === "CANCELLED" && existingOrder.status === "PENDING") {
-      try {
-        console.log("Restoring stock for cancelled order:", existingOrder.orderNumber);
-        
-        for (const item of existingOrder.items) {
-          const itemData = await db.collection("items").findOne({ 
-            _id: new ObjectId(item.itemId) 
-          });
-
-          if (!itemData || !itemData.requiredStock) continue;
-
-          for (const requiredStock of itemData.requiredStock) {
-            await db.collection("stocks").updateOne(
-              { _id: new ObjectId(requiredStock.stockId) },
-              { $inc: { quantity: requiredStock.quantity * item.quantity } }
-            );
-          }
-        }
-        console.log("Stock restored successfully for order:", existingOrder.orderNumber);
-      } catch (stockError) {
-        console.error("Error restoring stock for cancelled order:", stockError);
-      }
-    }
+    // NOTE: No stock restore on cancel here. Stock is only deducted when an order
+    // becomes COMPLETED (processOrderStockUsage), and this route only cancels orders
+    // that are still PENDING — so nothing was ever deducted to restore.
 
     // Fetch the updated order with enhanced details
-    const updatedOrder = await db.collection("orders").aggregate([
-      {
-        $match: { _id: new ObjectId(id) }
-      },
-      // Lookup User Details
-      {
-        $addFields: {
-          userIdObj: {
-            $cond: {
-              if: { $and: [{ $ne: ["$userId", null] }, { $ne: ["$userId", ""] }] },
-              then: { $toObjectId: "$userId" },
-              else: null
-            }
-          }
-        }
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "userIdObj",
-          foreignField: "_id",
-          as: "userDetails"
-        }
-      },
-      { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
-      // Lookup Item Details
-      { $unwind: "$items" },
-      {
-        $addFields: {
-          "items.itemIdObj": { $toObjectId: "$items.itemId" }
-        }
-      },
-      {
-        $lookup: {
-          from: "items",
-          localField: "items.itemIdObj",
-          foreignField: "_id",
-          as: "items.itemDetails"
-        }
-      },
-      {
-        $unwind: {
-          path: "$items.itemDetails",
-          preserveNullAndEmptyArrays: true
-        }
-      },
-      {
-        $group: {
-          _id: "$_id",
-          root: { $first: "$$ROOT" },
-          items: { $push: "$items" }
-        }
-      },
-      {
-        $replaceRoot: {
-          newRoot: {
-            $mergeObjects: ["$root", { items: "$items" }]
-          }
-        }
-      }
-    ]).toArray();
+    const freshOrder = await prisma.order.findFirst({ where: { id } });
+    const updatedOrder = await enrichOrder(freshOrder);
 
     return NextResponse.json(
       { 
         success: true,
         message: `Order status updated to ${status} successfully`,
-        order: updatedOrder[0],
+        order: updatedOrder,
         shouldRemove: status === "CONFIRMED", // Flag to remove order from list if confirmed
         employeeRegistered: employeeRegistration?.success || false,
         employeeRegistration: employeeRegistration,
-        stockRestored: status === "CANCELLED" && existingOrder.status === "PENDING"
       },
       { status: 200 }
     );

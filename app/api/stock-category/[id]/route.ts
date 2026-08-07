@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
 import { StockCategorySubschema } from "@/models/Stock";
-import { ObjectId } from "mongodb";
 
 // ✅ GET category by ID    
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const category = await db.collection("stock_categories").findOne({ _id: new ObjectId(id) });
+    const category = await prisma.stockCategory.findUnique({ where: { id } });
 
     if (!category) return NextResponse.json({ error: "Category not found" }, { status: 404 });
 
@@ -26,19 +22,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
     const body = await req.json();
     const parsed = StockCategorySubschema.partial().parse(body); // Partial update
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const result = await db.collection("stock_categories").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { ...parsed, updatedAt: new Date() } }
-    );
+    const updateData: any = {
+      ...(parsed.name !== undefined && { name: parsed.name }),
+      ...(parsed.description !== undefined && { description: parsed.description }),
+      updatedAt: new Date(),
+    };
 
-    if (result.matchedCount === 0) return NextResponse.json({ error: "Category not found" }, { status: 404 });
+    try {
+      await prisma.stockCategory.update({ where: { id }, data: updateData });
+    } catch (e: any) {
+      if (e?.code === 'P2025') return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      throw e;
+    }
 
     return NextResponse.json({ success: true, message: "Category updated successfully" }, { status: 200 });
   } catch (error) {
@@ -51,13 +50,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid category ID" }, { status: 400 });
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const result = await db.collection("stock_categories").deleteOne({ _id: new ObjectId(id) });
+    const result = await prisma.stockCategory.deleteMany({ where: { id } });
 
-    if (result.deletedCount === 0) return NextResponse.json({ error: "Category not found" }, { status: 404 });
+    if (result.count === 0) return NextResponse.json({ error: "Category not found" }, { status: 404 });
 
     return NextResponse.json({ success: true, message: "Category deleted successfully" }, { status: 200 });
   } catch (error) {

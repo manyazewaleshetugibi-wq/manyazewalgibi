@@ -1,18 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import bcrypt from "bcrypt";
+import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown";
+  const { success } = await rateLimit(ip, "register", 10, 3600);
+  if (!success) {
+    return NextResponse.json(
+      { message: "Too many registration attempts. Please try again later." },
+      { status: 429 }
+    );
+  }
+
   try {
     const body = await req.json();
     const { name, email, password, phoneNumber, role } = body;
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // Check if user already exists
-    const existingUser = await db.collection("users").findOne({ email });
+    const existingUser = await prisma.user.findFirst({ where: { email } });
     if (existingUser) {
       return NextResponse.json(
         { message: "User already exists" },
@@ -20,17 +31,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const user = await db.collection("users").insertOne({
-      name,
-      email,
-      password: hashedPassword,
-      phoneNumber,
-      role: "CUSTOMER",
-      createdAt: new Date(),
+    const user = await prisma.user.create({
+      data: {
+        id: randomUUID(),
+        name,
+        email,
+        password: hashedPassword,
+        phone: phoneNumber,
+        role: "CUSTOMER",
+        createdAt: new Date(),
+      },
     });
 
     return NextResponse.json(
-      { message: "User created successfully", userId: user.insertedId },
+      { message: "User created successfully", userId: user.id },
       { status: 201 }
     );
   } catch (error) {

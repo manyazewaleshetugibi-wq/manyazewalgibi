@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcrypt';
 import { requireAdmin } from '@/lib/api-auth';
 
@@ -122,24 +121,28 @@ export async function GET(
 
     const { id } = await params;
     
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const usersCollection = db.collection('users');
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, message: 'Invalid user ID format' }, { status: 400 });
-    }
-    
-    const user = await usersCollection.findOne(
-      { _id: new ObjectId(id) },
-      { projection: { password: 0 } }
-    );
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        employeeId: true,
+        role: true,
+        status: true,
+        permissions: true,
+        requiresPasswordChange: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
     
     if (!user) {
       return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
     }
     
-    return NextResponse.json({ success: true, message: `Staff member: ${user.name}`, user }, { status: 200 });
+    return NextResponse.json({ success: true, message: `Staff member: ${user.name}`, user: { ...user, _id: user.id } }, { status: 200 });
     
   } catch (error: any) {
     console.error('Error fetching user:', error);
@@ -158,14 +161,6 @@ export async function PUT(
 
     const { id } = await params;
     
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const usersCollection = db.collection('users');
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, message: 'Invalid user ID format' }, { status: 400 });
-    }
-    
     const body = await request.json();
     const {
       name,
@@ -179,16 +174,18 @@ export async function PUT(
     } = body;
     
     // Check if user exists
-    const existingUser = await usersCollection.findOne({ _id: new ObjectId(id) });
+    const existingUser = await prisma.user.findUnique({ where: { id } });
     if (!existingUser) {
       return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
     }
     
     // Check if email is being changed and already exists
     if (email && email !== existingUser.email) {
-      const emailExists = await usersCollection.findOne({
-        email: email.toLowerCase(),
-        _id: { $ne: new ObjectId(id) }
+      const emailExists = await prisma.user.findFirst({
+        where: {
+          email: email.toLowerCase(),
+          id: { not: id }
+        }
       });
       if (emailExists) {
         return NextResponse.json({ success: false, message: 'Email already in use' }, { status: 400 });
@@ -197,9 +194,11 @@ export async function PUT(
     
     // Check if employeeId is being changed and already exists
     if (employeeId && employeeId !== existingUser.employeeId) {
-      const employeeIdExists = await usersCollection.findOne({ 
-        employeeId,
-        _id: { $ne: new ObjectId(id) }
+      const employeeIdExists = await prisma.user.findFirst({ 
+        where: { 
+          employeeId,
+          id: { not: id }
+        }
       });
       if (employeeIdExists) {
         return NextResponse.json({ success: false, message: 'Employee ID already exists' }, { status: 400 });
@@ -250,14 +249,23 @@ export async function PUT(
     }
     
     // Update user
-    const result = await usersCollection.findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      { $set: updateData },
-      { 
-        returnDocument: 'after',
-        projection: { password: 0 }
-      }
-    );
+    const result = await prisma.user.update({
+      where: { id },
+      data: updateData,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        employeeId: true,
+        role: true,
+        status: true,
+        permissions: true,
+        requiresPasswordChange: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
     
     if (!result) {
       return NextResponse.json({ success: false, message: 'Failed to update user' }, { status: 500 });
@@ -282,15 +290,7 @@ export async function DELETE(
 
     const { id } = await params;
     
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const usersCollection = db.collection('users');
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, message: 'Invalid user ID format' }, { status: 400 });
-    }
-    
-    const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+    const user = await prisma.user.findUnique({ where: { id } });
     
     if (!user) {
       return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
@@ -298,13 +298,13 @@ export async function DELETE(
     
     // Prevent deleting the last admin user
     if (user.role === 'admin') {
-      const adminCount = await usersCollection.countDocuments({ role: 'admin' });
+      const adminCount = await prisma.user.count({ where: { role: 'admin' } });
       if (adminCount <= 1) {
         return NextResponse.json({ success: false, message: 'Cannot delete the last admin user' }, { status: 400 });
       }
     }
     
-    await usersCollection.deleteOne({ _id: new ObjectId(id) });
+    await prisma.user.delete({ where: { id } });
     
     return NextResponse.json({ success: true, message: 'Staff member deleted successfully' }, { status: 200 });
     
@@ -325,14 +325,6 @@ export async function PATCH(
 
     const { id } = await params;
     
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const usersCollection = db.collection('users');
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, message: 'Invalid user ID format' }, { status: 400 });
-    }
-    
     const body = await request.json();
     
     // Handle PIN update
@@ -342,10 +334,7 @@ export async function PATCH(
         return NextResponse.json({ success: false, message: 'PIN must be exactly 4 digits' }, { status: 400 });
       }
       const hashedPin = await bcrypt.hash(pin, 10);
-      await usersCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { pin: hashedPin, updatedAt: new Date() } }
-      );
+      await prisma.user.updateMany({ where: { id }, data: { pin: hashedPin, updatedAt: new Date() } });
       return NextResponse.json({ success: true, message: 'PIN updated successfully' }, { status: 200 });
     }
     
@@ -362,14 +351,14 @@ export async function PATCH(
     }
     
     // Get user with password
-    const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+    const user = await prisma.user.findUnique({ where: { id } });
     
     if (!user) {
       return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
     }
     
     // Verify current password using bcrypt
-    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password || '');
     
     if (!isPasswordValid) {
       return NextResponse.json({ success: false, message: 'Current password is incorrect' }, { status: 401 });
@@ -379,16 +368,11 @@ export async function PATCH(
     const hashedNewPassword = await hashPassword(newPassword);
     
     // Update password
-    await usersCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { 
-        $set: { 
+    await prisma.user.updateMany({ where: { id }, data: { 
           password: hashedNewPassword,
           requiresPasswordChange: false,
           updatedAt: new Date()
-        } 
-      }
-    );
+        } });
     
     return NextResponse.json({ success: true, message: 'Password updated successfully' }, { status: 200 });
     

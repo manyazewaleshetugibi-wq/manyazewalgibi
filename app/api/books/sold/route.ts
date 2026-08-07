@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     const { searchParams } = new URL(req.url);
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
@@ -18,8 +15,8 @@ export async function GET(req: NextRequest) {
 
     // Build match query for completed orders in date range
     const matchQuery: any = {
-      status: { $regex: /^completed$/i },
-      createdAt: { $gte: fromDate, $lte: toDate },
+      status: { equals: 'completed', mode: 'insensitive' },
+      createdAt: { gte: fromDate, lte: toDate },
     };
 
     if (waiterId && waiterId !== "all") {
@@ -27,7 +24,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Get all completed orders in the date range
-    const orders = await db.collection("orders").find(matchQuery).toArray();
+    const orders = await prisma.order.findMany({ where: matchQuery });
 
     // Extract book items from orders
     // Books have their itemId in the "books" collection, not "items"
@@ -43,7 +40,7 @@ export async function GET(req: NextRequest) {
     }>();
 
     for (const order of orders) {
-      for (const item of order.items || []) {
+      for (const item of (order as any).items || []) {
         if (!item.itemId) continue;
 
         // Check if this item is a book (exists in books collection)
@@ -52,12 +49,9 @@ export async function GET(req: NextRequest) {
 
         if (!bookInfo && !bookSalesMap.has(`_checked_${item.itemId}`)) {
           // Check if this itemId exists in the books collection
-          const { ObjectId } = await import("mongodb");
           let bookData = null;
           try {
-            if (ObjectId.isValid(item.itemId)) {
-              bookData = await db.collection("books").findOne({ _id: new ObjectId(item.itemId) });
-            }
+            bookData = await prisma.book.findUnique({ where: { id: item.itemId } });
           } catch {}
 
           if (bookData) {
@@ -66,7 +60,7 @@ export async function GET(req: NextRequest) {
               title: bookData.title || item.itemName || "Unknown Book",
               category: bookData.category || "",
               price: bookData.price || item.unitPrice || 0,
-              imageUrl: bookData.cloudinaryData?.url || bookData.imageUrl || "",
+              imageUrl: (bookData.cloudinaryData as any)?.url || bookData.imageUrl || "",
               totalQuantity: 0,
               totalRevenue: 0,
               orderCount: 0,
@@ -105,8 +99,8 @@ export async function GET(req: NextRequest) {
     // Daily breakdown
     const dailyMap = new Map<string, { date: string; quantity: number; revenue: number; orders: number }>();
     for (const order of orders) {
-      const dateKey = new Date(order.createdAt).toISOString().split("T")[0];
-      for (const item of order.items || []) {
+      const dateKey = order.createdAt ? new Date(order.createdAt).toISOString().split("T")[0] : "unknown";
+      for (const item of (order as any).items || []) {
         if (!item.itemId || !bookSalesMap.has(item.itemId)) continue;
         const bookInfo = bookSalesMap.get(item.itemId);
         if (!bookInfo || bookInfo.bookId.startsWith("_checked_")) continue;

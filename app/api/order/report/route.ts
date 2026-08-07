@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
-    const orders = await db.collection("orders").find({ status: "COMPLETED" }).toArray();
+    const orders = await prisma.order.findMany({ where: { status: "COMPLETED" } });
 
     let totalSales = 0;
     let totalTax = 0;
@@ -19,7 +16,8 @@ export async function GET(req: NextRequest) {
       try {
         // Use Ethiopia local date (UTC+3) for grouping
         const ETH_OFFSET_MS = 3 * 60 * 60 * 1000
-        const localDate = new Date((order.createdAt instanceof Date ? order.createdAt.getTime() : new Date(order.createdAt).getTime()) + ETH_OFFSET_MS)
+        const createdAtMs = order.createdAt ? order.createdAt.getTime() : Date.now();
+        const localDate = new Date(createdAtMs + ETH_OFFSET_MS)
         date = localDate.toISOString().split('T')[0]
       } catch (e) {
         date = new Date().toISOString().split("T")[0];
@@ -43,7 +41,7 @@ export async function GET(req: NextRequest) {
       totalDiscounts,
       dailySales,
       orderCount: orders.length,
-      orders,
+      orders: orders.map(o => ({ ...o, _id: o.id })),
     });
   } catch (error) {
     console.error("Error generating report:", error);

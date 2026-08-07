@@ -1,44 +1,36 @@
 import { NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
-
-const DB_NAME = process.env.DB_NAME || 'gold';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 
 export async function GET(request: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date');
     const limit = parseInt(searchParams.get('limit') || '100');
 
     if (date) {
       // Get entry for specific date
-      const entry = await db
-        .collection('dailyCash')
-        .findOne({ date });
+      const entry = await prisma.dailyCash.findFirst({ where: { date } });
 
       return NextResponse.json({ 
         success: true, 
         data: entry ? {
           ...entry,
-          _id: entry._id.toString(),
+          _id: entry.id,
           createdAt: entry.createdAt?.toISOString(),
           updatedAt: entry.updatedAt?.toISOString()
         } : null 
       });
     } else {
       // Get all entries
-      const entries = await db
-        .collection('dailyCash')
-        .find({})
-        .sort({ date: -1 })
-        .limit(limit)
-        .toArray();
+      const entries = await prisma.dailyCash.findMany({
+        orderBy: { date: 'desc' },
+        take: limit,
+      });
 
       const formattedEntries = entries.map(entry => ({
         ...entry,
-        _id: entry._id.toString(),
+        _id: entry.id,
         createdAt: entry.createdAt?.toISOString(),
         updatedAt: entry.updatedAt?.toISOString()
       }));
@@ -56,8 +48,6 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     const body = await request.json();
 
     // Validate required fields - Updated to match frontend
@@ -69,9 +59,7 @@ export async function POST(request: Request) {
     }
 
     // Check if entry already exists for this date
-    const existingEntry = await db
-      .collection('dailyCash')
-      .findOne({ date: body.date });
+    const existingEntry = await prisma.dailyCash.findFirst({ where: { date: body.date } });
 
     if (existingEntry) {
       return NextResponse.json(
@@ -95,9 +83,7 @@ export async function POST(request: Request) {
       date: body.date,
       // Store all amount fields
       cashAmount: cashAmount,
-      bankAmount: bankAmount || transferAmount, // Support both field names
       transferAmount: transferAmount || bankAmount,
-      zedAmount: zedAmount,
       totalAmount: totalAmount,
       zReportNumber: zReportNumber,
       notes: body.notes || '',
@@ -106,11 +92,13 @@ export async function POST(request: Request) {
       updatedAt: new Date(),
     };
 
-    const result = await db.collection('dailyCash').insertOne(newEntry);
+    const created = await prisma.dailyCash.create({
+      data: { id: randomUUID(), ...newEntry },
+    });
 
     const insertedEntry = {
       ...newEntry,
-      _id: result.insertedId.toString(),
+      _id: created.id,
       createdAt: newEntry.createdAt.toISOString(),
       updatedAt: newEntry.updatedAt.toISOString()
     };
@@ -127,8 +115,6 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const body = await request.json();
@@ -136,13 +122,6 @@ export async function PUT(request: Request) {
     if (!id) {
       return NextResponse.json(
         { success: false, error: 'ID is required' },
-        { status: 400 }
-      );
-    }
-
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid ID format' },
         { status: 400 }
       );
     }
@@ -157,9 +136,7 @@ export async function PUT(request: Request) {
 
     const updateData: any = {
       cashAmount: cashAmount,
-      bankAmount: bankAmount || transferAmount,
       transferAmount: transferAmount || bankAmount,
-      zedAmount: zedAmount,
       totalAmount: totalAmount,
       notes: body.notes || '',
       updatedAt: new Date(),
@@ -169,28 +146,27 @@ export async function PUT(request: Request) {
       updateData.zReportNumber = body.zReportNumber;
     }
 
-    const result = await db
-      .collection('dailyCash')
-      .findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: updateData },
-        { returnDocument: 'after' }
-      );
-
-    if (!result || !result.value) {
-      return NextResponse.json(
-        { success: false, error: 'Entry not found' },
-        { status: 404 }
-      );
+    let updatedEntry: any;
+    try {
+      updatedEntry = await prisma.dailyCash.update({
+        where: { id },
+        data: updateData,
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json(
+          { success: false, error: 'Entry not found' },
+          { status: 404 }
+        );
+      }
+      throw e;
     }
-
-    const updatedEntry = result.value;
 
     return NextResponse.json({ 
       success: true, 
       data: { 
         ...updatedEntry, 
-        _id: updatedEntry._id.toString(),
+        _id: updatedEntry.id,
         createdAt: updatedEntry.createdAt?.toISOString(),
         updatedAt: updatedEntry.updatedAt?.toISOString()
       } 
@@ -206,8 +182,6 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
@@ -218,18 +192,9 @@ export async function DELETE(request: Request) {
       );
     }
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid ID format' },
-        { status: 400 }
-      );
-    }
+    const result = await prisma.dailyCash.deleteMany({ where: { id } });
 
-    const result = await db
-      .collection('dailyCash')
-      .deleteOne({ _id: new ObjectId(id) });
-
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: 'Entry not found' },
         { status: 404 }

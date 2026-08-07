@@ -2,8 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
@@ -20,13 +19,10 @@ export async function GET() {
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db();
-
     // Get user ID
     const userId = session.user.id;
 
-    if (!userId || !ObjectId.isValid(userId)) {
+    if (!userId) {
       return NextResponse.json(
         {
           success: false,
@@ -37,8 +33,8 @@ export async function GET() {
     }
 
     // Find user (just to verify existence)
-    const user = await db.collection("users").findOne({
-      _id: new ObjectId(userId),
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
     });
 
     if (!user) {
@@ -54,14 +50,7 @@ export async function GET() {
     // Remove password from memory
     const { password, ...userWithoutPassword } = user;
 
-    console.log("User data fetched:", {
-      id: userWithoutPassword._id,
-      firstName: userWithoutPassword.firstName,
-      lastName: userWithoutPassword.lastName,
-      email: userWithoutPassword.email,
-      phone: userWithoutPassword.phone,
-      address: userWithoutPassword.address,
-    });
+
 
     // Extract city (for internal use only)
     const extractCityFromAddress = (

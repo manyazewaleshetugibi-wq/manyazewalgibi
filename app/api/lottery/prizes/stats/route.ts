@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
+import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 
 export async function GET(request: NextRequest) {
@@ -7,11 +7,8 @@ export async function GET(request: NextRequest) {
     const { response } = await requireAdmin();
     if (response) return response;
 
-    const client = await clientPromise;
-    const db = client.db();
-
     // Get all prizes
-    const prizes = await db.collection('prizes').find({ isActive: true }).toArray();
+    const prizes = await prisma.prize.findMany({ where: { isActive: true } });
 
     // Calculate statistics
     const totalPrizes = prizes.length;

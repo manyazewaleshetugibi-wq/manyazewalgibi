@@ -23,23 +23,12 @@ export class AIClient {
   constructor() {
     this.groqApiKey = process.env.GROQ_API_KEY || '';
     this.currentModel = 'llama-3.1-8b-instant';
-    console.log('🤖 AI Model ready');
+
   }
 
-  async setDatabaseSchema(db: any): Promise<void> {
-    const collections = await db.listCollections().toArray();
-    const schema: any = {};
-    
-    for (const collection of collections) {
-      const colName = collection.name;
-      const sample = await db.collection(colName).findOne({});
-      if (sample) {
-        schema[colName] = Object.keys(sample);
-      }
-    }
-    
+  async setDatabaseSchema(schema: Record<string, string[]>): Promise<void> {
     this.dbSchema = JSON.stringify(schema, null, 2);
-    console.log('📚 Schema loaded:', Object.keys(schema).length, 'collections');
+
   }
 
   private async callGroqAPI(prompt: string, retries: number = 2): Promise<string> {
@@ -56,7 +45,7 @@ export class AIClient {
             messages: [
               {
                 role: 'system',
-                content: 'You are a MongoDB query expert. Return ONLY valid JSON. No explanations, no markdown.'
+                content: 'You are a PostgreSQL query expert for a restaurant database. Return ONLY valid JSON. No explanations, no markdown.'
               },
               {
                 role: 'user',
@@ -70,7 +59,7 @@ export class AIClient {
 
         if (response.status === 429) {
           const waitTime = Math.pow(2, i) * 1000;
-          console.log(`⏳ Rate limit, waiting ${waitTime}ms...`);
+
           await new Promise(resolve => setTimeout(resolve, waitTime));
           continue;
         }
@@ -165,13 +154,13 @@ export class AIClient {
   async understandQuery(userQuery: string): Promise<AIUnderstanding> {
     const cacheKey = userQuery.toLowerCase().trim();
     if (this.queryCache.has(cacheKey)) {
-      console.log('📦 Cache hit');
+
       return this.queryCache.get(cacheKey)!;
     }
     
-    const prompt = `You are a MongoDB expert for a restaurant database.
+    const prompt = `You are a PostgreSQL expert for a restaurant database.
 
-DATABASE SCHEMA:
+DATABASE TABLES:
 ${this.dbSchema}
 
 USER QUESTION: "${userQuery}"
@@ -181,6 +170,8 @@ IMPORTANT RULES:
 2. For "compare", "vs", "versus", "difference", "change" → return comparison query
 3. For time periods: "this month", "last month", "this week", "last week", "today", "yesterday"
 4. For completed orders → filter by status "COMPLETED"
+
+The "mongoQuery" field below is a JSON abstraction. Supported operators: $match, $group, $sort, $limit, $unwind, $expr, $gte, $lte, $gt, $lt, $in, $regex, $or. Use table names as the "collections" entries.
 
 Return JSON with appropriate structure:
 
@@ -236,10 +227,10 @@ Return ONLY valid JSON.`;
       this.queryCache.set(cacheKey, understanding);
       if (this.queryCache.size > 100) {
         const firstKey = this.queryCache.keys().next().value;
-        this.queryCache.delete(firstKey);
+        if (firstKey) this.queryCache.delete(firstKey);
       }
       
-      console.log('📋 AI Understanding:', JSON.stringify(understanding, null, 2));
+
       return understanding;
     } catch (error) {
       console.error('AI Error:', error);
@@ -256,7 +247,7 @@ Return ONLY valid JSON.`;
          lowerQuery.includes('difference') || lowerQuery.includes('change')) &&
         (lowerQuery.includes('month') || lowerQuery.includes('week'))) {
       
-      let compareType = 'month_over_month';
+      let compareType: 'month_over_month' | 'week_over_week' | 'day_over_day' = 'month_over_month';
       if (lowerQuery.includes('week')) compareType = 'week_over_week';
       if (lowerQuery.includes('day')) compareType = 'day_over_day';
       
@@ -271,6 +262,8 @@ Return ONLY valid JSON.`;
         currentPeriod: ranges.current,
         previousPeriod: ranges.previous,
         explanation: `Comparing revenue ${compareType.replace('_', ' ')}`,
+        mongoQuery: null,
+        projection: [],
         limit: 1
       };
     }
@@ -298,6 +291,7 @@ Return ONLY valid JSON.`;
         limit: 1,
         aggregation: true,
         comparison: false,
+        projection: [],
         explanation: "Calculating total revenue from completed orders this month"
       };
     }

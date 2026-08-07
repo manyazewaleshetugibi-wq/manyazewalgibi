@@ -1,5 +1,4 @@
 // In @/models/Waitress.ts
-import { ObjectId } from "mongodb";
 
 export enum ShiftType {
     MORNING = "MORNING",
@@ -8,7 +7,7 @@ export enum ShiftType {
 }
 
 export interface Waitress {
-    _id: ObjectId;
+    _id: string;
     name: string;
     phone: string;
     shift: ShiftType;
@@ -17,7 +16,7 @@ export interface Waitress {
     updatedAt: Date;
     
     // New optional fields for POS user registration
-    userId?: ObjectId;
+    userId?: string;
     email?: string;
     role?: string;
     registeredFromUser?: boolean;

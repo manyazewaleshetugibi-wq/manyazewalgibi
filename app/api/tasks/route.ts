@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
+import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { auth } from '@/auth';
-import { ObjectId } from 'mongodb';
+import { randomUUID } from 'crypto';
 
 // Helper function for case-insensitive role check
 const isAdminRole = (role: string | undefined): boolean => {
@@ -26,10 +27,10 @@ const calculateActualHours = (startTime: string, completedTime: string): number 
 };
 
 // Helper to get user details
-const getUserDetails = async (db: any, email: string) => {
-  let user = await db.collection('staff').findOne({ email });
+const getUserDetails = async (email: string) => {
+  let user = await prisma.staff.findFirst({ where: { email } });
   if (!user) {
-    user = await db.collection('users').findOne({ email });
+    user = await prisma.user.findFirst({ where: { email } });
   }
   return user;
 };
@@ -45,25 +46,22 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const sessionUser = session.user as any;
     
-    const client = await clientPromise;
-    const db = client.db();
-    
-    const currentStaff = await getUserDetails(db, sessionUser.email);
+    const currentStaff = await getUserDetails(sessionUser.email);
     
     const userRole = currentStaff?.role || sessionUser?.role || 'STAFF';
     const userPermissions = currentStaff?.permissions || {};
     const userEmail = sessionUser?.email;
     
-    const canViewAllTasks = isAdminRole(userRole) || userPermissions.canAssignTasks === true;
+    const canViewAllTasks = isAdminRole(userRole) || (userPermissions as any).canAssignTasks === true;
     
     let query: any = {};
     
     if (!canViewAllTasks) {
-      query['assignedTo.email'] = userEmail;
+      query.assignedTo = { path: ['email'], string_equals: userEmail };
     } else {
       const assignedToEmail = searchParams.get('assignedTo');
       if (assignedToEmail && assignedToEmail !== '') {
-        query['assignedTo.email'] = assignedToEmail;
+        query.assignedTo = { path: ['email'], string_equals: assignedToEmail };
       }
     }
     
@@ -77,12 +75,12 @@ export async function GET(request: Request) {
       query.priority = priority;
     }
     
-    const tasks = await db.collection('tasks')
-      .find(query)
-      .sort({ startTime: -1 })
-      .toArray();
+    const tasks = await prisma.task.findMany({
+      where: query,
+      orderBy: { startTime: 'desc' },
+    });
     
-    return NextResponse.json({ success: true, tasks });
+    return NextResponse.json({ success: true, tasks: tasks.map(t => ({ ...t, _id: t.id })) });
   } catch (error) {
     console.error('Error fetching tasks:', error);
     return NextResponse.json({ error: 'Failed to fetch tasks' }, { status: 500 });
@@ -98,10 +96,8 @@ export async function POST(request: Request) {
     }
 
     const sessionUser = session.user as any;
-    const client = await clientPromise;
-    const db = client.db();
     
-    const currentStaff = await getUserDetails(db, sessionUser.email);
+    const currentStaff = await getUserDetails(sessionUser.email);
     
     const userRole = currentStaff?.role || sessionUser?.role || 'STAFF';
     const userPermissions = currentStaff?.permissions || {};
@@ -145,13 +141,17 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
     
-    let assignedUser = await db.collection('staff').findOne({ 
-      $or: [{ _id: new ObjectId(assignedToId) }, { email: assignedToEmail }] 
+    let assignedUser = await prisma.staff.findFirst({ 
+      where: {
+        OR: [{ id: assignedToId }, { email: assignedToEmail }]
+      }
     });
     
     if (!assignedUser) {
-      assignedUser = await db.collection('users').findOne({ 
-        $or: [{ _id: assignedToId }, { email: assignedToEmail }] 
+      assignedUser = await prisma.user.findFirst({ 
+        where: {
+          OR: [{ id: assignedToId }, { email: assignedToEmail }]
+        }
       });
     }
     
@@ -159,16 +159,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Assigned user not found' }, { status: 404 });
     }
     
-    const task = {
+    const task: any = {
       title: title.trim(),
       description: description.trim(),
       assignedTo: {
-        userId: assignedUser._id.toString(),
+        userId: assignedUser.id,
         name: assignedUser.name,
         email: assignedUser.email,
       },
       assignedBy: {
-        userId: currentStaff?._id?.toString() || sessionUser?.email,
+        userId: currentStaff?.id || sessionUser?.email,
         name: currentStaff?.name || sessionUser?.name || 'Unknown',
         email: sessionUser?.email,
         role: userRole
@@ -178,8 +178,8 @@ export async function POST(request: Request) {
       priority: priority || 'medium',
       estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
       status: 'pending',
-      notes: null,
-      actualHours: null,
+      notes: Prisma.DbNull,
+      actualHours: Prisma.DbNull,
       actualStartTime: null,
       actualCompletedTime: null,
       completedAt: null,
@@ -189,8 +189,8 @@ export async function POST(request: Request) {
       updatedAt: new Date()
     };
     
-    const result = await db.collection('tasks').insertOne(task);
-    const createdTask = { ...task, _id: result.insertedId };
+    const created = await prisma.task.create({ data: { id: randomUUID(), ...task } });
+    const createdTask = { ...created, _id: created.id };
     
     return NextResponse.json({ 
       success: true, 
@@ -226,15 +226,13 @@ export async function PUT(request: Request) {
     }
     
     const sessionUser = session.user as any;
-    const client = await clientPromise;
-    const db = client.db();
     
-    const currentStaff = await getUserDetails(db, sessionUser.email);
+    const currentStaff = await getUserDetails(sessionUser.email);
     const userRole = currentStaff?.role || sessionUser?.role || 'STAFF';
     const userEmail = sessionUser?.email;
     
-    const existingTask = await db.collection('tasks').findOne({ 
-      _id: new ObjectId(id) 
+    const existingTask = await prisma.task.findFirst({ 
+      where: { id }
     });
     
     if (!existingTask) {
@@ -242,7 +240,7 @@ export async function PUT(request: Request) {
     }
     
     const canUpdateAnyTask = isAdminRole(userRole);
-    const isAssignedToUser = existingTask.assignedTo.email === userEmail;
+    const isAssignedToUser = (existingTask.assignedTo as any)?.email === userEmail;
     
     if (!canUpdateAnyTask && !isAssignedToUser) {
       return NextResponse.json({ 
@@ -294,7 +292,7 @@ export async function PUT(request: Request) {
     
     // Update notes
     if (notes !== undefined) {
-      updateData.notes = notes;
+      updateData.notes = notes === null ? Prisma.DbNull : notes;
     }
     
     // Update actual hours manually
@@ -302,23 +300,22 @@ export async function PUT(request: Request) {
       updateData.actualHours = parseFloat(actualHours);
     }
     
-    const result = await db.collection('tasks').updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
+    const result = await prisma.task.updateMany(
+      { where: { id }, data: updateData }
     );
     
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
     
-    const updatedTask = await db.collection('tasks').findOne({ 
-      _id: new ObjectId(id) 
+    const updatedTask = await prisma.task.findFirst({ 
+      where: { id }
     });
     
     return NextResponse.json({ 
       success: true, 
       message: 'Task updated successfully',
-      task: updatedTask
+      task: updatedTask ? { ...updatedTask, _id: updatedTask.id } : updatedTask
     });
   } catch (error) {
     console.error('Error updating task:', error);
@@ -335,10 +332,8 @@ export async function DELETE(request: Request) {
     }
     
     const sessionUser = session.user as any;
-    const client = await clientPromise;
-    const db = client.db();
     
-    const currentStaff = await getUserDetails(db, sessionUser.email);
+    const currentStaff = await getUserDetails(sessionUser.email);
     const userRole = currentStaff?.role || sessionUser?.role || 'STAFF';
     
     if (!isAdminRole(userRole)) {
@@ -354,16 +349,16 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Task ID is required' }, { status: 400 });
     }
     
-    const taskToDelete = await db.collection('tasks').findOne({ 
-      _id: new ObjectId(id) 
+    const taskToDelete = await prisma.task.findFirst({ 
+      where: { id }
     });
     
     if (!taskToDelete) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
     
-    const result = await db.collection('tasks').deleteOne({ 
-      _id: new ObjectId(id) 
+    await prisma.task.deleteMany({ 
+      where: { id }
     });
     
     return NextResponse.json({ 

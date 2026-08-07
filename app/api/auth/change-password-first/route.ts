@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
+import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcrypt';
 import { getToken } from 'next-auth/jwt';
-import { ObjectId } from 'mongodb';
 
 export async function POST(request: NextRequest) {
-  console.log('🔐 Change password API called');
+
   
   try {
     // Identity comes exclusively from the signed session cookie (never from request headers)
@@ -16,16 +15,13 @@ export async function POST(request: NextRequest) {
     const userId = token.id as string;
     const userEmail = token.email as string;
 
-    console.log('👤 User ID from token:', token.id);
-    console.log('📧 User email from token:', token.email);
 
-    const client = await clientPromise;
-    const db = client.db('gold');
-    
+
+
     const body = await request.json();
     const { currentPassword, newPassword } = body;
     
-    console.log('📝 Password change request received');
+
     
     if (!currentPassword || !newPassword) {
       return NextResponse.json(
@@ -34,44 +30,27 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Convert string ID to ObjectId
-    let userObjectId;
-    try {
-      userObjectId = new ObjectId(token.id as string);
-      console.log('✅ User ID converted to ObjectId:', userObjectId);
-    } catch (error) {
-      console.error('❌ Invalid user ID format:', error);
-      return NextResponse.json(
-        { success: false, message: 'Invalid user ID format' },
-        { status: 400 }
-      );
-    }
-    
-    // Find user - search in users collection
-    const user = await db.collection("users").findOne({ _id: userObjectId });
+    // Find user
+    const user = await prisma.user.findUnique({ where: { id: token.id as string } });
     
     if (!user) {
-      console.log('❌ User not found with ID:', token.id);
+
       return NextResponse.json(
         { success: false, message: 'User not found' },
         { status: 404 }
       );
     }
     
-    console.log('✅ User found:', user.email);
-    console.log('📋 Current user data:', {
-      requiresPasswordChange: user.requiresPasswordChange,
-      hasField: 'requiresPasswordChange' in user,
-      employeeId: user.employeeId
-    });
+
+
     
     // IMPORTANT: Check if password change is required
     const requiresChange = user.requiresPasswordChange ?? true; // Default to true if field doesn't exist
     
-    console.log('🔑 Password change required?', requiresChange);
+
     
     if (!requiresChange) {
-      console.log('ℹ️ Password change not required for this user');
+
       return NextResponse.json(
         { 
           success: false, 
@@ -83,18 +62,18 @@ export async function POST(request: NextRequest) {
     }
     
     // Verify current password
-    console.log('🔐 Verifying current password...');
-    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password || '');
     
     if (!isPasswordValid) {
-      console.log('❌ Current password is incorrect');
+
       return NextResponse.json(
         { success: false, message: 'Current password is incorrect' },
         { status: 401 }
       );
     }
     
-    console.log('✅ Current password verified');
+
     
     // Validate new password strength
     if (newPassword.length < 8) {
@@ -110,12 +89,7 @@ export async function POST(request: NextRequest) {
     const hasNumbers = /\d/.test(newPassword);
     const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~]/.test(newPassword);
     
-    console.log('📊 Password complexity check:', {
-      hasUpperCase,
-      hasLowerCase,
-      hasNumbers,
-      hasSpecialChar
-    });
+
     
     if (!hasUpperCase || !hasLowerCase || !hasNumbers || !hasSpecialChar) {
       return NextResponse.json(
@@ -136,35 +110,30 @@ export async function POST(request: NextRequest) {
     }
     
     // Hash new password
-    console.log('🔐 Hashing new password...');
+
     const saltRounds = 10;
     const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
     
-    // Determine collection name based on user data
     const collectionName = "users";
-    console.log('📁 Using collection:', collectionName);
+
     
     // CRITICAL: Update BOTH password AND requiresPasswordChange field to false
-    console.log('💾 Updating user in database...');
-    const updateResult = await db.collection(collectionName).updateOne(
-      { _id: userObjectId },
+
+    const updateResult = await prisma.user.updateMany(
       { 
-        $set: { 
+        where: { id: token.id as string },
+        data: { 
           password: hashedNewPassword,
-          requiresPasswordChange: false, // ← SET TO FALSE
+          requiresPasswordChange: false,
           lastPasswordChange: new Date(),
           updatedAt: new Date()
-        } 
+        }
       }
     );
     
-    console.log('📊 Database update result:', {
-      matchedCount: updateResult.matchedCount,
-      modifiedCount: updateResult.modifiedCount,
-      acknowledged: updateResult.acknowledged
-    });
+
     
-    if (updateResult.modifiedCount === 0) {
+    if (updateResult.count === 0) {
       console.error('❌ Failed to update user in database');
       return NextResponse.json(
         { success: false, message: 'Failed to update password' },
@@ -172,7 +141,7 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    console.log('✅ Password updated successfully, requiresPasswordChange set to false');
+
     
     // 🔴 CRITICAL: Set a cookie that middleware can use to refresh the session
     // This tells the client that password was changed and session needs refresh

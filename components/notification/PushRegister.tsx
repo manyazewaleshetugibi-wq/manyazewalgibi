@@ -43,7 +43,7 @@ export default function PushRegister() {
   useEffect(() => {
     const checkSubscription = async () => {
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        console.log('Push notifications not supported');
+
         return;
       }
 
@@ -52,19 +52,19 @@ export default function PushRegister() {
         let registration = await navigator.serviceWorker.getRegistration();
         
         if (!registration) {
-          console.log('Service Worker not registered, registering now...');
+
           registration = await navigator.serviceWorker.register('/sw.js', {
             scope: '/',
             updateViaCache: 'none'
           });
-          console.log('Service Worker registered successfully');
+
         }
 
         // Check for existing subscription
         const subscription = await registration.pushManager.getSubscription();
         setIsSubscribed(!!subscription);
         
-        console.log('Subscription status:', !!subscription);
+
       } catch (err) {
         console.error('Error checking subscription:', err);
         setError('Failed to check notification subscription');
@@ -165,7 +165,7 @@ export default function PushRegister() {
 
       setIsSubscribed(true);
       setError(null);
-      console.log('Successfully subscribed to push notifications');
+
 
     } catch (err: any) {
       console.error('Subscription setup failed:', err);
@@ -220,7 +220,7 @@ export default function PushRegister() {
 
       setIsSubscribed(false);
       setError(null);
-      console.log('Successfully unsubscribed from push notifications');
+
 
     } catch (err: any) {
       console.error('Unsubscribe failed:', err);
@@ -433,7 +433,6 @@ export default function PushRegister() {
 //   config.retryCount += 1
   
 //   const delayTime = 1000 * Math.pow(2, config.retryCount - 1)
-//   console.log(`Retrying ${config.url} (attempt ${config.retryCount}) in ${delayTime}ms...`)
   
 //   await new Promise(resolve => setTimeout(resolve, delayTime))
 //   return api(config)
@@ -641,7 +640,6 @@ export default function PushRegister() {
 //         // Use the extractor to safely get waitresses data
 //         const waitressesData = extractData<Waitress>(response, [])
 //         setWaitresses(waitressesData)
-//         console.log(`✅ Loaded ${waitressesData.length} waitresses`)
 //       }
 //     } catch (error: any) {
 //       console.error("Error fetching waitresses:", error)
@@ -659,7 +657,6 @@ export default function PushRegister() {
 //         // Extract data from the response
 //         const restaurantsData = extractData<Restaurant>(response, [])
 //         setRestaurants(restaurantsData)
-//         console.log(`✅ Loaded ${restaurantsData.length} restaurants`)
 //       }
 //     } catch (error) {
 //       console.error("Error loading restaurants:", error)
@@ -701,14 +698,6 @@ export default function PushRegister() {
 //         setFailedStockCount(failed.length)
 //         setPendingOrdersList(pending)
 //         setFailedOrdersList(failed)
-        
-//         // Log stock status for debugging
-//         console.log('📊 Stock Status Summary:', {
-//           totalCompleted: completedOrders.length,
-//           pending: pending.length,
-//           failed: failed.length,
-//           processed: processed.length
-//         })
         
 //         if (pending.length === 0 && failed.length === 0) {
 //           setStockError(null)

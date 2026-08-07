@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 // PUT - Update training details
 export async function PUT(
@@ -13,16 +12,6 @@ export async function PUT(
     
     const body = await request.json();
     const { title, description, linkUrl, type } = body;
-
-    if (!ObjectId.isValid(trainingId)) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Invalid training ID" 
-      }, { status: 400 });
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
 
     const updateData: any = {
       title,
@@ -42,16 +31,18 @@ export async function PUT(
       updateData.fileUrl = linkUrl;
     }
 
-    const result = await db.collection("trainings").updateOne(
-      { _id: new ObjectId(trainingId) },
-      { $set: updateData }
-    );
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Training not found" 
-      }, { status: 404 });
+    try {
+      await prisma.training.update(
+        { where: { id: trainingId }, data: updateData }
+      );
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json({ 
+          success: false,
+          error: "Training not found" 
+        }, { status: 404 });
+      }
+      throw e;
     }
 
     return NextResponse.json({ 
@@ -77,21 +68,11 @@ export async function DELETE(
     // ✅ Await the params Promise
     const { id: trainingId } = await params;
     
-    console.log('Deleting training:', trainingId);
 
-    if (!ObjectId.isValid(trainingId)) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Invalid training ID" 
-      }, { status: 400 });
-    }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     // Get training first
-    const training = await db.collection("trainings").findOne({ 
-      _id: new ObjectId(trainingId) 
+    const training = await prisma.training.findUnique({ 
+      where: { id: trainingId } 
     });
 
     if (!training) {
@@ -101,12 +82,11 @@ export async function DELETE(
       }, { status: 404 });
     }
 
-    // Delete from MongoDB
-    const result = await db.collection("trainings").deleteOne({ 
-      _id: new ObjectId(trainingId) 
+    const result = await prisma.training.deleteMany({ 
+      where: { id: trainingId } 
     });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ 
         success: false,
         error: "Failed to delete training" 

@@ -50,8 +50,8 @@ const fadeInUp = {
 const getEmbedUrl = (url: string) => {
   if (!url) return null
   
-  // YouTube
-  const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i
+  // YouTube (watch, shorts, live, embed, v, e, youtu.be)
+  const youtubeRegex = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/|e\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i
   const youtubeMatch = url.match(youtubeRegex)
   if (youtubeMatch && youtubeMatch[1]) {
     return `https://www.youtube.com/embed/${youtubeMatch[1]}`

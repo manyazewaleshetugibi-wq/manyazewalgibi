@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 import { requireAdmin } from '@/lib/api-auth';
 
 // Define the constants directly in the file since the import is failing
@@ -23,9 +23,6 @@ export async function GET(request: NextRequest) {
     const { response } = await requireAdmin();
     if (response) return response;
 
-    const client = await clientPromise;
-    const db = client.db();
-
     const { searchParams } = new URL(request.url);
     const active = searchParams.get('active');
     const rarity = searchParams.get('rarity');
@@ -40,14 +37,14 @@ export async function GET(request: NextRequest) {
       query.rarity = rarity;
     }
 
-    const prizes = await db.collection('prizes')
-      .find(query)
-      .sort({ probability: -1, value: -1 })
-      .toArray();
+    const prizes = await prisma.prize.findMany({
+      where: query,
+      orderBy: [{ probability: 'desc' }, { value: 'desc' }]
+    });
 
     const mappedPrizes = prizes.map(prize => ({
       ...prize,
-      id: prize._id.toString(),
+      id: prize.id,
       _id: undefined
     }));
 
@@ -71,8 +68,6 @@ export async function POST(request: NextRequest) {
     const { response } = await requireAdmin();
     if (response) return response;
 
-    const client = await clientPromise;
-    const db = client.db();
     const prizeData = await request.json();
 
     // Validate required fields
@@ -100,7 +95,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const prize = {
+    const prize: any = {
       ...prizeData,
       icon: prizeData.icon || 'Gift',
       color: prizeData.color || DEFAULT_COLORS[prizeData.rarity as keyof typeof DEFAULT_COLORS],
@@ -112,11 +107,13 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date()
     };
 
-    const result = await db.collection('prizes').insertOne(prize);
+    const result = await prisma.prize.create({
+      data: { id: randomUUID(), ...prize }
+    });
 
     return NextResponse.json({
       success: true,
-      data: { id: result.insertedId.toString(), ...prize }
+      data: { id: result.id, ...prize }
     });
 
   } catch (error: any) {

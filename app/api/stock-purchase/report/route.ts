@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest) {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // ✅ Extract query parameters
     const { searchParams } = new URL(req.url);
     const startDateParam = searchParams.get("startDate");
@@ -22,54 +18,42 @@ export async function GET(req: NextRequest) {
     const endDate = new Date(endDateParam);
     endDate.setHours(23, 59, 59, 999); // Ensure full-day range
 
-    console.log("🔍 Start Date:", startDate);
-    console.log("🔍 End Date:", endDate);
 
-    // ✅ Fetch stock purchases with stock details
-    const purchases = await db.collection("stock_purchases").aggregate([
-      {
-        $match: {
-          purchaseDate: { $gte: startDate, $lte: endDate }
-        }
-      },
-      {
-        $addFields: {
-          stockIdObject: { $toObjectId: "$stockId" } // ✅ Convert `stockId` to `ObjectId`
-        }
-      },
-      {
-        $lookup: {
-          from: "stocks", // ✅ Ensure this matches your stock collection name
-          localField: "stockIdObject",
-          foreignField: "_id",
-          as: "stockDetails"
-        }
-      },
-      {
-        $unwind: {
-          path: "$stockDetails",
-          preserveNullAndEmptyArrays: true // ✅ Handle cases where stock details might be missing
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          stockId: 1,
-          purchaseDate: 1,
-          quantity: 1,
-          unitPrice: 1,
-          totalCost: { $multiply: ["$quantity", "$unitPrice"] }, // ✅ Calculate total cost
-          stock: {
-            name: "$stockDetails.name",
-            categoryId: "$stockDetails.categoryId",
-            unit: "$stockDetails.unit",
-          
-          }
-        }
+
+
+    // ✅ Fetch stock purchases
+    const purchases = await prisma.stockPurchase.findMany({
+      where: {
+        purchaseDate: { gte: startDate, lte: endDate }
       }
-    ]).toArray();
+    });
 
-    return NextResponse.json({ success: true, data: purchases }, { status: 200 });
+    // ✅ Fetch stock details for the purchase stockIds
+    const stockIds = Array.from(new Set(purchases.map(p => p.stockId).filter((id): id is string => !!id)));
+    const stocks = stockIds.length > 0
+      ? await prisma.stock.findMany({ where: { id: { in: stockIds } } })
+      : [];
+    const stockById = new Map(stocks.map(s => [s.id, s]));
+
+    const data = purchases.map(purchase => {
+      const stock = purchase.stockId ? stockById.get(purchase.stockId) : undefined;
+      const totalCost = (Number(purchase.quantity) || 0) * (Number(purchase.unitPrice) || 0);
+      return {
+        _id: purchase.id,
+        stockId: purchase.stockId,
+        purchaseDate: purchase.purchaseDate,
+        quantity: purchase.quantity,
+        unitPrice: purchase.unitPrice,
+        totalCost,
+        stock: {
+          name: stock?.name ?? null,
+          categoryId: stock?.categoryId ?? null,
+          unit: stock?.unit ?? null,
+        }
+      };
+    });
+
+    return NextResponse.json({ success: true, data }, { status: 200 });
 
   } catch (error) {
     console.error("❌ Error fetching stock purchase report:", error);

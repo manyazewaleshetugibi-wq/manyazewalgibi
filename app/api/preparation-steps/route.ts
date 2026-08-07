@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import { getCurrentUserData } from "../utils/orderHelpers";
 
 // Helper function to extract first number from text
@@ -12,8 +12,6 @@ const extractFirstNumber = (text: string): number => {
 // GET endpoint - Fetch all preparation recipes
 export async function GET(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const url = new URL(req.url);
     const recipeId = url.searchParams.get("id");
     const itemId = url.searchParams.get("itemId");
@@ -23,54 +21,56 @@ export async function GET(req: NextRequest) {
     let query: any = {};
     
     if (!includeDeleted) {
-      query.isActive = { $ne: false };
+      query.isActive = { not: false };
     }
     
-    if (recipeId && ObjectId.isValid(recipeId)) {
-      query._id = new ObjectId(recipeId);
-    } else if (itemId && ObjectId.isValid(itemId)) {
-      query.itemId = new ObjectId(itemId);
+    if (recipeId) {
+      query.id = recipeId;
+    } else if (itemId) {
+      query.itemId = itemId;
     }
 
-    const recipes = await db.collection("preparation_recipes")
-      .find(query)
-      .sort({ createdAt: -1 })
-      .toArray();
+    const recipes = await prisma.preparationRecipe.findMany({
+      where: query,
+      orderBy: { createdAt: 'desc' },
+    });
 
     // Fetch item details for each recipe
     const recipesWithDetails = await Promise.all(
       recipes.map(async (recipe) => {
-        const item = await db.collection("items").findOne(
-          { _id: recipe.itemId },
-          { projection: { name: 1, imageUrl: 1, price: 1 } }
-        );
+        const item = recipe.itemId
+          ? await prisma.item.findUnique({
+              where: { id: recipe.itemId },
+              select: { name: true, imageUrl: true, price: true },
+            })
+          : null;
         
         const stepsWithStockDetails = await Promise.all(
-          (recipe.steps || []).map(async (step: any) => {
+          ((recipe.steps as any) || []).map(async (step: any) => {
             if (step.ingredients && step.ingredients.length > 0) {
               const ingredientsWithStock = await Promise.all(
                 step.ingredients.map(async (ingredient: any) => {
-                  const stockItem = await db.collection("stock").findOne(
-                    { name: ingredient.name },
-                    { projection: { name: 1, unit: 1, currentStock: 1 } }
-                  );
+                  const stockItem = await prisma.stockRecord.findFirst({
+                    where: { name: ingredient.name },
+                    select: { name: true, unit: true, currentStock: true },
+                  });
                   return { ...ingredient, stockDetails: stockItem };
                 })
               );
               return { ...step, ingredients: ingredientsWithStock };
             }
             else if (step.ingredientName) {
-              const stockItem = await db.collection("stock").findOne(
-                { name: step.ingredientName },
-                { projection: { name: 1, unit: 1, currentStock: 1 } }
-              );
+              const stockItem = await prisma.stockRecord.findFirst({
+                where: { name: step.ingredientName },
+                select: { name: true, unit: true, currentStock: true },
+              });
               return { ...step, stockDetails: stockItem };
             }
             return step;
           })
         );
         
-        const totalTime = recipe.steps?.reduce((acc: number, step: any) => {
+        const totalTime = ((recipe.steps as any) || []).reduce((acc: number, step: any) => {
           if (step.timeValue) return acc + step.timeValue;
           if (step.timeAmount) return acc + step.timeAmount;
           return acc;
@@ -78,9 +78,10 @@ export async function GET(req: NextRequest) {
         
         return {
           ...recipe,
+          _id: recipe.id,
           itemDetails: item,
           steps: stepsWithStockDetails,
-          totalSteps: recipe.steps?.length || 0,
+          totalSteps: ((recipe.steps as any) || []).length || 0,
           totalTime: recipe.totalTime || totalTime
         };
       })
@@ -107,13 +108,11 @@ export async function GET(req: NextRequest) {
 // POST endpoint - Create new preparation recipe (allow all authenticated users)
 export async function POST(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const body = await req.json();
     
     const { itemId, steps, totalTime } = body;
 
-    if (!itemId || !ObjectId.isValid(itemId)) {
+    if (!itemId) {
       return NextResponse.json(
         { success: false, error: "Valid item ID is required" },
         { status: 400 }
@@ -127,7 +126,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const item = await db.collection("items").findOne({ _id: new ObjectId(itemId) });
+    const item = await prisma.item.findUnique({ where: { id: itemId } });
     if (!item) {
       return NextResponse.json(
         { success: false, error: "Item not found" },
@@ -136,9 +135,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Check if recipe already exists
-    const existingRecipe = await db.collection("preparation_recipes").findOne({ 
-      itemId: new ObjectId(itemId),
-      isActive: { $ne: false }
+    const existingRecipe = await prisma.preparationRecipe.findFirst({
+      where: {
+        itemId: itemId,
+        isActive: { not: false }
+      }
     });
     
     if (existingRecipe) {
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
         success: false,
         error: "Preparation recipe already exists for this item",
         exists: true,
-        recipeId: existingRecipe._id,
+        recipeId: existingRecipe.id,
         recipe: existingRecipe
       }, { status: 409 });
     }
@@ -163,8 +164,8 @@ export async function POST(req: NextRequest) {
     const isAdmin = userData?.role ? ['ADMIN', 'admin', 'Admin', 'SUPER_ADMIN'].includes(userData.role) : false;
 
     // Prepare recipe document
-    const recipeData = {
-      itemId: new ObjectId(itemId),
+    const recipeData: any = {
+      itemId: itemId,
       itemName: item.name,
       steps: steps.map((step: any, index: number) => {
         const stepObj: any = {
@@ -202,26 +203,34 @@ export async function POST(req: NextRequest) {
       version: 1
     };
 
-    const result = await db.collection("preparation_recipes").insertOne(recipeData);
+    const result = await prisma.preparationRecipe.create({
+      data: {
+        id: randomUUID(),
+        ...recipeData,
+      },
+    });
 
     // Create activity log
-    await db.collection("preparation_logs").insertOne({
-      action: "CREATE",
-      recipeId: result.insertedId,
-      itemId: new ObjectId(itemId),
-      itemName: item.name,
-      stepsCount: steps.length,
-      createdBy: userData?.name || userData?.email || "Unknown",
-      createdAt: new Date()
+    await prisma.preparationLog.create({
+      data: {
+        id: randomUUID(),
+        action: "CREATE",
+        recipeId: result.id,
+        itemId: itemId,
+        itemName: item.name,
+        stepsCount: steps.length,
+        createdBy: userData?.name || userData?.email || "Unknown",
+        createdAt: new Date()
+      },
     });
 
     return NextResponse.json({
       success: true,
       message: "Preparation recipe created successfully",
-      recipeId: result.insertedId,
+      recipeId: result.id,
       recipe: {
         ...recipeData,
-        _id: result.insertedId
+        _id: result.id
       }
     }, { status: 201 });
 
@@ -237,12 +246,10 @@ export async function POST(req: NextRequest) {
 // PUT endpoint - Update existing recipe (allow all authenticated users)
 export async function PUT(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const body = await req.json();
     const { recipeId, steps, totalTime, itemId } = body;
 
-    if (!recipeId || !ObjectId.isValid(recipeId)) {
+    if (!recipeId) {
       return NextResponse.json(
         { success: false, error: "Valid recipe ID is required" },
         { status: 400 }
@@ -258,7 +265,7 @@ export async function PUT(req: NextRequest) {
       userData = { name: "Unknown User", email: "unknown@example.com", role: "user" };
     }
 
-    const existingRecipe = await db.collection("preparation_recipes").findOne({ _id: new ObjectId(recipeId) });
+    const existingRecipe = await prisma.preparationRecipe.findUnique({ where: { id: recipeId } });
     if (!existingRecipe) {
       return NextResponse.json(
         { success: false, error: "Recipe not found" },
@@ -268,7 +275,7 @@ export async function PUT(req: NextRequest) {
 
     // REMOVED ADMIN CHECK - Allow any authenticated user to update
     // Just log who is updating
-    console.log(`User ${userData?.name || 'Unknown'} updating recipe ${recipeId}`);
+
 
     const updateData: any = {
       updatedAt: new Date(),
@@ -306,33 +313,35 @@ export async function PUT(req: NextRequest) {
       }, 0);
     }
 
-    if (itemId && ObjectId.isValid(itemId)) {
-      const item = await db.collection("items").findOne({ _id: new ObjectId(itemId) });
+    if (itemId) {
+      const item = await prisma.item.findUnique({ where: { id: itemId } });
       if (item) {
-        updateData.itemId = new ObjectId(itemId);
+        updateData.itemId = itemId;
         updateData.itemName = item.name;
       }
     }
 
-    const result = await db.collection("preparation_recipes").updateOne(
-      { _id: new ObjectId(recipeId) },
-      { $set: updateData }
-    );
+    const result = await prisma.preparationRecipe.updateMany({
+      where: { id: recipeId },
+      data: updateData,
+    });
 
-    await db.collection("preparation_logs").insertOne({
-      action: "UPDATE",
-      recipeId: new ObjectId(recipeId),
-      itemId: existingRecipe.itemId,
-      itemName: existingRecipe.itemName,
-      updatedBy: userData?.name || userData?.email || "Unknown",
-      updatedAt: new Date(),
-      version: updateData.version
+    await prisma.preparationLog.create({
+      data: {
+        id: randomUUID(),
+        action: "UPDATE",
+        recipeId: recipeId,
+        itemId: existingRecipe.itemId,
+        itemName: existingRecipe.itemName,
+        createdBy: userData?.name || userData?.email || "Unknown",
+        createdAt: new Date(),
+      },
     });
 
     return NextResponse.json({
       success: true,
       message: "Recipe updated successfully",
-      modifiedCount: result.modifiedCount,
+      modifiedCount: result.count,
       version: updateData.version
     }, { status: 200 });
 
@@ -348,8 +357,6 @@ export async function PUT(req: NextRequest) {
 // DELETE endpoint - Delete recipe (admin only)
 export async function DELETE(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const url = new URL(req.url);
     
     const recipeId = url.searchParams.get("id") || url.searchParams.get("recipeId");
@@ -376,10 +383,10 @@ export async function DELETE(req: NextRequest) {
     }
 
     let query: any = {};
-    if (recipeId && ObjectId.isValid(recipeId)) {
-      query._id = new ObjectId(recipeId);
-    } else if (itemId && ObjectId.isValid(itemId)) {
-      query.itemId = new ObjectId(itemId);
+    if (recipeId) {
+      query.id = recipeId;
+    } else if (itemId) {
+      query.itemId = itemId;
     } else {
       return NextResponse.json(
         { success: false, error: "Valid recipe ID or item ID is required" },
@@ -387,9 +394,9 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const recipes = await db.collection("preparation_recipes")
-      .find(query)
-      .toArray();
+    const recipes = await prisma.preparationRecipe.findMany({
+      where: query,
+    });
 
     if (!recipes || recipes.length === 0) {
       return NextResponse.json(
@@ -399,66 +406,65 @@ export async function DELETE(req: NextRequest) {
     }
 
     let deletedCount = 0;
-    const deletedRecipes = [];
+    const deletedRecipes: any[] = [];
 
     for (const recipe of recipes) {
-      let result;
-      
       if (permanent) {
-        result = await db.collection("preparation_recipes").deleteOne({
-          _id: recipe._id
+        const deleteResult = await prisma.preparationRecipe.deleteMany({
+          where: { id: recipe.id },
         });
         
-        if (result.deletedCount > 0) {
+        if (deleteResult.count > 0) {
           deletedCount++;
           deletedRecipes.push({
-            id: recipe._id,
+            id: recipe.id,
             itemName: recipe.itemName,
             deleted: true,
             permanent: true
           });
           
-          await db.collection("preparation_logs").insertOne({
-            action: "PERMANENT_DELETE",
-            recipeId: recipe._id,
-            itemId: recipe.itemId,
-            itemName: recipe.itemName,
-            deletedBy: userData?.name || userData?.email || "Unknown",
-            deletedAt: new Date(),
-            permanent: true
+          await prisma.preparationLog.create({
+            data: {
+              id: randomUUID(),
+              action: "PERMANENT_DELETE",
+              recipeId: recipe.id,
+              itemId: recipe.itemId,
+              itemName: recipe.itemName,
+              createdBy: userData?.name || userData?.email || "Unknown",
+              createdAt: new Date(),
+            },
           });
         }
       } else {
-        result = await db.collection("preparation_recipes").updateOne(
-          { _id: recipe._id },
-          { 
-            $set: { 
-              isActive: false,
-              deletedAt: new Date(),
-              deletedBy: userData?.name || userData?.email || "Unknown",
-              deletedReason: "Soft delete by admin"
-            } 
-          }
-        );
+        const updateResult = await prisma.preparationRecipe.updateMany({
+          where: { id: recipe.id },
+          data: {
+            isActive: false,
+            updatedAt: new Date(),
+            updatedBy: userData?.name || userData?.email || "Unknown",
+          },
+        });
         
-        if (result.modifiedCount > 0) {
+        if (updateResult.count > 0) {
           deletedCount++;
           deletedRecipes.push({
-            id: recipe._id,
+            id: recipe.id,
             itemName: recipe.itemName,
             deleted: true,
             permanent: false,
             isActive: false
           });
           
-          await db.collection("preparation_logs").insertOne({
-            action: "SOFT_DELETE",
-            recipeId: recipe._id,
-            itemId: recipe.itemId,
-            itemName: recipe.itemName,
-            deletedBy: userData?.name || userData?.email || "Unknown",
-            deletedAt: new Date(),
-            permanent: false
+          await prisma.preparationLog.create({
+            data: {
+              id: randomUUID(),
+              action: "SOFT_DELETE",
+              recipeId: recipe.id,
+              itemId: recipe.itemId,
+              itemName: recipe.itemName,
+              createdBy: userData?.name || userData?.email || "Unknown",
+              createdAt: new Date(),
+            },
           });
         }
       }
@@ -486,13 +492,11 @@ export async function DELETE(req: NextRequest) {
 // PATCH endpoint - Restore soft-deleted recipe (admin only)
 export async function PATCH(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const url = new URL(req.url);
     const recipeId = url.searchParams.get("id") || url.searchParams.get("recipeId");
     const action = url.searchParams.get("action") || "restore";
 
-    if (!recipeId || !ObjectId.isValid(recipeId)) {
+    if (!recipeId) {
       return NextResponse.json(
         { success: false, error: "Valid recipe ID is required" },
         { status: 400 }
@@ -516,8 +520,8 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const recipe = await db.collection("preparation_recipes").findOne({ 
-      _id: new ObjectId(recipeId) 
+    const recipe = await prisma.preparationRecipe.findUnique({
+      where: { id: recipeId }
     });
     
     if (!recipe) {
@@ -534,35 +538,31 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const result = await db.collection("preparation_recipes").updateOne(
-      { _id: new ObjectId(recipeId) },
-      { 
-        $set: { 
-          isActive: true,
-          restoredAt: new Date(),
-          restoredBy: userData?.name || userData?.email || "Unknown"
-        },
-        $unset: { 
-          deletedAt: "",
-          deletedBy: "",
-          deletedReason: ""
-        }
-      }
-    );
+    const result = await prisma.preparationRecipe.updateMany({
+      where: { id: recipeId },
+      data: {
+        isActive: true,
+        updatedAt: new Date(),
+        updatedBy: userData?.name || userData?.email || "Unknown",
+      },
+    });
 
-    await db.collection("preparation_logs").insertOne({
-      action: "RESTORE",
-      recipeId: new ObjectId(recipeId),
-      itemId: recipe.itemId,
-      itemName: recipe.itemName,
-      restoredBy: userData?.name || userData?.email || "Unknown",
-      restoredAt: new Date()
+    await prisma.preparationLog.create({
+      data: {
+        id: randomUUID(),
+        action: "RESTORE",
+        recipeId: recipeId,
+        itemId: recipe.itemId,
+        itemName: recipe.itemName,
+        createdBy: userData?.name || userData?.email || "Unknown",
+        createdAt: new Date(),
+      },
     });
 
     return NextResponse.json({
       success: true,
       message: "Recipe restored successfully",
-      modifiedCount: result.modifiedCount,
+      modifiedCount: result.count,
       recipeId: recipeId
     }, { status: 200 });
 

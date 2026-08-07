@@ -1,7 +1,7 @@
 // app/api/item-category/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 
 // Make imageUrl optional in the schema
@@ -28,7 +28,7 @@ const createResponse = (status: number, success: boolean, message: string, data:
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    console.log("📝 POST request body:", body);
+
 
     // Prepare data for validation
     const dataToValidate = {
@@ -45,18 +45,19 @@ export async function POST(req: NextRequest) {
     // Validate the data
     const parsed = validateItemCategoryData(dataToValidate);
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // Insert the category
-    const result = await db.collection("itemCategories").insertOne(parsed);
-
-    if (!result.acknowledged) {
-      throw new Error("Database insertion failed");
-    }
+    const result = await prisma.itemCategory.create({
+      data: {
+        id: randomUUID(),
+        name: parsed.name,
+        description: parsed.description,
+        type: parsed.type,
+        imageUrl: parsed.imageUrl,
+      },
+    });
 
     return createResponse(201, true, "Category created successfully", {
-      _id: result.insertedId,
+      _id: result.id,
       ...parsed,
     });
     
@@ -74,12 +75,13 @@ export async function POST(req: NextRequest) {
 // ✅ GET all categories
 export async function GET() {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const categories = await db.collection("itemCategories").find({}).toArray();
+    const categories = await prisma.itemCategory.findMany();
 
-    console.log(`✅ Retrieved ${categories.length} categories`);
-    return createResponse(200, true, "Item categories retrieved successfully", categories);
+
+    return createResponse(200, true, "Item categories retrieved successfully", categories.map((c: any) => ({
+      ...c,
+      _id: c.id,
+    })));
     
   } catch (error) {
     console.error("❌ GET /item-category Error:", error);
@@ -99,26 +101,24 @@ export async function PUT(req: NextRequest) {
 
     const body = await req.json();
     
-    const updateData = {
-      ...body,
-      updatedAt: new Date(),
+    const updateData: any = {
+      ...(body.name !== undefined && { name: body.name }),
+      ...(body.description !== undefined && { description: body.description }),
+      ...(body.type !== undefined && { type: body.type }),
     };
     
     // Remove imageUrl if not provided
-    if (!body.imageUrl) {
-      delete updateData.imageUrl;
+    if (body.imageUrl) {
+      updateData.imageUrl = body.imageUrl;
     }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
-    const result = await db.collection("itemCategories").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
-    
-    if (result.matchedCount === 0) {
-      return createResponse(404, false, "Category not found");
+    try {
+      await prisma.itemCategory.update({ where: { id }, data: updateData });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return createResponse(404, false, "Category not found");
+      }
+      throw e;
     }
     
     return createResponse(200, true, "Category updated successfully");
@@ -139,12 +139,9 @@ export async function DELETE(req: NextRequest) {
       return createResponse(400, false, "Category ID is required");
     }
     
-    const client = await clientPromise;
-    const db = client.db("gold");
+    const result = await prisma.itemCategory.deleteMany({ where: { id } });
     
-    const result = await db.collection("itemCategories").deleteOne({ _id: new ObjectId(id) });
-    
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return createResponse(404, false, "Category not found");
     }
     

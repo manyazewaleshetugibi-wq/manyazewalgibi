@@ -1,7 +1,6 @@
 // app/api/order/accept-assignment/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 import { auth } from "@/auth";
 
@@ -33,23 +32,14 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Get the order
-    let order = null;
+    let order: any = null;
     try {
-      if (ObjectId.isValid(orderId)) {
-        order = await db.collection("orders").findOne({
-          _id: new ObjectId(orderId)
-        });
-      } else {
-        order = await db.collection("orders").findOne({
-          _id: orderId
-        });
-      }
+      order = await prisma.order.findFirst({
+        where: { id: orderId }
+      });
     } catch (err) {
-      console.log("Error finding order:", err);
+
     }
 
     if (!order) {
@@ -68,31 +58,25 @@ export async function PUT(req: NextRequest) {
     }
 
     // Get the current waiter info
-    let currentWaiter = null;
+    let currentWaiter: any = null;
     
     if (session.user.email) {
-      currentWaiter = await db.collection("waitresses").findOne({ 
-        email: session.user.email 
+      currentWaiter = await prisma.waitress.findFirst({ 
+        where: { email: session.user.email } 
       });
     }
     
     if (!currentWaiter && waiterId) {
       try {
-        if (ObjectId.isValid(waiterId)) {
-          currentWaiter = await db.collection("waitresses").findOne({ 
-            _id: new ObjectId(waiterId) 
-          });
-        } else {
-          currentWaiter = await db.collection("waitresses").findOne({ 
-            _id: waiterId 
-          });
-        }
+        currentWaiter = await prisma.waitress.findFirst({ 
+          where: { id: waiterId } 
+        });
       } catch (err) {
-        console.log("Error finding current waiter:", err);
+
       }
     }
 
-    const currentWaiterId = currentWaiter ? currentWaiter._id.toString() : session.user.id;
+    const currentWaiterId = currentWaiter ? currentWaiter.id : session.user.id;
     
     // Verify that the requesting waiter is the assigned waiter
     const isAssignedWaiter = order.waiterId === currentWaiterId;
@@ -104,47 +88,54 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    const assignmentRequest = order.assignmentRequest ? { ...order.assignmentRequest } : {};
+
     let updateData: any = {};
 
     if (action === 'accept') {
       // Update order status to PREPARING or ACKNOWLEDGED
+      const notifications = Array.isArray(order.notifications) ? order.notifications : [];
       updateData = {
-        $set: {
-          status: 'PREPARING',
-          'assignmentRequest.status': 'accepted',
-          'assignmentRequest.acceptedAt': new Date().toISOString(),
-          'assignmentRequest.acceptedBy': currentWaiterId,
-          updatedAt: new Date()
-        }
-      };
-      
-      // Add notification to the order
-      updateData.$push = {
-        notifications: {
-          type: 'assignment_accepted',
-          message: `Waiter ${currentWaiter?.name || 'assigned waiter'} accepted the order`,
-          createdAt: new Date().toISOString()
-        }
+        status: 'PREPARING',
+        assignmentRequest: {
+          ...assignmentRequest,
+          status: 'accepted',
+          acceptedAt: new Date().toISOString(),
+          acceptedBy: currentWaiterId
+        },
+        // Add notification to the order
+        notifications: [
+          ...notifications,
+          {
+            type: 'assignment_accepted',
+            message: `Waiter ${currentWaiter?.name || 'assigned waiter'} accepted the order`,
+            createdAt: new Date().toISOString()
+          }
+        ],
+        updatedAt: new Date()
       };
     } else {
       // Reject the assignment - this will trigger reassignment
       updateData = {
-        $set: {
-          'assignmentRequest.status': 'rejected',
-          'assignmentRequest.rejectedAt': new Date().toISOString(),
-          'assignmentRequest.rejectedBy': currentWaiterId,
-          'assignmentRequest.rejectionReason': body.reason || 'Waiter rejected assignment',
-          updatedAt: new Date()
-        }
+        assignmentRequest: {
+          ...assignmentRequest,
+          status: 'rejected',
+          rejectedAt: new Date().toISOString(),
+          rejectedBy: currentWaiterId,
+          rejectionReason: body.reason || 'Waiter rejected assignment'
+        },
+        updatedAt: new Date()
       };
       
       // If rejected, we need to reassign to another waiter
       // Get all active waiters except current one
-      const otherWaiters = await db.collection("waitresses").find({
-        isActive: true,
-        _id: { $ne: new ObjectId(currentWaiterId) },
-        role: { $in: ['waiter', 'waitress', 'server'] }
-      }).toArray();
+      const otherWaiters = await prisma.waitress.findMany({
+        where: {
+          isActive: true,
+          id: { not: currentWaiterId },
+          role: { in: ['waiter', 'waitress', 'server'] }
+        }
+      });
       
       if (otherWaiters.length > 0) {
         // Reassign to the next waiter (round-robin based on table number)
@@ -153,27 +144,26 @@ export async function PUT(req: NextRequest) {
         const newWaiterIndex = (tableNum) % otherWaiters.length;
         const newWaiter = otherWaiters[newWaiterIndex];
         
-        updateData.$set.waiterId = newWaiter._id.toString();
-        updateData.$set.waiterName = newWaiter.name;
-        updateData.$set['assignmentRequest.reassignedTo'] = newWaiter._id.toString();
-        updateData.$set['assignmentRequest.reassignedAt'] = new Date().toISOString();
+        updateData.waiterId = newWaiter.id;
+        updateData.waiterName = newWaiter.name;
+        updateData.assignmentRequest.reassignedTo = newWaiter.id;
+        updateData.assignmentRequest.reassignedAt = new Date().toISOString();
         
         // Also update the assignment request status to pending for new waiter
-        updateData.$set['assignmentRequest.status'] = 'pending';
-        updateData.$set['assignmentRequest.previousWaiter'] = currentWaiterId;
+        updateData.assignmentRequest.status = 'pending';
+        updateData.assignmentRequest.previousWaiter = currentWaiterId;
       } else {
         // No other waiters available, mark as unassigned
-        updateData.$set.status = 'UNASSIGNED';
-        updateData.$set['assignmentRequest.status'] = 'failed';
+        updateData.status = 'UNASSIGNED';
+        updateData.assignmentRequest.status = 'failed';
       }
     }
 
-    const result = await db.collection("orders").updateOne(
-      { _id: order._id },
-      updateData
+    const result = await prisma.order.updateMany(
+      { where: { id: order.id }, data: updateData }
     );
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { error: 'Failed to update order', success: false },
         { status: 500 }
@@ -183,7 +173,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: action === 'accept' ? 'Assignment accepted successfully' : 'Assignment rejected and reassigned',
-      reassigned: action === 'reject' && updateData.$set?.waiterId ? true : false
+      reassigned: action === 'reject' && updateData.waiterId ? true : false
     });
 
   } catch (error) {

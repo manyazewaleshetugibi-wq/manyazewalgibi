@@ -24,7 +24,6 @@ async function fetchWithRetry(url: string, options?: RequestInit, retries = MAX_
     return await response.json()
   } catch (error) {
     if (retries > 0) {
-      console.log(`Retrying fetch to ${url}. Attempts left: ${retries - 1}`)
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
       return fetchWithRetry(url, options, retries - 1)
     }

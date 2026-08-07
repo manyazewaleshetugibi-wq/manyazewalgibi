@@ -1,13 +1,9 @@
 import { NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 
 export async function POST(req: Request) {
   try {
-    // Connect to MongoDB
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const subscriptionsCollection = db.collection('subscriptions');
-
     const body = await req.json();
     const { subscription, userId } = body;
 
@@ -20,39 +16,47 @@ export async function POST(req: Request) {
     }
 
     // Prevent duplicate entries using the unique endpoint
-    const result = await subscriptionsCollection.findOneAndUpdate(
-      { 'subscription.endpoint': subscription.endpoint },
-      { 
-        $set: { 
-          subscription: subscription,
-          userId: userId || null,
-          updatedAt: new Date()
-        },
-        $setOnInsert: {
-          createdAt: new Date()
-        }
-      },
-      { 
-        upsert: true, 
-        returnDocument: 'after'
-      }
-    );
-
-    console.log(`[Subscription] ${result ? 'Updated' : 'Created'} subscription for endpoint: ${subscription.endpoint}`);
-
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Subscribed successfully.',
-      data: result
+    const existing = await prisma.subscription.findFirst({
+      where: { endpoint: subscription.endpoint },
     });
 
+    let result;
+    if (existing) {
+      result = await prisma.subscription.update({
+        where: { id: existing.id },
+        data: {
+          subscription,
+          userId: userId || null,
+          updatedAt: new Date(),
+        },
+      });
+    } else {
+      result = await prisma.subscription.create({
+        data: {
+          id: randomUUID(),
+          subscription,
+          endpoint: subscription.endpoint,
+          userId: userId || null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+
+
+    return NextResponse.json({
+      success: true,
+      message: 'Subscribed successfully.',
+      data: result,
+    });
   } catch (error) {
     console.error('Subscription error:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Failed to subscribe'
-      }, 
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to subscribe',
+      },
       { status: 500 }
     );
   }
@@ -61,10 +65,6 @@ export async function POST(req: Request) {
 // GET: Check subscription status
 export async function GET(req: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const subscriptionsCollection = db.collection('subscriptions');
-
     const url = new URL(req.url);
     const endpoint = url.searchParams.get('endpoint');
 
@@ -75,16 +75,15 @@ export async function GET(req: Request) {
       );
     }
 
-    const subscription = await subscriptionsCollection.findOne({
-      'subscription.endpoint': endpoint
+    const subscription = await prisma.subscription.findFirst({
+      where: { endpoint },
     });
 
     return NextResponse.json({
       success: true,
       subscribed: !!subscription,
-      data: subscription
+      data: subscription,
     });
-
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to check subscription' },
@@ -96,10 +95,6 @@ export async function GET(req: Request) {
 // DELETE: Unsubscribe
 export async function DELETE(req: Request) {
   try {
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const subscriptionsCollection = db.collection('subscriptions');
-
     const body = await req.json();
     const { endpoint } = body;
 
@@ -110,11 +105,11 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const result = await subscriptionsCollection.deleteOne({
-      'subscription.endpoint': endpoint
+    const result = await prisma.subscription.deleteMany({
+      where: { endpoint },
     });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: 'Subscription not found' },
         { status: 404 }
@@ -123,9 +118,8 @@ export async function DELETE(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: 'Unsubscribed successfully'
+      message: 'Unsubscribed successfully',
     });
-
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to unsubscribe' },

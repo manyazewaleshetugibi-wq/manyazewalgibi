@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 import { getCurrentUserData } from "../../../utils/orderHelpers";
 
 // Helper function to check if a user role is admin
@@ -16,15 +15,7 @@ export async function PATCH(
 ) {
   try {
     const params = await props.params;
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    const ordersCollection = db.collection("orders");
-
     const orderId = params.id;
-
-    if (!ObjectId.isValid(orderId)) {
-      return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
-    }
 
     const body = await req.json();
     const { itemIndex, isUneditable, uneditableBy } = body;
@@ -41,66 +32,55 @@ export async function PATCH(
     const currentUser = uneditableBy || userData?.name || userData?.email || "Unknown User";
 
     // Get the order
-    const order = await ordersCollection.findOne({ _id: new ObjectId(orderId) });
-    
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
     // Get items array (handle both 'items' and 'orderItems' fields)
-    const items = order.items || order.orderItems || [];
-    
-    if (itemIndex < 0 || itemIndex >= items.length) {
+    const items = (order.items as any) || [];
+    const orderItems = (order.orderItems as any) || [];
+
+    if (itemIndex < 0 || itemIndex >= Math.max(items.length, orderItems.length)) {
       return NextResponse.json({ error: "Invalid item index" }, { status: 400 });
     }
 
-    // Prepare update object for the specific item using dot notation
+    // Mutate the specific item in JS (equivalent of Mongo dot-notation $set)
+    const mutateItems = (arr: any[]) =>
+      arr.map((item: any, idx: number) =>
+        idx === itemIndex
+          ? {
+              ...item,
+              isUneditable,
+              uneditableAt: isUneditable ? new Date().toISOString() : null,
+              uneditableBy: isUneditable ? currentUser : null,
+            }
+          : item
+      );
+
     const updateData: any = {
-      [`items.${itemIndex}.isUneditable`]: isUneditable,
       updatedAt: new Date()
     };
 
-    if (isUneditable) {
-      updateData[`items.${itemIndex}.uneditableAt`] = new Date();
-      updateData[`items.${itemIndex}.uneditableBy`] = currentUser;
-    } else {
-      updateData[`items.${itemIndex}.uneditableAt`] = null;
-      updateData[`items.${itemIndex}.uneditableBy`] = null;
+    // Update both 'items' and 'orderItems' if they exist
+    if (items.length > 0) {
+      updateData.items = mutateItems(items);
+    }
+    if (orderItems.length > 0) {
+      updateData.orderItems = mutateItems(orderItems);
     }
 
-    // Also update orderItems if it exists separately
-    if (order.orderItems && order.orderItems.length > 0) {
-      updateData[`orderItems.${itemIndex}.isUneditable`] = isUneditable;
-      if (isUneditable) {
-        updateData[`orderItems.${itemIndex}.uneditableAt`] = new Date();
-        updateData[`orderItems.${itemIndex}.uneditableBy`] = currentUser;
-      } else {
-        updateData[`orderItems.${itemIndex}.uneditableAt`] = null;
-        updateData[`orderItems.${itemIndex}.uneditableBy`] = null;
-      }
-    }
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: updateData
+    });
 
-    // Update the order
-    const updateResult = await ordersCollection.updateOne(
-      { _id: new ObjectId(orderId) },
-      { $set: updateData }
-    );
-
-    if (updateResult.matchedCount === 0) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
-    }
-
-    // Get the updated order
-    const updatedOrder = await ordersCollection.findOne({ _id: new ObjectId(orderId) });
-
-    const message = isUneditable 
-      ? `Item ${itemIndex + 1} marked as uneditable` 
+    const message = isUneditable
+      ? `Item ${itemIndex + 1} marked as uneditable`
       : `Item ${itemIndex + 1} marked as editable`;
 
-    // Log the action
-    console.log(`📝 Order ${order.orderNumber} - ${message} by ${currentUser}`);
-
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       message,
       order: updatedOrder,

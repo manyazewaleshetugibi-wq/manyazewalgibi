@@ -124,20 +124,20 @@ export function useRoleProtection() {
     if (status === 'loading') return;
 
     // ✅ DEBUG: Log what's happening
-    console.log('=== useRoleProtection Debug ===');
-    console.log('Pathname:', pathname);
-    console.log('Session status:', status);
-    console.log('User role:', session?.user?.role);
+
+
+
+
     
     // Allow public routes without authentication
     if (isPublicRoute(pathname)) {
-      console.log('✅ Public route, allowing access');
+
       return;
     }
 
     // Check if user is authenticated
     if (status === 'unauthenticated') {
-      console.log('❌ Unauthenticated, redirecting to login');
+
       router.push('/login');
       return;
     }
@@ -147,18 +147,18 @@ export function useRoleProtection() {
     const normalizedRole = normalizeRole(userRole);
     const allowedRoutes = ALL_ROUTES[normalizedRole as keyof typeof ALL_ROUTES] || ALL_ROUTES.DEFAULT;
 
-    console.log('Normalized role:', normalizedRole);
-    console.log('Allowed routes:', allowedRoutes);
+
+
 
     // ✅ SPECIAL CASE: Check if trying to access /qr
     if (pathname === '/qr' || pathname.startsWith('/qr/')) {
       const isAdmin = normalizedRole === 'ADMIN';
-      console.log(`🔍 /qr access check: isAdmin=${isAdmin}`);
+
       if (isAdmin) {
-        console.log('✅ Admin accessing /qr - ALLOWED');
+
         return;
       } else {
-        console.log('❌ Non-admin accessing /qr - DENIED');
+
         const defaultPage = getDefaultRedirect(normalizedRole);
         router.push(defaultPage + '?unauthorized=true');
         return;
@@ -174,7 +174,7 @@ export function useRoleProtection() {
       return false;
     });
 
-    console.log(`Is ${pathname} accessible?`, isAccessible);
+
 
     // If not accessible, redirect to default page
     if (!isAccessible) {
@@ -182,7 +182,7 @@ export function useRoleProtection() {
       const defaultPage = getDefaultRedirect(normalizedRole);
       router.push(defaultPage + '?unauthorized=true');
     } else {
-      console.log(`✅ ${pathname} is accessible for ${normalizedRole}`);
+
     }
   }, [pathname, session, status, router]);
 }

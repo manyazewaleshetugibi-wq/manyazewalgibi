@@ -1,5 +1,3 @@
-import { ObjectId } from 'mongodb'
-
 export enum UserRole {
   ADMIN = 'admin',
   KITCHEN = 'kitchen',
@@ -15,7 +13,7 @@ export enum UserRole {
 }
 
 export interface User {
-  _id: ObjectId;
+  _id: string;
   name: string;
   email: string;
   password: string; // Add password field
@@ -39,7 +37,7 @@ export interface User {
 
 // For database queries
 export interface UserDocument {
-  _id: ObjectId;
+  _id: string;
   name: string;
   email: string;
   password: string;
@@ -78,7 +76,7 @@ export interface CreateUserInput {
 
 export const createUser = (userData: CreateUserInput): User => {
   return {
-    _id: new ObjectId(),
+    _id: crypto.randomUUID(),
     name: userData.name,
     email: userData.email.toLowerCase(),
     password: userData.password,

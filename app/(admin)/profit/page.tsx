@@ -223,14 +223,12 @@ async function fetchTodayOrders(): Promise<Order[]> {
   const startDate = format(startOfDay(today), "yyyy-MM-dd")
   const endDate = format(endOfDay(today), "yyyy-MM-dd")
   
-  console.log(`📅 Fetching orders from ${startDate} to ${endDate}`)
   
   try {
     const response = await fetch(
       `/api/order/waiterreport?startDate=${startDate}&endDate=${endDate}&limit=10000&status=COMPLETED`
     )
     
-    console.log(`📡 API Response Status: ${response.status}`)
     
     if (!response.ok) {
       const errorText = await response.text()
@@ -239,11 +237,6 @@ async function fetchTodayOrders(): Promise<Order[]> {
     }
     
     const data = await response.json()
-    console.log(`📊 API Response Data:`, {
-      success: data.success,
-      ordersCount: data.orders?.length || 0,
-      summary: data.summary
-    })
     
     if (data.success && data.orders) {
       // Filter for today's completed orders
@@ -254,17 +247,9 @@ async function fetchTodayOrders(): Promise<Order[]> {
         return isToday && isCompleted
       })
       
-      console.log(`✅ Found ${todayOrders.length} completed orders for today`)
       
       // Log first order for debugging
       if (todayOrders.length > 0) {
-        console.log(`📝 Sample order:`, {
-          id: todayOrders[0]._id,
-          orderNumber: todayOrders[0].orderNumber,
-          itemsCount: todayOrders[0].items?.length || 0,
-          totalAmount: todayOrders[0].totalAmount,
-          status: todayOrders[0].status
-        })
       }
       
       return todayOrders
@@ -289,7 +274,6 @@ async function fetchMenuItems(): Promise<MenuItem[]> {
     else if (data.items) items = data.items
     else if (Array.isArray(data)) items = data
     
-    console.log(`✅ Loaded ${items.length} menu items`)
     return items
   } catch (error) {
     console.error("❌ Error fetching menu items:", error)
@@ -308,7 +292,6 @@ async function fetchCategories(): Promise<Category[]> {
     else if (data.categories) categories = data.categories
     else if (Array.isArray(data)) categories = data
     
-    console.log(`✅ Loaded ${categories.length} categories`)
     return categories
   } catch (error) {
     console.error("❌ Error fetching categories:", error)
@@ -327,7 +310,6 @@ async function fetchStockItems(): Promise<StockItem[]> {
     else if (data.stock) stocks = data.stock
     else if (Array.isArray(data)) stocks = data
     
-    console.log(`✅ Loaded ${stocks.length} stock items`)
     return stocks
   } catch (error) {
     console.error("❌ Error fetching stock items:", error)
@@ -346,7 +328,6 @@ async function fetchPurchases(): Promise<Purchase[]> {
     else if (data.data) purchases = data.data
     else if (Array.isArray(data)) purchases = data
     
-    console.log(`✅ Loaded ${purchases.length} purchases`)
     return purchases
   } catch (error) {
     console.error("❌ Error fetching purchases:", error)
@@ -790,7 +771,6 @@ export default function DailyProfitPage() {
       // Aggregate sales by item from today's orders
       const salesMap = new Map<string, { quantity: number }>()
       
-      console.log(`Processing ${ordersData.length} completed orders from today`)
       
       ordersData.forEach((order, index) => {
         const orderItems = getOrderItems(order)
@@ -799,7 +779,6 @@ export default function DailyProfitPage() {
           return
         }
 
-        console.log(`Order ${index + 1}: ${orderItems.length} items`)
 
         orderItems.forEach((item: OrderItem) => {
           // Try multiple ways to get the item ID
@@ -819,7 +798,6 @@ export default function DailyProfitPage() {
         })
       })
 
-      console.log(`Found ${salesMap.size} unique items sold today`)
 
       if (salesMap.size === 0) {
         setTodayItems([])

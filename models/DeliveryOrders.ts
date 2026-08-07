@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { ObjectId } from "mongodb";
 
 // Order Status Enum - Rename this to avoid conflict
 export const OrderStatusEnum = z.enum([
@@ -16,8 +15,8 @@ export const OrderStatusEnum = z.enum([
 
 // Order Item Subschema
 const OrderItemSchema = z.object({
-  itemId: z.string().min(1, "Item ID is required").refine((val) => ObjectId.isValid(val), {
-    message: "Item ID must be a valid MongoDB ObjectId",
+  itemId: z.string().min(1, "Item ID is required").refine((val) => /^[a-zA-Z0-9_-]{1,64}$/.test(val), {
+    message: "Item ID must be a valid ID",
   }),
   quantity: z.number().min(1, "Quantity must be at least 1"),
   unitPrice: z.number().min(0, "Unit price must be non-negative").optional(),

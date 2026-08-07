@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
@@ -18,13 +17,10 @@ export async function GET() {
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // Get user ID from session
     const userId = session.user.id;
 
-    if (!userId || !ObjectId.isValid(userId)) {
+    if (!userId) {
       return NextResponse.json(
         {
           success: false,
@@ -35,8 +31,8 @@ export async function GET() {
     }
 
     // Find user in database
-    const user = await db.collection("users").findOne({
-      _id: new ObjectId(userId),
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
     });
 
     if (!user) {
@@ -51,17 +47,10 @@ export async function GET() {
 
     // Remove sensitive data
     const { password, ...userWithoutPassword } = user;
+    const u = userWithoutPassword as any;
 
     // Debug log
-    console.log("User data fetched from DB:", {
-      _id: userWithoutPassword._id,
-      firstName: userWithoutPassword.firstName,
-      lastName: userWithoutPassword.lastName,
-      email: userWithoutPassword.email,
-      phone: userWithoutPassword.phone,
-      address: userWithoutPassword.address,
-      location: userWithoutPassword.location,
-    });
+
 
     // Extract city helper
     const extractCityFromAddress = (
@@ -122,81 +111,79 @@ export async function GET() {
       success: true,
 
       data: {
-        // Mongo IDs
-        _id: userWithoutPassword._id.toString(),
-        id: userWithoutPassword._id.toString(),
+        // IDs
+        _id: u.id,
+        id: u.id,
 
         // Personal
-        firstName: userWithoutPassword.firstName || "",
-        lastName: userWithoutPassword.lastName || "",
-        email: userWithoutPassword.email || "",
-        phone: userWithoutPassword.phone || "",
+        firstName: u.firstName || "",
+        lastName: u.lastName || "",
+        email: u.email || "",
+        phone: u.phone || "",
 
         // Dates
         birthDate:
-          userWithoutPassword.birthDate || null,
+          u.birthDate || null,
 
         // Gender
-        gender: userWithoutPassword.gender || "",
+        gender: u.gender || "",
 
         // Address
-        address: userWithoutPassword.address || "",
+        address: u.address || "",
         city: extractCityFromAddress(
-          userWithoutPassword.address || ""
+          u.address || ""
         ),
 
         // GeoJSON location
-        location: userWithoutPassword.location || {
+        location: u.location || {
           type: "Point",
           coordinates: [0, 0],
         },
 
         // Account
-        role: userWithoutPassword.role || "user",
+        role: u.role || "user",
 
         registrationSource:
-          userWithoutPassword.registrationSource ||
+          u.registrationSource ||
           "website",
 
         locationConsent:
-          userWithoutPassword.locationConsent || false,
+          u.locationConsent || false,
 
         // Timestamps
-        createdAt: userWithoutPassword.createdAt,
-        updatedAt: userWithoutPassword.updatedAt,
+        createdAt: u.createdAt,
+        updatedAt: u.updatedAt,
         lastLogin:
-          userWithoutPassword.lastLogin || null,
+          u.lastLogin || null,
 
         // Security
         loginAttempts:
-          userWithoutPassword.loginAttempts || 0,
-
-        __v: userWithoutPassword.__v,
+          u.loginAttempts || 0,
 
         // Additional optional fields
-        image: userWithoutPassword.image || null,
+        image: u.image || null,
         employeeId:
-          userWithoutPassword.employeeId || null,
+          u.employeeId || null,
 
         permissions:
-          userWithoutPassword.permissions || [],
+          u.permissions || [],
 
-        status: userWithoutPassword.status || null,
+        status: u.status || null,
 
         requiresPasswordChange:
-          userWithoutPassword.requiresPasswordChange ||
+          u.requiresPasswordChange ||
           false,
 
         googleId:
-          userWithoutPassword.googleId || null,
+          u.googleId || null,
 
         emailVerified:
-          userWithoutPassword.emailVerified || null,
+          u.emailVerified || null,
 
         specialization:
-          userWithoutPassword.specialization || null,
+          u.specialization || null,
 
-        shift: userWithoutPassword.shift || null,
+        shift: u.shift || null,
       },
     });
   } catch (error: any) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
@@ -14,15 +14,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ message: "Waiter ID is required" }, { status: 400 });
     }
     
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     // Fetch orders registered by current user (waiterId)
     // Exclude orders with status "COMPLETED"
-    const orders = await db.collection("orders").find({
-      waiterId: waiterId,
-      status: { $ne: "COMPLETED" }
-    }).toArray();
+    const orders = await prisma.order.findMany({
+      where: {
+        waiterId: waiterId,
+        status: { not: "COMPLETED" }
+      }
+    });
 
     return NextResponse.json({ 
       orders,

@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import { PurchaseSchema } from "@/models/Stock";
 
 // ✅ GET all purchases - RETURNS ACTUAL DATA
 export async function GET() {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const purchases = await db.collection("stock_purchases").find({}).toArray();
+    const purchases = await prisma.stockPurchase.findMany();
 
     // ✅ Return the actual data
     return NextResponse.json({ 
       success: true, 
-      data: purchases,
+      data: purchases.map((p: any) => ({ ...p, _id: p.id })),
       message: "Purchases retrieved successfully" 
     }, { status: 200 });
   } catch (error) {
@@ -30,14 +29,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const parsed = PurchaseSchema.parse(body);
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
-    const result = await db.collection("stock_purchases").insertOne(parsed);
+    const id = randomUUID();
+    await prisma.stockPurchase.create({ data: { id, ...parsed } });
 
     return NextResponse.json({ 
       success: true, 
-      data: { ...parsed, _id: result.insertedId },
+      data: { ...parsed, _id: id, id },
       message: "Purchase created successfully" 
     }, { status: 201 });
   } catch (error) {

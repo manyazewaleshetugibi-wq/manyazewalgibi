@@ -1,13 +1,13 @@
 // app/api/employee-rank/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 
 const COLLECTION_NAME = "employee_rank";
 
 export interface EmployeeRank {
-  _id: ObjectId;
-  userId: ObjectId;
+  _id: string;
+  userId: string;
   name: string;
   email: string;
   role: string;
@@ -26,9 +26,6 @@ export interface EmployeeRank {
 
 export async function GET(req: NextRequest) {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     const { searchParams } = new URL(req.url);
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 10;
     const department = searchParams.get("department");
@@ -39,13 +36,13 @@ export async function GET(req: NextRequest) {
     }
     
     // Get employee ranks sorted by rank (ascending - 1 is best)
-    const employeeRanks = await db.collection<EmployeeRank>(COLLECTION_NAME)
-      .find(query)
-      .sort({ rank: 1 })
-      .limit(limit)
-      .toArray();
+    const employeeRanks = await prisma.employeeRank.findMany({
+      where: query,
+      orderBy: { rank: 'asc' },
+      take: limit,
+    });
     
-    return NextResponse.json(employeeRanks, { status: 200 });
+    return NextResponse.json(employeeRanks.map(r => ({ ...r, _id: r.id })), { status: 200 });
   } catch (error) {
     console.error("Error fetching employee ranks:", error);
     return NextResponse.json(
@@ -80,22 +77,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     // Check if employee rank already exists for this user
-    const existingRank = await db.collection<EmployeeRank>(COLLECTION_NAME).findOne({
-      userId: new ObjectId(userId)
+    const existingRank = await prisma.employeeRank.findFirst({
+      where: { userId: String(userId) }
     });
     
     const now = new Date();
     
     if (existingRank) {
       // Update existing rank
-      const result = await db.collection<EmployeeRank>(COLLECTION_NAME).updateOne(
-        { _id: existingRank._id },
+      const result = await prisma.employeeRank.updateMany(
         {
-          $set: {
+          where: { id: existingRank.id },
+          data: {
             name,
             email,
             role,
@@ -113,7 +107,7 @@ export async function POST(req: NextRequest) {
       );
       
       return NextResponse.json(
-        { message: "Employee rank updated successfully", modifiedCount: result.modifiedCount },
+        { message: "Employee rank updated successfully", modifiedCount: result.count },
         { status: 200 }
       );
     } else {
@@ -121,9 +115,8 @@ export async function POST(req: NextRequest) {
       // Calculate initial rank based on performance (this will be updated later by rank calculation)
       const initialRank = performanceScore ? Math.max(1, Math.floor(100 - performanceScore)) : 50;
       
-      const newRank: EmployeeRank = {
-        _id: new ObjectId(),
-        userId: new ObjectId(userId),
+      const newRank: any = {
+        userId: String(userId),
         name,
         email,
         role,
@@ -140,10 +133,12 @@ export async function POST(req: NextRequest) {
         createdAt: now,
       };
       
-      await db.collection<EmployeeRank>(COLLECTION_NAME).insertOne(newRank);
+      const created = await prisma.employeeRank.create({
+        data: { id: randomUUID(), ...newRank },
+      });
       
       return NextResponse.json(
-        { message: "Employee rank created successfully", rank: newRank },
+        { message: "Employee rank created successfully", rank: { ...created, _id: created.id } },
         { status: 201 }
       );
     }
@@ -168,9 +163,6 @@ export async function PATCH(req: NextRequest) {
       );
     }
     
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     switch (action) {
       case "addPoints":
         if (!points) {
@@ -180,16 +172,18 @@ export async function PATCH(req: NextRequest) {
           );
         }
         
-        const pointResult = await db.collection<EmployeeRank>(COLLECTION_NAME).updateOne(
-          { userId: new ObjectId(userId) },
-          { 
-            $inc: { points: points },
-            $set: { lastUpdated: new Date() }
+        const pointResult = await prisma.employeeRank.updateMany(
+          {
+            where: { userId: String(userId) },
+            data: {
+              points: { increment: points },
+              lastUpdated: new Date()
+            }
           }
         );
         
         return NextResponse.json(
-          { message: `Added ${points} points to employee`, modifiedCount: pointResult.modifiedCount },
+          { message: `Added ${points} points to employee`, modifiedCount: pointResult.count },
           { status: 200 }
         );
         
@@ -201,10 +195,10 @@ export async function PATCH(req: NextRequest) {
           );
         }
         
-        const updateResult = await db.collection<EmployeeRank>(COLLECTION_NAME).updateOne(
-          { userId: new ObjectId(userId) },
-          { 
-            $set: {
+        const updateResult = await prisma.employeeRank.updateMany(
+          {
+            where: { userId: String(userId) },
+            data: {
               ...data,
               lastUpdated: new Date()
             }
@@ -212,7 +206,7 @@ export async function PATCH(req: NextRequest) {
         );
         
         return NextResponse.json(
-          { message: "Performance updated successfully", modifiedCount: updateResult.modifiedCount },
+          { message: "Performance updated successfully", modifiedCount: updateResult.count },
           { status: 200 }
         );
         

@@ -1,8 +1,5 @@
 import { NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
-
-const DB_NAME = process.env.DATABASE_NAME || 'gold';
+import { prisma } from '@/lib/prisma';
 
 interface RouteParams {
   params: Promise<{
@@ -12,21 +9,9 @@ interface RouteParams {
 
 export async function GET(request: Request, { params }: RouteParams) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
-    
     const { id } = await params;
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid ID format' },
-        { status: 400 }
-      );
-    }
-    
-    const expense = await db
-      .collection('commonExpenses')
-      .findOne({ _id: new ObjectId(id) });
+    const expense = await prisma.commonExpense.findUnique({ where: { id } });
     
     if (!expense) {
       return NextResponse.json(
@@ -37,7 +22,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     
     return NextResponse.json({ 
       success: true, 
-      data: { ...expense, _id: expense._id.toString() } 
+      data: { ...expense, _id: expense.id } 
     });
   } catch (error: any) {
     console.error('Error fetching common expense:', error);
@@ -50,22 +35,13 @@ export async function GET(request: Request, { params }: RouteParams) {
 
 export async function PUT(request: Request, { params }: RouteParams) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
-    
     const { id } = await params;
     const body = await request.json();
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid ID format' },
-        { status: 400 }
-      );
-    }
-    
     // Prepare update data with proper type conversions
+    const { _id, date, ...restBody } = body;
     const updateData: any = {
-      ...body,
+      ...restBody,
       updatedAt: new Date(),
     };
     
@@ -74,9 +50,22 @@ export async function PUT(request: Request, { params }: RouteParams) {
       updateData.amount = parseFloat(body.amount);
     }
     
-    // Convert date to Date object if present
-    if (body.date) {
-      updateData.date = new Date(body.date);
+    // Convert startDate/endDate to Date objects if present
+    if (body.startDate !== undefined) {
+      updateData.startDate = body.startDate ? new Date(body.startDate) : null;
+    }
+    
+    if (body.endDate !== undefined) {
+      updateData.endDate = body.endDate ? new Date(body.endDate) : null;
+    }
+    
+    // Handle tags if present
+    if (body.tags !== undefined) {
+      if (Array.isArray(body.tags)) {
+        updateData.tags = body.tags;
+      } else if (typeof body.tags === 'string') {
+        updateData.tags = body.tags.split(',').map((tag: string) => tag.trim()).filter(Boolean);
+      }
     }
     
     // Handle isActive as boolean if present
@@ -84,24 +73,21 @@ export async function PUT(request: Request, { params }: RouteParams) {
       updateData.isActive = body.isActive === true || body.isActive === 'true';
     }
     
-    const result = await db
-      .collection('commonExpenses')
-      .findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: updateData },
-        { returnDocument: 'after' }
-      );
-    
-    // Check if the document was found and updated
-    if (!result || !result.value) {
-      return NextResponse.json(
-        { success: false, error: 'Expense not found' },
-        { status: 404 }
-      );
+    let updatedExpense: any;
+    try {
+      updatedExpense = await prisma.commonExpense.update({
+        where: { id },
+        data: updateData,
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json(
+          { success: false, error: 'Expense not found' },
+          { status: 404 }
+        );
+      }
+      throw e;
     }
-    
-    // Get the updated document from result.value
-    const updatedExpense = result.value;
     
     // Ensure isActive has a default value if missing
     if (updatedExpense.isActive === undefined) {
@@ -112,7 +98,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
       success: true, 
       data: { 
         ...updatedExpense, 
-        _id: updatedExpense._id.toString(),
+        _id: updatedExpense.id,
         // Ensure date is properly formatted
         date: updatedExpense.date ? new Date(updatedExpense.date).toISOString() : new Date().toISOString()
       } 
@@ -128,23 +114,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
 
 export async function DELETE(request: Request, { params }: RouteParams) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
-    
     const { id } = await params;
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid ID format' },
-        { status: 400 }
-      );
-    }
+    const result = await prisma.commonExpense.deleteMany({ where: { id } });
     
-    const result = await db
-      .collection('commonExpenses')
-      .deleteOne({ _id: new ObjectId(id) });
-    
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: 'Expense not found' },
         { status: 404 }
@@ -167,22 +141,13 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 // Optional: Add PATCH method for partial updates
 export async function PATCH(request: Request, { params }: RouteParams) {
   try {
-    const client = await clientPromise;
-    const db = client.db(DB_NAME);
-    
     const { id } = await params;
     const body = await request.json();
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid ID format' },
-        { status: 400 }
-      );
-    }
-    
     // Prepare update data with proper type conversions
+    const { _id, date, ...restBody } = body;
     const updateData: any = {
-      ...body,
+      ...restBody,
       updatedAt: new Date(),
     };
     
@@ -191,9 +156,22 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       updateData.amount = parseFloat(body.amount);
     }
     
-    // Convert date to Date object if present
-    if (body.date) {
-      updateData.date = new Date(body.date);
+    // Convert startDate/endDate to Date objects if present
+    if (body.startDate !== undefined) {
+      updateData.startDate = body.startDate ? new Date(body.startDate) : null;
+    }
+    
+    if (body.endDate !== undefined) {
+      updateData.endDate = body.endDate ? new Date(body.endDate) : null;
+    }
+    
+    // Handle tags if present
+    if (body.tags !== undefined) {
+      if (Array.isArray(body.tags)) {
+        updateData.tags = body.tags;
+      } else if (typeof body.tags === 'string') {
+        updateData.tags = body.tags.split(',').map((tag: string) => tag.trim()).filter(Boolean);
+      }
     }
     
     // Handle isActive as boolean if present
@@ -201,28 +179,27 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       updateData.isActive = body.isActive === true || body.isActive === 'true';
     }
     
-    const result = await db
-      .collection('commonExpenses')
-      .findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: updateData },
-        { returnDocument: 'after' }
-      );
-    
-    if (!result || !result.value) {
-      return NextResponse.json(
-        { success: false, error: 'Expense not found' },
-        { status: 404 }
-      );
+    let updatedExpense: any;
+    try {
+      updatedExpense = await prisma.commonExpense.update({
+        where: { id },
+        data: updateData,
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json(
+          { success: false, error: 'Expense not found' },
+          { status: 404 }
+        );
+      }
+      throw e;
     }
-    
-    const updatedExpense = result.value;
     
     return NextResponse.json({ 
       success: true, 
       data: { 
         ...updatedExpense, 
-        _id: updatedExpense._id.toString(),
+        _id: updatedExpense.id,
         date: updatedExpense.date ? new Date(updatedExpense.date).toISOString() : new Date().toISOString()
       } 
     });

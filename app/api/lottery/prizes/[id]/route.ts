@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 
 export async function GET(
@@ -12,18 +11,16 @@ export async function GET(
     if (response) return response;
 
     const { id } = await params;
-    const client = await clientPromise;
-    const db = client.db();
 
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: 'Invalid prize ID' },
         { status: 400 }
       );
     }
 
-    const prize = await db.collection('prizes').findOne({
-      _id: new ObjectId(id)
+    const prize = await prisma.prize.findFirst({
+      where: { id }
     });
 
     if (!prize) {
@@ -37,7 +34,7 @@ export async function GET(
       success: true,
       data: {
         ...prize,
-        id: prize._id.toString(),
+        id: prize.id,
         _id: undefined
       }
     });
@@ -60,11 +57,9 @@ export async function PUT(
     if (response) return response;
 
     const { id } = await params;
-    const client = await clientPromise;
-    const db = client.db();
-    const updates = await request.json();
+    const updates: any = await request.json();
 
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: 'Invalid prize ID' },
         { status: 400 }
@@ -79,12 +74,11 @@ export async function PUT(
 
     updates.updatedAt = new Date();
 
-    const result = await db.collection('prizes').updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updates }
+    const result = await prisma.prize.updateMany(
+      { where: { id }, data: updates }
     );
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, message: 'Prize not found' },
         { status: 404 }
@@ -114,21 +108,19 @@ export async function DELETE(
     if (response) return response;
 
     const { id } = await params;
-    const client = await clientPromise;
-    const db = client.db();
 
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: 'Invalid prize ID' },
         { status: 400 }
       );
     }
 
-    const result = await db.collection('prizes').deleteOne({
-      _id: new ObjectId(id)
+    const result = await prisma.prize.deleteMany({
+      where: { id }
     });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, message: 'Prize not found' },
         { status: 404 }

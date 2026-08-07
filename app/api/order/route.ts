@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import clientPromise from "@/lib/mongodb";
+import { randomUUID } from "crypto";
+import { Prisma } from "@prisma/client";
+import prisma from "@/lib/prisma";
 import { 
   debugLog, 
   debugError, 
@@ -33,6 +34,12 @@ async function uploadToCloudinary(file: File): Promise<string> {
   return data.secure_url;
 }
 
+// Normalize null/undefined for Prisma JSON fields (SQL NULL via Prisma.DbNull)
+function normalizeJson(value: any): any {
+  if (value === null || value === undefined) return Prisma.DbNull;
+  return value;
+}
+
 // Type guard for activity result success
 function isSuccessResult(result: any): result is { 
   success: true; 
@@ -56,8 +63,6 @@ const isAdminRole = (role: string | undefined): boolean => {
 // GET endpoint - Fetch orders with role-based time filtering
 export async function GET(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const url = new URL(req.url);
     const orderId = url.searchParams.get("id");
     const status = url.searchParams.get("status");
@@ -82,11 +87,14 @@ export async function GET(req: NextRequest) {
 
     // View deleted orders (admin only)
     if (viewDeleted && isAdmin) {
-      const deletedOrders = await db.collection("deleted_orders")
-        .find({})
-        .sort({ deletedAt: -1 })
-        .limit(100)
-        .toArray();
+      const deletedOrders = (await prisma.deletedOrder.findMany())
+        .sort((a, b) => {
+          const ta = a.deletedAt ? new Date(a.deletedAt as any).getTime() : 0;
+          const tb = b.deletedAt ? new Date(b.deletedAt as any).getTime() : 0;
+          return tb - ta;
+        })
+        .slice(0, 100)
+        .map(o => ({ ...o, _id: o.id }));
       
       return NextResponse.json({
         success: true,
@@ -103,36 +111,45 @@ export async function GET(req: NextRequest) {
       const sortBy = url.searchParams.get("sortBy") || "points";
       const role = url.searchParams.get("role");
 
-      let query = {};
+      const where: any = {};
       if (role) {
-        query = { role: { $regex: new RegExp(`^${role}$`, 'i') } };
+        where.role = { equals: role, mode: 'insensitive' };
       }
 
-      const rankings = await db.collection("employee_rank")
-        .find(query)
-        .sort({ [sortBy]: -1 })
-        .limit(limit)
-        .toArray();
+      const allRanked = await prisma.employeeRank.findMany({ where });
 
-      const stats = await db.collection("employee_rank").aggregate([
-        { $match: query },
-        {
-          $group: {
-            _id: null,
-            totalEmployees: { $sum: 1 },
-            totalCompletedOrders: { $sum: "$completedOrders" },
-            totalOrders: { $sum: "$totalOrders" },
-            totalPoints: { $sum: "$points" },
-            averageCompletedOrders: { $avg: "$completedOrders" },
-            averagePoints: { $avg: "$points" }
-          }
-        }
-      ]).toArray();
+      const rankings = allRanked
+        .slice()
+        .sort((a: any, b: any) => (Number(b[sortBy]) || 0) - (Number(a[sortBy]) || 0))
+        .slice(0, limit)
+        .map(r => ({ ...r, _id: r.id }));
+
+      const stats = allRanked.reduce((acc: any, e) => {
+        acc.totalEmployees += 1;
+        acc.totalCompletedOrders += e.completedOrders || 0;
+        acc.totalOrders += e.totalOrders || 0;
+        acc.totalPoints += e.points || 0;
+        acc.averageCompletedOrders += e.completedOrders || 0;
+        acc.averagePoints += e.points || 0;
+        return acc;
+      }, {
+        totalEmployees: 0,
+        totalCompletedOrders: 0,
+        totalOrders: 0,
+        totalPoints: 0,
+        averageCompletedOrders: 0,
+        averagePoints: 0
+      });
+
+      if (stats.totalEmployees > 0) {
+        stats.averageCompletedOrders = stats.averageCompletedOrders / stats.totalEmployees;
+        stats.averagePoints = stats.averagePoints / stats.totalEmployees;
+      }
 
       return NextResponse.json({
         success: true,
         rankings,
-        stats: stats[0] || {},
+        stats: allRanked.length > 0 ? stats : {},
         count: rankings.length,
         timestamp: new Date()
       }, { status: 200 });
@@ -146,7 +163,7 @@ export async function GET(req: NextRequest) {
     if (isAdmin && allParam === "true") {
       timeFilterHours = 24;
       cutoffTime = new Date(Date.now() - timeFilterHours * 60 * 60 * 1000);
-      filterMessage = `Admin view: Showing orders from last 24 hours (since ${cutoffTime.toISOString()})`;
+      filterMessage = `Admin view: Showing orders from last 24 hours (since ${cutoffTime.toISOString()}) plus all confirmed delivery orders`;
       debugLog(`Admin mode: Showing orders from last ${timeFilterHours} hours`);
     } else {
       timeFilterHours = null;
@@ -155,108 +172,110 @@ export async function GET(req: NextRequest) {
     }
 
     // Build query based on parameters
-    let query: any = {};
+    const and: any[] = [];
     
     if (orderId) {
-      if (!ObjectId.isValid(orderId)) {
-        return NextResponse.json(
-          { success: false, error: "Invalid order ID format" },
-          { status: 400 }
-        );
-      }
-      query = { _id: new ObjectId(orderId) };
+      and.push({ id: orderId });
     }
     
     if (status) {
-      query.status = { $regex: new RegExp(`^${status}$`, 'i') };
+      and.push({ status: { equals: status, mode: 'insensitive' } });
     }
 
     if (restaurantId) {
       if (restaurantId === "manyazewal1") {
-        query.$or = [{ restaurantId: "manyazewal1" }, { delivery: true }];
+        and.push({ OR: [{ restaurantId: "manyazewal1" }, { delivery: true }] });
       } else {
-        query.restaurantId = restaurantId;
+        and.push({ restaurantId });
       }
     }
 
     // Apply different filtering based on user role
     if (isAdmin && allParam === "true") {
-      query.createdAt = { $gte: cutoffTime };
-      
-      const deliveryRestriction = {
-        $or: [
-          { delivery: { $ne: true } },
+      // Orders within the 24h window, OR any confirmed delivery order (any age)
+      // so confirmed delivery orders always pass through to the orders page
+      and.push({
+        OR: [
+          { createdAt: { gte: cutoffTime } },
           { 
             delivery: true, 
-            status: { $regex: /^confirmed$/i } 
+            status: { equals: 'confirmed', mode: 'insensitive' } 
+          }
+        ]
+      });
+      
+      const deliveryRestriction = {
+        OR: [
+          { delivery: { not: true } },
+          { delivery: null },
+          { 
+            delivery: true, 
+            status: { equals: 'confirmed', mode: 'insensitive' } 
           }
         ]
       };
       
-      if (Object.keys(query).length > 0 && query.$or) {
-        const existingOr = query.$or;
-        delete query.$or;
-        query.$and = [
-          { $or: existingOr },
-          deliveryRestriction,
-          { createdAt: { $gte: cutoffTime } }
-        ];
-      } else {
-        query = { $and: [query, deliveryRestriction] };
-      }
+      and.push(deliveryRestriction);
     } else {
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       
       const completedFilter = {
-        $or: [
-          { status: { $not: { $regex: /^completed$/i } } },
+        OR: [
+          { status: null },
+          { NOT: { status: { contains: 'completed', mode: 'insensitive' } } },
           { 
-            status: { $regex: /^completed$/i },
-            updatedAt: { $gte: twoHoursAgo }
+            status: { contains: 'completed', mode: 'insensitive' },
+            updatedAt: { gte: twoHoursAgo }
           }
         ]
       };
 
-      if (Object.keys(query).length > 0) {
-        query = { $and: [query, completedFilter] };
-      } else {
-        query = completedFilter;
-      }
+      and.push(completedFilter);
 
       const deliveryRestriction = {
-        $or: [
-          { delivery: { $ne: true } },
+        OR: [
+          { delivery: { not: true } },
+          { delivery: null },
           { 
             delivery: true, 
-            status: { $regex: /^confirmed$/i } 
+            status: { equals: 'confirmed', mode: 'insensitive' } 
           }
         ]
       };
 
-      query = { $and: [query, deliveryRestriction] };
+      and.push(deliveryRestriction);
     }
 
     if (after) {
       const afterDate = new Date(after);
       if (!isNaN(afterDate.getTime())) {
-        query.createdAt = { ...(query.createdAt || {}), $gt: afterDate };
+        and.push({ createdAt: { gt: afterDate } });
       }
     }
 
+    const query = and.length > 0 ? { AND: and } : {};
+
     // Fetch orders
-    const orders = await db.collection("orders")
-      .find(query)
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .toArray();
+    const orders = await prisma.order.findMany({
+      where: query,
+      orderBy: { createdAt: 'desc' },
+      take: 100
+    });
 
     const twoHoursAgoForStock = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    const pendingStockCount = await db.collection("orders").countDocuments({
-      status: { $regex: /^completed$/i },
-      stockProcessed: { $ne: true },
-      "items.0": { $exists: true },
-      updatedAt: { $gte: twoHoursAgoForStock }
+    const pendingStockOrders = await prisma.order.findMany({
+      where: {
+        status: { contains: 'completed', mode: 'insensitive' },
+        OR: [
+          { stockProcessed: { not: true } },
+          { stockProcessed: null }
+        ],
+        updatedAt: { gte: twoHoursAgoForStock }
+      }
     });
+    const pendingStockCount = pendingStockOrders.filter(o =>
+      Array.isArray((o.items as any)) && (o.items as any).length > 0
+    ).length;
 
     debugLog(`Found ${orders.length} orders, ${pendingStockCount} pending stock processing`);
 
@@ -282,24 +301,20 @@ export async function GET(req: NextRequest) {
     // For each order, check if it has used stock records
     const ordersWithStockInfo = await Promise.all(
       orders.map(async (order) => {
-        const usedStock = await db.collection("used_stock")
-          .find({ orderId: order._id })
-          .toArray();
+        const usedStock = await prisma.usedStock.findMany({ where: { orderId: order.id } });
         
         let additionalDetails = {};
 
         if ((order.inTable === true || order.waiterId) && (!order.delivery)) {
           try {
-            if (order.waiterId && ObjectId.isValid(order.waiterId)) {
-              let waiter = await db.collection("waitresses").findOne(
-                { _id: new ObjectId(order.waiterId) },
-                { projection: { name: 1, avatar: 1, shift: 1 } }
+            if (order.waiterId) {
+              let waiter = await prisma.waitress.findFirst(
+                { where: { id: order.waiterId }, select: { name: true, shift: true } }
               );
               
               if (!waiter) {
-                waiter = await db.collection("waiters").findOne(
-                  { _id: new ObjectId(order.waiterId) },
-                  { projection: { name: 1, avatar: 1, shift: 1 } }
+                waiter = await prisma.waiter.findFirst(
+                  { where: { id: order.waiterId }, select: { name: true, shift: true } }
                 );
               }
               
@@ -308,21 +323,22 @@ export async function GET(req: NextRequest) {
               }
             }
           } catch (err) {
-            console.error(`Failed to fetch waiter for order ${order._id}`, err);
+            console.error(`Failed to fetch waiter for order ${order.id}`, err);
           }
         }
         
         if (order.delivery === true && (!order.inTable)) {
           if (!order.deliveryInfo) {
-            order.deliveryInfo = {};
+            (order as any).deliveryInfo = {};
           }
           if (!order.paymentScreenshotUrl) {
-            order.paymentScreenshotUrl = null;
+            (order as any).paymentScreenshotUrl = null;
           }
         }
 
         return {
           ...order,
+          _id: order.id,
           ...additionalDetails,
           usedStockCount: usedStock.length,
           usedStock: usedStock.length > 0 ? usedStock.slice(0, 5) : []
@@ -366,9 +382,6 @@ export async function GET(req: NextRequest) {
 // POST endpoint - Create new order with proper tax handling and assignmentRequest
 export async function POST(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
     const contentType = req.headers.get('content-type') || '';
     let body;
 
@@ -411,15 +424,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Generate order number
-    const lastOrder = await db.collection("orders")
-      .find({}, { projection: { orderNumber: 1 } })
-      .sort({ orderNumber: -1 })
-      .limit(1)
-      .toArray();
+    const lastOrder = await prisma.order.findFirst({
+      orderBy: { orderNumber: { sort: 'desc' } }
+    });
 
     let nextOrderNum = 1;
-    if (lastOrder.length > 0 && lastOrder[0].orderNumber) {
-      const match = lastOrder[0].orderNumber.match(/ORD-(\d+)/);
+    if (lastOrder && lastOrder.orderNumber) {
+      const match = lastOrder.orderNumber.match(/ORD-(\d+)/);
       if (match && match[1]) {
         nextOrderNum = parseInt(match[1], 10) + 1;
       }
@@ -440,22 +451,18 @@ export async function POST(req: NextRequest) {
 
     // Process each item
     for (const item of body.items) {
-      if (!ObjectId.isValid(item.itemId)) {
+      if (!item.itemId) {
         return NextResponse.json(
           { success: false, error: "Invalid item ID format" },
           { status: 400 }
         );
       }
 
-      let itemData = await db
-        .collection("items")
-        .findOne({ _id: new ObjectId(item.itemId) });
+      let itemData: any = await prisma.item.findFirst({ where: { id: item.itemId } });
 
       // If not found in items, try the books collection
       if (!itemData) {
-        itemData = await db
-          .collection("books")
-          .findOne({ _id: new ObjectId(item.itemId) });
+        itemData = await prisma.book.findFirst({ where: { id: item.itemId } });
       }
 
       if (!itemData) {
@@ -465,7 +472,7 @@ export async function POST(req: NextRequest) {
         );
       }
       
-      const priceWithTax = Number(itemData.price);
+      const priceWithTax = Number((itemData as any).price);
       const priceWithoutTax = priceWithTax / 1.15;
       const itemTaxAmount = priceWithTax - priceWithoutTax;
       
@@ -476,7 +483,7 @@ export async function POST(req: NextRequest) {
       
       const processedItem = {
         itemId: item.itemId,
-        itemName: itemData.name || itemData.title || "Unknown Item",
+        itemName: (itemData as any).name || (itemData as any).title || "Unknown Item",
         quantity: quantity,
         unitPrice: priceWithTax,
         priceWithTax: priceWithTax,
@@ -518,18 +525,18 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const orderData = {
+    const orderData: any = {
       orderNumber,
       tableNumber: body.tableNumber || null,
-      tableId: body.tableId || null,
+      tableId: normalizeJson(body.tableId),
       restaurantId: body.restaurantId || null,
       restaurantName: body.restaurantName || null,
-      floor: body.floor || null,
-      arrangementId: body.arrangementId || null,
-      tableCapacity: body.tableCapacity || null,
-      tableLocation: body.tableLocation || null,
-      tableFeatures: body.tableFeatures || null,
-      tableShape: body.tableShape || null,
+      floor: normalizeJson(body.floor),
+      arrangementId: normalizeJson(body.arrangementId),
+      tableCapacity: normalizeJson(body.tableCapacity),
+      tableLocation: normalizeJson(body.tableLocation),
+      tableFeatures: normalizeJson(body.tableFeatures),
+      tableShape: normalizeJson(body.tableShape),
       waiterId: body.waiterId || null,
       waiterName: body.waiterName || null,
       customerId: body.customerId || "walk-in",
@@ -550,17 +557,17 @@ export async function POST(req: NextRequest) {
       stockProcessed: false,
       inTable: body.inTable || false,
       delivery: body.delivery || false,
-      deliveryInfo: body.deliveryInfo || null,
-      paymentScreenshotUrl: body.paymentScreenshotUrl || null,
+      deliveryInfo: normalizeJson(body.deliveryInfo),
+      paymentScreenshotUrl: normalizeJson(body.paymentScreenshotUrl),
       markedForDeletion: false,
-      deletionRequestReason: null,
-      deletionRequestedBy: null,
-      deletionRequestedAt: null,
-      deletedAt: null,
-      deletedBy: null,
-      deletionReason: null,
+      deletionRequestReason: Prisma.DbNull,
+      deletionRequestedBy: Prisma.DbNull,
+      deletionRequestedAt: Prisma.DbNull,
+      deletedAt: Prisma.DbNull,
+      deletedBy: Prisma.DbNull,
+      deletionReason: Prisma.DbNull,
       ...(body.assignmentRequest && {
-        assignmentRequest: {
+        assignmentRequest: normalizeJson({
           status: body.assignmentRequest.status || 'pending',
           type: body.assignmentRequest.type || 'table_assignment',
           requestedAt: body.assignmentRequest.requestedAt || new Date().toISOString(),
@@ -577,19 +584,19 @@ export async function POST(req: NextRequest) {
           customerName: body.assignmentRequest.customerName || body.customerName || 'Walk-in',
           itemsCount: body.assignmentRequest.itemsCount || processedItems.length,
           totalAmount: body.assignmentRequest.totalAmount || finalAmount
-        }
+        })
       }),
       createdAt: new Date(),
       updatedAt: new Date(),
       completedAt: null,
       stockProcessedAt: null,
-      createdBy: userData ? {
+      createdBy: normalizeJson(userData ? {
         userId: userData.id,
         name: userData.name,
         email: userData.email,
         role: userData.role,
         createdAt: new Date()
-      } : null
+      } : null)
     };
 
     debugLog("Creating order with values:", {
@@ -604,8 +611,10 @@ export async function POST(req: NextRequest) {
       assignmentRequest: orderData.assignmentRequest
     });
 
-    const result = await db.collection("orders").insertOne(orderData as any);
-    const insertedOrder = await db.collection("orders").findOne({ _id: result.insertedId });
+    const result = await prisma.order.create({
+      data: { id: randomUUID(), ...orderData }
+    });
+    const insertedOrder = result;
 
     if (userData && insertedOrder) {
       try {
@@ -613,12 +622,11 @@ export async function POST(req: NextRequest) {
         
         if (insertedOrder.waiterId) {
           debugLog("📝 Tracking waitress as creator...");
-          await registerWaitressActivity(db, insertedOrder, 'created');
+          await registerWaitressActivity(prisma, { ...insertedOrder, _id: insertedOrder.id }, 'created');
         }
         
-        await db.collection("orders").updateOne(
-          { _id: result.insertedId },
-          { $set: { creatorTracked: true, creatorTrackedAt: new Date() } }
+        await prisma.order.update(
+          { where: { id: insertedOrder.id }, data: { creatorTracked: true, creatorTrackedAt: new Date() } }
         );
       } catch (error) {
         debugError("❌ Failed to track order creator:", error);
@@ -628,7 +636,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: true, 
-        orderId: result.insertedId,
+        orderId: result.id,
         orderNumber,
         subtotal: subtotalAmount,
         tax: taxAmount,
@@ -660,14 +668,12 @@ export async function PATCH(req: NextRequest) {
   const startTime = Date.now();
   
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const body = await req.json();
 
     const { orderId, status, action, reason, requestedBy, requestedAt, itemIndex, isUneditable, uneditableBy } = body;
 
    if (action === "toggle-item-uneditable") {
-  console.log("🔧 TOGGLE UNEDITABLE REQUEST:", { orderId, itemIndex, isUneditable, uneditableBy });
+
   
   if (!orderId || itemIndex === undefined) {
     return NextResponse.json(
@@ -676,21 +682,10 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  if (!ObjectId.isValid(orderId)) {
-    return NextResponse.json(
-      { success: false, error: "Valid order ID is required" },
-      { status: 400 }
-    );
-  }
-
   const userData = await getCurrentUserData(req);
-  const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+  const order = await prisma.order.findFirst({ where: { id: orderId } });
   
-  console.log("📦 Current order items before update:", order?.items?.map((item: any, idx: number) => ({
-    index: idx,
-    isUneditable: item.isUneditable,
-    name: item.itemName
-  })));
+
   
   if (!order) {
     return NextResponse.json(
@@ -699,55 +694,49 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  const items = order.items || [];
+  const items = (order.items as any) || [];
   if (itemIndex < 0 || itemIndex >= items.length) {
-    console.log("❌ Invalid item index:", { itemIndex, itemsLength: items.length });
+
     return NextResponse.json(
       { success: false, error: "Invalid item index" },
       { status: 400 }
     );
   }
 
-  // FIXED: Use proper MongoDB dot notation and $set operator
-  const updateData: any = {};
-  const itemPath = `items.${itemIndex}`;
+  // Mutate the specific item in JS (equivalent of Mongo dot-notation $set)
+  const updateData: any = {
+    items: items.map((item: any, idx: number) =>
+      idx === itemIndex
+        ? {
+            ...item,
+            isUneditable,
+            uneditableAt: isUneditable ? new Date().toISOString() : null,
+            uneditableBy: isUneditable ? (uneditableBy || userData?.name || userData?.email || "Unknown") : null,
+          }
+        : item
+    ),
+    updatedAt: new Date()
+  };
   
-  updateData[`${itemPath}.isUneditable`] = isUneditable;
+
   
-  if (isUneditable) {
-    updateData[`${itemPath}.uneditableAt`] = new Date().toISOString();
-    updateData[`${itemPath}.uneditableBy`] = uneditableBy || userData?.name || userData?.email || "Unknown";
-  } else {
-    updateData[`${itemPath}.uneditableAt`] = null;
-    updateData[`${itemPath}.uneditableBy`] = null;
-  }
-  
-  console.log("📝 Update data being sent to MongoDB:", updateData);
-  
-  const updateResult = await db.collection("orders").updateOne(
-    { _id: new ObjectId(orderId) },
-    { $set: updateData }
+  const updateResult = await prisma.order.updateMany(
+    { where: { id: orderId }, data: updateData }
   );
 
-  console.log("✅ Update result:", { 
-    matchedCount: updateResult.matchedCount, 
-    modifiedCount: updateResult.modifiedCount 
-  });
 
-  if (updateResult.matchedCount === 0) {
+
+  if (updateResult.count === 0) {
     return NextResponse.json(
       { success: false, error: "Order not found" },
       { status: 404 }
     );
   }
 
-  const updatedOrder = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
-  const updatedItems = updatedOrder?.items || [];
+  const updatedOrder = await prisma.order.findFirst({ where: { id: orderId } });
+  const updatedItems = (updatedOrder?.items as any) || [];
   
-  console.log("📦 Updated order items after update:", updatedItems.map((item: any, idx: number) => ({
-    index: idx,
-    isUneditable: item.isUneditable
-  })));
+
   
   const allItemsUneditable = updatedItems.length > 0 && updatedItems.every((item: any) => item.isUneditable === true);
 
@@ -768,29 +757,13 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      if (!ObjectId.isValid(orderId)) {
-        return NextResponse.json(
-          { success: false, error: "Valid order ID is required" },
-          { status: 400 }
-        );
-      }
-
       const userData = await getCurrentUserData(req);
       
-      const updateResult = await db.collection("orders").updateOne(
-        { _id: new ObjectId(orderId) },
-        { 
-          $set: { 
-            markedForDeletion: true,
-            deletionRequestReason: reason,
-            deletionRequestedBy: requestedBy || userData?.name || userData?.email || "Unknown User",
-            deletionRequestedAt: requestedAt || new Date().toISOString(),
-            updatedAt: new Date()
-          } 
-        }
+      const updateResult = await prisma.order.updateMany(
+        { where: { id: orderId }, data: { markedForDeletion: true, deletionRequestReason: reason, deletionRequestedBy: requestedBy || userData?.name || userData?.email || "Unknown User", deletionRequestedAt: requestedAt || new Date().toISOString(), updatedAt: new Date() } }
       );
 
-      if (updateResult.matchedCount === 0) {
+      if (updateResult.count === 0) {
         return NextResponse.json(
           { success: false, error: "Order not found" },
           { status: 404 }
@@ -802,21 +775,24 @@ export async function PATCH(req: NextRequest) {
         timestamp: new Date().toISOString()
       });
 
-      await db.collection("deletion_requests").insertOne({
-        orderId: new ObjectId(orderId),
-        reason: reason,
-        requestedBy: requestedBy || userData?.name || userData?.email || "Unknown User",
-        requestedAt: new Date(),
-        status: "pending",
-        createdAt: new Date()
+      await prisma.deletionRequest.create({
+        data: {
+          id: randomUUID(),
+          orderId: orderId,
+          reason: reason,
+          requestedBy: requestedBy || userData?.name || userData?.email || "Unknown User",
+          requestedAt: new Date(),
+          status: "pending",
+          createdAt: new Date()
+        }
       });
 
-      const updatedOrder = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+      const updatedOrder = await prisma.order.findFirst({ where: { id: orderId } });
 
       return NextResponse.json({
         success: true,
         message: "Order has been marked for deletion. Admin will review your request.",
-        order: updatedOrder,
+        order: updatedOrder ? { ...updatedOrder, _id: updatedOrder.id } : null,
         markedForDeletion: true
       }, { status: 200 });
     }
@@ -828,17 +804,10 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (!ObjectId.isValid(orderId)) {
-      return NextResponse.json(
-        { success: false, error: "Valid order ID is required" },
-        { status: 400 }
-      );
-    }
-
     const userData = await getCurrentUserData(req);
     const normalizedStatus = normalizeStatus(status);
     
-    const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+    const order = await prisma.order.findFirst({ where: { id: orderId } });
     
     if (!order) {
       return NextResponse.json(
@@ -880,19 +849,18 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    const updateResult = await db.collection("orders").updateOne(
-      { _id: new ObjectId(orderId) },
-      { $set: updateData }
+    const updateResult = await prisma.order.updateMany(
+      { where: { id: orderId }, data: updateData }
     );
 
-    if (updateResult.matchedCount === 0) {
+    if (updateResult.count === 0) {
       return NextResponse.json(
         { success: false, error: "Order not found" },
         { status: 404 }
       );
     }
 
-    const updatedOrder = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+    const updatedOrder = await prisma.order.findFirst({ where: { id: orderId } });
     
     if (!updatedOrder) {
       return NextResponse.json(
@@ -910,7 +878,7 @@ export async function PATCH(req: NextRequest) {
         
         if (userData) {
           debugLog(`📝 Awarding completion points to: ${userData.name} (ID: ${userData.id})`);
-          completionResult = await registerOrderActivity(db, userData, updatedOrder, 'completed');
+          completionResult = await registerOrderActivity(prisma, userData, { ...updatedOrder, _id: updatedOrder.id }, 'completed');
           
           if (isSuccessResult(completionResult)) {
             debugLog(`✅ ${completionResult.pointsAwarded} points awarded to ${userData.name}`);
@@ -921,23 +889,14 @@ export async function PATCH(req: NextRequest) {
         
         if (updatedOrder.waiterId) {
           debugLog(`📝 Awarding completion points to waitress for order ${updatedOrder.orderNumber}`);
-          waitressResult = await registerWaitressActivity(db, updatedOrder, 'completed');
+          waitressResult = await registerWaitressActivity(prisma, { ...updatedOrder, _id: updatedOrder.id }, 'completed');
           if (waitressResult && isSuccessResult(waitressResult)) {
             debugLog(`✅ ${waitressResult.pointsAwarded} points awarded to waitress`);
           }
         }
         
-        await db.collection("orders").updateOne(
-          { _id: new ObjectId(orderId) },
-          { 
-            $set: { 
-              completionRegistered: true,
-              completionRegisteredAt: new Date(),
-              employeePointsAwarded: isSuccessResult(completionResult) ? completionResult.pointsAwarded : 0,
-              waitressPointsAwarded: isSuccessResult(waitressResult) ? waitressResult.pointsAwarded : 0,
-              completedOrdersIncremented: isSuccessResult(completionResult) ? completionResult.completedOrdersIncremented : false
-            } 
-          }
+        await prisma.order.update(
+          { where: { id: orderId }, data: { completionRegistered: true, completionRegisteredAt: new Date(), employeePointsAwarded: isSuccessResult(completionResult) ? completionResult.pointsAwarded : 0, waitressPointsAwarded: isSuccessResult(waitressResult) ? waitressResult.pointsAwarded : 0, completedOrdersIncremented: isSuccessResult(completionResult) ? completionResult.completedOrdersIncremented : false } }
         );
         
         setImmediate(async () => {
@@ -1012,8 +971,6 @@ export async function PATCH(req: NextRequest) {
 // DELETE endpoint - Admin only - Moves order to deleted_orders collection and hard deletes from orders
 export async function DELETE(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const url = new URL(req.url);
     const orderId = url.searchParams.get("id");
     const deletionReason = url.searchParams.get("reason") || "Admin deletion";
@@ -1021,13 +978,6 @@ export async function DELETE(req: NextRequest) {
     if (!orderId) {
       return NextResponse.json(
         { success: false, error: "Order ID is required" },
-        { status: 400 }
-      );
-    }
-
-    if (!ObjectId.isValid(orderId)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid order ID format" },
         { status: 400 }
       );
     }
@@ -1044,7 +994,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     // Check if order exists in orders collection
-    const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+    const order = await prisma.order.findFirst({ where: { id: orderId } });
     
     if (!order) {
       return NextResponse.json(
@@ -1053,18 +1003,38 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    console.log(`📦 Starting deletion process for order: ${order.orderNumber}`);
+
 
     // STEP 1: Create a copy of the order for deleted_orders collection
     const deletedOrderDocument = {
       ...order,  // Copy all original order data
+      tableId: normalizeJson(order.tableId),
+      floor: normalizeJson(order.floor),
+      arrangementId: normalizeJson(order.arrangementId),
+      tableCapacity: normalizeJson(order.tableCapacity),
+      tableLocation: normalizeJson(order.tableLocation),
+      tableFeatures: normalizeJson(order.tableFeatures),
+      tableShape: normalizeJson(order.tableShape),
+      items: normalizeJson(order.items),
+      deliveryInfo: normalizeJson(order.deliveryInfo),
+      paymentScreenshotUrl: normalizeJson(order.paymentScreenshotUrl),
+      deletionRequestReason: normalizeJson(order.deletionRequestReason),
+      deletionRequestedBy: normalizeJson(order.deletionRequestedBy),
+      deletionRequestedAt: normalizeJson(order.deletionRequestedAt),
+      deletionReason: normalizeJson(order.deletionReason),
+      createdBy: normalizeJson(order.createdBy),
+      editRequest: normalizeJson(order.editRequest),
+      assignmentRequest: normalizeJson(order.assignmentRequest),
+      notifications: normalizeJson(order.notifications),
+      orderItems: normalizeJson(order.orderItems),
+      updatedBy: normalizeJson(order.updatedBy),
+      completedBy: normalizeJson(order.completedBy),
       // Add deletion metadata
       deletedAt: new Date(),
       deletedBy: userData?.name || userData?.email || "Unknown Admin",
       deletedByRole: userData?.role || "ADMIN",
-      deletionReason: deletionReason,
       deletionMethod: "hard_delete",
-      originalOrderId: order._id,
+      originalOrderId: order.id,
       originalOrderNumber: order.orderNumber,
       deletedFromCollection: "orders",
       movedToCollection: "deleted_orders",
@@ -1074,35 +1044,29 @@ export async function DELETE(req: NextRequest) {
       deletionLogId: null  // Will be updated after log creation
     };
 
-    // Remove the _id from the deleted document to let MongoDB create a new one
-    // But keep originalOrderId for reference
-    delete (deletedOrderDocument as any)._id;
 
-    console.log(`📋 Copying order to deleted_orders collection...`);
 
     // STEP 2: Insert into deleted_orders collection
-    const insertResult = await db.collection("deleted_orders").insertOne(deletedOrderDocument);
+    const createdDeletedOrder = await prisma.deletedOrder.create({
+      data: deletedOrderDocument
+    });
     
-    if (!insertResult.acknowledged) {
-      throw new Error("Failed to insert into deleted_orders collection");
-    }
 
-    console.log(`✅ Order copied to deleted_orders with ID: ${insertResult.insertedId}`);
 
     // STEP 3: Create deletion log entry
     const deletionLogEntry = {
-      orderId: new ObjectId(orderId),
+      orderId: orderId,
       orderNumber: order.orderNumber,
       deletedBy: userData?.name || userData?.email || "Unknown Admin",
       deletedByRole: userData?.role,
       deletionReason: deletionReason,
-      deletedOrderDocumentId: insertResult.insertedId,
+      deletedOrderDocumentId: createdDeletedOrder.id,
       orderData: {
         orderNumber: order.orderNumber,
         finalAmount: order.finalAmount,
         status: order.status,
         createdAt: order.createdAt,
-        itemsCount: order.items?.length || 0,
+        itemsCount: (order.items as any)?.length || 0,
         paymentMethod: order.paymentMethod,
         customerName: order.customerName,
         tableNumber: order.tableNumber
@@ -1111,63 +1075,47 @@ export async function DELETE(req: NextRequest) {
       createdAt: new Date()
     };
 
-    const logResult = await db.collection("deletion_logs").insertOne(deletionLogEntry);
-    console.log(`📝 Deletion log created with ID: ${logResult.insertedId}`);
+    const deletionLogResult = await prisma.deletionLog.create({
+      data: { id: randomUUID(), ...deletionLogEntry }
+    });
+
 
     // STEP 4: Update the deleted order with the log ID reference
-    await db.collection("deleted_orders").updateOne(
-      { _id: insertResult.insertedId },
-      { $set: { deletionLogId: logResult.insertedId } }
+    await prisma.deletedOrder.updateMany(
+      { where: { id: createdDeletedOrder.id }, data: { deletionLogId: deletionLogResult.id } }
     );
 
     // STEP 5: Update related records (used_stock)
-    await db.collection("used_stock").updateMany(
-      { orderId: order._id },
-      { 
-        $set: { 
-          deletedWithOrder: true,
-          deletedAt: new Date(),
-          deletedBy: userData?.name,
-          deletedOrderId: insertResult.insertedId
-        } 
-      }
+    await prisma.usedStock.updateMany(
+      { where: { orderId: order.id }, data: { deletedWithOrder: true, deletedAt: new Date(), deletedBy: userData?.name, deletedOrderId: createdDeletedOrder.id } }
     );
-    console.log(`📦 Updated ${await db.collection("used_stock").countDocuments({ orderId: order._id })} used_stock records`);
+
 
     // STEP 6: Update deletion requests status if any
-    await db.collection("deletion_requests").updateMany(
-      { orderId: new ObjectId(orderId), status: "pending" },
-      { 
-        $set: { 
-          status: "approved",
-          approvedBy: userData?.name,
-          approvedAt: new Date(),
-          note: "Order permanently deleted by admin",
-          deletedOrderId: insertResult.insertedId
-        } 
-      }
+    await prisma.deletionRequest.updateMany(
+      { where: { orderId: orderId, status: "pending" }, data: { status: "approved", approvedBy: userData?.name, approvedAt: new Date(), note: "Order permanently deleted by admin", deletedOrderId: createdDeletedOrder.id } }
     );
 
     // STEP 7: HARD DELETE from orders collection
-    const deleteResult = await db.collection("orders").deleteOne({ _id: new ObjectId(orderId) });
+    const deleteResult = await prisma.order.deleteMany({ where: { id: orderId } });
     
-    if (deleteResult.deletedCount === 0) {
+    if (deleteResult.count === 0) {
       throw new Error("Failed to delete order from orders collection");
     }
 
-    console.log(`🗑️ Order ${order.orderNumber} removed from orders collection`);
+
 
     // Verify the deletion was successful
-    const orderStillExists = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
-    const orderInDeleted = await db.collection("deleted_orders").findOne({ originalOrderId: order._id });
+    const orderStillExists = await prisma.order.findFirst({ where: { id: orderId } });
+    const orderInDeleted = await prisma.deletedOrder.findFirst({ where: { originalOrderId: order.id } });
 
     debugLog(`✅ SUCCESS: Order ${order.orderNumber} moved to deleted_orders and removed from orders`, {
-      orderId: order._id,
+      orderId: order.id,
       orderNumber: order.orderNumber,
       deletedBy: userData?.name,
       deletionReason,
-      deletedOrderDocumentId: insertResult.insertedId,
-      deletionLogId: logResult.insertedId,
+      deletedOrderDocumentId: createdDeletedOrder.id,
+      deletionLogId: deletionLogResult.id,
       removedFromOrders: !orderStillExists,
       archivedInDeletedOrders: !!orderInDeleted
     });
@@ -1180,9 +1128,9 @@ export async function DELETE(req: NextRequest) {
         deletedAt: new Date().toISOString(),
         deletedBy: userData?.name || "Unknown Admin",
         deletionReason: deletionReason,
-        originalOrderId: order._id,
-        deletedOrderId: insertResult.insertedId,
-        deletionLogId: logResult.insertedId,
+        originalOrderId: order.id,
+        deletedOrderId: createdDeletedOrder.id,
+        deletionLogId: deletionLogResult.id,
         removedFromOrders: !orderStillExists,
         archivedInDeletedOrders: !!orderInDeleted
       }
@@ -1205,20 +1153,11 @@ export async function DELETE(req: NextRequest) {
 // PUT endpoint for fixes and maintenance
 export async function PUT(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const body = await req.json();
     const { action, orderId, userId, fixAll = false } = body;
 
     if (action === "fixMissingRegistration" && orderId) {
-      if (!ObjectId.isValid(orderId)) {
-        return NextResponse.json(
-          { success: false, error: "Invalid order ID format" },
-          { status: 400 }
-        );
-      }
-
-      const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+      const order = await prisma.order.findFirst({ where: { id: orderId } });
       
       if (!order) {
         return NextResponse.json(
@@ -1230,32 +1169,26 @@ export async function PUT(req: NextRequest) {
       const results = [];
 
       if (order.completedBy && !order.completionRegistered) {
+        const cb = order.completedBy as any;
         const userData = {
-          id: order.completedBy.userId,
-          name: order.completedBy.name,
-          email: order.completedBy.email,
-          role: order.completedBy.role || "employee",
-          employeeId: order.completedBy.employeeId
+          id: cb.userId,
+          name: cb.name,
+          email: cb.email,
+          role: cb.role || "employee",
+          employeeId: cb.employeeId
         };
 
-        const activityResult = await registerOrderActivity(db, userData, order, 'completed');
+        const activityResult = await registerOrderActivity(prisma, userData, { ...order, _id: order.id }, 'completed');
         results.push({ type: "employee", result: activityResult });
       }
 
       if (order.waiterId && !order.waitressActivityRegistered) {
-        const waitressResult = await registerWaitressActivity(db, order, 'completed');
+        const waitressResult = await registerWaitressActivity(prisma, { ...order, _id: order.id }, 'completed');
         results.push({ type: "waitress", result: waitressResult });
       }
 
-      await db.collection("orders").updateOne(
-        { _id: new ObjectId(orderId) },
-        { 
-          $set: { 
-            registrationFixed: true,
-            registrationFixedAt: new Date(),
-            completionRegistered: true
-          } 
-        }
+      await prisma.order.update(
+        { where: { id: orderId }, data: { registrationFixed: true, registrationFixedAt: new Date(), completionRegistered: true } }
       );
 
       return NextResponse.json({
@@ -1267,13 +1200,15 @@ export async function PUT(req: NextRequest) {
     }
 
     if (action === "fixAllMissingRegistrations" && fixAll) {
-      const completedOrders = await db.collection("orders").find({
-        status: { $regex: /^completed$/i },
-        $or: [
-          { completionRegistered: { $ne: true } },
-          { completionRegistered: { $exists: false } }
-        ]
-      }).toArray();
+      const completedOrders = await prisma.order.findMany({
+        where: {
+          status: { contains: 'completed', mode: 'insensitive' },
+          OR: [
+            { completionRegistered: { not: true } },
+            { completionRegistered: null }
+          ]
+        }
+      });
 
       debugLog(`Found ${completedOrders.length} orders missing completion registration`);
 
@@ -1289,21 +1224,22 @@ export async function PUT(req: NextRequest) {
         try {
           let orderPoints = 0;
           
-          if (order.completedBy && order.completedBy.userId) {
+          if (order.completedBy && (order.completedBy as any).userId) {
+            const cb = order.completedBy as any;
             const userData = {
-              id: order.completedBy.userId,
-              name: order.completedBy.name,
-              email: order.completedBy.email,
-              role: order.completedBy.role || "employee",
-              employeeId: order.completedBy.employeeId
+              id: cb.userId,
+              name: cb.name,
+              email: cb.email,
+              role: cb.role || "employee",
+              employeeId: cb.employeeId
             };
 
-            const activityResult = await registerOrderActivity(db, userData, order, 'completed');
+            const activityResult = await registerOrderActivity(prisma, userData, { ...order, _id: order.id }, 'completed');
             if (isSuccessResult(activityResult)) {
               orderPoints += activityResult.pointsAwarded || 0;
               results.employeesUpdated.add(userData.id);
               results.ordersProcessed.push({
-                orderId: order._id,
+                orderId: order.id,
                 orderNumber: order.orderNumber,
                 type: "employee",
                 points: activityResult.pointsAwarded
@@ -1312,11 +1248,11 @@ export async function PUT(req: NextRequest) {
           }
 
           if (order.waiterId) {
-            const waitressResult = await registerWaitressActivity(db, order, 'completed');
+            const waitressResult = await registerWaitressActivity(prisma, { ...order, _id: order.id }, 'completed');
             if (waitressResult && isSuccessResult(waitressResult)) {
               orderPoints += waitressResult.pointsAwarded || 0;
               results.ordersProcessed.push({
-                orderId: order._id,
+                orderId: order.id,
                 orderNumber: order.orderNumber,
                 type: "waitress",
                 points: waitressResult.pointsAwarded
@@ -1327,22 +1263,14 @@ export async function PUT(req: NextRequest) {
           results.pointsAwarded += orderPoints;
           results.totalProcessed++;
 
-          await db.collection("orders").updateOne(
-            { _id: order._id },
-            { 
-              $set: { 
-                registrationFixed: true,
-                registrationFixedAt: new Date(),
-                completionRegistered: true,
-                pointsAwardedOnFix: orderPoints
-              } 
-            }
+          await prisma.order.update(
+            { where: { id: order.id }, data: { registrationFixed: true, registrationFixedAt: new Date(), completionRegistered: true, pointsAwardedOnFix: orderPoints } }
           );
 
         } catch (error) {
-          debugError(`Error fixing order ${order._id}:`, error);
+          debugError(`Error fixing order ${order.id}:`, error);
           results.errors.push({
-            orderId: order._id,
+            orderId: order.id,
             orderNumber: order.orderNumber,
             error: (error as Error).message
           });
@@ -1360,7 +1288,7 @@ export async function PUT(req: NextRequest) {
     }
 
     if (action === "recalculatePoints" && userId) {
-      const employee = await db.collection("employee_rank").findOne({ userId: userId });
+      const employee = await prisma.employeeRank.findFirst({ where: { userId: userId } });
       
       if (!employee) {
         return NextResponse.json(
@@ -1369,10 +1297,10 @@ export async function PUT(req: NextRequest) {
         );
       }
 
-      const completedOrders = await db.collection("orders").find({
-        "completedBy.userId": userId,
-        status: { $regex: /^completed$/i }
-      }).toArray();
+      const allCompleted = await prisma.order.findMany({
+        where: { status: { contains: 'completed', mode: 'insensitive' } }
+      });
+      const completedOrders = allCompleted.filter(o => (o.completedBy as any)?.userId === userId);
 
       let totalPoints = 0;
       let completedCount = 0;
@@ -1382,7 +1310,7 @@ export async function PUT(req: NextRequest) {
         
         let points = 10;
         
-        const totalItems = order.items?.reduce((acc: number, item: any) => acc + (Number(item.quantity) || 0), 0) || 0;
+        const totalItems = ((order.items as any)?.reduce((acc: number, item: any) => acc + (Number(item.quantity) || 0), 0)) || 0;
         if (totalItems > 5) {
           points += Math.min(Math.floor(totalItems / 5), 15);
         }
@@ -1390,15 +1318,8 @@ export async function PUT(req: NextRequest) {
         totalPoints += points;
       }
 
-      const updateResult = await db.collection("employee_rank").updateOne(
-        { userId: userId },
-        {
-          $set: {
-            points: totalPoints,
-            completedOrders: completedCount,
-            recalculatedAt: new Date()
-          }
-        }
+      const updateResult = await prisma.employeeRank.updateMany(
+        { where: { userId: userId }, data: { points: totalPoints, completedOrders: completedCount, recalculatedAt: new Date() } }
       );
 
       return NextResponse.json({

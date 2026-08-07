@@ -1,29 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 
 // Type definitions
 interface DateFilter {
   createdAt?: {
-    $gte: Date;
-    $lte: Date;
+    gte: Date;
+    lte: Date;
   };
   usedAt?: {
-    $gte: Date;
-    $lte: Date;
+    gte: Date;
+    lte: Date;
   };
 }
 
 interface StockGroupResult {
-  _id: ObjectId;
+  _id: string;
   stockName: string;
   stockCategory: string;
   stockUnit: string;
   totalQuantityUsed: number;
   totalCost: number;
   frequency: number;
-  lastUsed: Date;
+  lastUsed: Date | null;
 }
 
 interface StockWithDetails {
@@ -74,18 +73,21 @@ interface FinalMenuItemData {
 }
 
 // Helper: find stockIds that were used by menu items matching a search term
-async function findStockIdsByMenuItemSearch(db: any, search: string, dateFilter: any): Promise<ObjectId[]> {
+async function findStockIdsByMenuItemSearch(search: string, dateFilter: any): Promise<string[]> {
   try {
-    // Find used_stock records where the nested items array contains matching item names
-    const docs = await db.collection("used_stock")
-      .aggregate([
-        { $match: { ...dateFilter } },
-        { $unwind: "$items" },
-        { $match: { "items.itemName": { $regex: search, $options: 'i' } } },
-        { $group: { _id: "$stockId" } }
-      ], { allowDiskUse: true })
-      .toArray();
-    return docs.map((d: any) => d._id).filter((id: any) => id !== null);
+    const docs = await prisma.usedStock.findMany({
+      where: dateFilter,
+      select: { stockId: true, items: true },
+    });
+    const lowerSearch = search.toLowerCase();
+    const stockIds = new Set<string>();
+    docs.forEach((doc) => {
+      const items = (doc.items as any) || [];
+      if (items.some((item: any) => item.itemName && String(item.itemName).toLowerCase().includes(lowerSearch))) {
+        if (doc.stockId) stockIds.add(doc.stockId);
+      }
+    });
+    return Array.from(stockIds);
   } catch (err) {
     console.error('findStockIdsByMenuItemSearch error:', err);
     return [];
@@ -93,17 +95,23 @@ async function findStockIdsByMenuItemSearch(db: any, search: string, dateFilter:
 }
 
 // Helper: find menuItemIds matching a search term
-async function findMenuItemIdsBySearch(db: any, search: string, dateFilter: any): Promise<string[]> {
+async function findMenuItemIdsBySearch(search: string, dateFilter: any): Promise<string[]> {
   try {
-    const docs = await db.collection("used_stock")
-      .aggregate([
-        { $match: { ...dateFilter } },
-        { $unwind: "$items" },
-        { $match: { "items.itemName": { $regex: search, $options: 'i' } } },
-        { $group: { _id: "$items.itemId" } }
-      ], { allowDiskUse: true })
-      .toArray();
-    return docs.map((d: any) => d._id?.toString()).filter((id: any) => id);
+    const docs = await prisma.usedStock.findMany({
+      where: dateFilter,
+      select: { items: true },
+    });
+    const lowerSearch = search.toLowerCase();
+    const itemIds = new Set<string>();
+    docs.forEach((doc) => {
+      const items = (doc.items as any) || [];
+      items.forEach((item: any) => {
+        if (item.itemName && String(item.itemName).toLowerCase().includes(lowerSearch) && item.itemId) {
+          itemIds.add(String(item.itemId));
+        }
+      });
+    });
+    return Array.from(itemIds);
   } catch (err) {
     console.error('findMenuItemIdsBySearch error:', err);
     return [];
@@ -129,168 +137,140 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const page = parseInt(url.searchParams.get('page') || '1');
     const skip = (page - 1) * limit;
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // CRITICAL FIX: Build date filter - ONLY apply if BOTH from AND to exist AND are not 'null'
     const orderDateFilter: any = {};
     const stockDateFilter: any = {};
-    
+
     if (from && to && from !== 'null' && to !== 'null') {
       // Parse as Ethiopia local time (UTC+3): use explicit offset to avoid server timezone issues
       const fromDateStr = new Date(from).toISOString().split('T')[0];
       const toDateStr = new Date(to).toISOString().split('T')[0];
       const fromDate = new Date(`${fromDateStr}T00:00:00+03:00`);
       const toDate = new Date(`${toDateStr}T23:59:59.999+03:00`);
-      
+
       orderDateFilter.createdAt = {
-        $gte: fromDate,
-        $lte: toDate
+        gte: fromDate,
+        lte: toDate,
       };
-      
+
       stockDateFilter.usedAt = {
-        $gte: fromDate,
-        $lte: toDate
+        gte: fromDate,
+        lte: toDate,
       };
-      
-      console.log(`[API] Applying date filter: ${fromDate.toISOString()} to ${toDate.toISOString()}`);
+
+
     } else {
-      console.log(`[API] No date filter applied - fetching ALL data`);
+
     }
 
     if (groupBy === 'stock') {
       // ============================================
       // STOCK REPORT - from used_stock collection
       // ============================================
-      
-      const matchStage: any = { $match: stockDateFilter };
-      
+
+      const where: any = { ...stockDateFilter };
+
       if (search) {
         if (searchType === 'menu') {
           // Search by menu item names - find stockIds that were used by matching menu items
-          const matchingStockIds = await findStockIdsByMenuItemSearch(db, search, stockDateFilter);
-          matchStage.$match = {
-            ...stockDateFilter,
-            ...(matchingStockIds.length > 0
-              ? { stockId: { $in: matchingStockIds } }
-              : { stockId: { $in: [] } }) // No match = empty result
-          };
+          const matchingStockIds = await findStockIdsByMenuItemSearch(search, stockDateFilter);
+          where.stockId = matchingStockIds.length > 0
+            ? { in: matchingStockIds }
+            : { in: [] }; // No match = empty result
         } else if (searchType === 'all') {
           // Search both stock names AND menu item names
-          const matchingStockIdsFromMenu = await findStockIdsByMenuItemSearch(db, search, stockDateFilter);
-          matchStage.$match = {
-            ...stockDateFilter,
-            $or: [
-              { stockName: { $regex: search, $options: 'i' } },
-              { stockCategory: { $regex: search, $options: 'i' } },
-              ...(matchingStockIdsFromMenu.length > 0
-                ? [{ stockId: { $in: matchingStockIdsFromMenu } }]
-                : [])
-            ]
-          };
+          const matchingStockIdsFromMenu = await findStockIdsByMenuItemSearch(search, stockDateFilter);
+          where.OR = [
+            { stockName: { contains: search, mode: 'insensitive' } },
+            { stockCategory: { contains: search, mode: 'insensitive' } },
+            ...(matchingStockIdsFromMenu.length > 0
+              ? [{ stockId: { in: matchingStockIdsFromMenu } }]
+              : [])
+          ];
         } else {
           // Default: search by stock name/category only
-          matchStage.$match = {
-            ...stockDateFilter,
-            $or: [
-              { stockName: { $regex: search, $options: 'i' } },
-              { stockCategory: { $regex: search, $options: 'i' } }
-            ]
-          };
+          where.OR = [
+            { stockName: { contains: search, mode: 'insensitive' } },
+            { stockCategory: { contains: search, mode: 'insensitive' } }
+          ];
         }
       }
 
-      const pipeline: any[] = [
-        matchStage,
-        {
-          $group: {
-            _id: "$stockId",
-            stockName: { $first: "$stockName" },
-            stockCategory: { $first: "$stockCategory" },
-            stockUnit: { $first: "$stockUnit" },
-            totalQuantityUsed: { $sum: { $ifNull: ["$totalQuantityUsed", 0] } },
-            totalCost: { $sum: { $ifNull: ["$totalCost", 0] } },
-            frequency: { $sum: 1 },
-            lastUsed: { $max: "$usedAt" }
-          }
-        },
-        {
-          $addFields: {
-            totalQuantityUsed: { $round: ["$totalQuantityUsed", 3] },
-            totalCost: { $round: ["$totalCost", 2] }
-          }
-        }
-      ];
+      // Fetch all matching used_stock docs and group in JS
+      const allDocs = await prisma.usedStock.findMany({ where });
 
-      // Add sorting
-      const sortDirection = sortOrder === 'asc' ? 1 : -1;
-      if (sortBy === 'name') {
-        pipeline.push({ $sort: { stockName: sortDirection } });
-      } else if (sortBy === 'usage') {
-        pipeline.push({ $sort: { totalQuantityUsed: sortDirection } });
-      } else {
-        pipeline.push({ $sort: { frequency: sortDirection } });
-      }
+      const groups = new Map<string, StockGroupResult>();
+      allDocs.forEach((doc) => {
+        const sid = doc.stockId || '';
+        if (!groups.has(sid)) {
+          groups.set(sid, {
+            _id: sid,
+            stockName: doc.stockName || '',
+            stockCategory: doc.stockCategory || '',
+            stockUnit: doc.stockUnit || '',
+            totalQuantityUsed: 0,
+            totalCost: 0,
+            frequency: 0,
+            lastUsed: null,
+          });
+        }
+        const g = groups.get(sid)!;
+        g.totalQuantityUsed += doc.totalQuantityUsed || 0;
+        g.totalCost += doc.totalCost || 0;
+        g.frequency += 1;
+        if (doc.usedAt && (!g.lastUsed || doc.usedAt > g.lastUsed)) {
+          g.lastUsed = doc.usedAt;
+        }
+      });
+
+      let stockData: StockGroupResult[] = Array.from(groups.values());
+      stockData.forEach((s) => {
+        s.totalQuantityUsed = parseFloat(s.totalQuantityUsed.toFixed(3));
+        s.totalCost = parseFloat(s.totalCost.toFixed(2));
+      });
 
       // Get total count and total frequency across ALL stocks (not just paginated page)
-      let total = 0;
-      let totalFrequencyAllPages = 0;
-      try {
-        const countPipeline = pipeline.filter(p => !p.$skip && !p.$limit);
-        const countResult = await db.collection("used_stock")
-          .aggregate([...countPipeline, { $count: "total" }], { allowDiskUse: true })
-          .toArray();
-        total = countResult[0]?.total || 0;
+      const total = stockData.length;
+      const totalFrequencyAllPages = stockData.reduce((sum, s) => sum + s.frequency, 0);
 
-        const freqResult = await db.collection("used_stock")
-          .aggregate([...countPipeline, { $group: { _id: null, totalFreq: { $sum: "$frequency" } } }], { allowDiskUse: true })
-          .toArray();
-        totalFrequencyAllPages = freqResult[0]?.totalFreq || 0;
-      } catch (err) {
-        console.error("Count error:", err);
-        total = 0;
-      }
+      // Apply sorting
+      const sortDirection = sortOrder === 'asc' ? 1 : -1;
+      stockData.sort((a, b) => {
+        if (sortBy === 'name') {
+          return sortDirection * (a.stockName || '').localeCompare(b.stockName || '');
+        } else if (sortBy === 'usage') {
+          return sortDirection * ((a.totalQuantityUsed || 0) - (b.totalQuantityUsed || 0));
+        }
+        return sortDirection * ((a.frequency || 0) - (b.frequency || 0));
+      });
 
       // Apply pagination
-      pipeline.push({ $skip: skip });
-      pipeline.push({ $limit: limit });
-
-      // Execute query
-      let stockData: StockGroupResult[] = [];
-      try {
-        stockData = await db.collection("used_stock")
-          .aggregate(pipeline, { allowDiskUse: true })
-          .toArray() as StockGroupResult[];
-      } catch (err) {
-        console.error("Data fetch error:", err);
-        stockData = [];
-      }
+      const paginatedData = stockData.slice(skip, skip + limit);
 
       // Enrich with current stock data
-      const stockIds = stockData.map(s => s._id).filter((id): id is ObjectId => id !== null);
-      const stocksData = await db.collection("stocks")
-        .find({ _id: { $in: stockIds } })
-        .toArray();
-      
+      const stockIds = paginatedData.map(s => s._id).filter((id): id is string => id !== null && id !== '');
+      const stocksData = await prisma.stock.findMany({
+        where: { id: { in: stockIds } },
+      });
+
       const stockMap = new Map<string, any>();
       stocksData.forEach(stock => {
-        stockMap.set(stock._id.toString(), stock);
+        stockMap.set(stock.id, stock);
       });
 
       // Fetch last restock date per stock from stock_purchases
       const lastRestockMap = new Map<string, Date>();
       if (stockIds.length > 0) {
         try {
-          const stockIdStringsForPurchases = stockIds.map(id => id.toString());
-          const purchases = await db.collection("stock_purchases")
-            .find({ stockId: { $in: stockIdStringsForPurchases } })
-            .project({ stockId: 1, purchaseDate: 1 })
-            .toArray();
+          const purchases = await prisma.stockPurchase.findMany({
+            where: { stockId: { in: stockIds } },
+            select: { stockId: true, purchaseDate: true },
+          });
           // Group by stockId, find most recent purchaseDate
           const purchaseGroups = new Map<string, Date>();
           purchases.forEach((p: any) => {
             const sid = p.stockId?.toString() || '';
-            const pDate = new Date(p.purchaseDate);
+            const pDate = p.purchaseDate ? new Date(p.purchaseDate) : new Date(0);
             if (!purchaseGroups.has(sid) || pDate > purchaseGroups.get(sid)!) {
               purchaseGroups.set(sid, pDate);
             }
@@ -304,8 +284,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       }
 
       // Fetch all used_stock docs for these stocks ONCE, then derive menuItems, orderCounts, dailyUsage, usageRecords
-      const stockIdStrings = stockData.map(s => s._id?.toString()).filter(Boolean);
-      const stockObjectIds = stockIds;
+      const stockIdStrings = paginatedData.map(s => s._id).filter(Boolean);
       let menuItemsByStock = new Map<string, any[]>();
       const stockOrderCounts = new Map<string, Set<string>>();
       const dailyUsageByStock = new Map<string, Map<string, { quantity: number; cost: number; orders: Set<string> }>>();
@@ -316,9 +295,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
       if (stockIdStrings.length > 0) {
         try {
-          const allUsedDocsRaw = await db.collection("used_stock")
-            .find({ ...stockDateFilter, stockId: { $in: stockObjectIds } })
-            .toArray();
+          const allUsedDocsRaw = await prisma.usedStock.findMany({
+            where: { ...stockDateFilter, stockId: { in: stockIds } },
+          });
           // Filter: only include usage records AFTER the last restock for each stock
           const allUsedDocs = allUsedDocsRaw.filter((doc: any) => {
             const sid = doc.stockId?.toString() || '';
@@ -335,7 +314,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             if (!grouped.has(sid)) grouped.set(sid, new Map());
             const itemMap = grouped.get(sid)!;
             const orderId = doc.orderId?.toString() || '';
-            const items = doc.items || [];
+            const items = (doc.items as any) || [];
             if (items.length === 0) {
               const itemKey = 'unknown';
               const existing = itemMap.get(itemKey);
@@ -413,7 +392,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
               quantityUsed: doc.totalQuantityUsed || 0,
               cost: doc.totalCost || 0,
               usedAt,
-              items: (doc.items || []).map((item: any) => ({
+              items: ((doc.items as any) || []).map((item: any) => ({
                 itemName: item.itemName || 'Unknown',
                 quantityUsed: item.quantityUsed || 0,
               })),
@@ -424,15 +403,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         }
       }
 
-      const finalData: StockWithDetails[] = stockData.map(item => {
+      const finalData: StockWithDetails[] = paginatedData.map(item => {
         const stockInfo = stockMap.get(item._id?.toString() || '');
         const currentStock = stockInfo?.currentStock || 0;
         const minimumStock = stockInfo?.minimumStock || 0;
-        
+
         let stockStatus: 'normal' | 'low' | 'critical' = 'normal';
         if (currentStock <= 0) stockStatus = 'critical';
         else if (currentStock <= minimumStock) stockStatus = 'low';
-        
+
         const sid = item._id?.toString() || '';
         const menuItems = menuItemsByStock.get(sid) || [];
         const uniqueOrders = stockOrderCounts.get(sid)?.size || 0;
@@ -451,7 +430,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         // Build usageRecords sorted by date desc
         const usageRecords = (usageRecordsByStock.get(sid) || [])
           .sort((a, b) => new Date(b.usedAt).getTime() - new Date(a.usedAt).getTime());
-        
+
         return {
           stockId: sid,
           stockName: item.stockName || 'Unknown',
@@ -500,114 +479,101 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       // ============================================
       // MENU ITEM REPORT - FROM ORDERS COLLECTION
       // ============================================
-      
-      console.log(`[Menu Report] Date range from=${from}, to=${to}`);
-      console.log(`[Menu Report] Date filter applied:`, orderDateFilter);
-      
+
+
+
+
       // Step 1: Get total counts for ALL orders (for validation)
-      const allOrdersCount = await db.collection("orders").countDocuments(orderDateFilter);
-      console.log(`[Menu Report] Total orders in date range: ${allOrdersCount}`);
-      
+      const allOrdersCount = await prisma.order.count({ where: orderDateFilter });
+
+
       // Step 2: Get total revenue from ALL orders in date range
-      const allOrdersRevenue = await db.collection("orders").aggregate([
-        { $match: orderDateFilter },
-        { $group: { _id: null, total: { $sum: "$total" } } }
-      ]).toArray();
-      const grandTotalRevenueAll = allOrdersRevenue[0]?.total || 0;
-      console.log(`[Menu Report] Total revenue in date range: ${grandTotalRevenueAll} Birr`);
-      
-      // Step 3: Build pipeline for menu items aggregation
-      const menuItemsPipeline: any[] = [];
-      
-      // Add match stage with date filter (if any)
-      if (Object.keys(orderDateFilter).length > 0) {
-        menuItemsPipeline.push({ $match: orderDateFilter });
-      }
-      
-      // Unwind items array to get individual items per order
-      menuItemsPipeline.push({ $unwind: "$items" });
-      
-      // Add search filter if needed
-      if (search) {
-        if (searchType === 'stock') {
-          // Find menu items that used matching stocks
-          const matchingItemIds = await findMenuItemIdsBySearch(db, search, stockDateFilter);
-          if (matchingItemIds.length > 0) {
-            const objectIds = matchingItemIds.map(id => {
-              try { return new ObjectId(id); } catch { return id; }
-            });
-            menuItemsPipeline.push({
-              $match: { "items.itemId": { $in: objectIds } }
-            });
-          } else {
-            // No matching stocks = no results
-            menuItemsPipeline.push({ $match: { "items.itemId": { $in: [] } } });
-          }
-        } else if (searchType === 'all') {
-          // Search both menu item names AND stock-based menu items
-          const matchingItemIds = await findMenuItemIdsBySearch(db, search, stockDateFilter);
-          const orConditions: any[] = [
-            { "items.itemName": { $regex: search, $options: 'i' } }
-          ];
-          if (matchingItemIds.length > 0) {
-            const objectIds = matchingItemIds.map(id => {
-              try { return new ObjectId(id); } catch { return id; }
-            });
-            orConditions.push({ "items.itemId": { $in: objectIds } });
-          }
-          menuItemsPipeline.push({ $match: { $or: orConditions } });
-        } else {
-          // Default: search by menu item name only
-          menuItemsPipeline.push({
-            $match: { "items.itemName": { $regex: search, $options: 'i' } }
-          });
-        }
-      }
-      
-      // Group by itemId to aggregate all occurrences
-      menuItemsPipeline.push({
-        $group: {
-          _id: "$items.itemId",
-          itemName: { $first: "$items.itemName" },
-          totalQuantity: { $sum: { $ifNull: ["$items.quantity", 0] } },
-          frequency: { $sum: 1 },  // Count of orders containing this item
-          totalRevenue: { 
-            $sum: { 
-              $multiply: [
-                { $ifNull: ["$items.quantity", 0] },
-                { $ifNull: ["$items.unitPrice", 0] }
-              ]
-            }
-          },
-          totalOrderIds: { $addToSet: "$_id" },  // Track unique order IDs
-          lastOrderDate: { $max: "$createdAt" },
-          avgUnitPrice: { $avg: { $ifNull: ["$items.unitPrice", 0] } }
-        }
+      const allOrders = await prisma.order.findMany({
+        where: orderDateFilter,
+        select: { id: true, createdAt: true, items: true, totalAmount: true },
       });
-      
+      const grandTotalRevenueAll = allOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+
+
+      // Step 3: Aggregate menu items from orders in JS
+      const matchingItemIds = search ? await findMenuItemIdsBySearch(search, stockDateFilter) : [];
+      const menuGroups = new Map<string, any>();
+
+      allOrders.forEach((order) => {
+        const orderItems = (order.items as any) || [];
+        const orderId = order.id;
+        orderItems.forEach((item: any) => {
+          const itemId = item?.itemId ? String(item.itemId) : (item?.itemName ? String(item.itemName) : null);
+          if (!itemId) return;
+
+          // Apply search filter
+          if (search) {
+            if (searchType === 'stock') {
+              // Find menu items that used matching stocks
+              if (!(matchingItemIds.length > 0 && matchingItemIds.includes(itemId))) return;
+            } else if (searchType === 'all') {
+              // Search both menu item names AND stock-based menu items
+              const nameMatch = item.itemName && String(item.itemName).toLowerCase().includes(search.toLowerCase());
+              const idMatch = matchingItemIds.includes(itemId);
+              if (!nameMatch && !idMatch) return;
+            } else {
+              // Default: search by menu item name only
+              if (!(item.itemName && String(item.itemName).toLowerCase().includes(search.toLowerCase()))) return;
+            }
+          }
+
+          if (!menuGroups.has(itemId)) {
+            menuGroups.set(itemId, {
+              _id: itemId,
+              itemName: item.itemName || 'Unknown',
+              totalQuantity: 0,
+              frequency: 0, // Count of orders containing this item
+              totalRevenue: 0,
+              totalOrderIds: new Set<string>(), // Track unique order IDs
+              lastOrderDate: null as Date | null,
+              avgUnitPrice: 0,
+              avgCount: 0,
+            });
+          }
+
+          const g = menuGroups.get(itemId)!;
+          const quantity = item.quantity || 0;
+          const unitPrice = item.unitPrice || 0;
+          g.totalQuantity += quantity;
+          g.frequency += 1;
+          g.totalRevenue += quantity * unitPrice;
+          g.totalOrderIds.add(orderId);
+          if (order.createdAt && (!g.lastOrderDate || order.createdAt > g.lastOrderDate)) {
+            g.lastOrderDate = order.createdAt;
+          }
+          g.avgUnitPrice += unitPrice;
+          g.avgCount += 1;
+        });
+      });
+
       // Execute to get ALL menu items (not paginated yet)
-      let allMenuItemsData: any[] = [];
-      try {
-        allMenuItemsData = await db.collection("orders")
-          .aggregate(menuItemsPipeline, { allowDiskUse: true })
-          .toArray();
-        
-        console.log(`[Menu Report] Found ${allMenuItemsData.length} unique menu items from orders`);
-        
-        // Calculate total revenue from this aggregation to verify
-        const totalRevenueFromAgg = allMenuItemsData.reduce((sum, i) => sum + (i.totalRevenue || 0), 0);
-        console.log(`[Menu Report] Total revenue from aggregation: ${totalRevenueFromAgg.toFixed(2)} Birr`);
-        
-        // Log discrepancy if any
-        if (Math.abs(totalRevenueFromAgg - grandTotalRevenueAll) > 1) {
-          console.warn(`[Menu Report] Revenue mismatch: Agg=${totalRevenueFromAgg}, Total=${grandTotalRevenueAll}`);
-        }
-        
-      } catch (err) {
-        console.error("Error fetching menu items from orders:", err);
-        allMenuItemsData = [];
+      let allMenuItemsData: any[] = Array.from(menuGroups.values()).map((g: any) => ({
+        _id: g._id,
+        itemName: g.itemName,
+        totalQuantity: g.totalQuantity,
+        frequency: g.frequency,
+        totalRevenue: g.totalRevenue,
+        totalOrderIds: Array.from(g.totalOrderIds),
+        lastOrderDate: g.lastOrderDate,
+        avgUnitPrice: g.avgCount > 0 ? g.avgUnitPrice / g.avgCount : 0,
+      }));
+
+
+
+      // Calculate total revenue from this aggregation to verify
+      const totalRevenueFromAgg = allMenuItemsData.reduce((sum, i) => sum + (i.totalRevenue || 0), 0);
+
+
+      // Log discrepancy if any
+      if (Math.abs(totalRevenueFromAgg - grandTotalRevenueAll) > 1) {
+        console.warn(`[Menu Report] Revenue mismatch: Agg=${totalRevenueFromAgg}, Total=${grandTotalRevenueAll}`);
       }
-      
+
       // Step 4: Apply sorting to ALL items
       const sortDirection = sortOrder === 'asc' ? 1 : -1;
       allMenuItemsData.sort((a, b) => {
@@ -617,120 +583,84 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           return sortDirection * ((a.totalQuantity || 0) - (b.totalQuantity || 0));
         } else if (sortBy === 'revenue') {
           return sortDirection * ((a.totalRevenue || 0) - (b.totalRevenue || 0));
-        } else {
-          // Default: sort by frequency
-          return sortDirection * ((a.frequency || 0) - (b.frequency || 0));
         }
+        // Default: sort by frequency
+        return sortDirection * ((a.frequency || 0) - (b.frequency || 0));
       });
-      
+
       const total = allMenuItemsData.length;
       const paginatedItems = allMenuItemsData.slice(skip, skip + limit);
-      
-      console.log(`[Menu Report] Pagination: page=${page}, limit=${limit}, total=${total}, pages=${Math.ceil(total/limit)}`);
-      
+
+
+
       // Step 5: Get stock usage data for paginated menu items (ingredient tracking)
       const itemIds = paginatedItems.map(item => item._id).filter((id): id is string => id !== null && id !== undefined);
       let stockUsageMap = new Map<string, any[]>();
-      
+
       if (itemIds.length > 0) {
         try {
-          // Convert string IDs to ObjectId for MongoDB query
-          const objectIds = itemIds.map(id => {
-            try { return new ObjectId(id); } catch { return id; }
-          });
-          
           // Apply the same date filter so ingredients shown match the selected period
-          const stockPipeline = [
-            { $match: { ...stockDateFilter, "items.itemId": { $in: objectIds } } },
-            { $unwind: "$items" },
-            { $match: { "items.itemId": { $in: objectIds } } },
-            {
-              $group: {
-                _id: {
-                  itemId: "$items.itemId",
-                  stockId: "$stockId"
-                },
-                itemId: { $first: "$items.itemId" },
-                stockName: { $first: "$stockName" },
-                stockCategory: { $first: "$stockCategory" },
-                stockUnit: { $first: "$stockUnit" },
-                quantityUsed: { $sum: "$items.quantityUsed" },
-                totalCost: { $sum: "$totalCost" }
+          const usedDocs = await prisma.usedStock.findMany({ where: stockDateFilter });
+          const stockGroupMap = new Map<string, Map<string, any>>();
+
+          usedDocs.forEach((doc) => {
+            const items = (doc.items as any) || [];
+            const docTotalCost = doc.totalCost || 0;
+            items.forEach((item: any) => {
+              const iid = item?.itemId ? String(item.itemId) : null;
+              if (!iid || !itemIds.includes(iid)) return;
+              const sid = doc.stockId?.toString() || '';
+              const key = `${iid}|${sid}`;
+              if (!stockGroupMap.has(iid)) stockGroupMap.set(iid, new Map());
+              const inner = stockGroupMap.get(iid)!;
+              if (!inner.has(key)) {
+                inner.set(key, {
+                  stockId: sid,
+                  stockName: doc.stockName || '',
+                  stockCategory: doc.stockCategory || '',
+                  stockUnit: doc.stockUnit || '',
+                  quantityUsed: 0,
+                  totalCost: 0,
+                });
               }
-            },
-            {
-              $group: {
-                _id: "$itemId",
-                stocks: {
-                  $push: {
-                    stockId: "$_id.stockId",
-                    stockName: "$stockName",
-                    stockCategory: "$stockCategory",
-                    stockUnit: "$stockUnit",
-                    quantityUsed: "$quantityUsed",
-                    totalCost: "$totalCost"
-                  }
-                }
-              }
-            }
-          ];
-          
-          const stockData = await db.collection("used_stock")
-            .aggregate(stockPipeline, { allowDiskUse: true })
-            .toArray();
-          
-          stockData.forEach(item => {
-            stockUsageMap.set(item._id?.toString() || '', item.stocks);
+              const entry = inner.get(key)!;
+              entry.quantityUsed += item.quantityUsed || 0;
+              entry.totalCost += docTotalCost;
+            });
           });
-          
-          console.log(`[Menu Report] Found stock usage for ${stockUsageMap.size} menu items`);
-          
+
+          stockGroupMap.forEach((inner, iid) => {
+            stockUsageMap.set(iid, Array.from(inner.values()));
+          });
+
+
+
         } catch (err) {
           console.error("Error fetching stock usage:", err);
         }
       }
-      
+
       // Step 5.5: Get daily usage for paginated menu items
       const dailyUsageByMenuItem = new Map<string, Map<string, { quantity: number; revenue: number; orders: Set<string> }>>();
       if (itemIds.length > 0) {
         try {
-          const objectIdsDaily = itemIds.map(id => {
-            try { return new ObjectId(id); } catch { return id; }
-          });
-          const dateMatchPipeline: any[] = [];
-          if (Object.keys(orderDateFilter).length > 0) {
-            dateMatchPipeline.push({ $match: orderDateFilter });
-          }
-          const dailyPipeline = [
-            ...dateMatchPipeline,
-            { $unwind: "$items" },
-            { $match: { "items.itemId": { $in: objectIdsDaily } } },
-            {
-              $group: {
-                _id: {
-                  itemId: "$items.itemId",
-                  date: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } }
-                },
-                quantity: { $sum: { $ifNull: ["$items.quantity", 0] } },
-                revenue: { $sum: { $multiply: [{ $ifNull: ["$items.quantity", 0] }, { $ifNull: ["$items.unitPrice", 0] }] } },
-                orderIds: { $addToSet: "$_id" }
-              }
-            }
-          ];
-          const dailyResults = await db.collection("orders")
-            .aggregate(dailyPipeline, { allowDiskUse: true })
-            .toArray();
-          
-          dailyResults.forEach((doc: any) => {
-            const itemId = doc._id?.itemId?.toString() || '';
-            const date = doc._id?.date || '';
-            if (!itemId || !date) return;
-            if (!dailyUsageByMenuItem.has(itemId)) dailyUsageByMenuItem.set(itemId, new Map());
-            const dayMap = dailyUsageByMenuItem.get(itemId)!;
-            dayMap.set(date, {
-              quantity: doc.quantity || 0,
-              revenue: doc.revenue || 0,
-              orders: new Set(doc.orderIds || []),
+          allOrders.forEach((order) => {
+            const orderItems = (order.items as any) || [];
+            if (!order.createdAt) return;
+            const dateKey = order.createdAt.toISOString().split('T')[0];
+            orderItems.forEach((item: any) => {
+              const iid = item?.itemId ? String(item.itemId) : null;
+              if (!iid || !itemIds.includes(iid)) return;
+              const quantity = item.quantity || 0;
+              const revenue = quantity * (item.unitPrice || 0);
+
+              if (!dailyUsageByMenuItem.has(iid)) dailyUsageByMenuItem.set(iid, new Map());
+              const dayMap = dailyUsageByMenuItem.get(iid)!;
+              if (!dayMap.has(dateKey)) dayMap.set(dateKey, { quantity: 0, revenue: 0, orders: new Set() });
+              const dayEntry = dayMap.get(dateKey)!;
+              dayEntry.quantity += quantity;
+              dayEntry.revenue += revenue;
+              dayEntry.orders.add(order.id);
             });
           });
         } catch (err) {
@@ -742,7 +672,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       const finalData: FinalMenuItemData[] = paginatedItems.map(item => {
         const stocks = stockUsageMap.get(item._id?.toString() || '') || [];
         const totalStockQuantity = stocks.reduce((sum: number, s: any) => sum + (s.quantityUsed || 0), 0);
-        
+
         // Build dailyUsage array sorted by date
         const dayMap = dailyUsageByMenuItem.get(item._id?.toString() || '') || new Map();
         const dailyUsage = Array.from(dayMap.entries())
@@ -753,7 +683,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             ordersCount: data.orders.size,
           }))
           .sort((a, b) => a.date.localeCompare(b.date));
-        
+
         return {
           itemId: item._id?.toString() || '',
           itemName: item.itemName || 'Unknown',
@@ -775,18 +705,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           dailyUsage,
         };
       });
-      
+
       // Step 7: Calculate summary from ALL menu items (not just paginated)
       const summaryTotalRevenue = allMenuItemsData.reduce((sum, i) => sum + (i.totalRevenue || 0), 0);
       const summaryTotalOrders = allMenuItemsData.reduce((sum, i) => sum + (i.totalOrderIds?.length || 0), 0);
-      
-      console.log(`=== MENU ITEM REPORT SUMMARY ===`);
-      console.log(`Total Unique Menu Items: ${total}`);
-      console.log(`Total Revenue (All): ${summaryTotalRevenue.toFixed(2)} Birr`);
-      console.log(`Total Orders (All): ${summaryTotalOrders}`);
-      console.log(`Displaying: ${finalData.length} items (page ${page} of ${Math.ceil(total/limit)})`);
-      console.log(`================================`);
-      
+
+
+
+
+
+
+
+
       return NextResponse.json({
         success: true,
         data: finalData,
@@ -806,10 +736,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   } catch (error) {
     console.error("Report API Error:", error);
-    
+
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: error instanceof Error ? error.message : "Failed to generate report",
       },
       { status: 500 }

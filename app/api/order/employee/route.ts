@@ -1,20 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { debugLog, debugError } from "../../utils/orderHelpers";
 import { registerOrderActivity } from "../../utils/activityHelpers";
 
 export async function GET(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
     const url = new URL(req.url);
     const fix = url.searchParams.get("fix") === "true";
     
-    const completedOrders = await db.collection("orders").find({
-      completedBy: { $exists: true }
-    }).toArray();
+    const completedOrders = await prisma.order.findMany({
+      where: { completedBy: { not: Prisma.DbNull } }
+    });
     
     debugLog(`Found ${completedOrders.length} orders with completedBy field`);
     
@@ -23,68 +20,69 @@ export async function GET(req: NextRequest) {
     
     if (fix) {
       for (const order of completedOrders) {
-        if (order.completedBy && order.completedBy.userId) {
+        const completedBy = (order.completedBy as any) || {};
+        if (completedBy.userId) {
           try {
-            const existingEmployee = await db.collection("employee_rank").findOne({
-              $or: [
-                { userId: order.completedBy.userId },
-                { email: order.completedBy.email }
-              ]
+            const existingEmployee = await prisma.employeeRank.findFirst({
+              where: {
+                OR: [
+                  { userId: completedBy.userId },
+                  { email: completedBy.email }
+                ]
+              }
             });
             
             if (!existingEmployee) {
               const userData = {
-                id: order.completedBy.userId,
-                name: order.completedBy.name || "Unknown Employee",
-                email: order.completedBy.email || "unknown@example.com",
-                role: order.completedBy.role || "employee",
-                employeeId: order.completedBy.employeeId || `EMP-${Date.now().toString().slice(-6)}`
+                id: completedBy.userId,
+                name: completedBy.name || "Unknown Employee",
+                email: completedBy.email || "unknown@example.com",
+                role: completedBy.role || "employee",
+                employeeId: completedBy.employeeId || `EMP-${Date.now().toString().slice(-6)}`
               };
               
-              const fixResult = await registerOrderActivity(db, userData, order, 'completed');
+              const fixResult = await registerOrderActivity(prisma, userData, order, 'completed');
               
               results.push({
-                orderId: order._id,
+                orderId: order.id,
                 orderNumber: order.orderNumber,
-                userId: order.completedBy.userId,
-                userName: order.completedBy.name,
+                userId: completedBy.userId,
+                userName: completedBy.name,
                 fixResult: fixResult.success ? "Fixed" : "Failed"
               });
               
               if (fixResult.success) fixedCount++;
             }
           } catch (error) {
-            debugError(`Error fixing order ${order._id}:`, error);
-            results.push({ orderId: order._id, error: (error as Error).message });
+            debugError(`Error fixing order ${order.id}:`, error);
+            results.push({ orderId: order.id, error: (error as Error).message });
           }
         }
       }
     }
     
-    const employeeStats = await db.collection("employee_rank").aggregate([
-      {
-        $group: {
-          _id: null,
-          totalEmployees: { $sum: 1 },
-          totalCompletedOrders: { $sum: "$completedOrders" },
-          totalPoints: { $sum: "$points" },
-          avgPoints: { $avg: "$points" }
-        }
-      }
-    ]).toArray();
+    const allEmployees = await prisma.employeeRank.findMany({});
     
-    const allEmployees = await db.collection("employee_rank")
-      .find({})
-      .sort({ points: -1 })
-      .limit(10)
-      .toArray();
+    const employeeStats = {
+      totalEmployees: allEmployees.length,
+      totalCompletedOrders: allEmployees.reduce((sum, e) => sum + (e.completedOrders || 0), 0),
+      totalPoints: allEmployees.reduce((sum, e) => sum + (e.points || 0), 0),
+      avgPoints: allEmployees.length > 0
+        ? allEmployees.reduce((sum, e) => sum + (e.points || 0), 0) / allEmployees.length
+        : 0
+    };
+    
+    const topEmployees = await prisma.employeeRank.findMany({
+      orderBy: { points: 'desc' },
+      take: 10
+    });
     
     return NextResponse.json({
       success: true,
       diagnostic: {
         ordersWithCompletedBy: completedOrders.length,
-        employeeStats: employeeStats[0] || {},
-        topEmployees: allEmployees,
+        employeeStats,
+        topEmployees: topEmployees.map(e => ({ ...e, _id: e.id })),
         fixResults: results,
         fixedCount: fixedCount
       }

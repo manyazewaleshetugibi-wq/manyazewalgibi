@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
 import { BlogSchema } from "@/models/Blogs";
 import { uploadImage } from "@/types/utils/uploadImages";
-import { ObjectId } from "mongodb";
 import { requireRole } from "@/lib/api-auth";
 import { sanitizeBlogHtml } from "@/lib/sanitize";
 
@@ -24,25 +23,21 @@ export async function GET(
     const { id } = await params;
     
     // Validate ID
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: "Invalid blog ID format" },
         { status: 400 }
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     // Increment view count
-    await db.collection("blogs").updateOne(
-      { _id: new ObjectId(id) },
-      { $inc: { views: 1 } }
+    await prisma.blog.updateMany(
+      { where: { id }, data: { views: { increment: 1 } } }
     );
     
     // Get blog with all fields including video data
-    const blog = await db.collection("blogs").findOne(
-      { _id: new ObjectId(id) }
+    const blog = await prisma.blog.findUnique(
+      { where: { id } }
     );
 
     if (!blog) {
@@ -54,13 +49,13 @@ export async function GET(
 
     // Format blog data with video thumbnail if needed
     const formattedBlog = {
-      _id: blog._id.toString(),
+      _id: blog.id,
       title: blog.title || "",
       content: blog.content || "",
       category: blog.category || "OTHER",
       tags: blog.tags || [],
       Image: blog.Image || "",
-      Video: blog.Video || "",
+      Video: (blog as any).Video || (blog.mediaType === "video" ? blog.fileUrl || "" : ""),
       mediaType: blog.mediaType || "none",
       isActive: blog.isActive !== undefined ? blog.isActive : true,
       excerpt: blog.excerpt || "",
@@ -68,20 +63,20 @@ export async function GET(
       // Video upload fields
       uploadStatus: blog.uploadStatus || "completed",
       uploadProgress: blog.uploadProgress || 100,
-      fileUrl: blog.fileUrl || blog.Video || blog.Image || "",
+      fileUrl: blog.fileUrl || (blog as any).Video || blog.Image || "",
       thumbnailUrl: blog.thumbnailUrl || "",
       publicId: blog.publicId || "",
       format: blog.format || "",
       fileSize: blog.fileSize || 0,
       originalFileName: blog.originalFileName || "",
       mimeType: blog.mimeType || "",
-      error: blog.error || "",
+      error: (blog as any).error || "",
       // Dates
       publishedAt: blog.publishedAt ? blog.publishedAt.toISOString() : new Date().toISOString(),
       createdAt: blog.createdAt ? blog.createdAt.toISOString() : new Date().toISOString(),
       updatedAt: blog.updatedAt ? blog.updatedAt.toISOString() : new Date().toISOString(),
       completedAt: blog.completedAt ? blog.completedAt.toISOString() : undefined,
-      failedAt: blog.failedAt ? blog.failedAt.toISOString() : undefined,
+      failedAt: (blog as any).failedAt ? (blog as any).failedAt.toISOString() : undefined,
     };
 
     // Generate thumbnail for video if not already set
@@ -90,31 +85,22 @@ export async function GET(
     }
 
     // Get related blogs (same category)
-    const relatedBlogs = await db.collection("blogs")
-      .find({
-        _id: { $ne: new ObjectId(id) },
+    const relatedBlogs = await prisma.blog.findMany({
+      where: {
+        id: { not: id },
         category: blog.category,
-        isActive: true
-      })
-      .limit(3)
-      .project({
-        title: 1,
-        excerpt: 1,
-        Image: 1,
-        Video: 1,
-        mediaType: 1,
-        thumbnailUrl: 1,
-        createdAt: 1
-      })
-      .toArray();
+        isActive: true,
+      },
+      take: 3,
+    });
 
     // Format related blogs
     const formattedRelatedBlogs = relatedBlogs.map(relBlog => ({
-      _id: relBlog._id.toString(),
+      _id: relBlog.id,
       title: relBlog.title || "",
       excerpt: relBlog.excerpt || "",
       Image: relBlog.Image || "",
-      Video: relBlog.Video || "",
+      Video: (relBlog as any).Video || "",
       mediaType: relBlog.mediaType || "none",
       thumbnailUrl: relBlog.thumbnailUrl || "",
       createdAt: relBlog.createdAt ? relBlog.createdAt.toISOString() : new Date().toISOString(),
@@ -122,35 +108,31 @@ export async function GET(
 
     // Get previous and next blogs
     const [prevBlog, nextBlog] = await Promise.all([
-      db.collection("blogs")
-        .findOne(
-          {
-            _id: { $lt: new ObjectId(id) },
+      prisma.blog.findFirst(
+        {
+          where: {
+            id: { lt: id },
             isActive: true
           },
-          {
-            sort: { _id: -1 },
-            projection: { title: 1, _id: 1, mediaType: 1, thumbnailUrl: 1 }
-          }
-        ),
-      db.collection("blogs")
-        .findOne(
-          {
-            _id: { $gt: new ObjectId(id) },
+          orderBy: { id: 'desc' }
+        }
+      ),
+      prisma.blog.findFirst(
+        {
+          where: {
+            id: { gt: id },
             isActive: true
           },
-          {
-            sort: { _id: 1 },
-            projection: { title: 1, _id: 1, mediaType: 1, thumbnailUrl: 1 }
-          }
-        )
+          orderBy: { id: 'asc' }
+        }
+      )
     ]);
 
     // Format navigation blogs
     const formatNavBlog = (navBlog: any) => {
       if (!navBlog) return null;
       return {
-        _id: navBlog._id.toString(),
+        _id: navBlog.id,
         title: navBlog.title || "",
         mediaType: navBlog.mediaType || "none",
         thumbnailUrl: navBlog.thumbnailUrl || "",
@@ -203,7 +185,7 @@ export async function PUT(
     const { id } = await params;
     
     // Validate ID
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: "Invalid blog ID format" },
         { status: 400 }
@@ -250,12 +232,9 @@ export async function PUT(
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     // Get existing blog first
-    const existingBlog = await db.collection("blogs").findOne({ 
-      _id: new ObjectId(id) 
+    const existingBlog = await prisma.blog.findUnique({ 
+      where: { id } 
     });
 
     if (!existingBlog) {
@@ -280,14 +259,12 @@ export async function PUT(
       updateFields.Image = imageBase64;
       if (mediaSource === 'image') {
         updateFields.mediaType = 'image';
-        updateFields.Video = ''; // Clear video if switching to image
         updateFields.fileUrl = imageBase64;
       }
     }
 
     // Handle video URL update
     if (videoUrl && videoUrl.startsWith('http')) {
-      updateFields.Video = videoUrl;
       if (mediaSource === 'video') {
         updateFields.mediaType = 'video';
         updateFields.Image = ''; // Clear image if switching to video
@@ -299,16 +276,16 @@ export async function PUT(
     if (mediaSource === 'none') {
       updateFields.mediaType = 'none';
       updateFields.Image = '';
-      updateFields.Video = '';
       updateFields.fileUrl = '';
     }
 
-    const result = await db.collection("blogs").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateFields }
+    delete updateFields.Video;
+
+    const result = await prisma.blog.updateMany(
+      { where: { id }, data: updateFields }
     );
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, message: "Blog not found" },
         { status: 404 }
@@ -349,7 +326,7 @@ export async function DELETE(
     const { id } = await params;
     
     // Validate ID
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: "Invalid blog ID format" },
         { status: 400 }
@@ -359,31 +336,22 @@ export async function DELETE(
     const { searchParams } = new URL(req.url);
     const permanent = searchParams.get('permanent') === 'true';
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     let result;
     
     if (permanent) {
       // Hard delete
-      result = await db.collection("blogs").deleteOne({
-        _id: new ObjectId(id)
+      result = await prisma.blog.deleteMany({
+        where: { id }
       });
     } else {
       // Soft delete (recommended)
-      result = await db.collection("blogs").updateOne(
-        { _id: new ObjectId(id) },
-        { 
-          $set: { 
+      result = await prisma.blog.updateMany({ where: { id }, data: { 
             isActive: false,
-            deletedAt: new Date(),
             updatedAt: new Date()
-          } 
-        }
-      );
+          } });
     }
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, message: "Blog not found" },
         { status: 404 }

@@ -1,7 +1,6 @@
 // app/api/order/pending-requests/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 import { auth } from "@/auth";
 
@@ -22,16 +21,15 @@ export async function GET(req: NextRequest) {
     let targetWaiterId = waiterId;
     
     if (!targetWaiterId) {
-      const dbClient = await clientPromise;
-      const db = dbClient.db("gold");
-      
       // Find waiter by email in waitresses collection
-      const waiter = await db.collection("waitresses").findOne({ 
-        email: session.user.email 
-      });
+      const waiter = session.user.email
+        ? await prisma.waitress.findFirst({ 
+            where: { email: session.user.email } 
+          })
+        : null;
       
       if (waiter) {
-        targetWaiterId = waiter._id.toString();
+        targetWaiterId = waiter.id;
       } else {
         targetWaiterId = session.user.id;
       }
@@ -44,18 +42,25 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
+    // Find orders with pending edit requests
+    const orders = await prisma.order.findMany({
+      where: {
+        editRequest: {
+          path: ['status'],
+          equals: 'pending'
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
 
-    // Find orders with pending edit requests where this waiter is the requested waiter
-    const orders = await db.collection("orders").find({
-      'editRequest.status': 'pending',
-      'editRequest.requestedWaiterId': targetWaiterId
-    }).toArray();
+    // Filter to orders where this waiter is the requested waiter
+    const pendingOrders = orders.filter((order: any) =>
+      order.editRequest?.requestedWaiterId === targetWaiterId
+    );
 
     // Transform orders for response (matching your existing structure)
-    const transformedOrders = orders.map(order => ({
-      id: order._id.toString(),
+    const transformedOrders = pendingOrders.map((order: any) => ({
+      id: order.id,
       orderNumber: order.orderNumber,
       status: order.status,
       totalAmount: order.totalAmount,
@@ -65,7 +70,7 @@ export async function GET(req: NextRequest) {
       customerName: order.customerName,
       notes: order.notes,
       createdAt: order.createdAt,
-      orderItems: order.items || order.orderItems || [],
+      orderItems: (order.items as any) || [],
       editRequest: order.editRequest
     }));
 

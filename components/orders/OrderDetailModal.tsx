@@ -96,7 +96,7 @@ const fetchItemsBatch = async (itemIds: string[]): Promise<Map<string, MenuItem>
   const cached = menuItemsCache.get(cacheKey)
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) return cached.data
   try {
-    const response = await fetch(`/api/items/?ids=${limitedIds.join(",")}`)
+    const response = await fetch(`/api/items?ids=${limitedIds.join(",")}`)
     if (!response.ok) throw new Error("Failed to fetch items")
     const data = await response.json()
     const itemsMap = new Map<string, MenuItem>()
@@ -237,9 +237,9 @@ export const OrderDetailModal = React.memo(function OrderDetailModal({
       } else {
         try {
           const response = await fetch(`/api/waitress/${order.waiterId}`)
-          if (!response.ok) throw new Error("Failed to fetch waitress")
+          if (!response.ok) return
           const data = await response.json()
-          setWaitress(data)
+          if (data?.data) setWaitress(data.data)
         } catch (error) {
           console.error("Error fetching waitress:", error)
         }

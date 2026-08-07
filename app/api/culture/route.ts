@@ -1,9 +1,14 @@
 // app/api/culture/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { getCurrentUserData } from "../utils/orderHelpers";
+
+function normalizeJson(value: any) {
+  return value === null || value === undefined ? Prisma.DbNull : value;
+}
 
 // Cloudinary Configuration
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
@@ -109,17 +114,14 @@ const isAdminRole = (role: string | undefined): boolean => {
 // GET - Fetch all cultures
 export async function GET(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    
-    const cultures = await db.collection("cultures")
-      .find({ isActive: { $ne: false } })
-      .sort({ createdAt: -1 })
-      .toArray();
+    const cultures = await prisma.culture.findMany({
+      where: { isActive: { not: false } },
+      orderBy: { createdAt: 'desc' },
+    });
 
     return NextResponse.json({
       success: true,
-      cultures,
+      cultures: cultures.map(c => ({ ...c, _id: c.id })),
       count: cultures.length
     }, { status: 200 });
 
@@ -195,10 +197,10 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        console.log('Starting image upload to Cloudinary...');
+
         cloudinaryData = await uploadToCloudinary(imageFile);
         imageUrl = cloudinaryData.url;
-        console.log('Image upload successful:', cloudinaryData);
+
       } catch (uploadError: any) {
         console.error('Image upload error:', uploadError);
         return NextResponse.json(
@@ -215,7 +217,7 @@ export async function POST(req: NextRequest) {
       title: title.trim(),
       description: description.trim(),
       imageUrl,
-      cloudinaryData,
+      cloudinaryData: normalizeJson(cloudinaryData),
       createdBy: userData?.name || userData?.email || "Unknown",
       createdByEmail: userData?.email,
       createdAt: new Date(),
@@ -223,16 +225,15 @@ export async function POST(req: NextRequest) {
       isActive: true,
     };
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
-    const result = await db.collection("cultures").insertOne(cultureData);
-    const createdCulture = await db.collection("cultures").findOne({ _id: result.insertedId });
+    const created = await prisma.culture.create({
+      data: { id: randomUUID(), ...cultureData },
+    });
+    const createdCulture = await prisma.culture.findUnique({ where: { id: created.id } });
 
     return NextResponse.json({
       success: true,
       message: "Culture created successfully",
-      data: createdCulture,
+      data: createdCulture ? { ...createdCulture, _id: createdCulture.id } : null,
     }, { status: 201 });
 
   } catch (error: any) {
@@ -264,18 +265,15 @@ export async function PUT(req: NextRequest) {
     const description = formData.get("description") as string;
     const imageFile = formData.get("image") as File | null;
 
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: "Valid culture ID is required" },
         { status: 400 }
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Get existing culture
-    const existingCulture = await db.collection("cultures").findOne({ _id: new ObjectId(id) });
+    const existingCulture = await prisma.culture.findUnique({ where: { id } });
     if (!existingCulture) {
       return NextResponse.json(
         { success: false, message: "Culture not found" },
@@ -312,10 +310,10 @@ export async function PUT(req: NextRequest) {
       }
 
       try {
-        console.log('Starting image upload to Cloudinary for update...');
+
         cloudinaryData = await uploadToCloudinary(imageFile);
-        imageUrl = cloudinaryData.url;
-        console.log('Image upload successful:', cloudinaryData);
+        imageUrl = (cloudinaryData as any)?.url || imageUrl;
+
       } catch (uploadError: any) {
         console.error('Image upload error:', uploadError);
         return NextResponse.json(
@@ -332,29 +330,25 @@ export async function PUT(req: NextRequest) {
       title: title ? title.trim() : existingCulture.title,
       description: description ? description.trim() : existingCulture.description,
       imageUrl,
-      cloudinaryData,
+      cloudinaryData: normalizeJson(cloudinaryData),
       updatedAt: new Date(),
-      updatedBy: userData?.name || userData?.email,
     };
 
-    const result = await db.collection("cultures").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
+    const result = await prisma.culture.updateMany({ where: { id }, data: updateData });
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, message: "Culture not found" },
         { status: 404 }
       );
     }
 
-    const updatedCulture = await db.collection("cultures").findOne({ _id: new ObjectId(id) });
+    const updatedCulture = await prisma.culture.findUnique({ where: { id } });
 
     return NextResponse.json({
       success: true,
       message: "Culture updated successfully",
-      data: updatedCulture,
+      data: updatedCulture ? { ...updatedCulture, _id: updatedCulture.id } : null,
     }, { status: 200 });
 
   } catch (error: any) {
@@ -382,17 +376,14 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: "Valid culture ID is required" },
         { status: 400 }
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
-    const culture = await db.collection("cultures").findOne({ _id: new ObjectId(id) });
+    const culture = await prisma.culture.findUnique({ where: { id } });
     if (!culture) {
       return NextResponse.json(
         { success: false, message: "Culture not found" },
@@ -401,21 +392,14 @@ export async function DELETE(req: NextRequest) {
     }
 
     // Soft delete
-    const result = await db.collection("cultures").updateOne(
-      { _id: new ObjectId(id) },
-      { 
-        $set: { 
-          isActive: false,
-          deletedAt: new Date(),
-          deletedBy: userData?.name || userData?.email
-        } 
-      }
-    );
+    const result = await prisma.culture.updateMany({ where: { id }, data: { 
+          isActive: false
+        } });
 
     return NextResponse.json({
       success: true,
       message: "Culture deleted successfully",
-      modifiedCount: result.modifiedCount
+      modifiedCount: result.count
     }, { status: 200 });
 
   } catch (error: any) {

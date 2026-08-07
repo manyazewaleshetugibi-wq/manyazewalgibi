@@ -61,6 +61,7 @@ import {
 
 import { getCategoryIcon } from '@/components/menu/MenuIcons'
 import { MenuCacheManager } from '@/lib/menu-cache-manager'
+import { decryptTableToken } from '@/lib/urlParamHandler'
 
 // ========== CART PERSISTENCE UTILITIES ==========
 
@@ -72,7 +73,6 @@ const CART_STORAGE_KEY = 'restaurant_cart_data'
 const saveCartToLocalStorage = (items: CartItem[]): void => {
   try {
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items))
-    console.log('💾 Cart saved to localStorage:', items.length, 'items')
   } catch (error) {
     console.error('Failed to save cart to localStorage:', error)
   }
@@ -89,7 +89,6 @@ const loadCartFromLocalStorage = (): CartItem[] | null => {
     const parsed = JSON.parse(data)
     if (!Array.isArray(parsed)) return null
     
-    console.log('📦 Cart loaded from localStorage:', parsed.length, 'items')
     return parsed
   } catch (error) {
     console.error('Failed to load cart from localStorage:', error)
@@ -102,7 +101,6 @@ const loadCartFromLocalStorage = (): CartItem[] | null => {
  */
 const clearCartFromLocalStorage = (): void => {
   localStorage.removeItem(CART_STORAGE_KEY)
-  console.log('🗑️ Cart cleared from localStorage')
 }
 
 // ========== SECURITY UTILITIES ==========
@@ -1160,7 +1158,6 @@ export default function MenuPage() {
     const savedCart = loadCartFromLocalStorage()
     if (savedCart && savedCart.length > 0) {
       setCartItems(savedCart)
-      console.log('🛒 Restored cart from localStorage:', savedCart.length, 'items')
     }
     setCartLoaded(true)
   }, [])
@@ -1309,8 +1306,13 @@ export default function MenuPage() {
     }
 
     const tableParam = searchParams.get('table')
-    const tableIdParam = searchParams.get('tableId')
-    const restaurantIdParam = searchParams.get('restaurantId')
+    // Decrypt QR token (t) when present so internal DB ids stay hidden
+    // in the URL. Falls back to plaintext params for older QR codes.
+    const tokenData = searchParams.get('t')
+      ? decryptTableToken(searchParams.get('t') as string)
+      : null
+    const tableIdParam = tokenData?.tableId || searchParams.get('tableId')
+    const restaurantIdParam = tokenData?.restaurantId || searchParams.get('restaurantId')
     const floorParam = searchParams.get('floor')
     const restaurantNameParam = searchParams.get('restaurant')
     const capacityParam = searchParams.get('capacity')
@@ -1348,12 +1350,6 @@ export default function MenuPage() {
         }
         setSelectedTableData(tableData)
         
-        console.log('✅ Table detected from URL:', {
-          tableNumber: tableNum,
-          isQR: isQRScan,
-          capacity: tableData.capacity,
-          restaurant: tableData.restaurantName
-        })
       }
     } else {
       const storedTable = localStorage.getItem('detectedTableNumber')
@@ -1378,7 +1374,6 @@ export default function MenuPage() {
           }
           setSelectedTableData(tableData)
           
-          console.log('✅ Table restored from localStorage:', tableNum)
         }
       }
     }
@@ -1411,14 +1406,13 @@ export default function MenuPage() {
     try {
       const { categories: cachedCategories, items: cachedItems, waiters: cachedWaiters, isValid } = await cacheManager.loadMenuData()
       if (isValid && cachedCategories.length > 0 && cachedItems.length > 0) {
-        setCategories(cachedCategories)
-        setSortedCategories(sortCategoriesByPriority(cachedCategories))
+        setCategories(cachedCategories.map((c: any) => ({ ...c, _id: c._id || c.id || '' })))
+        setSortedCategories(sortCategoriesByPriority(cachedCategories.map((c: any) => ({ ...c, _id: c._id || c.id || '' }))))
         setItems(cachedItems)
         setFilteredItems(cachedItems)
         if (cachedWaiters.length > 0) setWaiters(cachedWaiters)
         setDataLoaded(true)
         setLoading(false)
-        console.log('📦 Loaded from encrypted cache')
         return true
       }
       return false
@@ -1432,7 +1426,6 @@ export default function MenuPage() {
   const saveToCache = useCallback(async (categoriesData: Category[], itemsData: Item[], waitersData: Waiter[]) => {
     try {
       await cacheManager.saveMenuData(categoriesData, itemsData, waitersData)
-      console.log('💾 Saved to encrypted cache')
     } catch (error) {
       console.error('Cache save error:', error)
     }
@@ -1472,7 +1465,9 @@ export default function MenuPage() {
         if (Array.isArray(catData)) categoriesData = catData
         else if (catData?.data && Array.isArray(catData.data)) categoriesData = catData.data
         else if (catData?.categories && Array.isArray(catData.categories)) categoriesData = catData.categories
-        categoriesData = categoriesData.filter(cat => !shouldHideCategory(cat))
+        categoriesData = categoriesData
+          .map((cat: any) => ({ ...cat, _id: cat._id || cat.id || '' }))
+          .filter(cat => !shouldHideCategory(cat))
         setCategories(categoriesData)
         setSortedCategories(sortCategoriesByPriority(categoriesData))
       }
@@ -1488,7 +1483,7 @@ export default function MenuPage() {
           _id: item._id || item.id || '',
           name: item.name || 'Unnamed Item',
           description: item.description || '',
-          categoryId: item.categoryId || item.category || item.category_id || '',
+          categoryId: (item.categoryId || item.category || item.category_id || '').replace(/^"|"$/g, ''),
           price: Number(item.price) || 0,
           imageUrl: item.imageUrl || item.image || item.image_url || '',
           preparationTime: Number(item.preparationTime) || Number(item.preparation_time) || 0,
@@ -1603,7 +1598,6 @@ export default function MenuPage() {
         const hasOldCategories = localStorage.getItem('menu_categories') !== null
         const hasOldItems = localStorage.getItem('menu_items') !== null
         if (hasOldCategories || hasOldItems) {
-          console.log('🔄 Migrating old data to encrypted format...')
           await cacheManager.migrateOldData()
         }
         const loaded = await loadFromCache()
@@ -1669,7 +1663,6 @@ export default function MenuPage() {
         }
       } catch (error: any) {
         if (error.response?.status !== 404) {
-          console.debug('Arrangement fetch skipped:', error.message)
         }
       }
     }

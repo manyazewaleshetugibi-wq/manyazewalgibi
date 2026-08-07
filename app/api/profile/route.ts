@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 import { auth } from "@/auth";
 import bcrypt from 'bcrypt';
@@ -28,18 +27,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
-    const user = await db.collection("users").findOne(
-      { _id: new ObjectId(session.user.id) },
-      { 
-        projection: { 
-          password: 0, // Exclude password
-          resetToken: 0,
-          resetTokenExpiry: 0 
-        }
-      }
+    const user = await prisma.user.findUnique(
+      { where: { id: session.user.id } }
     );
 
     if (!user) {
@@ -49,10 +38,12 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const { password, ...userWithoutPassword } = user;
+
     return NextResponse.json(
       { 
         success: true, 
-        user 
+        user: { ...userWithoutPassword, _id: userWithoutPassword.id }
       },
       { status: 200 }
     );
@@ -76,8 +67,6 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const body: ProfileUpdateData = await req.json();
 
     // Validate required fields
@@ -89,9 +78,11 @@ export async function PUT(req: NextRequest) {
     }
 
     // Check if email is already taken by another user
-    const existingUser = await db.collection("users").findOne({
-      email: body.email,
-      _id: { $ne: new ObjectId(session.user.id) }
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        email: body.email,
+        id: { not: session.user.id }
+      }
     });
 
     if (existingUser) {
@@ -102,8 +93,8 @@ export async function PUT(req: NextRequest) {
     }
 
     // Get current user for password validation
-    const currentUser = await db.collection("users").findOne(
-      { _id: new ObjectId(session.user.id) }
+    const currentUser = await prisma.user.findUnique(
+      { where: { id: session.user.id } }
     );
 
     if (!currentUser) {
@@ -123,7 +114,7 @@ export async function PUT(req: NextRequest) {
     // Add optional fields if provided
     if (body.phone) updateData.phone = body.phone;
     if (body.address) updateData.address = body.address;
-    if (body.avatar) updateData.avatar = body.avatar;
+    if (body.avatar) updateData.image = body.avatar;
 
     // Handle password change if provided
     if (body.currentPassword && body.newPassword && body.confirmPassword) {
@@ -145,7 +136,7 @@ export async function PUT(req: NextRequest) {
       // Verify current password
       const isPasswordValid = await bcrypt.compare(
         body.currentPassword,
-        currentUser.password
+        currentUser.password || ""
       );
 
       if (!isPasswordValid) {
@@ -159,16 +150,12 @@ export async function PUT(req: NextRequest) {
       const saltRounds = 10;
       const hashedPassword = await bcrypt.hash(body.newPassword, saltRounds);
       updateData.password = hashedPassword;
-      updateData.passwordChangedAt = new Date();
     }
 
     // Update user in database
-    const result = await db.collection("users").updateOne(
-      { _id: new ObjectId(session.user.id) },
-      { $set: updateData }
-    );
+    const result = await prisma.user.updateMany({ where: { id: session.user.id }, data: updateData });
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { error: "User not found" },
         { status: 404 }
@@ -176,22 +163,16 @@ export async function PUT(req: NextRequest) {
     }
 
     // Fetch updated user data (excluding sensitive fields)
-    const updatedUser = await db.collection("users").findOne(
-      { _id: new ObjectId(session.user.id) },
-      { 
-        projection: { 
-          password: 0,
-          resetToken: 0,
-          resetTokenExpiry: 0 
-        }
-      }
+    const fetchedUser = await prisma.user.findUnique(
+      { where: { id: session.user.id } }
     );
+    const { password, ...userWithoutPassword } = (fetchedUser as any) || {};
 
     return NextResponse.json(
       { 
         success: true, 
         message: "Profile updated successfully",
-        user: updatedUser,
+        user: { ...userWithoutPassword, _id: userWithoutPassword.id },
         passwordChanged: !!body.newPassword
       },
       { status: 200 }
@@ -216,8 +197,6 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const body = await req.json();
 
     // Validate request body
@@ -241,9 +220,11 @@ export async function PATCH(req: NextRequest) {
     // Special validation for email
     if (body.field === "email") {
       // Check if email is already taken by another user
-      const existingUser = await db.collection("users").findOne({
-        email: body.value,
-        _id: { $ne: new ObjectId(session.user.id) }
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          email: body.value,
+          id: { not: session.user.id }
+        }
       });
 
       if (existingUser) {
@@ -254,18 +235,19 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    // Map legacy field names to Prisma model fields
+    const fieldMap: Record<string, string> = { avatar: 'image' };
+    const dbField = fieldMap[body.field] || body.field;
+
     // Update specific field
-    const updateData = {
-      [body.field]: body.value,
+    const updateData: any = {
+      [dbField]: body.value,
       updatedAt: new Date()
     };
 
-    const result = await db.collection("users").updateOne(
-      { _id: new ObjectId(session.user.id) },
-      { $set: updateData }
-    );
+    const result = await prisma.user.updateMany({ where: { id: session.user.id }, data: updateData });
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { error: "User not found" },
         { status: 404 }
@@ -273,22 +255,16 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Fetch updated user data
-    const updatedUser = await db.collection("users").findOne(
-      { _id: new ObjectId(session.user.id) },
-      { 
-        projection: { 
-          password: 0,
-          resetToken: 0,
-          resetTokenExpiry: 0 
-        }
-      }
+    const fetchedUser = await prisma.user.findUnique(
+      { where: { id: session.user.id } }
     );
+    const { password, ...userWithoutPassword } = (fetchedUser as any) || {};
 
     return NextResponse.json(
       { 
         success: true, 
         message: `${body.field} updated successfully`,
-        user: updatedUser
+        user: { ...userWithoutPassword, _id: userWithoutPassword.id }
       },
       { status: 200 }
     );

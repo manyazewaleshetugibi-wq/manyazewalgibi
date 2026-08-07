@@ -965,7 +965,7 @@ export function TableSelector({
         }
       }
     } catch (error) {
-      console.debug('Polling error:', error);
+
     }
   }, [selectedRestaurantId, selectedFloor, isSessionExpired, getAxiosConfig, isUserLoggedIn, session, anonymousId, activeSelection, selectedTable, onTableSelect]);
 

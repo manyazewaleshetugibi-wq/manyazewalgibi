@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import prisma from "@/lib/prisma";
 import { debugLog, debugError } from "../../utils/orderHelpers";
 
 export async function GET(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // 1. Check all orders with their status
-    const allOrders = await db.collection("orders").find({}).toArray();
+    const allOrders = await prisma.order.findMany();
     
     const statusSummary = allOrders.reduce((acc, order) => {
       const status = order.status || 'unknown';
@@ -19,41 +16,48 @@ export async function GET(req: NextRequest) {
     }, {} as Record<string, number>);
 
     // 2. Check specifically for completed orders
-    const completedOrders = await db.collection("orders").find({
-      status: { $regex: /^completed$/i }
-    }).toArray();
+    const completedOrders = await prisma.order.findMany({
+      where: {
+        status: { contains: 'completed', mode: 'insensitive' }
+      }
+    });
     
     const completedOrdersDetails = completedOrders.slice(0, 5).map(order => ({
-      _id: order._id,
+      _id: order.id,
       orderNumber: order.orderNumber,
       status: order.status,
       completedBy: order.completedBy,
       stockProcessed: order.stockProcessed,
-      itemsCount: order.items?.length || 0
+      itemsCount: (order.items as any)?.length || 0
     }));
 
     // 3. Check unprocessed completed orders
-    const queryResult = await db.collection("orders").find({
-      status: { $regex: /^completed$/i },
-      stockProcessed: { $ne: true }
-    }).toArray();
+    const queryResult = await prisma.order.findMany({
+      where: {
+        status: { contains: 'completed', mode: 'insensitive' },
+        OR: [
+          { stockProcessed: { not: true } },
+          { stockProcessed: null }
+        ]
+      }
+    });
 
     // 4. Check used_stock collection
-    const usedStockCount = await db.collection("used_stock").countDocuments();
+    const usedStockCount = await prisma.usedStock.count();
 
-    // 5. Check items with requiredStock
-    const itemsWithStock = await db.collection("items").find({
-      "requiredStock.0": { $exists: true }
-    }).toArray();
+    // 5. Check items with requiredStock (JSON array, filtered in JS)
+    const allItems = await prisma.item.findMany();
+    const itemsWithStock = allItems.filter(i =>
+      Array.isArray((i.requiredStock as any)) && (i.requiredStock as any).length > 0
+    );
 
     // 6. Check employee_rank collection
-    const employeeRankCount = await db.collection("employee_rank").countDocuments();
+    const employeeRankCount = await prisma.employeeRank.count();
     
-    const topEmployees = await db.collection("employee_rank")
-      .find({})
-      .sort({ points: -1 })
-      .limit(5)
-      .toArray();
+    const topEmployees = await prisma.employeeRank.findMany({
+      orderBy: { points: 'desc' },
+      take: 5
+    });
 
     return NextResponse.json({
       success: true,
@@ -75,10 +79,10 @@ export async function GET(req: NextRequest) {
           employeeId: e.employeeId
         })),
         sampleItem: itemsWithStock.length > 0 ? {
-          _id: itemsWithStock[0]._id,
+          _id: itemsWithStock[0].id,
           name: itemsWithStock[0].name,
-          requiredStockCount: itemsWithStock[0].requiredStock?.length || 0,
-          requiredStockSample: itemsWithStock[0].requiredStock?.slice(0, 3) || []
+          requiredStockCount: (itemsWithStock[0].requiredStock as any)?.length || 0,
+          requiredStockSample: (itemsWithStock[0].requiredStock as any)?.slice(0, 3) || []
         } : null
       }
     }, { status: 200 });

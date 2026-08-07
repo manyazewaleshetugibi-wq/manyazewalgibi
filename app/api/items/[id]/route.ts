@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/api-auth";
 
 // Cloudinary Configuration
@@ -107,17 +106,8 @@ export async function GET(
     if (response) return response;
 
     const { id } = await params
-    
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid Item ID" },
-        { status: 400 }
-      )
-    }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    const item = await db.collection('items').findOne({ _id: new ObjectId(id) })
+    const item = await prisma.item.findUnique({ where: { id } })
 
     if (!item) {
       return NextResponse.json(
@@ -145,16 +135,11 @@ export async function PUT(
     if (response) return response;
 
     const { id } = await params;
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, message: "Invalid Item ID" }, { status: 400 });
-    }
 
     const formData = await req.formData();
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
 
     // Get existing item
-    const existingItem = await db.collection("items").findOne({ _id: new ObjectId(id) });
+    const existingItem = await prisma.item.findUnique({ where: { id } });
     if (!existingItem) {
       return NextResponse.json(
         { success: false, message: "Item not found" },
@@ -200,10 +185,10 @@ export async function PUT(
       }
 
       try {
-        console.log('Starting image upload to Cloudinary for update...');
+
         cloudinaryData = await uploadToCloudinary(imageFile);
-        imageUrl = cloudinaryData.url;
-        console.log('Image upload successful:', cloudinaryData);
+        imageUrl = (cloudinaryData as any).url;
+
       } catch (uploadError: any) {
         console.error('Image upload error:', uploadError);
         return NextResponse.json(
@@ -230,37 +215,21 @@ export async function PUT(
       requiredStock: JSON.parse(formData.get("requiredStock") as string || "[]"),
     };
 
-    // Validate IDs
-    if (!ObjectId.isValid(body.categoryId as string)) {
-      return NextResponse.json({ success: false, message: "Invalid category ID" }, { status: 400 });
-    }
-    for (const stock of body.requiredStock) {
-      if (!ObjectId.isValid(stock.stockId)) {
-        return NextResponse.json({ success: false, message: `Invalid stock ID: ${stock.stockId}` }, { status: 400 });
-      }
-      for (const alt of (stock.alternatives || [])) {
-        if (!ObjectId.isValid(alt.stockId)) {
-          return NextResponse.json({ success: false, message: `Invalid alternative stock ID: ${alt.stockId}` }, { status: 400 });
-        }
-      }
-    }
-
     // Build update data directly — no Zod validation to avoid ObjectId crash
-    const updateData = {
+    const updateData: any = {
       name: body.name,
       description: body.description,
-      categoryId: new ObjectId(body.categoryId as string),
+      categoryId: body.categoryId as string,
       price: body.price,
       preparationTime: body.preparationTime,
       isActive: body.isActive,
       isFeatured: body.isFeatured,
-      isFasting: body.isFasting,
       nutritionalInfo: body.nutritionalInfo,
       requiredStock: body.requiredStock.map((stock: any) => ({
-        stockId: new ObjectId(stock.stockId),
+        stockId: stock.stockId,
         quantity: stock.quantity,
         alternatives: (stock.alternatives || []).map((alt: any) => ({
-          stockId: new ObjectId(alt.stockId),
+          stockId: alt.stockId,
           quantity: alt.quantity,
           label: alt.label || '',
         })),
@@ -270,17 +239,17 @@ export async function PUT(
       updatedAt: new Date(),
     };
 
-    const updateResult = await db.collection("items").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
-
-    if (updateResult.matchedCount === 0) {
-      return NextResponse.json({ success: false, message: "Item not updated" }, { status: 404 });
+    try {
+      await prisma.item.update({ where: { id }, data: updateData });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json({ success: false, message: "Item not updated" }, { status: 404 });
+      }
+      throw e;
     }
 
     // Fetch updated item to return
-    const updatedItem = await db.collection("items").findOne({ _id: new ObjectId(id) });
+    const updatedItem = await prisma.item.findUnique({ where: { id } });
 
     return NextResponse.json({ 
       success: true, 
@@ -303,15 +272,9 @@ export async function DELETE(
     if (response) return response;
 
     const { id } = await params;
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, message: "Invalid Item ID" }, { status: 400 });
-    }
-
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
 
     // Get item first to get Cloudinary publicId (if you want to delete from Cloudinary)
-    const item = await db.collection("items").findOne({ _id: new ObjectId(id) });
+    const item = await prisma.item.findUnique({ where: { id } });
 
     if (!item) {
       return NextResponse.json({ success: false, message: "Item not found" }, { status: 404 });
@@ -323,9 +286,9 @@ export async function DELETE(
     //   await deleteFromCloudinary(item.cloudinaryData.publicId);
     // }
 
-    const deleteResult = await db.collection("items").deleteOne({ _id: new ObjectId(id) });
+    const deleteResult = await prisma.item.deleteMany({ where: { id } });
 
-    if (deleteResult.deletedCount === 0) {
+    if (deleteResult.count === 0) {
       return NextResponse.json({ success: false, message: "Item not found" }, { status: 404 });
     }
 

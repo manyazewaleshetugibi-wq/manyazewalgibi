@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import { validateItemData } from "@/models/Item";
-import { ObjectId } from "mongodb";
 import { requireRole } from "@/lib/api-auth";
 
 // Cloudinary Configuration
@@ -108,13 +108,16 @@ export async function POST(req: NextRequest) {
     if (response) return response;
 
     const formData = await req.formData();
-    console.log("Received item creation request");
+
     
     // Parse form data
     const name = formData.get("name") as string;
     const description = formData.get("description") as string;
     const price = parseFloat(formData.get("price") as string);
-    const cost = parseFloat(formData.get("cost") as string);
+    const rawCost = formData.get("cost") as string;
+    const cost = rawCost !== null && rawCost !== "" && !isNaN(parseFloat(rawCost))
+      ? parseFloat(rawCost)
+      : undefined;
     const categoryId = formData.get("categoryId") as string;
     const requiredStockString = formData.get("requiredStock") as string;
     const imageFile = formData.get("image") as File | null;
@@ -131,13 +134,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!ObjectId.isValid(categoryId)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid category ID" },
-        { status: 400 }
-      );
-    }
-
     // Parse requiredStock
     let requiredStock = [];
     try {
@@ -147,24 +143,6 @@ export async function POST(req: NextRequest) {
         { success: false, message: "Invalid requiredStock format" },
         { status: 400 }
       );
-    }
-
-    // Validate requiredStock IDs (POST)
-    for (const stock of requiredStock) {
-      if (!ObjectId.isValid(stock.stockId)) {
-        return NextResponse.json(
-          { success: false, message: `Invalid stock ID: ${stock.stockId}` },
-          { status: 400 }
-        );
-      }
-      for (const alt of (stock.alternatives || [])) {
-        if (!ObjectId.isValid(alt.stockId)) {
-          return NextResponse.json(
-            { success: false, message: `Invalid alternative stock ID: ${alt.stockId}` },
-            { status: 400 }
-          );
-        }
-      }
     }
 
     // Handle image upload
@@ -196,10 +174,10 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        console.log('Starting image upload to Cloudinary...');
+
         cloudinaryData = await uploadToCloudinary(imageFile);
-        imageUrl = cloudinaryData.url;
-        console.log('Image upload successful:', cloudinaryData);
+        imageUrl = (cloudinaryData as any).url;
+
       } catch (uploadError: any) {
         console.error('Image upload error:', uploadError);
         return NextResponse.json(
@@ -230,32 +208,36 @@ export async function POST(req: NextRequest) {
     // Validate item data
     const validatedData = validateItemData(itemData);
 
-    // Connect to database
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Insert into database
-    const result = await db.collection("items").insertOne({
-      ...validatedData,
-      categoryId: new ObjectId(validatedData.categoryId),
-      requiredStock: (validatedData.requiredStock || []).map((stock: any) => ({
-        stockId: new ObjectId(stock.stockId),
-        quantity: stock.quantity,
-        alternatives: (stock.alternatives || []).map((alt: any) => ({
-          stockId: new ObjectId(alt.stockId),
-          quantity: alt.quantity,
-          label: alt.label || '',
+    const result = await prisma.item.create({
+      data: {
+        id: randomUUID(),
+        name: validatedData.name,
+        description: validatedData.description,
+        categoryId: validatedData.categoryId,
+        price: validatedData.price,
+        imageUrl,
+        requiredStock: (validatedData.requiredStock || []).map((stock: any) => ({
+          stockId: stock.stockId,
+          quantity: stock.quantity,
+          alternatives: (stock.alternatives || []).map((alt: any) => ({
+            stockId: alt.stockId,
+            quantity: alt.quantity,
+            label: alt.label || '',
+          })),
         })),
-      })),
-      imageUrl,
-      cloudinaryData,
-      isFasting: validatedData.isFasting || false, // ADDED
-      createdAt: new Date(),
-      updatedAt: new Date(),
+        cloudinaryData,
+        nutritionalInfo: validatedData.nutritionalInfo,
+        preparationTime: validatedData.preparationTime,
+        isActive: validatedData.isActive,
+        isFeatured: validatedData.isFeatured,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
     });
 
     // Fetch the created item to return
-    const createdItem = await db.collection("items").findOne({ _id: result.insertedId });
+    const createdItem = await prisma.item.findUnique({ where: { id: result.id } });
 
     return NextResponse.json(
       {
@@ -275,16 +257,19 @@ export async function POST(req: NextRequest) {
 }
 
 // ✅ GET all items — enriched with stock names for requiredStock & alternatives
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const items = await db.collection("items").find({}).toArray();
+    const url = new URL(req.url);
+    const idsParam = url.searchParams.get("ids");
+    const ids = idsParam ? idsParam.split(",").filter(Boolean) : [];
+    const items = ids.length > 0
+      ? await prisma.item.findMany({ where: { id: { in: ids } } })
+      : await prisma.item.findMany();
 
     // Collect all unique stockIds across all items (default + alternatives)
     const allStockIds = new Set<string>();
     for (const item of items) {
-      for (const ing of item.requiredStock || []) {
+      for (const ing of (item.requiredStock as any) || []) {
         if (ing.stockId) allStockIds.add(ing.stockId.toString());
         for (const alt of ing.alternatives || []) {
           if (alt.stockId) allStockIds.add(alt.stockId.toString());
@@ -296,20 +281,21 @@ export async function GET() {
     const stockNameMap = new Map<string, string>();
     const stockUnitMap = new Map<string, string>();
     if (allStockIds.size > 0) {
-      const stocks = await db.collection("stocks")
-        .find({ _id: { $in: [...allStockIds].map(id => { try { return new ObjectId(id) } catch { return null } }).filter((id): id is ObjectId => id !== null) } })
-        .project({ _id: 1, name: 1, unit: 1 })
-        .toArray();
+      const stocks = await prisma.stock.findMany({
+        where: { id: { in: [...allStockIds] } },
+        select: { id: true, name: true, unit: true },
+      });
       for (const s of stocks) {
-        stockNameMap.set(s._id.toString(), s.name);
-        stockUnitMap.set(s._id.toString(), s.unit || '');
+        stockNameMap.set(s.id, s.name || '');
+        stockUnitMap.set(s.id, s.unit || '');
       }
     }
 
     // Attach stockName and stockUnit to each ingredient and its alternatives
     const enrichedItems = items.map(item => ({
       ...item,
-      requiredStock: (item.requiredStock || []).map((ing: any) => ({
+      _id: item.id,
+      requiredStock: ((item.requiredStock as any) || []).map((ing: any) => ({
         ...ing,
         stockName: stockNameMap.get(ing.stockId?.toString()) || ing.stockId?.toString() || '',
         stockUnit: stockUnitMap.get(ing.stockId?.toString()) || '',
@@ -344,13 +330,6 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid item ID" },
-        { status: 400 }
-      );
-    }
-
     const formData = await req.formData();
     
     // Parse form data - ADDED isFasting
@@ -364,12 +343,8 @@ export async function PUT(req: NextRequest) {
     const removeImage = formData.get("removeImage") === "true";
     const isFasting = formData.get("isFasting") === "true"; // ADDED
 
-    // Connect to database
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Get existing item
-    const existingItem = await db.collection("items").findOne({ _id: new ObjectId(id) });
+    const existingItem = await prisma.item.findUnique({ where: { id } });
     if (!existingItem) {
       return NextResponse.json(
         { success: false, message: "Item not found" },
@@ -416,10 +391,10 @@ export async function PUT(req: NextRequest) {
       }
 
       try {
-        console.log('Starting image upload to Cloudinary for update...');
+
         cloudinaryData = await uploadToCloudinary(imageFile);
-        imageUrl = cloudinaryData.url;
-        console.log('Image upload successful:', cloudinaryData);
+        imageUrl = (cloudinaryData as any).url;
+
         
         // Optionally delete old image from Cloudinary
         // if (existingItem.cloudinaryData?.publicId) {
@@ -438,7 +413,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // Parse requiredStock
-    let requiredStock = existingItem.requiredStock || [];
+    let requiredStock = (existingItem.requiredStock as any) || [];
     if (requiredStockString) {
       try {
         requiredStock = JSON.parse(requiredStockString);
@@ -450,61 +425,41 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // Validate requiredStock IDs (PUT)
-    for (const stock of requiredStock) {
-      if (!ObjectId.isValid(stock.stockId)) {
-        return NextResponse.json(
-          { success: false, message: `Invalid stock ID: ${stock.stockId}` },
-          { status: 400 }
-        );
-      }
-      for (const alt of (stock.alternatives || [])) {
-        if (!ObjectId.isValid(alt.stockId)) {
-          return NextResponse.json(
-            { success: false, message: `Invalid alternative stock ID: ${alt.stockId}` },
-            { status: 400 }
-          );
-        }
-      }
-    }
-
     // Build final data to save — convert IDs to ObjectId directly, no Zod validation needed
     const dataToSave: any = {
       name: name !== undefined ? name : existingItem.name,
       description: description !== undefined ? description : existingItem.description,
       price: price !== undefined ? parseFloat(price) : existingItem.price,
-      cost: cost !== undefined ? parseFloat(cost) : existingItem.cost,
-      categoryId: new ObjectId(categoryId !== undefined ? categoryId : existingItem.categoryId.toString()),
+      categoryId: categoryId !== undefined ? categoryId : existingItem.categoryId,
       imageUrl,
       cloudinaryData,
       requiredStock: requiredStock.map((stock: any) => ({
-        stockId: new ObjectId(stock.stockId),
+        stockId: stock.stockId,
         quantity: stock.quantity,
         alternatives: (stock.alternatives || []).map((alt: any) => ({
-          stockId: new ObjectId(alt.stockId),
+          stockId: alt.stockId,
           quantity: alt.quantity,
           label: alt.label || '',
         })),
       })),
-      isFasting: isFasting !== undefined ? isFasting : existingItem.isFasting || false,
       updatedAt: new Date(),
     };
 
     // Update item
-    const result = await db.collection("items").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: dataToSave }
-    );
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { success: false, message: "Item not found" },
-        { status: 404 }
-      );
+    try {
+      await prisma.item.update({ where: { id }, data: dataToSave });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json(
+          { success: false, message: "Item not found" },
+          { status: 404 }
+        );
+      }
+      throw e;
     }
 
     // Fetch updated item
-    const updatedItem = await db.collection("items").findOne({ _id: new ObjectId(id) });
+    const updatedItem = await prisma.item.findUnique({ where: { id } });
 
     return NextResponse.json(
       {
@@ -539,18 +494,8 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid item ID" },
-        { status: 400 }
-      );
-    }
-
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Get item first to get Cloudinary publicId
-    const item = await db.collection("items").findOne({ _id: new ObjectId(id) });
+    const item = await prisma.item.findUnique({ where: { id } });
 
     if (!item) {
       return NextResponse.json(
@@ -566,9 +511,9 @@ export async function DELETE(req: NextRequest) {
     // }
 
     // Delete from database
-    const result = await db.collection("items").deleteOne({ _id: new ObjectId(id) });
+    const result = await prisma.item.deleteMany({ where: { id } });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, message: "Item not found" },
         { status: 404 }

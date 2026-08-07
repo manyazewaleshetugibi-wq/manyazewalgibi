@@ -1,31 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise  from "@/lib/mongodb"; // Your MongoDB connection utility
+import { prisma } from "@/lib/prisma";
 import { FeedbackSchema } from "@/models/Feedback";
-import { ObjectId } from "mongodb";
 
 // PUT: Update Feedback
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    const feedbackId = params.id;
-
-    // Validate the feedback ID
-    if (!ObjectId.isValid(feedbackId)) {
-      return NextResponse.json({ error: "Invalid feedback ID" }, { status: 400 });
-    }
+    const { id } = await params;
 
     const body = await req.json();
 
     // Validate and parse updated feedback
-    const validatedFeedback = FeedbackSchema.omit({ _id: true }).parse(body);
+    const validatedFeedback = FeedbackSchema.parse(body);
 
     // Update feedback in the database
-    const result = await db
-      .collection("feedback")
-      .updateOne({ _id: new ObjectId(feedbackId) }, { $set: { ...validatedFeedback, updatedAt: new Date() } });
+    const result = await prisma.feedback.updateMany({
+      where: { id },
+      data: { ...validatedFeedback, updatedAt: new Date() },
+    });
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ error: "Feedback not found" }, { status: 404 });
     }
 
@@ -37,21 +30,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 // DELETE: Delete Feedback
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-    const feedbackId = params.id;
-
-    // Validate feedback ID
-    if (!ObjectId.isValid(feedbackId)) {
-      return NextResponse.json({ error: "Invalid feedback ID" }, { status: 400 });
-    }
+    const { id } = await params;
 
     // Delete feedback from the database
-    const result = await db.collection("feedback").deleteOne({ _id: new ObjectId(feedbackId) });
+    const result = await prisma.feedback.deleteMany({ where: { id } });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ error: "Feedback not found" }, { status: 404 });
     }
 

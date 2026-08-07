@@ -39,7 +39,6 @@ api.interceptors.response.use(
     
     if (shouldRetry) {
       config.retryCount = (config.retryCount || 0) + 1
-      console.log(`Retrying request (${config.retryCount}/2): ${config.url}`)
       
       // Wait 1 second before retrying
       await new Promise(resolve => setTimeout(resolve, 1000))

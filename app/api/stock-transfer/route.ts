@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import clientPromise from "@/lib/mongodb"
-import { ObjectId } from "mongodb"
+import { prisma } from "@/lib/prisma"
+import { randomUUID } from "crypto"
 import * as z from "zod"
 
 const TransferCreateSchema = z.object({
@@ -20,27 +20,25 @@ const TransferUpdateSchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const client = await clientPromise
-    const db = client.db("gold")
     const { searchParams } = new URL(req.url)
     const stockId = searchParams.get("stockId")
 
     const query: any = {}
     if (stockId) query.stockId = stockId
 
-    const transfers = await db
-      .collection("stock_transfers")
-      .find(query)
-      .sort({ date: -1 })
-      .toArray()
+    const transfers = await prisma.stockTransfer.findMany({
+      where: query,
+      orderBy: { date: "desc" },
+    })
 
     const transfersWithStock = await Promise.all(
       transfers.map(async (t) => {
-        const stock = await db.collection("stocks").findOne(
-          { _id: new ObjectId(t.stockId) },
-          { projection: { name: 1, unit: 1 } }
-        )
-        return { ...t, stockId: stock ? { ...stock, _id: t.stockId } : t.stockId }
+        const stock = t.stockId
+          ? await prisma.stock.findUnique(
+              { where: { id: t.stockId }, select: { name: true, unit: true } },
+            )
+          : null
+        return { ...t, _id: t.id, stockId: stock ? { ...stock, _id: t.stockId } : t.stockId }
       })
     )
 
@@ -57,22 +55,22 @@ export async function POST(req: NextRequest) {
     const validated = TransferCreateSchema.parse(body)
     const { stockId, quantity, receiverName, note, date } = validated
 
-    const client = await clientPromise
-    const db = client.db("gold")
-
-    const stock = await db.collection("stocks").findOne({ _id: new ObjectId(stockId) })
+    const stock = await prisma.stock.findUnique({ where: { id: stockId } })
     if (!stock) {
       return NextResponse.json({ success: false, message: "Stock not found" }, { status: 404 })
     }
 
-    await db.collection("stock_transfers").insertOne({
-      stockId,
-      quantity: Number(quantity),
-      receiverName: receiverName.trim(),
-      note: (note || "").trim(),
-      date: date || new Date().toISOString().split("T")[0],
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    await prisma.stockTransfer.create({
+      data: {
+        id: randomUUID(),
+        stockId,
+        quantity: Number(quantity),
+        receiverName: receiverName.trim(),
+        note: (note || "").trim(),
+        date: date || new Date().toISOString().split("T")[0],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
     })
 
     return NextResponse.json({ success: true, message: "Transfer registered successfully" }, { status: 201 })
@@ -89,34 +87,23 @@ export async function PUT(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json({ success: false, message: "Valid transfer ID is required" }, { status: 400 })
     }
 
     const body = await req.json()
     const validated = TransferUpdateSchema.parse(body)
 
-    const client = await clientPromise
-    const db = client.db("gold")
-
-    const existing = await db.collection("stock_transfers").findOne({ _id: new ObjectId(id) })
+    const existing = await prisma.stockTransfer.findUnique({ where: { id } })
     if (!existing) {
       return NextResponse.json({ success: false, message: "Transfer not found" }, { status: 404 })
     }
 
-    const session = client.startSession()
-    try {
-      await session.withTransaction(async () => {
-        await db.collection("stock_transfers").updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { ...validated, updatedAt: new Date() } },
-          { session }
-        )
-      })
-      return NextResponse.json({ success: true, message: "Transfer updated successfully" }, { status: 200 })
-    } finally {
-      await session.endSession()
-    }
+    await prisma.stockTransfer.update({
+      where: { id },
+      data: { ...validated, updatedAt: new Date() },
+    })
+    return NextResponse.json({ success: true, message: "Transfer updated successfully" }, { status: 200 })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ success: false, message: "Validation error", errors: error.errors }, { status: 400 })
@@ -130,19 +117,16 @@ export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json({ success: false, message: "Valid transfer ID is required" }, { status: 400 })
     }
 
-    const client = await clientPromise
-    const db = client.db("gold")
-
-    const transfer = await db.collection("stock_transfers").findOne({ _id: new ObjectId(id) })
+    const transfer = await prisma.stockTransfer.findUnique({ where: { id } })
     if (!transfer) {
       return NextResponse.json({ success: false, message: "Transfer not found" }, { status: 404 })
     }
 
-    await db.collection("stock_transfers").deleteOne({ _id: new ObjectId(id) })
+    await prisma.stockTransfer.deleteMany({ where: { id } })
     return NextResponse.json({ success: true, message: "Transfer deleted" }, { status: 200 })
   } catch (error) {
     console.error("DELETE /stock-transfer Error:", error)

@@ -1,7 +1,6 @@
 // app/api/order/request-transfer/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 import { auth } from "@/auth";
 
@@ -26,31 +25,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Get current waiter info
-    let currentWaiter = null;
+    let currentWaiter: any = null;
     
     if (currentWaiterId) {
       try {
-        if (ObjectId.isValid(currentWaiterId)) {
-          currentWaiter = await db.collection("waitresses").findOne({ 
-            _id: new ObjectId(currentWaiterId) 
-          });
-        } else {
-          currentWaiter = await db.collection("waitresses").findOne({ 
-            _id: currentWaiterId 
-          });
-        }
+        currentWaiter = await prisma.waitress.findFirst({ 
+          where: { id: currentWaiterId } 
+        });
       } catch (err) {
-        console.log("Error finding current waiter:", err);
+
       }
     }
     
     if (!currentWaiter && session.user.email) {
-      currentWaiter = await db.collection("waitresses").findOne({ 
-        email: session.user.email 
+      currentWaiter = await prisma.waitress.findFirst({ 
+        where: { email: session.user.email } 
       });
     }
 
@@ -62,20 +52,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Get target waiter info
-    let targetWaiter = null;
+    let targetWaiter: any = null;
     
     try {
-      if (ObjectId.isValid(targetWaiterId)) {
-        targetWaiter = await db.collection("waitresses").findOne({ 
-          _id: new ObjectId(targetWaiterId) 
-        });
-      } else {
-        targetWaiter = await db.collection("waitresses").findOne({ 
-          _id: targetWaiterId 
-        });
-      }
+      targetWaiter = await prisma.waitress.findFirst({ 
+        where: { id: targetWaiterId } 
+      });
     } catch (err) {
-      console.log("Error finding target waiter:", err);
+
     }
 
     if (!targetWaiter) {
@@ -86,19 +70,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Get the order
-    let order = null;
+    let order: any = null;
     try {
-      if (ObjectId.isValid(orderId)) {
-        order = await db.collection("orders").findOne({
-          _id: new ObjectId(orderId)
-        });
-      } else {
-        order = await db.collection("orders").findOne({
-          _id: orderId
-        });
-      }
+      order = await prisma.order.findFirst({
+        where: { id: orderId }
+      });
     } catch (err) {
-      console.log("Error finding order:", err);
+
     }
 
     if (!order) {
@@ -174,10 +152,10 @@ export async function POST(req: NextRequest) {
 
     // Create edit request
     const editRequest = {
-      requestedWaiterId: targetWaiter._id.toString(),
+      requestedWaiterId: targetWaiter.id,
       requestedWaiterName: targetWaiter.name,
       status: 'pending',
-      requestedBy: currentWaiter._id.toString(),
+      requestedBy: currentWaiter.id,
       requestedByName: currentWaiter.name,
       requestedAt: new Date().toISOString(),
       reason: reason,
@@ -186,17 +164,11 @@ export async function POST(req: NextRequest) {
     };
 
     // Update order with edit request
-    const result = await db.collection("orders").updateOne(
-      { _id: order._id },
-      { 
-        $set: { 
-          editRequest: editRequest,
-          updatedAt: new Date()
-        } 
-      }
+    const result = await prisma.order.updateMany(
+      { where: { id: order.id }, data: { editRequest, updatedAt: new Date() } }
     );
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { error: 'Failed to update order', success: false },
         { status: 500 }
@@ -204,8 +176,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Fetch updated order
-    const updatedOrder = await db.collection("orders").findOne({
-      _id: order._id
+    const updatedOrder = await prisma.order.findFirst({
+      where: { id: order.id }
     });
 
     if (!updatedOrder) {
@@ -219,7 +191,7 @@ export async function POST(req: NextRequest) {
       success: true,
       message: 'Transfer request sent successfully',
       order: {
-        id: updatedOrder._id.toString(),
+        id: updatedOrder.id,
         orderNumber: updatedOrder.orderNumber,
         status: updatedOrder.status,
         editRequest: updatedOrder.editRequest

@@ -1886,12 +1886,7 @@ export default function POSPage() {
       createdByRole: currentUser?.role
     }
 
-    console.log("Placing order with restaurant:", { 
-      restaurantId: finalRestaurantId, 
-      restaurantName: finalRestaurantName,
-      waiterId: finalWaiterId,
-      isPOS: isPOS
-    });
+
 
     const orderToast = toast.loading("Placing your order...")
 

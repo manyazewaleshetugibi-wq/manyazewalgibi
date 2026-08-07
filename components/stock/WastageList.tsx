@@ -61,7 +61,6 @@ export function WastageList({
 
   useEffect(() => {
     if (open && stock) {
-      console.log("WastageList opened for stock:", stock.name)
       fetchWastages()
     }
   }, [open, stock])
@@ -72,16 +71,13 @@ export function WastageList({
 
   const fetchWastages = async () => {
     if (!stock) {
-      console.log("No stock selected for wastage list")
       return
     }
     
-    console.log("Fetching wastages for stock ID:", stock._id)
     setIsLoading(true)
     try {
       const response = await fetch(`/api/stock-wastage?stockId=${stock._id}`)
       const data = await response.json()
-      console.log("Wastages response:", data)
       
       if (data.success) {
         setWastages(data.data || [])
@@ -162,7 +158,6 @@ export function WastageList({
     })
   }
 
-  console.log("WastageList render - open:", open, "stock:", stock?.name)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

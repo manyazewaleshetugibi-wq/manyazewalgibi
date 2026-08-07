@@ -1,47 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
 import { debugLog, debugError } from "../../utils/orderHelpers";
 
 export async function GET(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     const url = new URL(req.url);
     const limit = parseInt(url.searchParams.get("limit") || "10");
     const sortBy = url.searchParams.get("sortBy") || "points";
     const role = url.searchParams.get("role");
 
-    let query = {};
+    let query: any = {};
     if (role) {
-      query = { role: { $regex: new RegExp(`^${role}$`, 'i') } };
+      query = { role: { equals: role, mode: 'insensitive' } };
     }
 
-    const rankings = await db.collection("employee_rank")
-      .find(query)
-      .sort({ [sortBy]: -1 })
-      .limit(limit)
-      .toArray();
+    const rankings = await prisma.employeeRank.findMany({
+      where: query,
+      orderBy: { [sortBy]: 'desc' } as any,
+      take: limit
+    });
 
-    const stats = await db.collection("employee_rank").aggregate([
-      { $match: query },
-      {
-        $group: {
-          _id: null,
-          totalEmployees: { $sum: 1 },
-          totalCompletedOrders: { $sum: "$completedOrders" },
-          totalOrders: { $sum: "$totalOrders" },
-          totalPoints: { $sum: "$points" },
-          averageCompletedOrders: { $avg: "$completedOrders" },
-          averagePoints: { $avg: "$points" }
-        }
-      }
-    ]).toArray();
+    const allRanked = await prisma.employeeRank.findMany({ where: query });
+
+    const sum = (arr: any[], field: string) =>
+      arr.reduce((acc, e) => acc + (e[field] || 0), 0);
+
+    const stats = {
+      totalEmployees: allRanked.length,
+      totalCompletedOrders: sum(allRanked, 'completedOrders'),
+      totalOrders: sum(allRanked, 'totalOrders'),
+      totalPoints: sum(allRanked, 'points'),
+      averageCompletedOrders: allRanked.length > 0 ? sum(allRanked, 'completedOrders') / allRanked.length : 0,
+      averagePoints: allRanked.length > 0 ? sum(allRanked, 'points') / allRanked.length : 0
+    };
 
     return NextResponse.json({
       success: true,
-      rankings,
-      stats: stats[0] || {},
+      rankings: rankings.map(r => ({ ...r, _id: r.id })),
+      stats,
       count: rankings.length,
       timestamp: new Date()
     }, { status: 200 });

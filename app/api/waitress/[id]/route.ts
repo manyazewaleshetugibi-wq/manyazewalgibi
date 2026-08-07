@@ -1,13 +1,6 @@
-
-
-
-
 // app/api/waitress/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
-
-const COLLECTION_NAME = "waitresses";
+import { prisma } from "@/lib/prisma";
 
 export async function GET(
     req: NextRequest,
@@ -16,22 +9,16 @@ export async function GET(
     try {
         const { id } = await params;
         
-        if (!id || !ObjectId.isValid(id)) {
-            return NextResponse.json({ 
-                success: false,
-                message: "Invalid ID format" 
-            }, { status: 400 });
-        }
-
-        const client = await clientPromise;
-        const db = client.db("gold");
-        
         // Get waitress WITHOUT email field
-        const waitress = await db.collection(COLLECTION_NAME)
-            .findOne(
-                { _id: new ObjectId(id) },
-                { projection: { email: 0 } } // Exclude email
-            );
+        let waitress = await prisma.waitress.findUnique({
+            where: { id }
+        });
+
+        if (!waitress) {
+            waitress = await prisma.waiter.findUnique({
+                where: { id }
+            }) as any;
+        }
 
         if (!waitress) {
             return NextResponse.json({ 
@@ -40,9 +27,11 @@ export async function GET(
             }, { status: 404 });
         }
 
+        const { email, ...waitressWithoutEmail } = waitress;
+
         return NextResponse.json({ 
             success: true,
-            data: waitress,
+            data: { ...waitressWithoutEmail, _id: waitress.id },
             message: "Waitress data retrieved successfully" 
         }, { status: 200 });
         
@@ -64,12 +53,6 @@ export async function PUT(
 ) {
     try {
         const { id } = await params;
-        if (!ObjectId.isValid(id)) {
-            return NextResponse.json({ 
-                success: false,
-                message: "Invalid ID format" 
-            }, { status: 400 });
-        }
 
         const body = await req.json();
         
@@ -78,27 +61,28 @@ export async function PUT(
         
         body.updatedAt = new Date();
 
-        const client = await clientPromise;
-        const db = client.db("gold");
-        const result = await db.collection(COLLECTION_NAME).updateOne(
-            { _id: new ObjectId(id) },
-            { $set: body }
-        );
+        const result = await prisma.waitress.updateMany({ where: { id }, data: body });
 
-        if (!result.modifiedCount) {
-            const message = result.matchedCount ? "No changes applied" : "Waitress not found";
+        if (result.count === 0) {
             return NextResponse.json({ 
-                success: result.matchedCount,
-                message 
-            }, { status: result.matchedCount ? 200 : 404 });
+                success: false,
+                message: "Waitress not found" 
+            }, { status: 404 });
         }
 
         // Get the updated waitress WITHOUT email
-        const updatedWaitress = await db.collection(COLLECTION_NAME)
-            .findOne(
-                { _id: new ObjectId(id) },
-                { projection: { email: 0 } } // Exclude email
-            );
+        const updatedWaitress = await prisma.waitress.findUnique({
+            where: { id }
+        });
+
+        if (updatedWaitress) {
+            const { email, ...updatedWaitressWithoutEmail } = updatedWaitress;
+            return NextResponse.json({ 
+                success: true,
+                data: { ...updatedWaitressWithoutEmail, _id: updatedWaitress.id },
+                message: "Waitress updated successfully" 
+            }, { status: 200 });
+        }
 
         return NextResponse.json({ 
             success: true,
@@ -124,22 +108,11 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        if (!ObjectId.isValid(id)) {
-            return NextResponse.json({ 
-                success: false,
-                message: "Invalid ID format" 
-            }, { status: 400 });
-        }
 
-        const client = await clientPromise;
-        const db = client.db("gold");
-        
         // Get waitress to check if it exists and get userId
-        const waitress = await db.collection(COLLECTION_NAME)
-            .findOne(
-                { _id: new ObjectId(id) },
-                { projection: { userId: 1 } } // Only get userId
-            );
+        const waitress = await prisma.waitress.findUnique({
+            where: { id }
+        });
 
         if (!waitress) {
             return NextResponse.json({ 
@@ -148,10 +121,10 @@ export async function DELETE(
             }, { status: 404 });
         }
 
-        const result = await db.collection(COLLECTION_NAME).deleteOne({ _id: new ObjectId(id) });
+        const result = await prisma.waitress.deleteMany({ where: { id } });
 
-        if (result.deletedCount && waitress.userId) {
-            await db.collection("users").deleteOne({ _id: new ObjectId(waitress.userId) });
+        if (result.count && waitress.userId) {
+            await prisma.user.deleteMany({ where: { id: waitress.userId } });
         }
 
         return NextResponse.json({ 

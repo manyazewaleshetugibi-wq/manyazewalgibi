@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import clientPromise from '@/lib/mongodb'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,20 +17,15 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Connect to MongoDB
-    const client = await clientPromise
-    const db = client.db()
-
-    // Find user with this referral code
-    // Assuming referral codes are stored in a field called 'referralCode'
-    const usersCollection = db.collection('users')
-    const referrer = await usersCollection.findOne({ 
-      $or: [
-        { referralCode: code },
-        { inviterCode: code },
-        { 'referralInfo.code': code }
-      ]
+    // Find referral record with this code
+    // Referral codes are stored in the referrals table (code + email)
+    const referralRecord = await prisma.referral.findFirst({
+      where: { code }
     })
+
+    const referrer = referralRecord?.email
+      ? await prisma.user.findFirst({ where: { email: referralRecord.email } })
+      : null
 
     if (!referrer) {
       return NextResponse.json({
@@ -46,8 +41,8 @@ export async function GET(request: NextRequest) {
       success: true,
       valid: true,
       referrer: {
-        id: referrer._id.toString(),
-        name: `${referrer.firstName || ''} ${referrer.lastName || ''}`.trim() || 'A friend',
+        id: referrer.id,
+        name: referrer.name || `${(referrer as any).firstName || ''} ${(referrer as any).lastName || ''}`.trim() || 'A friend',
         code: code
       }
     })

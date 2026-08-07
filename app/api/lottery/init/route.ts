@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
+import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 
 export async function POST(request: NextRequest) {
@@ -7,35 +7,30 @@ export async function POST(request: NextRequest) {
     const { response } = await requireAdmin();
     if (response) return response;
 
-    const client = await clientPromise;
-    const db = client.db();
-
     const { action } = await request.json();
 
     if (action === 'initialize-tickets') {
       // Initialize lottery tickets for all users with role="user"
-      const users = await db.collection('users').find({ 
-        role: 'user',
-        status: 'active'
-      }).toArray();
+      const users = await prisma.user.findMany({
+        where: {
+          role: 'user',
+          status: 'active'
+        }
+      });
 
-      const updates = users.map(user => ({
-        updateOne: {
-          filter: { _id: user._id },
-          update: {
-            $set: {
-              lotteryTickets: 1, // Give 1 ticket to each active user
-              hasWonThisMonth: false,
-              totalWins: 0,
-              points: 0,
-              updatedAt: new Date()
-            }
-          }
+      const updates = users.map(user => prisma.user.updateMany({
+        where: { id: user.id },
+        data: {
+          lotteryTickets: 1, // Give 1 ticket to each active user
+          hasWonThisMonth: false,
+          totalWins: 0,
+          points: 0,
+          updatedAt: new Date()
         }
       }));
 
       if (updates.length > 0) {
-        await db.collection('users').bulkWrite(updates);
+        await prisma.$transaction(updates);
       }
 
       return NextResponse.json({
@@ -46,10 +41,10 @@ export async function POST(request: NextRequest) {
 
     if (action === 'reset-month') {
       // Reset monthly lottery flags
-      await db.collection('users').updateMany(
-        { role: 'user' },
+      await prisma.user.updateMany(
         {
-          $set: {
+          where: { role: 'user' },
+          data: {
             hasWonThisMonth: false,
             updatedAt: new Date()
           }

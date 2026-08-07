@@ -1,5 +1,6 @@
-import { ObjectId } from "mongodb";
-import clientPromise from "@/lib/mongodb";
+import { randomUUID } from "crypto";
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import { debugLog, debugError, isOrderCompleted } from "./orderHelpers";
 import { NextRequest } from "next/server";
 
@@ -55,44 +56,29 @@ type ProcessingError = {
   }[];
 };
 
-// Transaction retry helper
+// Transaction retry helper — Prisma handles serialization retries internally,
+// but we keep a small retry loop for write-conflict / deadlock errors.
 async function withTransactionRetry<T>(
-  dbClient: any,
-  callback: (session: any) => Promise<T>,
+  callback: (tx: Prisma.TransactionClient) => Promise<T>,
   maxRetries: number = 3
 ): Promise<T> {
   let lastError: any;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const session = dbClient.startSession();
-    
     try {
-      session.startTransaction({
-        readConcern: { level: 'snapshot' },
-        writeConcern: { w: 'majority' },
-        maxCommitTimeMS: 10000
+      return await prisma.$transaction(async (tx) => {
+        return await callback(tx);
       });
-      
-      const result = await callback(session);
-      await session.commitTransaction();
-      return result;
-      
     } catch (error: any) {
-      await session.abortTransaction();
       lastError = error;
 
       const message = `${error?.message || ""} ${error?.cause?.message || ""}`;
-      const labels: string[] = error?.errorLabels || [];
       const isRetryable =
-        error.code === 112 || // WriteConflict
-        error.code === 225 || // TransactionAborted
-        error.code === 245 || // IndefiniteTransactionAbort
-        labels.includes("TransientTransactionError") ||
-        labels.includes("UnknownTransactionCommitResult") ||
+        error?.code === "P2034" || // write conflict / deadlock
+        error?.code === "P2028" || // transaction API error
         /write.?conflict/i.test(message) ||
-        /transient.?transaction/i.test(message) ||
-        /abort/i.test(message) ||
-        /yielding is disabled/i.test(message);
+        /deadlock/i.test(message) ||
+        /serialization/i.test(message);
 
       if (isRetryable && attempt < maxRetries) {
         const delay = attempt * 150;
@@ -102,8 +88,6 @@ async function withTransactionRetry<T>(
       }
 
       throw error;
-    } finally {
-      await session.endSession();
     }
   }
   
@@ -111,17 +95,15 @@ async function withTransactionRetry<T>(
 }
 
 export async function processOrderStockUsage(order: any): Promise<ProcessOrderResult> {
-  const dbClient = await clientPromise;
-  const db = dbClient.db("gold");
-
   debugLog(`Processing order: ${order.orderNumber}`, {
     items: order.items?.length || 0,
     stockProcessed: order.stockProcessed
   });
 
   // Check if already has stock records
-  const existingRecords = await db.collection("used_stock")
-    .countDocuments({ orderId: order._id });
+  const existingRecords = await prisma.usedStock.count({
+    where: { orderId: order.id }
+  });
   
   const isPartialOrder = order.hasPartialStock === true || 
     (order.pendingStockItems && order.pendingStockItems.length > 0);
@@ -135,24 +117,29 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
       set.stockProcessedAt = new Date();
     }
     if (order.stockProcessingError || order.stockProcessingFailedAt) {
-      await db.collection("orders").updateOne(
-        { _id: order._id },
+      await prisma.order.updateMany(
         {
-          ...(Object.keys(set).length ? { $set: set } : {}),
-          $unset: { stockProcessingError: "", stockProcessingFailedAt: "" },
+          where: { id: order.id },
+          data: {
+            ...set,
+            stockProcessingError: Prisma.DbNull,
+            stockProcessingFailedAt: null,
+          },
         }
       );
     } else if (Object.keys(set).length) {
-      await db.collection("orders").updateOne({ _id: order._id }, { $set: set });
+      await prisma.order.updateMany({ where: { id: order.id }, data: set });
     }
     return { success: true, alreadyProcessed: true };
   }
 
   // Fix inconsistent flag
   if (order.stockProcessed === true && existingRecords === 0) {
-    await db.collection("orders").updateOne(
-      { _id: order._id },
-      { $set: { stockProcessed: false }, $unset: { stockProcessingError: "" } }
+    await prisma.order.updateMany(
+      {
+        where: { id: order.id },
+        data: { stockProcessed: false, stockProcessingError: null }
+      }
     );
   }
 
@@ -161,9 +148,11 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
   }
 
   if (!order.items?.length) {
-    await db.collection("orders").updateOne(
-      { _id: order._id },
-      { $set: { stockProcessed: true, stockProcessingNote: "No items" } }
+    await prisma.order.updateMany(
+      {
+        where: { id: order.id },
+        data: { stockProcessed: true, stockProcessingNote: "No items" }
+      }
     );
     return { success: true, message: "No items" };
   }
@@ -174,16 +163,15 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
   // keeps the batch fast when the missing stock still hasn't arrived.
   if (isPartialOrder && order.pendingStockItems?.length) {
     const pendingIds = order.pendingStockItems
-      .map((p: any) => (p.stockId && ObjectId.isValid(p.stockId) ? new ObjectId(p.stockId) : null))
+      .map((p: any) => (p.stockId ? p.stockId : null))
       .filter(Boolean);
 
     if (pendingIds.length > 0) {
-      const pendingStocks = await db
-        .collection("stocks")
-        .find({ _id: { $in: pendingIds } })
-        .toArray();
+      const pendingStocks = await prisma.stock.findMany({
+        where: { id: { in: pendingIds } }
+      });
       const stockById = new Map(
-        pendingStocks.map((s: any) => [s._id.toString(), s])
+        pendingStocks.map((s: any) => [s.id, s])
       );
       const anyFulfillable = order.pendingStockItems.some((p: any) => {
         const s = stockById.get(p.stockId);
@@ -222,34 +210,33 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
   const bookItemIds: string[] = [];
   const booksAlreadyProcessed = order.bookStockProcessed === true || existingRecords > 0;
   if (!booksAlreadyProcessed) {
-    await db.collection("orders").updateOne(
-      { _id: order._id },
-      { $set: { bookStockProcessed: true } }
+    await prisma.order.updateMany(
+      {
+        where: { id: order.id },
+        data: { bookStockProcessed: true }
+      }
     );
   }
 
   for (const [itemIdString, aggItem] of aggregatedItems.entries()) {
     if (booksAlreadyProcessed) break;
-    if (!ObjectId.isValid(itemIdString)) continue;
+    if (!itemIdString) continue;
 
-    const bookData = await db.collection("books").findOne({ _id: new ObjectId(itemIdString) });
+    const bookData = await prisma.book.findFirst({ where: { id: itemIdString } });
     if (!bookData) continue;
 
     bookItemIds.push(itemIdString);
 
     const quantityToDeduct = roundQty(aggItem.quantity);
-    await db.collection("books").updateOne(
-      { _id: new ObjectId(itemIdString) },
-      [
-        {
-          $set: {
-            quantity: {
-              $max: [{ $subtract: ["$quantity", quantityToDeduct] }, 0],
-            },
-            updatedAt: new Date(),
-          },
+    const newQuantity = Math.max(0, (Number(bookData.quantity) || 0) - quantityToDeduct);
+    await prisma.book.updateMany(
+      {
+        where: { id: itemIdString },
+        data: {
+          quantity: newQuantity,
+          updatedAt: new Date(),
         },
-      ]
+      }
     );
 
     debugLog(`📚 Book "${aggItem.itemName}": sold ${quantityToDeduct} (remaining clamped to 0)`);
@@ -260,10 +247,10 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
   let hasIngredients = false;
 
   for (const [itemIdString, aggItem] of aggregatedItems.entries()) {
-    if (!ObjectId.isValid(itemIdString)) continue;
+    if (!itemIdString) continue;
     if (bookItemIds.includes(itemIdString)) continue; // skip books
     
-    const itemData = await db.collection("items").findOne({ _id: new ObjectId(itemIdString) });
+    const itemData: any = await prisma.item.findFirst({ where: { id: itemIdString } });
     if (!itemData?.requiredStock?.length) continue;
     
     hasIngredients = true;
@@ -281,7 +268,7 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
     }
 
     for (const ingredient of itemData.requiredStock) {
-      if (!ingredient.stockId || !ObjectId.isValid(ingredient.stockId)) continue;
+      if (!ingredient.stockId) continue;
 
       const defaultStockIdString = ingredient.stockId.toString();
       const choices = choicesMap.get(defaultStockIdString);
@@ -294,19 +281,19 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
         : [{ stockId: defaultStockIdString, quantity: Number(ingredient.quantity) || 0 }];
 
       for (const { stockId: effectiveStockId, quantity: qtyPerUnit } of stocksToDeduct) {
-        if (!ObjectId.isValid(effectiveStockId)) continue;
+        if (!effectiveStockId) continue;
 
         const quantityNeeded = roundQty(qtyPerUnit * aggItem.quantity);
         if (quantityNeeded <= 0) continue;
 
-        const stockItem = await db.collection("stocks").findOne({ _id: new ObjectId(effectiveStockId) });
+        const stockItem: any = await prisma.stock.findFirst({ where: { id: effectiveStockId } });
         if (!stockItem) continue;
 
         const existing = allIngredients.get(effectiveStockId);
         if (existing) {
           existing.totalQuantityUsed += quantityNeeded;
           existing.items.push({
-            itemId: new ObjectId(itemIdString),
+            itemId: itemIdString,
             itemName: aggItem.itemName,
             quantityUsed: quantityNeeded
           });
@@ -320,7 +307,7 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
             totalQuantityUsed: quantityNeeded,
             currentStock: Number(stockItem.currentStock) || 0,
             items: [{
-              itemId: new ObjectId(itemIdString),
+              itemId: itemIdString,
               itemName: aggItem.itemName,
               quantityUsed: quantityNeeded
             }]
@@ -332,9 +319,11 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
 
   // No ingredients found
   if (!hasIngredients || allIngredients.size === 0) {
-    await db.collection("orders").updateOne(
-      { _id: order._id },
-      { $set: { stockProcessed: true, stockProcessingNote: "No ingredients defined" } }
+    await prisma.order.updateMany(
+      {
+        where: { id: order.id },
+        data: { stockProcessed: true, stockProcessingNote: "No ingredients defined" }
+      }
     );
     return { success: true, message: "No ingredients", noIngredients: true };
   }
@@ -364,7 +353,7 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
         unit: ing.stockUnit,
         orderNumber: order.orderNumber,
         menuItemName: ing.items[0]?.itemName || "Unknown",
-        orderId: order._id.toString()
+        orderId: order.id
       });
     } else {
       sufficientIngredients.set(stockIdString, ing);
@@ -375,20 +364,19 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
   const newlyInsufficient: LowStockItem[] = [];
 
   if (sufficientIngredients.size > 0) {
-    await withTransactionRetry(dbClient, async (session) => {
+    await withTransactionRetry(async (tx) => {
       // Clear from any earlier (aborted) attempt — the callback re-runs on retry
       newlyInsufficient.length = 0;
 
       for (const [stockIdString, ing] of sufficientIngredients.entries()) {
-        const stockId = new ObjectId(stockIdString);
+        const stockId = stockIdString;
 
-        const existing = await db.collection("used_stock").findOne(
-          { orderId: order._id, stockId },
-          { session }
-        );
+        const existing = await tx.usedStock.findFirst({
+          where: { orderId: order.id, stockId }
+        });
         if (existing) continue;
 
-        const stockItem = await db.collection("stocks").findOne({ _id: stockId }, { session });
+        const stockItem: any = await tx.stock.findFirst({ where: { id: stockId } });
         if (!stockItem) continue;
 
         // Re-check stock inside transaction — if another order consumed it, skip gracefully
@@ -402,29 +390,25 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
             unit: ing.stockUnit,
             orderNumber: order.orderNumber,
             menuItemName: ing.items[0]?.itemName || "Unknown",
-            orderId: order._id.toString()
+            orderId: order.id
           });
           continue;
         }
 
-        const updateResult = await db.collection("stocks").updateOne(
-          { _id: stockId, currentStock: { $gte: ing.totalQuantityUsed - QTY_EPSILON } },
-          [
-            {
-              $set: {
-                currentStock: {
-                  $max: [{ $subtract: ["$currentStock", ing.totalQuantityUsed] }, 0],
-                },
-                lastUsed: new Date(),
-                lastUsedInOrder: order.orderNumber,
-              },
+        const newCurrent = Math.max(0, (Number(stockItem.currentStock) || 0) - ing.totalQuantityUsed);
+        const updateResult = await tx.stock.updateMany(
+          {
+            where: { id: stockId, currentStock: { gte: ing.totalQuantityUsed - QTY_EPSILON } },
+            data: {
+              currentStock: newCurrent,
+              lastUsed: new Date(),
+              lastUsedInOrder: order.orderNumber,
             },
-          ],
-          { session }
+          }
         );
 
-        // If $gte guard failed (concurrent deduction won the race), treat as insufficient
-        if (updateResult.matchedCount === 0) {
+        // If gte guard failed (concurrent deduction won the race), treat as insufficient
+        if (updateResult.count === 0) {
           newlyInsufficient.push({
             stockId: stockIdString,
             stockName: ing.stockName,
@@ -434,26 +418,29 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
             unit: ing.stockUnit,
             orderNumber: order.orderNumber,
             menuItemName: ing.items[0]?.itemName || "Unknown",
-            orderId: order._id.toString()
+            orderId: order.id
           });
           continue;
         }
 
-        await db.collection("used_stock").insertOne({
-          orderId: order._id,
-          orderNumber: order.orderNumber,
-          stockId,
-          stockName: ing.stockName,
-          stockCategory: ing.stockCategory,
-          stockUnit: ing.stockUnit,
-          unitCost: ing.unitCost,
-          totalQuantityUsed: ing.totalQuantityUsed,
-          totalCost: ing.unitCost * ing.totalQuantityUsed,
-          items: ing.items,
-          usedAt: new Date(),
-          processedAt: new Date(),
-          createdAt: new Date()
-        }, { session });
+        await tx.usedStock.create({
+          data: {
+            id: randomUUID(),
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            stockId,
+            stockName: ing.stockName,
+            stockCategory: ing.stockCategory,
+            stockUnit: ing.stockUnit,
+            unitCost: ing.unitCost,
+            totalQuantityUsed: ing.totalQuantityUsed,
+            totalCost: ing.unitCost * ing.totalQuantityUsed,
+            items: ing.items,
+            usedAt: new Date(),
+            processedAt: new Date(),
+            createdAt: new Date()
+          }
+        });
       }
     }, 3);
 
@@ -475,17 +462,18 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
       menuItemName: i.menuItemName
     }));
 
-    await db.collection("orders").updateOne(
-      { _id: order._id },
+    await prisma.order.updateMany(
       {
-        $set: {
+        where: { id: order.id },
+        data: {
           stockProcessed: true,
           stockProcessedAt: new Date(),
           hasPartialStock: true,
           pendingStockItems,
-          stockProcessingNote: `Partial: waiting for ${pendingStockItems.map(i => i.stockName).join(', ')}`
-        },
-        $unset: { stockProcessingError: "", stockProcessingFailedAt: "" }
+          stockProcessingNote: `Partial: waiting for ${pendingStockItems.map(i => i.stockName).join(', ')}`,
+          stockProcessingError: null,
+          stockProcessingFailedAt: null
+        }
       }
     );
 
@@ -501,19 +489,17 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
   }
 
   // All ingredients were sufficient — fully processed
-  await db.collection("orders").updateOne(
-    { _id: order._id },
+  await prisma.order.updateMany(
     {
-      $set: {
+      where: { id: order.id },
+      data: {
         stockProcessed: true,
         stockProcessedAt: new Date(),
         hasPartialStock: false,
-        stockProcessingNote: `Fully processed ${sufficientIngredients.size} stock records`
-      },
-      $unset: {
-        stockProcessingError: "",
-        stockProcessingFailedAt: "",
-        pendingStockItems: ""
+        stockProcessingNote: `Fully processed ${sufficientIngredients.size} stock records`,
+        stockProcessingError: null,
+        stockProcessingFailedAt: null,
+        pendingStockItems: Prisma.DbNull
       }
     }
   );
@@ -526,69 +512,50 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
   };
 }
 
-export async function processAllCompletedOrders(req?: NextRequest, batchSize: number = 20) {
-  const dbClient = await clientPromise;
-  const db = dbClient.db("gold");
-
+export async function processAllCompletedOrders(req?: NextRequest, batchSize: number = 50) {
   debugLog(`Finding up to ${batchSize} orders to process...`);
 
-  // Find orders ready for processing:
-  // 1. Not yet processed at all (stockProcessed != true)
-  // 2. Partially processed (stockProcessed=true but hasPartialStock=true — pending ingredients)
-  const orders = await db.collection("orders").find({
-    status: { $regex: /^completed$/i },
-    $or: [
-      { stockProcessed: { $ne: true } },
-      { hasPartialStock: true }
+  const completedWhere = {
+    OR: [
+      { status: { equals: "completed", mode: "insensitive" } as any },
+      { status: { equals: "delivered", mode: "insensitive" } as any }
     ]
-  }).sort({ stockProcessed: 1, completedAt: -1 }).limit(batchSize).toArray();
+  };
 
-  debugLog(`Found ${orders.length} orders to process`);
+  // 1. ALL partially-processed orders are re-checked every run (no take limit).
+  //    The pre-check is a single cheap stock query, so a restocked partial order is
+  //    always picked up — it never has to compete for a batch slot with fresh orders.
+  //    Oldest partial first: those have been waiting longest and are most likely
+  //    to have been restocked since. (Do NOT sort by completedAt — that column is
+  //    null after the Mongo→Postgres migration, making the old query non-deterministic.)
+  const partialOrders: any[] = await prisma.order.findMany({
+    where: {
+      ...completedWhere,
+      hasPartialStock: true
+    },
+    orderBy: { stockProcessedAt: "asc" }
+  });
 
-  if (orders.length === 0) {
-    return { 
-      totalOrders: 0, 
-      processedOrders: 0, 
-      failedOrders: 0,
-      lowStockItems: [],
-      errors: []
-    };
-  }
-
-  let processed = 0;
-  let failed = 0;
-  let partial = 0;
-  const allLowStockItems: LowStockItem[] = [];
-  const allErrors: ProcessingError[] = [];
-
-  // Hoisted pre-check for partial orders: resolve ALL pending stock levels with
-  // a single query, then only run the expensive per-order processing for orders
-  // whose missing stock has actually been replenished. Still-short orders are
-  // counted as partial without any per-order work.
-  const partialOrders = orders.filter(
-    (o: any) => o.hasPartialStock === true || (o.pendingStockItems?.length)
-  );
-  const freshOrders = orders.filter(
-    (o: any) => !(o.hasPartialStock === true || o.pendingStockItems?.length)
-  );
-
+  // Hoisted pre-check: resolve ALL pending stock levels with a single query, then only
+  // run the expensive per-order processing for partials whose missing stock has been
+  // replenished. Still-short orders are counted as partial without any per-order work.
   const pendingIds = new Set<string>();
   for (const o of partialOrders) {
     for (const p of o.pendingStockItems || []) {
-      if (p.stockId && ObjectId.isValid(p.stockId)) pendingIds.add(p.stockId);
+      if (p.stockId) pendingIds.add(p.stockId);
     }
   }
 
   let pendingStocksById = new Map<string, any>();
   if (pendingIds.size > 0) {
-    const stocks = await db
-      .collection("stocks")
-      .find({ _id: { $in: Array.from(pendingIds).map((id: string) => new ObjectId(id)) } })
-      .toArray();
-    pendingStocksById = new Map(stocks.map((s: any) => [s._id.toString(), s]));
+    const stocks = await prisma.stock.findMany({
+      where: { id: { in: Array.from(pendingIds) } }
+    });
+    pendingStocksById = new Map(stocks.map((s: any) => [s.id, s]));
   }
 
   const fulfillablePartial: any[] = [];
+  let partial = 0;
   for (const o of partialOrders) {
     const anyFulfillable = (o.pendingStockItems || []).some((p: any) => {
       const s = pendingStocksById.get(p.stockId);
@@ -600,6 +567,40 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
       partial++;
     }
   }
+
+  // 2. Fresh (never-processed) orders fill the remaining batch slots.
+  const remainingSlots = Math.max(0, batchSize - fulfillablePartial.length);
+  const freshOrders: any[] = await prisma.order.findMany({
+    where: {
+      ...completedWhere,
+      AND: [
+        { OR: [{ stockProcessed: { not: true } }, { stockProcessed: null }] },
+        { OR: [{ hasPartialStock: { not: true } }, { hasPartialStock: null }] }
+      ]
+    },
+    orderBy: { createdAt: "asc" },
+    take: remainingSlots
+  });
+
+  const orders = [...freshOrders, ...fulfillablePartial];
+  const totalConsidered = partialOrders.length + freshOrders.length;
+  debugLog(`Found ${orders.length} orders to process (${fulfillablePartial.length} restocked partial, ${freshOrders.length} fresh)`);
+
+  if (orders.length === 0) {
+    return { 
+      totalOrders: partial, 
+      processedOrders: 0, 
+      failedOrders: 0,
+      partialOrders: partial,
+      lowStockItems: [],
+      errors: []
+    };
+  }
+
+  let processed = 0;
+  let failed = 0;
+  const allLowStockItems: LowStockItem[] = [];
+  const allErrors: ProcessingError[] = [];
 
   const ordersToProcess = [...freshOrders, ...fulfillablePartial];
   const CONCURRENCY = 3;
@@ -620,7 +621,7 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
         if (result.lowStockItems) allLowStockItems.push(...result.lowStockItems);
         allErrors.push({
           orderNumber: order.orderNumber,
-          orderId: order._id.toString(),
+          orderId: order.id,
           error: result.message || "Processing failed"
         });
       }
@@ -629,13 +630,15 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
       const errorMessage = error instanceof Error ? error.message : String(error);
       allErrors.push({
         orderNumber: order.orderNumber,
-        orderId: order._id.toString(),
+        orderId: order.id,
         error: errorMessage
       });
       debugError(`Failed to process ${order.orderNumber}:`, error);
-      await db.collection("orders").updateOne(
-        { _id: order._id },
-        { $set: { stockProcessingError: errorMessage, stockProcessingFailedAt: new Date() } }
+      await prisma.order.updateMany(
+        {
+          where: { id: order.id },
+          data: { stockProcessingError: errorMessage, stockProcessingFailedAt: new Date() }
+        }
       );
     }
   };
@@ -649,7 +652,7 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
   );
 
   return {
-    totalOrders: orders.length,
+    totalOrders: totalConsidered,
     processedOrders: processed,
     failedOrders: failed,
     partialOrders: partial,

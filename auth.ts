@@ -1,42 +1,14 @@
 import NextAuth from "next-auth"
 import Credentials from "next-auth/providers/credentials"
-import { MongoDBAdapter } from "@auth/mongodb-adapter"
 import bcrypt from "bcrypt"
-import { MongoClient, ObjectId } from "mongodb"
+import { prisma } from "@/lib/prisma"
 import type { UserRole } from "@/models/User"
 
-/**
- * SAFE ENV ACCESS (NO "!" ASSERTIONS)
- */
-const MONGODB_URI = process.env.MONGODB_URI
-const DATABASE_NAME = process.env.DATABASE_NAME
 const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET
 
-if (!DATABASE_NAME || !NEXTAUTH_SECRET) {
+if (!NEXTAUTH_SECRET) {
   console.warn("Missing required auth environment variables")
 }
-
-/**
- * GLOBAL MONGO SINGLETON (Vercel-safe)
- */
-declare global {
-  // eslint-disable-next-line no-var
-  var _mongoClientPromise: Promise<MongoClient> | undefined
-}
-
-let clientPromise: Promise<MongoClient>
-
-// ONLY create client if URI exists
-if (!MONGODB_URI) {
-  throw new Error("MONGODB_URI is missing")
-}
-
-if (!global._mongoClientPromise) {
-  const client = new MongoClient(MONGODB_URI)
-  global._mongoClientPromise = client.connect()
-}
-
-clientPromise = global._mongoClientPromise
 
 export const {
   handlers,
@@ -44,10 +16,6 @@ export const {
   signIn,
   signOut,
 } = NextAuth({
-  adapter: MongoDBAdapter(clientPromise, {
-    databaseName: DATABASE_NAME!,
-  }),
-
   secret: NEXTAUTH_SECRET!,
 
   session: {
@@ -77,11 +45,10 @@ export const {
           throw new Error("Email and password required")
         }
 
-        const dbClient = await clientPromise
-        const db = dbClient.db(DATABASE_NAME!)
-
-        const user = await db.collection("users").findOne({
-          email: email.toLowerCase().trim(),
+        const user = await prisma.user.findFirst({
+          where: {
+            email: email.toLowerCase().trim(),
+          },
         })
 
         if (!user) throw new Error("Invalid credentials")
@@ -95,41 +62,35 @@ export const {
         const validPassword = await bcrypt.compare(password, user.password)
 
         if (!validPassword) {
-          const attempts = (user.loginAttempts || 0) + 1
-
-          await db.collection("users").updateOne(
-            { _id: user._id },
-            {
-              $set: {
-                loginAttempts: attempts,
-                lastLogin: new Date(),
-              },
-            }
-          )
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              loginAttempts: (user.loginAttempts || 0) + 1,
+              lastLogin: new Date(),
+            },
+          })
 
           throw new Error("Invalid credentials")
         }
 
-        await db.collection("users").updateOne(
-          { _id: user._id },
-          {
-            $set: {
-              loginAttempts: 0,
-              lastLogin: new Date(),
-            },
-          }
-        )
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            loginAttempts: 0,
+            lastLogin: new Date(),
+          },
+        })
 
         return {
-          id: user._id.toString(),
-          email: user.email,
-          name: user.name || user.email,
+          id: user.id,
+          email: user.email || "",
+          name: user.name || user.email || "",
           role: (user.role || "user") as UserRole,
-          image: user.image || null,
+          image: user.image || undefined,
           employeeId: user.employeeId || "",
           permissions: user.permissions || [],
           requiresPasswordChange:
-            user.requiresPasswordChange !== undefined
+            user.requiresPasswordChange != null
               ? user.requiresPasswordChange
               : true,
         }
@@ -148,6 +109,13 @@ export const {
       }
 
       if (
+        typeof token.picture === "string" &&
+        (token.picture.startsWith("data:") || token.picture.length > 2048)
+      ) {
+        delete token.picture
+      }
+
+      if (
         trigger === "update" &&
         session?.requiresPasswordChange !== undefined
       ) {
@@ -156,13 +124,10 @@ export const {
 
       if (token.id) {
         try {
-          const dbClient = await clientPromise
-          const db = dbClient.db(DATABASE_NAME!)
-
-          const latestUser = await db.collection("users").findOne(
-            { _id: new ObjectId(token.id as string) },
-            { projection: { requiresPasswordChange: 1 } }
-          )
+          const latestUser = await prisma.user.findUnique({
+            where: { id: token.id as string },
+            select: { requiresPasswordChange: true },
+          })
 
           if (latestUser) {
             token.requiresPasswordChange =

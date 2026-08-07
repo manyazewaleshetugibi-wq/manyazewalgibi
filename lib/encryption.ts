@@ -20,9 +20,15 @@ export class EncryptionService {
   }
 
   private generateSecretKey(): string {
-    // Stable key — only env vars, never changes between sessions/days/devices
-    const baseKey = process.env.NEXT_PUBLIC_ENCRYPTION_KEY || 'menu-app-secure-key-2024'
-    const salt = process.env.NEXT_PUBLIC_ENCRYPTION_SALT || 'menu-app-salt'
+    // Stable key — only env vars, never changes between sessions/days/devices.
+    // No hardcoded fallback: a static fallback key would be a public secret.
+    const baseKey = process.env.NEXT_PUBLIC_ENCRYPTION_KEY
+    const salt = process.env.NEXT_PUBLIC_ENCRYPTION_SALT
+    if (!baseKey || !salt) {
+      throw new Error(
+        "Encryption keys are not configured. Set NEXT_PUBLIC_ENCRYPTION_KEY and NEXT_PUBLIC_ENCRYPTION_SALT."
+      )
+    }
     return CryptoJS.SHA256(`${baseKey}:${salt}`).toString()
   }
 
@@ -73,8 +79,15 @@ export class EncryptionService {
   // Check if data is encrypted
   isEncrypted(data: string): boolean {
     try {
-      // Encrypted data typically contains base64 characters and is longer
-      return data.length > 20 && /^[A-Za-z0-9+/=]+$/.test(data)
+      // Plain JSON always starts with { or [ — never treat it as encrypted
+      if (!data || data.startsWith('{') || data.startsWith('[')) return false
+      // Encrypted (base64) data: no JSON chars, at least 20 chars, and a
+      // multiple of 4 length (AES ciphertext is always padded to 16 bytes).
+      return (
+        data.length > 20 &&
+        data.length % 4 === 0 &&
+        /^[A-Za-z0-9+/=]+$/.test(data)
+      )
     } catch {
       return false
     }

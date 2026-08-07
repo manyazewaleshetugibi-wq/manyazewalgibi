@@ -1,28 +1,29 @@
 // app/api/test/stock-processing/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { requireAdmin } from "@/lib/api-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const body = await req.json();
     
     const { orderId } = body;
     
-    if (!orderId || !ObjectId.isValid(orderId)) {
+    if (!orderId) {
       return NextResponse.json(
         { success: false, error: "Valid order ID is required" },
         { status: 400 }
       );
     }
 
-    console.log(`[TEST] Testing stock processing for order: ${orderId}`);
+
 
     // 1. Get the order
-    const order = await db.collection("orders").findOne({ 
-      _id: new ObjectId(orderId) 
+    const order = await prisma.order.findUnique({ 
+      where: { id: orderId } 
     });
 
     if (!order) {
@@ -32,11 +33,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log(`[TEST] Order found:`, {
-      orderNumber: order.orderNumber,
-      status: order.status,
-      items: order.items?.length || 0
-    });
+
 
     // 2. Check if order is completed
     const isCompleted = order.status?.toLowerCase() === "completed";
@@ -50,10 +47,9 @@ export async function POST(req: NextRequest) {
 
     // 3. Process each item
     const results = [];
-    for (const item of order.items) {
-      const itemData = await db.collection("items").findOne(
-        { _id: new ObjectId(item.itemId) },
-        { projection: { requiredStock: 1, name: 1 } }
+    for (const item of (order.items as any) || []) {
+      const itemData = await prisma.item.findUnique(
+        { where: { id: item.itemId }, select: { requiredStock: true, name: true } }
       );
 
       if (!itemData) {
@@ -65,10 +61,10 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      console.log(`[TEST] Item ${itemData.name} has ${itemData.requiredStock?.length || 0} required stocks`);
+
 
       // Check requiredStock
-      if (!itemData.requiredStock || itemData.requiredStock.length === 0) {
+      if (!itemData.requiredStock || (itemData.requiredStock as any).length === 0) {
         results.push({
           itemId: item.itemId,
           itemName: itemData.name,
@@ -79,18 +75,18 @@ export async function POST(req: NextRequest) {
       }
 
       // Get stock details
-      const stockIds = itemData.requiredStock.map(rs => new ObjectId(rs.stockId));
-      const stocks = await db.collection("stocks").find(
-        { _id: { $in: stockIds } }
-      ).toArray();
+      const stockIds = (itemData.requiredStock as any).map((rs: any) => rs.stockId);
+      const stocks = await prisma.stock.findMany(
+        { where: { id: { in: stockIds } } }
+      );
 
       results.push({
         itemId: item.itemId,
         itemName: itemData.name,
         success: true,
-        requiredStockCount: itemData.requiredStock.length,
-        requiredStock: itemData.requiredStock.map(rs => {
-          const stock = stocks.find(s => s._id.toString() === rs.stockId);
+        requiredStockCount: (itemData.requiredStock as any).length,
+        requiredStock: (itemData.requiredStock as any).map((rs: any) => {
+          const stock = stocks.find(s => s.id === rs.stockId);
           return {
             stockId: rs.stockId,
             quantity: rs.quantity,
@@ -116,7 +112,7 @@ export async function POST(req: NextRequest) {
       { 
         success: false,
         error: "Test failed", 
-        details: error.message 
+        details: (error as any).message 
       },
       { status: 500 }
     );

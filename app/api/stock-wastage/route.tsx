@@ -1,15 +1,13 @@
 // /app/api/stock-wastage/route.tsx
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
+import { z } from "zod";
 import { WastageCreateSchema } from "@/models/Stock"; // Import the schema
 
 // GET - Fetch all wastages or filter by stockId
 export async function GET(req: NextRequest) {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     const { searchParams } = new URL(req.url);
     const stockId = searchParams.get("stockId");
     const startDate = searchParams.get("startDate");
@@ -23,22 +21,24 @@ export async function GET(req: NextRequest) {
     
     if (startDate || endDate) {
       query.date = {};
-      if (startDate) query.date.$gte = startDate;
-      if (endDate) query.date.$lte = endDate;
+      if (startDate) query.date.gte = startDate;
+      if (endDate) query.date.lte = endDate;
     }
 
-    const wastages = await db.collection("stock_wastages")
-      .find(query)
-      .sort({ date: -1 })
-      .toArray();
+    const wastages = await prisma.stockWastage.findMany({
+      where: query,
+      orderBy: { date: 'desc' },
+    });
 
     // Get stock details for each wastage
     const wastagesWithStock = await Promise.all(
       wastages.map(async (wastage) => {
-        const stock = await db.collection("stocks").findOne(
-          { _id: new ObjectId(wastage.stockId) },
-          { projection: { name: 1, unit: 1, categoryId: 1 } }
-        );
+        const stock = wastage.stockId
+          ? await prisma.stock.findUnique({
+              where: { id: wastage.stockId },
+              select: { name: true, unit: true, categoryId: true },
+            })
+          : null;
         return {
           ...wastage,
           stockId: stock ? { ...stock, _id: wastage.stockId } : wastage.stockId
@@ -66,13 +66,10 @@ export async function POST(req: NextRequest) {
     
     const { stockId, quantity, reason, date } = validatedData;
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // Check if stock exists and get current stock
-    const stock = await db.collection("stocks").findOne(
-      { _id: new ObjectId(stockId) }
-    );
+    const stock = await prisma.stock.findUnique({
+      where: { id: stockId }
+    });
 
     if (!stock) {
       return NextResponse.json(
@@ -82,39 +79,37 @@ export async function POST(req: NextRequest) {
     }
 
     // Check if enough stock available
-    if (stock.currentStock < quantity) {
+    if ((stock.currentStock || 0) < quantity) {
       return NextResponse.json(
         { success: false, message: `Insufficient stock. Available: ${stock.currentStock}` },
         { status: 400 }
       );
     }
 
-    // Start a session for transaction
-    const session = client.startSession();
-
+    // Start a transaction
     try {
-      await session.withTransaction(async () => {
+      await prisma.$transaction(async (tx) => {
         // Create wastage record
-        const wastageDoc = {
-          stockId: stockId,
-          quantity: Number(quantity),
-          reason: reason.trim(),
-          date: date || new Date().toISOString().split("T")[0],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-
-        await db.collection("stock_wastages").insertOne(wastageDoc, { session });
+        await tx.stockWastage.create({
+          data: {
+            id: randomUUID(),
+            stockId: stockId,
+            quantity: Number(quantity),
+            reason: reason.trim(),
+            date: date || new Date().toISOString().split("T")[0],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
 
         // Update stock current stock
-        await db.collection("stocks").updateOne(
-          { _id: new ObjectId(stockId) },
-          { 
-            $inc: { currentStock: -Number(quantity) },
-            $set: { updatedAt: new Date() }
+        await tx.stock.update({
+          where: { id: stockId },
+          data: {
+            currentStock: { decrement: Number(quantity) },
+            updatedAt: new Date(),
           },
-          { session }
-        );
+        });
       });
 
       return NextResponse.json({
@@ -127,8 +122,6 @@ export async function POST(req: NextRequest) {
         { success: false, message: "Error registering wastage" },
         { status: 500 }
       );
-    } finally {
-      await session.endSession();
     }
   } catch (error) {
     // ✅ Handle validation errors
@@ -164,20 +157,10 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid wastage ID" },
-        { status: 400 }
-      );
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // Get the wastage record first to restore stock
-    const wastage = await db.collection("stock_wastages").findOne(
-      { _id: new ObjectId(id) }
-    );
+    const wastage = await prisma.stockWastage.findUnique({
+      where: { id }
+    });
 
     if (!wastage) {
       return NextResponse.json(
@@ -186,26 +169,22 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Start a session for transaction
-    const session = client.startSession();
-
+    // Start a transaction
     try {
-      await session.withTransaction(async () => {
+      await prisma.$transaction(async (tx) => {
         // Restore stock
-        await db.collection("stocks").updateOne(
-          { _id: new ObjectId(wastage.stockId) },
-          { 
-            $inc: { currentStock: wastage.quantity },
-            $set: { updatedAt: new Date() }
+        await tx.stock.update({
+          where: { id: wastage.stockId as string },
+          data: {
+            currentStock: { increment: wastage.quantity || 0 },
+            updatedAt: new Date(),
           },
-          { session }
-        );
+        });
 
         // Delete wastage record
-        await db.collection("stock_wastages").deleteOne(
-          { _id: new ObjectId(id) },
-          { session }
-        );
+        await tx.stockWastage.delete({
+          where: { id }
+        });
       });
 
       return NextResponse.json({
@@ -218,8 +197,6 @@ export async function DELETE(req: NextRequest) {
         { success: false, message: "Error deleting wastage" },
         { status: 500 }
       );
-    } finally {
-      await session.endSession();
     }
   } catch (error) {
     console.error("DELETE /stock-wastage Error:", error);

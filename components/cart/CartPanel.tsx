@@ -28,6 +28,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { TableSelector } from '@/components/menu/TableSelector';
 import { QRScannerDialog } from '@/components/cart/QRScannerDialog';
 import { Input } from "@/components/ui/input";
+import { decryptTableToken } from '@/lib/urlParamHandler';
 
 interface TableData {
   id?: string;
@@ -194,42 +195,37 @@ export const CartPanel = memo(({
   // Check if order can be placed
   const canPlaceOrder = () => {
     if (cart.length === 0) {
-      console.log('❌ Cart is empty');
+
       return false;
     }
     if (!orderType) {
-      console.log('❌ No order type selected');
+
       return false;
     }
     if (orderType === 'delivery' && !isUserLoggedIn) {
-      console.log('❌ Delivery requires login');
+
       return false;
     }
     // Table order must have a table selected
     if (orderType === 'table' && !selectedTableData) {
-      console.log('❌ No table selected');
+
       return false;
     }
-    console.log('✅ Can place order');
+
     return true;
   };
 
   // Handle place order click - ALWAYS use regular onPlaceOrder
   const handlePlaceOrderClick = () => {
-    console.log('🛒 Place Order clicked', {
-      cartLength: cart.length,
-      orderType,
-      selectedTableData: selectedTableData?.number,
-      isPlacingOrder
-    });
+
 
     if (!canPlaceOrder()) {
-      console.log('❌ Cannot place order - conditions not met');
+
       return;
     }
     
     // Always use regular onPlaceOrder - QR logic is handled in parent
-    console.log('📝 Placing order - calling onPlaceOrder');
+
     onPlaceOrder();
   };
 
@@ -257,7 +253,7 @@ export const CartPanel = memo(({
       if (onQRCleared) {
         onQRCleared();
       }
-      console.log('🪑 Table unselected');
+
     } else {
       // Select table manually
       const tableWithDetails: TableData = {
@@ -281,7 +277,7 @@ export const CartPanel = memo(({
         onQRCleared();
       }
       
-      console.log('🪑 Table selected manually:', table.number);
+
     }
     setShowTableSelector(false);
   };
@@ -300,9 +296,14 @@ export const CartPanel = memo(({
       try {
         const url = new URL(qrUrl);
         const p = url.searchParams;
+        // Decrypt QR token (t) when present so internal DB ids stay hidden
+        // in the URL. Falls back to plaintext params for older QR codes.
+        const tokenData = p.get('t')
+          ? decryptTableToken(p.get('t') as string)
+          : null;
         const tNum = parseInt(p.get('table') || tableNum);
-        const tableId = p.get('tableId') || '';
-        const restaurantIdParam = p.get('restaurantId') || restaurantId;
+        const tableId = tokenData?.tableId || p.get('tableId') || '';
+        const restaurantIdParam = tokenData?.restaurantId || p.get('restaurantId') || restaurantId;
         const restaurantName = p.get('restaurant') || '';
         const floorVal = p.get('floor') || floor;
         const capacity = parseInt(p.get('capacity') || '4') || 4;
@@ -328,7 +329,7 @@ export const CartPanel = memo(({
             onQRDetected();
           }
           
-          console.log('📱 QR Table detected:', tNum);
+
         }
       } catch (error) {
         console.error('Error parsing QR URL:', error);

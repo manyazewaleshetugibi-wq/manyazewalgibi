@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import { createResponse } from "@/lib/utils";
-import { ObjectId } from "mongodb";
 
 function daysBetween(date1: Date, date2: Date): number {
   const diffTime = Math.abs(date2.getTime() - date1.getTime());
@@ -30,70 +30,67 @@ function getFrequencyDays(frequency: string): number {
 
 export async function POST(req: NextRequest) {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     // Removed the 21-hour check - can generate anytime
-    
+
     const today = new Date().toISOString().split('T')[0];
-    const stocks = await db.collection("stocks").find({ isActive: true }).toArray();
-    const existingTodayRequests = await db.collection("purchase_requests").find({ requestDate: today }).toArray();
+    const stocks = await prisma.stock.findMany({ where: { isActive: true } });
+    const existingTodayRequests = await prisma.purchaseRequest.findMany({ where: { requestDate: today } });
     const existingStockIdsToday = new Set(existingTodayRequests.map(r => r.stockId));
-    const purchases = await db.collection("stock_purchases").find().toArray();
-    
+    const purchases = await prisma.stockPurchase.findMany();
+
     const generatedRequests = [];
-    
+
     for (const stock of stocks) {
-      const stockIdStr = stock._id.toString();
-      
+      const stockIdStr = stock.id;
+
       if (existingStockIdsToday.has(stockIdStr)) {
         continue;
       }
-      
+
       let requestedQuantity = 0;
       let reason: 'minimum_stock_reached' | 'reorder_frequency_due' = 'minimum_stock_reached';
       let needsReorder = false;
-      
+
       // Calculate using requiredAmount - currentStock
-      if (stock.requiredAmount > 0) {
-        requestedQuantity = Math.max(0, stock.requiredAmount - stock.currentStock);
-        
+      if (Number(stock.requiredAmount) > 0) {
+        requestedQuantity = Math.max(0, Number(stock.requiredAmount) - Number(stock.currentStock));
+
         if (requestedQuantity > 0) {
           needsReorder = true;
           reason = 'minimum_stock_reached';
         }
       }
-      
+
       // Check reorder frequency
       if (!needsReorder) {
         const stockPurchases = purchases.filter(p => p.stockId === stockIdStr);
         if (stockPurchases.length > 0) {
-          const lastPurchase = stockPurchases.sort((a, b) => 
-            new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime()
+          const lastPurchase = stockPurchases.sort((a, b) =>
+            new Date(b.purchaseDate!).getTime() - new Date(a.purchaseDate!).getTime()
           )[0];
-          
-          const lastPurchaseDate = new Date(lastPurchase.purchaseDate);
+
+          const lastPurchaseDate = new Date(lastPurchase.purchaseDate!);
           const daysSince = daysBetween(lastPurchaseDate, new Date());
           const frequencyDays = getFrequencyDays(stock.reorderFrequency || 'monthly');
-          
-          if (daysSince >= frequencyDays && stock.requiredAmount > 0) {
+
+          if (daysSince >= frequencyDays && Number(stock.requiredAmount) > 0) {
             needsReorder = true;
             reason = 'reorder_frequency_due';
-            requestedQuantity = Math.max(0, stock.requiredAmount - stock.currentStock);
+            requestedQuantity = Math.max(0, Number(stock.requiredAmount) - Number(stock.currentStock));
           }
         }
       }
-      
+
       if (needsReorder && requestedQuantity > 0) {
         const stockPurchases = purchases.filter(p => p.stockId === stockIdStr);
         const lastPurchases = stockPurchases
-          .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
+          .sort((a, b) => new Date(b.purchaseDate!).getTime() - new Date(a.purchaseDate!).getTime())
           .slice(0, 3);
-        
+
         const avgUnitPrice = lastPurchases.length > 0
-          ? lastPurchases.reduce((sum, p) => sum + p.unitPrice, 0) / lastPurchases.length
+          ? lastPurchases.reduce((sum, p) => sum + Number(p.unitPrice), 0) / lastPurchases.length
           : 0;
-        
+
         const request = {
           stockId: stockIdStr,
           stockName: stock.name,
@@ -117,18 +114,31 @@ export async function POST(req: NextRequest) {
           createdAt: new Date(),
           updatedAt: new Date(),
         };
-        
-        const result = await db.collection("purchase_requests").insertOne(request);
-        generatedRequests.push({ ...request, _id: result.insertedId });
+
+        const id = randomUUID();
+        await prisma.purchaseRequest.create({ data: { id, ...request } });
+        generatedRequests.push({ ...request, _id: id, id });
       }
     }
-    
-    await db.collection("system_settings").updateOne(
-      { key: "last_purchase_request_generation" },
-      { $set: { value: new Date(), updatedAt: new Date() } },
-      { upsert: true }
-    );
-    
+
+    const existingSetting = await prisma.systemSetting.findFirst({ where: { key: "last_purchase_request_generation" } });
+    if (existingSetting) {
+      await prisma.systemSetting.update({
+        where: { id: existingSetting.id },
+        data: { value: new Date().toISOString(), updatedAt: new Date() }
+      });
+    } else {
+      await prisma.systemSetting.create({
+        data: {
+          id: randomUUID(),
+          key: "last_purchase_request_generation",
+          value: new Date().toISOString(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      });
+    }
+
     return createResponse(200, true, `${generatedRequests.length} purchase requests generated`, {
       count: generatedRequests.length,
       requests: generatedRequests,
@@ -143,11 +153,9 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const settings = await db.collection("system_settings").findOne({ key: "last_purchase_request_generation" });
-    const lastGenerationTime = settings?.value ? new Date(settings.value) : null;
-    
+    const settings = await prisma.systemSetting.findFirst({ where: { key: "last_purchase_request_generation" } });
+    const lastGenerationTime = settings?.value ? new Date(settings.value as string) : null;
+
     // Always allow generation - no time limit
     // Return status with canGenerate always true
     return createResponse(200, true, "Generation status", {

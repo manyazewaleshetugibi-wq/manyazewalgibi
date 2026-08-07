@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import { createResponse } from "@/lib/utils";
-import { ObjectId } from "mongodb";
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,47 +12,45 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const specificDate = searchParams.get('date');
-    
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
+
     let query: any = {};
-    
+
     if (specificDate) {
       query.requestDate = specificDate;
     } else if (startDate || endDate) {
       query.requestDate = {};
-      if (startDate) query.requestDate.$gte = startDate;
-      if (endDate) query.requestDate.$lte = endDate;
+      if (startDate) query.requestDate.gte = startDate;
+      if (endDate) query.requestDate.lte = endDate;
     }
-    
+
     if (status && status !== 'all') {
       query.status = status;
     }
     if (stockId) {
       query.stockId = stockId;
     }
-    
+
     if (role === 'finance') {
-      query.status = { $in: ['pending', 'purchased'] };
+      query.status = { in: ['pending', 'purchased'] };
     } else if (role === 'stock_manager') {
-      query.status = { $in: ['purchased', 'completed'] };
+      query.status = { in: ['purchased', 'completed'] };
     }
-    
-    const requests = await db.collection("purchase_requests")
-      .find(query)
-      .sort({ requestDate: -1, createdAt: -1 })
-      .toArray();
-    
+
+    const requests = await prisma.purchaseRequest.findMany({
+      where: query,
+      orderBy: [{ requestDate: 'desc' }, { createdAt: 'desc' }],
+    });
+
     const requestsWithStockInfo = await Promise.all(requests.map(async (request) => {
       try {
         let stock = null;
-        if (ObjectId.isValid(request.stockId)) {
-          stock = await db.collection("stocks").findOne({ _id: new ObjectId(request.stockId) });
+        if (request.stockId) {
+          stock = await prisma.stock.findUnique({ where: { id: request.stockId } });
         }
-        
+
         return {
           ...request,
+          _id: request.id,
           currentStockLevel: stock?.currentStock || request.currentStock,
           stockUnit: stock?.unit || request.unit,
           minimumStock: stock?.minimumStock || request.minimumStock,
@@ -61,6 +59,7 @@ export async function GET(req: NextRequest) {
       } catch (err) {
         return {
           ...request,
+          _id: request.id,
           currentStockLevel: request.currentStock,
           stockUnit: request.unit,
           minimumStock: request.minimumStock,
@@ -68,7 +67,7 @@ export async function GET(req: NextRequest) {
         };
       }
     }));
-    
+
     const groupedByDate = requestsWithStockInfo.reduce((acc: any, request: any) => {
       const date = request.requestDate;
       if (!acc[date]) {
@@ -86,7 +85,7 @@ export async function GET(req: NextRequest) {
       acc[date][request.status]++;
       return acc;
     }, {});
-    
+
     return createResponse(200, true, "Purchase requests retrieved successfully", {
       requests: requestsWithStockInfo,
       summary: Object.values(groupedByDate),
@@ -101,33 +100,33 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
+
     if (!body.stockId) {
       return createResponse(400, false, "Stock ID is required", null);
     }
-    
+
     const today = new Date().toISOString().split('T')[0];
-    
-    const existingRequest = await db.collection("purchase_requests").findOne({
-      stockId: body.stockId,
-      requestDate: today,
+
+    const existingRequest = await prisma.purchaseRequest.findFirst({
+      where: {
+        stockId: body.stockId,
+        requestDate: today,
+      },
     });
-    
+
     if (existingRequest) {
       return createResponse(400, false, "A request already exists for this stock today", null);
     }
-    
+
     let stock = null;
-    if (ObjectId.isValid(body.stockId)) {
-      stock = await db.collection("stocks").findOne({ _id: new ObjectId(body.stockId) });
+    if (body.stockId) {
+      stock = await prisma.stock.findUnique({ where: { id: body.stockId } });
     }
-    
+
     if (!stock) {
       return createResponse(404, false, "Stock not found");
     }
-    
+
     const request = {
       stockId: body.stockId,
       stockName: stock.name,
@@ -151,10 +150,12 @@ export async function POST(req: NextRequest) {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    
-    const result = await db.collection("purchase_requests").insertOne(request);
-    
-    return createResponse(201, true, "Purchase request created successfully", { id: result.insertedId });
+
+    const result = await prisma.purchaseRequest.create({
+      data: { id: randomUUID(), ...request }
+    });
+
+    return createResponse(201, true, "Purchase request created successfully", { id: result.id });
   } catch (error) {
     console.error("POST /purchase-request Error:", error);
     return createResponse(400, false, "Invalid request data", error instanceof Error ? error.message : null);

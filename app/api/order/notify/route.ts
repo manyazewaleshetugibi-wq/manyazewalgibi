@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import clientPromise from '@/lib/mongodb'
-import { ObjectId } from 'mongodb'
+import prisma from '@/lib/prisma'
 import nodemailer from 'nodemailer'
 
 // Gmail SMTP Configuration
@@ -31,7 +30,7 @@ interface DeliveryInfo {
 }
 
 interface Order {
-  _id: ObjectId;
+  _id: string;
   userId: string;
   orderNumber: string;
   deliveryInfo: DeliveryInfo;
@@ -584,17 +583,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Connect to MongoDB
-    const client = await clientPromise
-    const db = client.db()
+    // Connect to Prisma
+    const db = prisma;
     
     // Get the order from database
-    const ordersCollection = db.collection('orders')
-    const order = await ordersCollection.findOne({ 
-      _id: new ObjectId(orderId),
-      delivery: true, // Only delivery orders
-      isActive: true // Only active orders
-    }) as Order | null
+    const order = await db.order.findFirst({ 
+      where: {
+        id: orderId,
+        delivery: true, // Only delivery orders
+        isActive: true // Only active orders
+      }
+    }) as unknown as Order | null
     
     if (!order) {
       return NextResponse.json(
@@ -644,33 +643,32 @@ export async function POST(request: NextRequest) {
       }
       
       const info = await transporter.sendMail(mailOptions)
-      console.log(`Order ${status} email sent successfully to ${order.deliveryInfo.email}:`, info.messageId)
       emailSent = true
 
       // Update order with notification status
-      await ordersCollection.updateOne(
-        { _id: order._id },
-        {
-          $push: {
-            notifications: {
+      const currentNotifications = (order as any).notifications || []
+      await prisma.order.update({
+        where: { id: order._id },
+        data: {
+          notifications: [
+            ...currentNotifications,
+            {
               type: 'email',
               status: status,
               sentAt: new Date(),
               messageId: info.messageId,
               sentTo: order.deliveryInfo.email
             }
-          },
-          $set: { 
-            updatedAt: new Date(),
-            ...(updatedBy && { 
-              updatedBy: {
-                ...updatedBy,
-                updatedAt: new Date()
-              }
-            })
-          }
+          ],
+          updatedAt: new Date(),
+          ...(updatedBy && {
+            updatedBy: {
+              ...updatedBy,
+              updatedAt: new Date()
+            }
+          })
         }
-      )
+      })
 
     } catch (error) {
       console.error('Failed to send order status email:', error)
@@ -725,8 +723,7 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1')
     const skip = (page - 1) * limit
 
-    const client = await clientPromise
-    const db = client.db()
+    const client = await prisma;
     
     const query: any = { 
       delivery: true, // Only delivery orders
@@ -737,19 +734,18 @@ export async function GET(request: NextRequest) {
       query.status = status
     }
 
-    const ordersCollection = db.collection('orders')
-    const orders = await ordersCollection
-      .find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .toArray()
+    const orders = await prisma.order.findMany({
+      where: query,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit
+    })
 
-    const total = await ordersCollection.countDocuments(query)
+    const total = await prisma.order.count({ where: query })
 
     return NextResponse.json({
       success: true,
-      data: orders,
+      data: orders.map(o => ({ ...o, _id: o.id })),
       pagination: {
         page,
         limit,

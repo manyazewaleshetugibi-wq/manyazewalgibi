@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { auth } from '@/auth';
 import { nanoid } from 'nanoid';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,22 +18,20 @@ export async function POST(request: NextRequest) {
     const userId = session.user.id;
     const userEmail = session.user.email;
     
-    console.log('Generating referral code for user:', userId);
-    
-    // Connect to database
-    const client = await clientPromise;
-    const db = client.db();
+
     
     // Check if user already has a referral code
-    const existingUser = await db.collection('users').findOne({ 
-      $or: [
-        { _id: new ObjectId(userId) },
-        { email: userEmail }
-      ]
+    const existingUser = await prisma.user.findFirst({ 
+      where: { 
+        OR: [
+          { id: userId },
+          { email: userEmail }
+        ]
+      }
     });
     
     if (!existingUser) {
-      console.log('User not found:', userId);
+
       return NextResponse.json(
         { 
           success: false,
@@ -45,11 +42,12 @@ export async function POST(request: NextRequest) {
     }
     
     // Check if user already has a referral code
-    const existingCode = existingUser.referralCode || existingUser.profile?.referralCode;
+    const existingReferralRecord = await prisma.referral.findFirst({ where: { email: userEmail } });
+    const existingCode = (existingUser as any).referralCode || (existingUser as any).profile?.referralCode || existingReferralRecord?.code;
     if (existingCode) {
       const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
       
-      console.log('User already has referral code:', existingCode);
+
       
       return NextResponse.json({
         success: true,
@@ -71,11 +69,8 @@ export async function POST(request: NextRequest) {
         code = `REF-${nanoid(8).toUpperCase()}`;
         
         // Check if code already exists in database
-        const existingUserWithCode = await db.collection('users').findOne({ 
-          $or: [
-            { referralCode: code },
-            { 'profile.referralCode': code }
-          ]
+        const existingUserWithCode = await prisma.referral.findFirst({ 
+          where: { code }
         });
         
         if (!existingUserWithCode) {
@@ -93,68 +88,38 @@ export async function POST(request: NextRequest) {
     };
     
     const referralCode = await generateUniqueCode();
-    console.log('Generated new referral code:', referralCode);
+
     
-    // Update user document with referral code
-    const updateResult = await db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      {
-        $set: {
-          referralCode: referralCode,
-          updatedAt: new Date()
-        }
-      }
-    );
+    // Update user document timestamp
+    const updateResult = await prisma.user.updateMany({ where: { id: userId }, data: { updatedAt: new Date() } });
     
-    if (updateResult.modifiedCount === 0 && updateResult.matchedCount === 0) {
+    if (updateResult.count === 0) {
       // Try updating by email if ID update failed
-      const emailUpdateResult = await db.collection('users').updateOne(
-        { email: userEmail },
-        {
-          $set: {
-            referralCode: referralCode,
-            updatedAt: new Date()
-          }
-        }
-      );
+      const emailUpdateResult = await prisma.user.updateMany({ where: { email: userEmail }, data: { updatedAt: new Date() } });
       
-      if (emailUpdateResult.modifiedCount === 0 && emailUpdateResult.matchedCount === 0) {
+      if (emailUpdateResult.count === 0) {
         throw new Error('Failed to update user with referral code');
       }
     }
     
-    console.log('Updated user with referral code');
+
     
     // Create or update referral tracking record
     try {
-      const referralsCollection = db.collection('referrals');
-      
-      const existingReferralRecord = await referralsCollection.findOne({ userId });
-      
       if (!existingReferralRecord) {
-        await referralsCollection.insertOne({
-          userId,
-          userEmail,
-          referralCode,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          totalReferrals: 0,
-          successfulReferrals: 0,
-          pendingReferrals: 0,
-          referralHistory: []
-        });
-        console.log('Created referral tracking record');
-      } else {
-        await referralsCollection.updateOne(
-          { userId },
-          {
-            $set: {
-              referralCode,
-              updatedAt: new Date()
-            }
+        await prisma.referral.create({
+          data: {
+            id: randomUUID(),
+            email: userEmail,
+            code: referralCode,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           }
-        );
-        console.log('Updated referral tracking record');
+        });
+
+      } else {
+        await prisma.referral.updateMany({ where: { email: userEmail }, data: { code: referralCode, updatedAt: new Date() } });
+
       }
     } catch (referralError) {
       console.error('Error updating referral tracking:', referralError);
@@ -163,34 +128,23 @@ export async function POST(request: NextRequest) {
     
     // Update points system if it exists
     try {
-      const pointsCollection = db.collection('userPoints');
-      const userPoints = await pointsCollection.findOne({ userId });
+      const userPoints = await prisma.userPoint.findFirst({ where: { userId } });
       
       if (userPoints) {
-        await pointsCollection.updateOne(
-          { userId },
-          {
-            $set: {
-              referralCode,
-              updatedAt: new Date()
-            }
-          }
-        );
-        console.log('Updated points record with referral code');
+        await prisma.userPoint.updateMany({ where: { userId }, data: { updatedAt: new Date() } });
+
       } else {
         // Create points record if it doesn't exist
-        await pointsCollection.insertOne({
-          userId,
-          referralCode,
-          totalPoints: 0,
-          availablePoints: 0,
-          transactions: [],
-          orderIdsWithPoints: [],
-          referralIdsWithPoints: [],
-          createdAt: new Date(),
-          updatedAt: new Date(),
+        await prisma.userPoint.create({
+          data: {
+            id: randomUUID(),
+            userId,
+            points: 0,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }
         });
-        console.log('Created points record with referral code');
+
       }
     } catch (pointsError) {
       console.error('Error updating points system:', pointsError);
@@ -240,21 +194,20 @@ export async function GET(request: NextRequest) {
     const userId = session.user.id;
     const userEmail = session.user.email;
     
-    console.log('Fetching referral code for user:', userId);
-    
-    const client = await clientPromise;
-    const db = client.db();
+
     
     // Find user and get their referral code
-    const user = await db.collection('users').findOne({ 
-      $or: [
-        { _id: new ObjectId(userId) },
-        { email: userEmail }
-      ]
+    const user = await prisma.user.findFirst({ 
+      where: { 
+        OR: [
+          { id: userId },
+          { email: userEmail }
+        ]
+      }
     });
     
     if (!user) {
-      console.log('User not found:', userId);
+
       return NextResponse.json(
         { 
           success: false,
@@ -265,12 +218,13 @@ export async function GET(request: NextRequest) {
     }
     
     // Check for referral code in different possible locations
-    const referralCode = user.referralCode || user.profile?.referralCode || null;
+    const referralRecord = await prisma.referral.findFirst({ where: { email: userEmail } });
+    const referralCode = (user as any).referralCode || (user as any).profile?.referralCode || referralRecord?.code || null;
     
     const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     
     if (!referralCode) {
-      console.log('No referral code found for user:', userId);
+
       return NextResponse.json({
         success: true,
         hasReferralCode: false,
@@ -278,7 +232,7 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    console.log('Found referral code for user:', referralCode);
+
     
     return NextResponse.json({
       success: true,
@@ -286,7 +240,7 @@ export async function GET(request: NextRequest) {
       referralCode,
       referralLink: `${baseUrl}/register?ref=${referralCode}`,
       createdAt: user.createdAt,
-      totalReferrals: user.totalReferrals || 0
+      totalReferrals: (user as any).totalReferrals || 0
     });
     
   } catch (error) {

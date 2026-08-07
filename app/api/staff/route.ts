@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 import bcrypt from 'bcrypt';
 import { requireAdmin } from '@/lib/api-auth';
 
@@ -123,16 +123,12 @@ export async function GET(request: NextRequest) {
     const { response } = await requireAdmin();
     if (response) return response;
 
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const usersCollection = db.collection('users');
-    
     const { searchParams } = new URL(request.url);
     const role = searchParams.get('role');
     const status = searchParams.get('status');
     
     let query: any = {
-      role: { $ne: 'user' }
+      role: { not: 'user' }
     };
     
     if (role) {
@@ -146,9 +142,17 @@ export async function GET(request: NextRequest) {
       query.status = status;
     }
     
-    const users = await usersCollection.find(query, { projection: { password: 0 } }).sort({ createdAt: -1 }).toArray();
+    const users = await prisma.user.findMany({
+      where: query,
+      orderBy: { createdAt: 'desc' },
+    });
     
-    return NextResponse.json({ success: true, data: users }, { status: 200 });
+    const sanitizedUsers = users.map((u: any) => {
+      const { password, ...rest } = u;
+      return { ...rest, _id: u.id };
+    });
+    
+    return NextResponse.json({ success: true, data: sanitizedUsers }, { status: 200 });
     
   } catch (error: any) {
     console.error('Error fetching users:', error);
@@ -162,14 +166,6 @@ export async function POST(request: NextRequest) {
     const { response } = await requireAdmin();
     if (response) return response;
 
-    const client = await clientPromise;
-    if (!client) {
-      return new NextResponse('Database connection failed', { status: 500 });
-    }
-    
-    const db = client.db('gold');
-    const usersCollection = db.collection('users');
-    
     const body = await request.json();
     
     const {
@@ -204,13 +200,13 @@ export async function POST(request: NextRequest) {
     }
     
     // Check if email already exists
-    const existingUserByEmail = await usersCollection.findOne({ email: email.toLowerCase() });
+    const existingUserByEmail = await prisma.user.findFirst({ where: { email: email.toLowerCase() } });
     if (existingUserByEmail) {
       return new NextResponse('Email already registered', { status: 400 });
     }
     
     // Check if employeeId already exists
-    const existingUserById = await usersCollection.findOne({ employeeId: employeeId.toUpperCase() });
+    const existingUserById = await prisma.user.findFirst({ where: { employeeId: employeeId.toUpperCase() } });
     if (existingUserById) {
       return new NextResponse('Employee ID already exists', { status: 400 });
     }
@@ -256,7 +252,9 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date()
     };
     
-    await usersCollection.insertOne(newUser);
+    await prisma.user.create({
+      data: { id: randomUUID(), ...newUser }
+    });
     
     // Return ONLY text message - NO JSON data
     return new NextResponse('Staff registered successfully', { status: 201 });
@@ -273,19 +271,11 @@ export async function PUT(request: NextRequest) {
     const { response } = await requireAdmin();
     if (response) return response;
 
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const usersCollection = db.collection('users');
-    
     const body = await request.json();
     const { id, ...updateData } = body;
     
     if (!id) {
       return new NextResponse('User ID is required', { status: 400 });
-    }
-    
-    if (!ObjectId.isValid(id)) {
-      return new NextResponse('Invalid user ID format', { status: 400 });
     }
     
     // Remove sensitive fields
@@ -300,12 +290,9 @@ export async function PUT(request: NextRequest) {
     
     updateData.updatedAt = new Date();
     
-    const result = await usersCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
+    const result = await prisma.user.updateMany({ where: { id }, data: updateData });
     
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return new NextResponse('User not found', { status: 404 });
     }
     
@@ -324,10 +311,6 @@ export async function DELETE(request: NextRequest) {
     const { response } = await requireAdmin();
     if (response) return response;
 
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const usersCollection = db.collection('users');
-    
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     
@@ -335,11 +318,7 @@ export async function DELETE(request: NextRequest) {
       return new NextResponse('User ID is required', { status: 400 });
     }
     
-    if (!ObjectId.isValid(id)) {
-      return new NextResponse('Invalid user ID format', { status: 400 });
-    }
-    
-    const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+    const user = await prisma.user.findUnique({ where: { id } });
     
     if (!user) {
       return new NextResponse('User not found', { status: 404 });
@@ -347,15 +326,15 @@ export async function DELETE(request: NextRequest) {
     
     // Prevent deleting the last admin user
     if (user.role === 'admin') {
-      const adminCount = await usersCollection.countDocuments({ role: 'admin' });
+      const adminCount = await prisma.user.count({ where: { role: 'admin' } });
       if (adminCount <= 1) {
         return new NextResponse('Cannot delete the last admin user', { status: 400 });
       }
     }
     
-    const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+    const result = await prisma.user.deleteMany({ where: { id } });
     
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return new NextResponse('User not found', { status: 404 });
     }
     

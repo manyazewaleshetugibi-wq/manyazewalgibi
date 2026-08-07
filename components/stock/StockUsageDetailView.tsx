@@ -73,7 +73,6 @@ export function StockUsageDetailView({
               }
             }
           } catch (itemsError) {
-            console.log("Items fetch failed, using fallback data")
           }
         }
       } else {

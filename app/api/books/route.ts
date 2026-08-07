@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { validateBookData } from "@/models/Book";
-import { ObjectId } from "mongodb";
+
+function normalizeJson(value: any) {
+  return value === null || value === undefined ? Prisma.DbNull : value;
+}
 
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
 const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
@@ -121,7 +126,7 @@ export async function POST(req: NextRequest) {
 
       try {
         cloudinaryData = await uploadToCloudinary(imageFile);
-        imageUrl = cloudinaryData.url;
+        imageUrl = (cloudinaryData as any)?.url || imageUrl;
       } catch (uploadError: any) {
         return NextResponse.json(
           { success: false, message: uploadError.message || "Failed to upload image" },
@@ -136,28 +141,28 @@ export async function POST(req: NextRequest) {
       category,
       quantity,
       imageUrl,
-      cloudinaryData,
+      cloudinaryData: normalizeJson(cloudinaryData),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
     const validatedData = validateBookData(bookData);
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
+    const created = await prisma.book.create({
+      data: {
+        id: randomUUID(),
+        ...validatedData,
+        imageUrl,
+        cloudinaryData: normalizeJson(cloudinaryData),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any,
+    });
 
-    const result = await db.collection("books").insertOne({
-      ...validatedData,
-      imageUrl,
-      cloudinaryData,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    } as any);
-
-    const createdBook = await db.collection("books").findOne({ _id: result.insertedId });
+    const createdBook = await prisma.book.findUnique({ where: { id: created.id } });
 
     return NextResponse.json(
-      { success: true, message: "Book created successfully", data: createdBook },
+      { success: true, message: "Book created successfully", data: createdBook ? { ...createdBook, _id: createdBook.id } : null },
       { status: 201 }
     );
   } catch (error: any) {
@@ -171,12 +176,10 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const books = await db.collection("books").find({}).sort({ createdAt: -1 }).toArray();
+    const books = await prisma.book.findMany({ orderBy: { createdAt: 'desc' } });
 
     const formattedBooks = books.map(book => ({
-      _id: book._id.toString(),
+      _id: book.id,
       title: book.title || "",
       price: book.price || 0,
       category: book.category || "",
@@ -203,10 +206,6 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Book ID is required" }, { status: 400 });
     }
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, message: "Invalid book ID" }, { status: 400 });
-    }
-
     const title = formData.get("title") as string;
     const price = formData.get("price") as string;
     const category = formData.get("category") as string;
@@ -214,10 +213,7 @@ export async function PUT(req: NextRequest) {
     const imageFile = formData.get("image") as File | null;
     const removeImage = formData.get("removeImage") === "true";
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
-    const existingBook = await db.collection("books").findOne({ _id: new ObjectId(id) });
+    const existingBook = await prisma.book.findUnique({ where: { id } });
     if (!existingBook) {
       return NextResponse.json({ success: false, message: "Book not found" }, { status: 404 });
     }
@@ -246,7 +242,7 @@ export async function PUT(req: NextRequest) {
 
       try {
         cloudinaryData = await uploadToCloudinary(imageFile);
-        imageUrl = cloudinaryData.url;
+        imageUrl = (cloudinaryData as any)?.url || imageUrl;
       } catch (uploadError: any) {
         return NextResponse.json(
           { success: false, message: uploadError.message || "Failed to upload image" },
@@ -261,23 +257,20 @@ export async function PUT(req: NextRequest) {
       category: category !== undefined ? category : existingBook.category,
       quantity: quantityStr !== undefined ? parseInt(quantityStr) : existingBook.quantity,
       imageUrl,
-      cloudinaryData,
+      cloudinaryData: normalizeJson(cloudinaryData),
       updatedAt: new Date(),
     };
 
-    const result = await db.collection("books").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: dataToSave }
-    );
+    const result = await prisma.book.updateMany({ where: { id }, data: dataToSave });
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ success: false, message: "Book not found" }, { status: 404 });
     }
 
-    const updatedBook = await db.collection("books").findOne({ _id: new ObjectId(id) });
+    const updatedBook = await prisma.book.findUnique({ where: { id } });
 
     return NextResponse.json(
-      { success: true, message: "Book updated successfully", data: updatedBook },
+      { success: true, message: "Book updated successfully", data: updatedBook ? { ...updatedBook, _id: updatedBook.id } : null },
       { status: 200 }
     );
   } catch (error: any) {
@@ -298,16 +291,9 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Book ID is required" }, { status: 400 });
     }
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, message: "Invalid book ID" }, { status: 400 });
-    }
+    const result = await prisma.book.deleteMany({ where: { id } });
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
-    const result = await db.collection("books").deleteOne({ _id: new ObjectId(id) });
-
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ success: false, message: "Book not found" }, { status: 404 });
     }
 
@@ -331,19 +317,12 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ success: false, message: "Book ID is required" }, { status: 400 });
     }
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, message: "Invalid book ID" }, { status: 400 });
-    }
-
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
-    const existingBook = await db.collection("books").findOne({ _id: new ObjectId(id) });
+    const existingBook = await prisma.book.findUnique({ where: { id } });
     if (!existingBook) {
       return NextResponse.json({ success: false, message: "Book not found" }, { status: 404 });
     }
 
-    const newQuantity = existingBook.quantity - (quantity || 1);
+    const newQuantity = (existingBook.quantity ?? 0) - (quantity || 1);
     if (newQuantity < 0) {
       return NextResponse.json(
         { success: false, message: "Insufficient stock" },
@@ -351,12 +330,9 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const result = await db.collection("books").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { quantity: newQuantity, updatedAt: new Date() } }
-    );
+    const result = await prisma.book.updateMany({ where: { id }, data: { quantity: newQuantity, updatedAt: new Date() } });
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ success: false, message: "Book not found" }, { status: 404 });
     }
 

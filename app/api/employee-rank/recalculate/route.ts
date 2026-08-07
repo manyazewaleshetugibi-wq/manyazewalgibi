@@ -1,27 +1,23 @@
 // app/api/employee-rank/recalculate/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { requireAdmin } from "@/lib/api-auth";
 
 const COLLECTION_NAME = "employee_rank";
 
 // Define types for bulk operations
-interface BulkWriteOperation {
-  updateOne: {
-    filter: { _id: ObjectId };
-    update: {
-      $set: {
-        rank: number;
-        roleRank: number;
-        lastUpdated: Date;
-        globalRank?: number;
-      };
-    };
+interface RankUpdate {
+  id: string;
+  data: {
+    rank: number;
+    roleRank: number;
+    lastUpdated: Date;
+    globalRank?: number;
   };
 }
 
 interface EmployeeRank {
-  _id: ObjectId;
+  _id: string;
   name: string;
   role: string;
   completedOrders: number;
@@ -33,12 +29,12 @@ interface EmployeeRank {
 }
 
 export async function POST(req: NextRequest) {
+  const { response } = await requireAdmin();
+  if (response) return response;
+
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     // Get all employee ranks
-    const allRanks = await db.collection(COLLECTION_NAME).find({}).toArray();
+    const allRanks = await prisma.employeeRank.findMany();
     
     if (allRanks.length === 0) {
       return NextResponse.json({
@@ -60,7 +56,7 @@ export async function POST(req: NextRequest) {
       const completedOrders = emp.completedOrders || 0;
       
       employeesByRole[role].push({
-        _id: emp._id,
+        _id: emp.id,
         name: emp.name,
         role: emp.role,
         completedOrders,
@@ -71,7 +67,7 @@ export async function POST(req: NextRequest) {
       });
     });
     
-    const allBulkOps: BulkWriteOperation[] = [];
+    const allBulkOps: RankUpdate[] = [];
     const roleResults: Record<string, any> = {};
     
     // Calculate ranks within each role group based ONLY on completedOrders
@@ -98,15 +94,11 @@ export async function POST(req: NextRequest) {
         
         // Push bulk operation with the calculated rank
         allBulkOps.push({
-          updateOne: {
-            filter: { _id: emp._id },
-            update: {
-              $set: {
-                rank: currentRank, // Rank within role (handles ties)
-                roleRank: currentRank, // Same as rank
-                lastUpdated: new Date()
-              }
-            }
+          id: emp._id,
+          data: {
+            rank: currentRank, // Rank within role (handles ties)
+            roleRank: currentRank, // Same as rank
+            lastUpdated: new Date()
           }
         });
         
@@ -124,7 +116,7 @@ export async function POST(req: NextRequest) {
     
     // Calculate global ranks for comparison (also based on completedOrders only)
     const allEmployees: EmployeeRank[] = allRanks.map((emp: any) => ({
-      _id: emp._id,
+      _id: emp.id,
       name: emp.name,
       role: emp.role,
       completedOrders: emp.completedOrders || 0,
@@ -151,18 +143,20 @@ export async function POST(req: NextRequest) {
       }
       
       // Find the bulk operation for this employee and add global rank
-      const existingOpIndex = allBulkOps.findIndex((op: BulkWriteOperation) => 
-        op.updateOne.filter._id.toString() === emp._id.toString()
+      const existingOpIndex = allBulkOps.findIndex((op: RankUpdate) => 
+        op.id === emp._id
       );
       
       if (existingOpIndex !== -1) {
-        allBulkOps[existingOpIndex].updateOne.update.$set.globalRank = globalCurrentRank;
+        allBulkOps[existingOpIndex].data.globalRank = globalCurrentRank;
       }
     });
     
     // Update all records
     if (allBulkOps.length > 0) {
-      await db.collection(COLLECTION_NAME).bulkWrite(allBulkOps);
+      await prisma.$transaction(
+        allBulkOps.map(op => prisma.employeeRank.updateMany({ where: { id: op.id }, data: op.data }))
+      );
     }
     
     // Get top performers from each role for response

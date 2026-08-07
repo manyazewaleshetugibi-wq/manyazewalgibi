@@ -116,7 +116,7 @@ export default function ChangePasswordPage() {
   const forceSessionRefresh = async () => {
     setIsRefreshingSession(true);
     try {
-      console.log("🔄 Forcing session refresh...");
+
       
       // Step 1: Use NextAuth's update function to refresh JWT
       await update({
@@ -138,7 +138,7 @@ export default function ChangePasswordPage() {
       });
       
       const freshSession = await res.json();
-      console.log("🔄 Fresh session from API:", freshSession?.user);
+
       
       if (freshSession?.user) {
         const user = freshSession.user as SessionUser;
@@ -264,7 +264,7 @@ export default function ChangePasswordPage() {
           variant: "default",
         });
         
-        console.log("🔄 Attempting to refresh session after password change...");
+
         
         // Step 1: Update JWT token
         await update({
@@ -289,7 +289,7 @@ export default function ChangePasswordPage() {
         
         if (freshSession?.user) {
           const user = freshSession.user as SessionUser;
-          console.log("✅ Fresh session obtained, requiresPasswordChange:", user.requiresPasswordChange);
+
           
           if (!user.requiresPasswordChange) {
             toast({
@@ -299,11 +299,11 @@ export default function ChangePasswordPage() {
             });
             redirectByRole(user.role, router, user.requiresPasswordChange);
           } else {
-            console.log("🔄 Session still shows requiresPasswordChange=true, forcing refresh...");
+
             await forceSessionRefresh();
           }
         } else {
-          console.log("🔄 No session found, forcing refresh...");
+
           await forceSessionRefresh();
         }
       } else {

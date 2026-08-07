@@ -136,7 +136,7 @@ type DeliveryOrder = {
     address?: string
     location?: {
       type: string
-      coordinates: [number, number] // [lng, lat] format from MongoDB
+      coordinates: [number, number] // [lng, lat] format
     }
   }
   itemsDetails?: Array<{
@@ -333,7 +333,6 @@ export default function DeliveryManagement() {
 
   const handleStatusUpdate = async (orderId: string, newStatus: DeliveryStatus) => {
     try {
-      console.log(`Updating order ${orderId} to status: ${newStatus}`)
       
       const response = await fetch(`/api/delivery/${orderId}`, {
         method: "PATCH",
@@ -418,7 +417,7 @@ export default function DeliveryManagement() {
       }
     }
 
-    // Get coordinates from userDetails (MongoDB GeoJSON format: [lng, lat])
+    // Get coordinates from userDetails (GeoJSON format: [lng, lat])
     const getCoordinates = (): { lat: number; lng: number } | null => {
       if (order.userDetails?.location?.coordinates && 
           order.userDetails.location.coordinates.length === 2) {

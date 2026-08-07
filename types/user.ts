@@ -1,4 +1,3 @@
-import { ObjectId } from 'mongodb'
 
 export enum UserRole {
   ADMIN = 'admin',
@@ -15,7 +14,7 @@ export enum UserRole {
 }
 
 export interface User {
-  _id: ObjectId;
+  _id: string;
   name: string;
   email: string;
   password: string;
@@ -47,7 +46,7 @@ export interface User {
 }
 
 export interface UserDocument {
-  _id: ObjectId;
+  _id: string;
   name: string;
   email: string;
   password: string;

@@ -1,9 +1,8 @@
 // app/api/user/points/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { auth } from '@/auth';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 
 // Points configuration
 const POINTS_CONFIG = {
@@ -22,54 +21,54 @@ async function getUserIdentifier(session: any) {
 }
 
 // Helper function to find user in multiple collections
-async function findUserInCollections(db: any, userId: string, userEmail: string) {
-  let userData = null;
+async function findUserInCollections(userId: string, userEmail: string) {
+  let userData: any = null;
   let foundInCollection = '';
   
   // Try users collection
-  const usersCollection = db.collection('users');
-  userData = await usersCollection.findOne({
-    $or: [
-      { _id: new ObjectId(userId) },
-      { id: userId },
-      { userId: userId },
-      { email: userEmail }
-    ]
+  const usersUser = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { id: userId },
+        { email: userEmail }
+      ]
+    }
   });
   
-  if (userData) {
+  if (usersUser) {
+    userData = usersUser;
     foundInCollection = 'users';
     return { userData, foundInCollection };
   }
   
   // Try staff collection
-  const staffCollection = db.collection('staff');
-  userData = await staffCollection.findOne({
-    $or: [
-      { _id: new ObjectId(userId) },
-      { id: userId },
-      { userId: userId },
-      { email: userEmail }
-    ]
+  const staffUser = await prisma.staff.findFirst({
+    where: {
+      OR: [
+        { id: userId },
+        { email: userEmail }
+      ]
+    }
   });
   
-  if (userData) {
+  if (staffUser) {
+    userData = staffUser;
     foundInCollection = 'staff';
     return { userData, foundInCollection };
   }
   
   // Try customers collection
-  const customersCollection = db.collection('customers');
-  userData = await customersCollection.findOne({
-    $or: [
-      { _id: new ObjectId(userId) },
-      { id: userId },
-      { userId: userId },
-      { email: userEmail }
-    ]
+  const customerUser = await prisma.customer.findFirst({
+    where: {
+      OR: [
+        { id: userId },
+        { email: userEmail }
+      ]
+    }
   });
   
-  if (userData) {
+  if (customerUser) {
+    userData = customerUser;
     foundInCollection = 'customers';
     return { userData, foundInCollection };
   }
@@ -78,86 +77,66 @@ async function findUserInCollections(db: any, userId: string, userEmail: string)
 }
 
 // Helper function to find completed orders for user
-async function findCompletedOrdersForUser(db: any, userId: string, userEmail: string) {
-  const ordersCollection = db.collection('orders');
-  
-  // Build query to find orders where user is either customerId or has matching email
-  const orderQuery = {
-    $or: [
+async function findCompletedOrdersForUser(userId: string, userEmail: string) {
+  const orderWhere: any = {
+    OR: [
       { customerId: userId },
       { userId: userId },
-      { 'user.id': userId },
-      { 'user._id': userId },
-      { email: userEmail },
-      { 'customer.email': userEmail },
-      { 'user.email': userEmail }
     ],
-    status: { $in: ['COMPLETED', 'completed', 'delivered', 'DELIVERED', 'paid', 'PAID'] }
+    status: { in: ['COMPLETED', 'completed', 'delivered', 'DELIVERED', 'paid', 'PAID'] }
   };
   
-  console.log('Searching orders with query:', JSON.stringify(orderQuery, null, 2));
+
   
-  const userOrders = await ordersCollection
-    .find(orderQuery)
-    .sort({ createdAt: -1 })
-    .toArray();
+  const userOrders: any[] = await prisma.order.findMany({
+    where: orderWhere,
+    orderBy: { createdAt: 'desc' },
+  });
   
-  console.log(`Found ${userOrders.length} completed orders for user`);
+
   
-  // Also try to find orders in different collections
-  const posOrdersCollection = db.collection('posorders');
-  if (posOrdersCollection) {
-    const posOrders = await posOrdersCollection
-      .find({
-        $or: [
-          { customerId: userId },
-          { userId: userId },
-          { 'user.id': userId },
-          { email: userEmail },
-          { 'customer.email': userEmail }
-        ],
-        status: { $in: ['COMPLETED', 'completed', 'paid', 'PAID'] }
-      })
-      .toArray();
-    
-    console.log(`Found ${posOrders.length} completed POS orders`);
-    userOrders.push(...posOrders);
-  }
+  // Also try to find orders in the posorders table
+  const posOrders = await prisma.posOrder.findMany({
+    where: {
+      OR: [
+        { customerId: userId },
+        { userId: userId },
+        { email: userEmail },
+      ],
+      status: { in: ['COMPLETED', 'completed', 'paid', 'PAID'] }
+    }
+  });
+  
+
+  userOrders.push(...posOrders);
   
   return userOrders;
 }
 
 // NEW: Helper function to find referred users who have placed orders
-async function findReferredUsersWithOrders(db: any, referrerId: string) {
-  const usersCollection = db.collection('users');
-  
+async function findReferredUsersWithOrders(referrerId: string) {
   // Find all users where referredBy matches the referrerId
-  const referredUsers = await usersCollection
-    .find({ 
-      referredBy: new ObjectId(referrerId) 
-    })
-    .toArray();
+  const referredUsers = await prisma.user.findMany({
+    where: { referredBy: referrerId }
+  });
   
-  console.log(`Found ${referredUsers.length} users referred by ${referrerId}`);
+
   
-  const validReferrals = [];
-  const ordersCollection = db.collection('orders');
+  const validReferrals: any[] = [];
   
   for (const referredUser of referredUsers) {
-    const referredUserId = referredUser._id.toString();
-    const referredUserEmail = referredUser.email;
+    const referredUserId = referredUser.id;
+    const referredUserEmail = referredUser.email || '';
     
     // Check if this referred user has any orders
-    const orderCount = await ordersCollection.countDocuments({
-      $or: [
-        { customerId: referredUserId },
-        { userId: referredUserId },
-        { 'user.id': referredUserId },
-        { 'user._id': referredUser._id },
-        { email: referredUserEmail },
-        { 'customer.email': referredUserEmail }
-      ],
-      status: { $in: ['COMPLETED', 'completed', 'delivered', 'DELIVERED', 'paid', 'PAID'] }
+    const orderCount = await prisma.order.count({
+      where: {
+        OR: [
+          { customerId: referredUserId },
+          { userId: referredUserId },
+        ],
+        status: { in: ['COMPLETED', 'completed', 'delivered', 'DELIVERED', 'paid', 'PAID'] }
+      }
     });
     
     if (orderCount > 0) {
@@ -169,50 +148,73 @@ async function findReferredUsersWithOrders(db: any, referrerId: string) {
         referredAt: referredUser.createdAt
       });
       
-      console.log(`Referred user ${referredUserId} has ${orderCount} orders - valid for points`);
+
     } else {
-      console.log(`Referred user ${referredUserId} has no orders yet - not awarding points`);
+
     }
   }
   
   return validReferrals;
 }
 
+// Helper to read a user points record (stored on UserPoint.activity Json)
+function readUserPointsRecord(record: any) {
+  const activity = (record.activity as any) || {};
+  return {
+    id: record.id,
+    userId: record.userId,
+    totalPoints: activity.totalPoints ?? record.points ?? 0,
+    availablePoints: activity.availablePoints ?? record.points ?? 0,
+    referralCode: activity.referralCode || `REF-${record.userId?.substring(0, 8).toUpperCase() || 'USER'}`,
+    transactions: activity.transactions || [],
+    orderIdsWithPoints: activity.orderIdsWithPoints || [],
+    referredUserIdsWithPoints: activity.referredUserIdsWithPoints || [],
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
 // Helper function to ensure only one user points record exists
-async function ensureSingleUserPointsRecord(userId: string, db: any) {
-  const pointsCollection = db.collection('userPoints');
-  
-  // Find all documents for this user
-  const userPointsRecords = await pointsCollection.find({ userId }).toArray();
+async function ensureSingleUserPointsRecord(userId: string) {
+  // Find all records for this user
+  const userPointsRecords = await prisma.userPoint.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'asc' },
+  });
   
   if (userPointsRecords.length === 0) {
     // No record exists, create one
     const referralCode = `REF-${userId.substring(0, 8).toUpperCase()}`;
     const newRecord = {
-      _id: new ObjectId(),
-      userId,
       totalPoints: 0,
       availablePoints: 0,
       referralCode,
       transactions: [],
       orderIdsWithPoints: [],
-      referredUserIdsWithPoints: [], // Renamed from referralIdsWithPoints to be clearer
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      referredUserIdsWithPoints: [],
     };
     
-    await pointsCollection.insertOne(newRecord);
-    return newRecord;
+    const created = await prisma.userPoint.create({
+      data: {
+        id: randomUUID(),
+        userId,
+        points: 0,
+        activity: newRecord as any,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    return readUserPointsRecord(created);
   }
   
   if (userPointsRecords.length === 1) {
     // Only one record exists, return it
-    return userPointsRecords[0];
+    return readUserPointsRecord(userPointsRecords[0]);
   }
   
   // Multiple records exist, merge them into one
-  userPointsRecords.sort((a: any, b: any) => 
-    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  userPointsRecords.sort((a: any, b: any) =>
+    new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
   );
   
   const primaryRecord = userPointsRecords[0];
@@ -250,42 +252,44 @@ async function ensureSingleUserPointsRecord(userId: string, db: any) {
   };
   
   // Process primary record
-  (primaryRecord.transactions || []).forEach(addTransaction);
-  totalPoints += primaryRecord.totalPoints || 0;
-  availablePoints += primaryRecord.availablePoints || 0;
+  const primary = readUserPointsRecord(primaryRecord);
+  (primary.transactions || []).forEach(addTransaction);
+  totalPoints += primary.totalPoints || 0;
+  availablePoints += primary.availablePoints || 0;
   
   // Process duplicate records
   for (const duplicate of duplicateRecords) {
-    (duplicate.transactions || []).forEach(addTransaction);
-    totalPoints += duplicate.totalPoints || 0;
-    availablePoints += duplicate.availablePoints || 0;
+    const dup = readUserPointsRecord(duplicate);
+    (dup.transactions || []).forEach(addTransaction);
+    totalPoints += dup.totalPoints || 0;
+    availablePoints += dup.availablePoints || 0;
     
-    await pointsCollection.deleteOne({ _id: duplicate._id });
+    await prisma.userPoint.deleteMany({ where: { id: dup.id } });
   }
   
   // Update primary record with merged data
-  await pointsCollection.updateOne(
-    { _id: primaryRecord._id },
-    {
-      $set: {
-        totalPoints,
-        availablePoints,
-        transactions: allTransactions,
-        orderIdsWithPoints: allOrderIds,
-        referredUserIdsWithPoints: allReferredUserIds,
-        updatedAt: new Date()
-      }
-    }
-  );
-  
-  return {
-    ...primaryRecord,
+  const mergedData = {
     totalPoints,
     availablePoints,
+    referralCode: primary.referralCode,
     transactions: allTransactions,
     orderIdsWithPoints: allOrderIds,
     referredUserIdsWithPoints: allReferredUserIds,
-    updatedAt: new Date()
+  };
+  
+  await prisma.userPoint.update({
+    where: { id: primaryRecord.id },
+    data: {
+      points: availablePoints,
+      activity: mergedData as any,
+      updatedAt: new Date(),
+    },
+  });
+  
+  return {
+    ...primary,
+    ...mergedData,
+    updatedAt: new Date(),
   };
 }
 
@@ -317,21 +321,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db();
-    
-    console.log(`Fetching points for user: ID=${userId}, Email=${userEmail}`);
+
     
     // Find user in collections to get consistent ID
-    const { userData, foundInCollection } = await findUserInCollections(db, userId, userEmail);
+    const { userData, foundInCollection } = await findUserInCollections(userId, userEmail);
     
     if (userData) {
-      console.log(`User found in ${foundInCollection} collection`);
-      // Use the _id from the found user data as the consistent identifier
-      const consistentUserId = userData._id?.toString() || userData.id || userId;
+
+      // Use the id from the found user data as the consistent identifier
+      const consistentUserId = userData.id || userData.userId || userId;
       
       // Ensure only one user points record exists for this user
-      let userPoints = await ensureSingleUserPointsRecord(consistentUserId, db);
+      let userPoints: any = await ensureSingleUserPointsRecord(consistentUserId);
       
       // Verify the record belongs to the current user
       if (userPoints.userId !== consistentUserId) {
@@ -355,18 +356,18 @@ export async function GET(req: NextRequest) {
       const existingOrderIds = new Set(userPoints.orderIdsWithPoints);
       
       // Find completed orders for user
-      const userOrders = await findCompletedOrdersForUser(db, consistentUserId, userEmail);
+      const userOrders = await findCompletedOrdersForUser(consistentUserId, userEmail);
       
       // Process orders to calculate points
-      const pointsCollection = db.collection('userPoints');
-      const newOrderIds = [];
-      const orderTransactionsToAdd = [];
+      const newOrderIds: string[] = [];
+      const orderTransactionsToAdd: any[] = [];
       
       for (const order of userOrders) {
         // Skip if order has no items
-        if (!order.items || order.items.length === 0) continue;
+        const orderItems = (order.items as any);
+        if (!orderItems || !Array.isArray(orderItems) || orderItems.length === 0) continue;
         
-        const orderId = order._id.toString();
+        const orderId = order.id;
         
         // Check if points have already been awarded for this specific order
         if (existingOrderIds.has(orderId)) {
@@ -391,12 +392,13 @@ export async function GET(req: NextRequest) {
         let orderPoints = POINTS_CONFIG.ORDER_POINTS;
         
         // Optionally calculate points based on order total
-        if (order.total) {
+        const orderTotal = order.total || order.finalAmount || order.totalAmount || 0;
+        if (orderTotal) {
           // Award 1 point per 20 currency units
-          orderPoints = Math.max(POINTS_CONFIG.ORDER_POINTS, Math.floor(order.total / 20));
+          orderPoints = Math.max(POINTS_CONFIG.ORDER_POINTS, Math.floor(orderTotal / 20));
         }
         
-        const transactionId = new ObjectId().toString();
+        const transactionId = randomUUID();
         const transaction = {
           id: transactionId,
           type: 'order',
@@ -405,7 +407,7 @@ export async function GET(req: NextRequest) {
           date: orderDate,
           orderId: orderId,
           orderNumber: order.orderNumber,
-          orderTotal: order.total,
+          orderTotal: orderTotal,
           status: 'completed'
         };
         
@@ -414,15 +416,15 @@ export async function GET(req: NextRequest) {
         newOrderIds.push(orderId);
         existingOrderIds.add(orderId);
         
-        console.log(`Adding ${orderPoints} points for order ${orderId}`);
+
       }
       
       // NEW: Find referred users who have placed orders
       const existingReferredUserIds = new Set(userPoints.referredUserIdsWithPoints);
-      const validReferredUsers = await findReferredUsersWithOrders(db, consistentUserId);
+      const validReferredUsers = await findReferredUsersWithOrders(consistentUserId);
       
-      const referralTransactionsToAdd = [];
-      const newReferredUserIds = [];
+      const referralTransactionsToAdd: any[] = [];
+      const newReferredUserIds: string[] = [];
       
       for (const referredUser of validReferredUsers) {
         // Check if points have already been awarded for this referred user
@@ -443,7 +445,7 @@ export async function GET(req: NextRequest) {
         // Award points for valid referral (referred user has placed orders)
         const referralPoints = POINTS_CONFIG.REFERRAL_POINTS;
         
-        const transactionId = new ObjectId().toString();
+        const transactionId = randomUUID();
         const transaction = {
           id: transactionId,
           type: 'referral',
@@ -461,7 +463,7 @@ export async function GET(req: NextRequest) {
         newReferredUserIds.push(referredUser.userId);
         existingReferredUserIds.add(referredUser.userId);
         
-        console.log(`Adding ${referralPoints} points for referring ${referredUser.name} who has placed ${referredUser.orderCount} orders`);
+
       }
       
       // Combine all new transactions
@@ -471,52 +473,30 @@ export async function GET(req: NextRequest) {
       if (allNewTransactions.length > 0) {
         const totalNewPoints = allNewTransactions.reduce((sum, t) => sum + t.points, 0);
         
-        // Prepare update operations
-        const updateOperations: any = {
-          $inc: {
-            totalPoints: totalNewPoints,
-            availablePoints: totalNewPoints,
-          },
-          $set: { 
-            updatedAt: new Date()
-          }
+        // Build the updated points record (stored on UserPoint.activity Json)
+        const updatedActivity = {
+          totalPoints: (userPoints.totalPoints || 0) + totalNewPoints,
+          availablePoints: (userPoints.availablePoints || 0) + totalNewPoints,
+          referralCode: userPoints.referralCode,
+          transactions: [...userPoints.transactions, ...allNewTransactions],
+          orderIdsWithPoints: [...userPoints.orderIdsWithPoints, ...newOrderIds],
+          referredUserIdsWithPoints: [...userPoints.referredUserIdsWithPoints, ...newReferredUserIds],
         };
-        
-        // Add transactions using $push
-        updateOperations.$push = {
-          transactions: { $each: allNewTransactions }
-        };
-        
-        // Add order IDs to tracking array using $addToSet
-        if (newOrderIds.length > 0) {
-          updateOperations.$addToSet = {
-            orderIdsWithPoints: { $each: newOrderIds }
-          };
-        }
-        
-        // Add referred user IDs to tracking array
-        if (newReferredUserIds.length > 0) {
-          if (!updateOperations.$addToSet) {
-            updateOperations.$addToSet = {};
-          }
-          updateOperations.$addToSet.referredUserIdsWithPoints = { $each: newReferredUserIds };
-        }
         
         // Perform a single atomic update
-        const result = await pointsCollection.updateOne(
-          { userId: consistentUserId },
-          updateOperations
+        const result = await prisma.userPoint.updateMany(
+          { where: { userId: consistentUserId }, data: { points: updatedActivity.availablePoints, activity: updatedActivity as any, updatedAt: new Date() } }
         );
         
         // Only update local object if database update was successful
-        if (result.modifiedCount > 0) {
-          userPoints.totalPoints = (userPoints.totalPoints || 0) + totalNewPoints;
-          userPoints.availablePoints = (userPoints.availablePoints || 0) + totalNewPoints;
-          userPoints.transactions = [...userPoints.transactions, ...allNewTransactions];
-          userPoints.orderIdsWithPoints = [...userPoints.orderIdsWithPoints, ...newOrderIds];
-          userPoints.referredUserIdsWithPoints = [...userPoints.referredUserIdsWithPoints, ...newReferredUserIds];
+        if (result.count > 0) {
+          userPoints.totalPoints = updatedActivity.totalPoints;
+          userPoints.availablePoints = updatedActivity.availablePoints;
+          userPoints.transactions = updatedActivity.transactions;
+          userPoints.orderIdsWithPoints = updatedActivity.orderIdsWithPoints;
+          userPoints.referredUserIdsWithPoints = updatedActivity.referredUserIdsWithPoints;
           
-          console.log(`Added ${totalNewPoints} points for user ${consistentUserId}`);
+
         }
       }
       
@@ -533,7 +513,7 @@ export async function GET(req: NextRequest) {
         } else if (transaction.type === 'redeemed' && transaction.id) {
           key = `redeemed-${transaction.id}`;
         } else {
-          key = `other-${transaction.id || new ObjectId().toString()}`;
+          key = `other-${transaction.id || randomUUID()}`;
         }
         
         if (!transactionMap.has(key)) {
@@ -543,7 +523,16 @@ export async function GET(req: NextRequest) {
       }
       
       // Get referred users details for stats
-      const referredUsersWithOrders = await findReferredUsersWithOrders(db, consistentUserId);
+      const referredUsersWithOrders = await findReferredUsersWithOrders(consistentUserId);
+      
+      // Calculate pending referrals (users referred by this user who haven't been awarded yet)
+      const referredUserIds = userPoints.referredUserIdsWithPoints || [];
+      const pendingReferrals = await prisma.user.count({
+        where: {
+          referredBy: consistentUserId,
+          id: { notIn: referredUserIds }
+        }
+      });
       
       // Calculate stats
       const stats = {
@@ -553,10 +542,7 @@ export async function GET(req: NextRequest) {
         referralsWithPoints: userPoints.referredUserIdsWithPoints.length,
         totalPointsEarned: userPoints.totalPoints || 0,
         availablePoints: userPoints.availablePoints || 0,
-        pendingReferrals: await db.collection('users').countDocuments({ 
-          referredBy: new ObjectId(consistentUserId),
-          _id: { $nin: userPoints.referredUserIdsWithPoints?.map((id: string) => new ObjectId(id)) || [] }
-        })
+        pendingReferrals
       };
       
       // Calculate next reward threshold
@@ -606,25 +592,29 @@ export async function GET(req: NextRequest) {
       });
       
     } else {
-      console.log('User not found in any collection, creating minimal points record');
+
       
       // User not found in any collection, create minimal points record
       const referralCode = `REF-${userId?.substring(0, 8).toUpperCase() || 'USER'}`;
       const newPointsRecord = {
-        _id: new ObjectId(),
-        userId: userId || userEmail,
         totalPoints: 0,
         availablePoints: 0,
         referralCode,
         transactions: [],
         orderIdsWithPoints: [],
         referredUserIdsWithPoints: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
       };
       
-      const pointsCollection = db.collection('userPoints');
-      await pointsCollection.insertOne(newPointsRecord);
+      await prisma.userPoint.create({
+        data: {
+          id: randomUUID(),
+          userId: userId || userEmail,
+          points: 0,
+          activity: newPointsRecord as any,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
       
       return NextResponse.json({
         success: true,
@@ -716,19 +706,17 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    const client = await clientPromise;
-    const db = client.db();
-    const pointsCollection = db.collection('userPoints');
-    
-    // Get user's current points
-    const userPoints = await pointsCollection.findOne({ 
-      $or: [
-        { userId },
-        { userId: session.user.email }
-      ]
+    // Get user's current points record
+    const userPoint = await prisma.userPoint.findFirst({
+      where: {
+        OR: [
+          { userId },
+          { userId: session.user.email }
+        ]
+      }
     });
     
-    if (!userPoints) {
+    if (!userPoint) {
       return NextResponse.json(
         { 
           success: false, 
@@ -738,7 +726,8 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    const availablePoints = userPoints.availablePoints || 0;
+    const activity = (userPoint.activity as any) || {};
+    const availablePoints = activity.availablePoints ?? userPoint.points ?? 0;
     
     if (availablePoints < points) {
       return NextResponse.json(
@@ -751,7 +740,7 @@ export async function POST(req: NextRequest) {
     }
     
     // Create redemption transaction
-    const redemptionId = new ObjectId().toString();
+    const redemptionId = randomUUID();
     const redemptionTransaction = {
       id: redemptionId,
       type: 'redeemed',
@@ -763,32 +752,34 @@ export async function POST(req: NextRequest) {
     };
     
     // Update user points
-    await pointsCollection.updateOne(
-      { _id: userPoints._id },
-      {
-        $inc: {
-          availablePoints: -points
-        },
-        $push: {
-          transactions: redemptionTransaction
-        },
-        $set: { updatedAt: new Date() }
+    await prisma.userPoint.update(
+      { 
+        where: { id: userPoint.id },
+        data: {
+          points: availablePoints - points,
+          activity: {
+            ...activity,
+            availablePoints: availablePoints - points,
+            transactions: [...(activity.transactions || []), redemptionTransaction],
+          } as any,
+          updatedAt: new Date(),
+        }
       }
     );
     
-    // Store redemption in redemptions collection
-    const redemptionsCollection = db.collection('redemptions');
-    await redemptionsCollection.insertOne({
-      userId: userPoints.userId,
-      points,
-      reward,
-      transaction: redemptionTransaction,
-      status: 'pending',
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    // Store redemption in redemptions table
+    await prisma.redemption.create({
+      data: {
+        id: randomUUID(),
+        userId: userPoint.userId,
+        points,
+        reward,
+        status: 'pending',
+        createdAt: new Date(),
+      },
     });
     
-    console.log(`User ${userId} redeemed ${points} points for ${reward}`);
+
     
     return NextResponse.json({
       success: true,
@@ -835,18 +826,17 @@ export async function DELETE(req: NextRequest) {
     const clearAll = searchParams.get('clearAll') === 'true';
     const userId = session.user.id;
     
-    const client = await clientPromise;
-    const db = client.db();
-    const pointsCollection = db.collection('userPoints');
-    
-    const userPoints = await pointsCollection.findOne({ 
-      $or: [
-        { userId },
-        { userId: session.user.email }
-      ]
+    // Get user's current points record
+    const userPoint = await prisma.userPoint.findFirst({
+      where: {
+        OR: [
+          { userId },
+          { userId: session.user.email }
+        ]
+      }
     });
     
-    if (!userPoints) {
+    if (!userPoint) {
       return NextResponse.json(
         { 
           success: false, 
@@ -857,38 +847,47 @@ export async function DELETE(req: NextRequest) {
     }
     
     if (clearAll) {
-      await pointsCollection.updateOne(
-        { _id: userPoints._id },
-        {
-          $set: {
-            totalPoints: 0,
-            availablePoints: 0,
-            transactions: [],
-            orderIdsWithPoints: [],
-            referredUserIdsWithPoints: [],
+      await prisma.userPoint.update(
+        { 
+          where: { id: userPoint.id },
+          data: {
+            points: 0,
+            activity: {
+              totalPoints: 0,
+              availablePoints: 0,
+              referralCode: ((userPoint.activity as any)?.referralCode) || `REF-${userId.substring(0, 8).toUpperCase()}`,
+              transactions: [],
+              orderIdsWithPoints: [],
+              referredUserIdsWithPoints: [],
+            } as any,
             updatedAt: new Date(),
           }
         }
       );
       
-      console.log(`Cleared all points for user ${userId}`);
+
       
       return NextResponse.json({
         success: true,
         message: 'All points and transactions cleared successfully'
       });
     } else {
-      await pointsCollection.updateOne(
-        { _id: userPoints._id },
-        {
-          $set: {
-            availablePoints: 0,
+      const activity = (userPoint.activity as any) || {};
+      await prisma.userPoint.update(
+        { 
+          where: { id: userPoint.id },
+          data: {
+            points: 0,
+            activity: {
+              ...activity,
+              availablePoints: 0,
+            } as any,
             updatedAt: new Date(),
           }
         }
       );
       
-      console.log(`Cleared available points for user ${userId}`);
+
       
       return NextResponse.json({
         success: true,

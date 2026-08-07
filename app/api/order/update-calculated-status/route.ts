@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import prisma from "@/lib/prisma";
 
 import { auth } from "@/auth";
 
 export async function PATCH(request: NextRequest) {
   try {
-    console.log('=== API: update-calculated-status called ===');
+
     
     const session = await auth();
     if (!session || !session.user) {
@@ -19,7 +18,7 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const { orderIds, calculated } = body;
 
-    console.log('Received request:', { orderIds, calculated });
+
 
     if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
       return NextResponse.json(
@@ -35,12 +34,9 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Get current waitress
-    const currentWaitress = await db.collection("waitresses").findOne(
-      { email: session.user.email }
+    const currentWaitress = await prisma.waitress.findFirst(
+      { where: { email: session.user.email } }
     );
 
     if (!currentWaitress) {
@@ -50,9 +46,9 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    console.log('Current waitress:', { id: currentWaitress._id, name: currentWaitress.name });
 
-    // Convert order IDs to ObjectId
+
+    // Collect order IDs as strings
     const validOrderIds = [];
     const invalidIds = [];
 
@@ -60,12 +56,12 @@ export async function PATCH(request: NextRequest) {
       try {
         const idStr = String(id).trim();
         
-        if (ObjectId.isValid(idStr)) {
-          validOrderIds.push(new ObjectId(idStr));
-          console.log(`✅ Valid ID: ${idStr}`);
+        if (idStr) {
+          validOrderIds.push(idStr);
+
         } else {
           invalidIds.push(idStr);
-          console.warn(`❌ Invalid ObjectId format: ${idStr} (length: ${idStr.length})`);
+          console.warn(`❌ Invalid ID format: ${idStr}`);
         }
       } catch (err) {
         invalidIds.push(id);
@@ -84,20 +80,20 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    console.log(`Processing ${validOrderIds.length} valid order IDs`);
+
 
     // Build query with waiterId as string
-    const waiterIdString = currentWaitress._id.toString();
+    const waiterIdString = currentWaitress.id;
     
     const checkQuery = {
-      _id: { $in: validOrderIds },
+      id: { in: validOrderIds },
       waiterId: waiterIdString
     };
 
     // Check if orders exist
-    const existingOrders = await db.collection("orders").find(checkQuery).toArray();
+    const existingOrders = await prisma.order.findMany({ where: checkQuery });
     
-    console.log(`Found ${existingOrders.length} orders to update`);
+
     
     if (existingOrders.length === 0) {
       return NextResponse.json(
@@ -121,21 +117,17 @@ export async function PATCH(request: NextRequest) {
       updateData.status = 'COMPLETED';
     }
     
-    const updateResult = await db.collection("orders").updateMany(
-      checkQuery,
-      { $set: updateData }
+    const updateResult = await prisma.order.updateMany(
+      { where: checkQuery, data: updateData }
     );
 
-    console.log('Update result:', {
-      matchedCount: updateResult.matchedCount,
-      modifiedCount: updateResult.modifiedCount
-    });
+
 
     return NextResponse.json({
       success: true,
-      message: `Successfully updated ${updateResult.modifiedCount} orders`,
-      updatedCount: updateResult.modifiedCount,
-      matchedCount: updateResult.matchedCount,
+      message: `Successfully updated ${updateResult.count} orders`,
+      updatedCount: updateResult.count,
+      matchedCount: updateResult.count,
       updatedOrders: existingOrders.map(o => o.orderNumber)
     });
 

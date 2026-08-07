@@ -76,13 +76,11 @@ export function StockCalculations({
   const handleCardClick = (filterType: 'status', value: StockStatus | 'all') => {
     onStatusFilterChange(value)
     onCategoryFilterChange(null)
-    onSearchQueryChange("")
   }
 
   const handleTotalItemsClick = () => {
     onStatusFilterChange('all')
     onCategoryFilterChange(null)
-    onSearchQueryChange("")
   }
 
   return (

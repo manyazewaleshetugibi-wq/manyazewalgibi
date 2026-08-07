@@ -186,7 +186,7 @@ export function NavBar() {
           const images = await convertFramesToImages(typedData.frames);
           setFrameImages(images);
           
-          console.log(`✅ Loaded ${typedData.frames.length} frames from video data`);
+
         } else {
           console.warn("⚠️ No video data found or empty frames");
         }

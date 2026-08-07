@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
@@ -17,12 +16,9 @@ export async function GET() {
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     const userId = session.user.id;
 
-    if (!userId || !ObjectId.isValid(userId)) {
+    if (!userId) {
       return NextResponse.json(
         {
           success: false,
@@ -32,8 +28,8 @@ export async function GET() {
       );
     }
 
-    const user = await db.collection("users").findOne({
-      _id: new ObjectId(userId),
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
     });
 
     if (!user) {
@@ -46,7 +42,8 @@ export async function GET() {
       );
     }
 
-    const { password, ...userWithoutPassword } = user;
+    const userData = user as any;
+    const { password, ...userWithoutPassword } = userData;
 
     const extractCityFromAddress = (
       address: string
@@ -106,8 +103,8 @@ export async function GET() {
       success: true,
 
       data: {
-        _id: userWithoutPassword._id.toString(),
-        id: userWithoutPassword._id.toString(),
+        _id: userWithoutPassword.id,
+        id: userWithoutPassword.id,
 
         firstName: userWithoutPassword.firstName || "",
         lastName: userWithoutPassword.lastName || "",
@@ -145,8 +142,6 @@ export async function GET() {
 
         loginAttempts:
           userWithoutPassword.loginAttempts || 0,
-
-        __v: userWithoutPassword.__v,
 
         image: userWithoutPassword.image || null,
         employeeId:

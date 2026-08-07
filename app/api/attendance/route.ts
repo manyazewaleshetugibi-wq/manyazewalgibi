@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 import { getToken } from 'next-auth/jwt';
 import { localDateStr } from '@/lib/attendance-date';
 import { verifyAttendanceIdentity } from '@/lib/attendance-auth';
@@ -44,25 +44,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Access denied for your role' }, { status: 403 });
     }
 
-    const client = await clientPromise;
-    const db = client.db('gold');
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date');
     const from = searchParams.get('from');
     const to = searchParams.get('to');
     const userId = searchParams.get('userId');
 
-    let query: any = {};
+    const where: any = {};
     if (date) {
-      query.date = date;
+      where.date = date;
     } else if (from && to) {
-      query.date = { $gte: from, $lte: to };
+      where.date = { gte: from, lte: to };
     } else {
-      query.date = localDateStr();
+      where.date = localDateStr();
     }
-    if (userId) query.userId = userId;
+    if (userId) where.userId = userId;
 
-    const records = await db.collection('attendance').find(query).toArray();
+    const records = await prisma.attendance.findMany({ where });
     return NextResponse.json({ success: true, data: records });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -71,8 +69,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const client = await clientPromise;
-    const db = client.db('gold');
     const body = await request.json();
     const { userId, action, latitude, longitude, token } = body;
 
@@ -100,8 +96,7 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
-    const usersCollection = db.collection('users');
-    const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
       return NextResponse.json({ success: false, error: 'User not found' }, { status: 404 });
@@ -112,15 +107,20 @@ export async function POST(request: NextRequest) {
     }
 
     const today = localDateStr();
-    const attendanceCollection = db.collection('attendance');
-    const existing = await attendanceCollection.findOne({ userId, date: today });
+    const existing = await prisma.attendance.findFirst({ where: { userId, date: today } });
 
     const clockOutDoc = async (record: any) => {
       const clockOut = new Date().toISOString();
-      await attendanceCollection.updateOne(
-        { _id: record._id },
-        { $set: { clockOut, pinVerified: true, updatedAt: new Date().toISOString(), locationLat: latitude, locationLng: longitude } }
-      );
+      await prisma.attendance.update({
+        where: { id: record.id },
+        data: {
+          clockOut,
+          pinVerified: true,
+          updatedAt: new Date(),
+          locationLat: Number(latitude),
+          locationLng: Number(longitude),
+        },
+      });
       return NextResponse.json({
         success: true,
         data: { type: 'CLOCK_OUT', userName: user.name, time: clockOut }
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
 
     let status = 'present';
     let lateMinutes = 0;
-    const shiftStart = SHIFT_START_HOUR[user.shift];
+    const shiftStart = user.shift ? SHIFT_START_HOUR[user.shift] : undefined;
     if (shiftStart !== undefined) {
       const expectedStart = new Date(now);
       expectedStart.setHours(shiftStart, 0, 0, 0);
@@ -163,10 +163,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const upsertResult = await attendanceCollection.updateOne(
-      { userId, date: today },
-      {
-        $setOnInsert: {
+    try {
+      await prisma.attendance.create({
+        data: {
+          id: randomUUID(),
           userId,
           date: today,
           clockIn,
@@ -178,21 +178,24 @@ export async function POST(request: NextRequest) {
           pinVerified: true,
           note: '',
           restaurantId: user.restaurantId || '',
-          locationLat: latitude,
-          locationLng: longitude,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          locationLat: Number(latitude),
+          locationLng: Number(longitude),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        const latest = await prisma.attendance.findFirst({
+          where: { userId, date: today },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (latest && latest.clockIn && !latest.clockOut) {
+          return clockOutDoc(latest);
         }
-      },
-      { upsert: true }
-    );
-
-    if (upsertResult.upsertedCount === 0) {
-      const latest = await attendanceCollection.findOne({ userId, date: today });
-      if (latest && latest.clockIn && !latest.clockOut) {
-        return clockOutDoc(latest);
+        return NextResponse.json({ success: false, error: 'Already completed today' }, { status: 400 });
       }
-      return NextResponse.json({ success: false, error: 'Already completed today' }, { status: 400 });
+      throw e;
     }
 
     return NextResponse.json({

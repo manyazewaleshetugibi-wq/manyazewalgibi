@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { StockSchema, ReorderFrequencyEnum } from "@/models/Stock";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { ReorderFrequencyEnum } from "@/models/Stock";
 import { createResponse } from "@/lib/utils";
 import { requireRole } from "@/lib/api-auth";
 
@@ -12,14 +11,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const { id } = await params;
 
-    if (!ObjectId.isValid(id)) {
-      return createResponse(400, false, "Invalid stock ID format");
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
     // Still check if stock exists but don't return data
-    const stock = await db.collection("stocks").findOne({ _id: new ObjectId(id) });
+    const stock = await prisma.stock.findUnique({ where: { id } });
 
     if (!stock) {
       return createResponse(404, false, "Stock not found");
@@ -37,9 +30,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (response) return response;
 
     const { id } = await params;
-    if (!ObjectId.isValid(id)) {
-      return createResponse(400, false, "Invalid stock ID format");
-    }
 
     const body = await req.json();
     const { name, categoryId, unit, minimumStock, currentStock, currentUnitPrice, reorderFrequency, requiredAmount, isActive } = body;
@@ -53,24 +43,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       ...(name && { name }),
       ...(categoryId && { categoryId }),
       ...(unit && { unit }),
-      ...(minimumStock !== undefined && { minimumStock }),
-      ...(currentStock !== undefined && { currentStock }),
-      ...(currentUnitPrice !== undefined && { currentUnitPrice }),
+      ...(minimumStock !== undefined && { minimumStock: Number(minimumStock) }),
+      ...(currentStock !== undefined && { currentStock: Number(currentStock) }),
       ...(reorderFrequency && ReorderFrequencyEnum.parse(reorderFrequency) && { reorderFrequency }),
-      ...(requiredAmount !== undefined && { requiredAmount }),
+      ...(requiredAmount !== undefined && { requiredAmount: Number(requiredAmount) }),
       ...(isActive !== undefined && { isActive }),
       updatedAt: new Date(),
     };
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const result = await db.collection("stocks").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
-
-    if (result.matchedCount === 0) {
-      return createResponse(404, false, "Stock not found");
+    try {
+      await prisma.stock.update({ where: { id }, data: updateData });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return createResponse(404, false, "Stock not found");
+      }
+      throw e;
     }
 
     return createResponse(200, true, "Stock updated successfully", null);
@@ -86,15 +73,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     const { id } = await params;
 
-    if (!ObjectId.isValid(id)) {
-      return createResponse(400, false, "Invalid stock ID format");
-    }
+    const result = await prisma.stock.deleteMany({ where: { id } });
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const result = await db.collection("stocks").deleteOne({ _id: new ObjectId(id) });
-
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return createResponse(404, false, "Stock not found");
     }
 

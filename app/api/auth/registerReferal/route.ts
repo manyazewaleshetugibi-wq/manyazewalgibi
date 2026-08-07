@@ -1,8 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { nanoid } from 'nanoid';
+import { rateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown";
+  const { success } = await rateLimit(ip, "register-referral", 10, 3600);
+  if (!success) {
+    return NextResponse.json(
+      { error: 'Too many registration attempts. Please try again later.' },
+      { status: 429 }
+    );
+  }
+
   try {
     const body = await request.json();
     const { name, email, password, referralCode } = body;

@@ -56,7 +56,6 @@ export function RegisterWastageModal({
 
   // Debug log
   useEffect(() => {
-    console.log("RegisterWastageModal - open:", open, "stock:", stock?.name)
   }, [open, stock])
 
   const form = useForm<WastageFormValues>({
@@ -68,7 +67,6 @@ export function RegisterWastageModal({
   })
 
   const onSubmit = async (values: WastageFormValues) => {
-    console.log("Form submitted with values:", values)
     
     if (!stock) {
       console.error("No stock selected")
@@ -90,7 +88,6 @@ export function RegisterWastageModal({
         date: new Date().toISOString().split("T")[0],
       }
       
-      console.log("Sending payload:", payload)
 
       const response = await fetch("/api/stock-wastage", {
         method: "POST",
@@ -99,7 +96,6 @@ export function RegisterWastageModal({
       })
 
       const data = await response.json()
-      console.log("Response data:", data)
 
       if (data.success) {
         toast.success(`Wastage of ${values.quantity} ${stock.unit} registered successfully`)
@@ -121,7 +117,6 @@ export function RegisterWastageModal({
   }
 
   if (!stock) {
-    console.log("No stock provided to modal")
     return null
   }
 

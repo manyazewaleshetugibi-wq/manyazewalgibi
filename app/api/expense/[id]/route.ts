@@ -1,7 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import clientPromise from "@/lib/mongodb"
-import type { Expense } from "@/models/Expense"
-import { ObjectId } from "mongodb"
+import { prisma } from "@/lib/prisma"
 import { requireRole } from "@/lib/api-auth"
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -11,17 +9,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const { id } = await params // Unwrap the params Promise
     
-    const client = await clientPromise
-    const db = client.db("gold")
-    const expenseCollection = db.collection<Expense>("expenses")
-
-    const expense = await expenseCollection.findOne({ _id: new ObjectId(id) })
+    const expense = await prisma.expenseRecord.findFirst({ where: { id } })
 
     if (!expense) {
       return NextResponse.json({ success: false, error: "Expense not found" }, { status: 404 })
     }
 
-    return NextResponse.json({ success: true, data: expense })
+    return NextResponse.json({ success: true, data: { ...expense, _id: expense.id } })
   } catch (error) {
     return NextResponse.json({ success: false, error: (error as Error).message }, { status: 500 })
   }
@@ -34,20 +28,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const { id } = await params // Unwrap the params Promise
     
-    const client = await clientPromise
-    const db = client.db("gold")
-    const expenseCollection = db.collection<Expense>("expenses")
-
-    const expenseData: Partial<Expense> = await req.json()
+    const expenseData: any = await req.json()
     delete expenseData._id // Ensure _id is not updated
 
     if (expenseData.createdBy) {
-      expenseData.createdBy = new ObjectId(expenseData.createdBy as unknown as string)
+      expenseData.createdBy = String(expenseData.createdBy)
     }
 
-    const result = await expenseCollection.updateOne({ _id: new ObjectId(id) }, { $set: expenseData })
+    const result = await prisma.expenseRecord.updateMany({ where: { id }, data: expenseData })
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ success: false, error: "Expense not found" }, { status: 404 })
     }
 
@@ -64,13 +54,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     const { id } = await params // Unwrap the params Promise
     
-    const client = await clientPromise
-    const db = client.db("gold")
-    const expenseCollection = db.collection<Expense>("expenses")
+    const result = await prisma.expenseRecord.deleteMany({ where: { id } })
 
-    const result = await expenseCollection.deleteOne({ _id: new ObjectId(id) })
-
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ success: false, error: "Expense not found" }, { status: 404 })
     }
 

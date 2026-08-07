@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 
 // ============= HELPER FUNCTIONS =============
 
@@ -16,23 +16,12 @@ function generateTemplateCode(): string {
 // ============= GET - Fetch all templates =============
 export async function GET(req: NextRequest) {
     try {
-        const client = await clientPromise;
-        const db = client.db("gold");
-        const collection = db.collection("meal_plan_templates");
-        
         const searchParams = req.nextUrl.searchParams;
         const id = searchParams.get("id");
         
         // Get single template by ID
         if (id) {
-            if (!ObjectId.isValid(id)) {
-                return NextResponse.json(
-                    { success: false, message: "Invalid template ID" },
-                    { status: 400 }
-                );
-            }
-            
-            const template = await collection.findOne({ _id: new ObjectId(id) });
+            const template = await prisma.mealPlanTemplate.findUnique({ where: { id } });
             
             if (!template) {
                 return NextResponse.json(
@@ -45,10 +34,9 @@ export async function GET(req: NextRequest) {
         }
         
         // Get all templates
-        const templates = await collection
-            .find({})
-            .sort({ createdAt: -1 })
-            .toArray();
+        const templates = await prisma.mealPlanTemplate.findMany({
+            orderBy: { createdAt: 'desc' }
+        });
         
         return NextResponse.json({
             success: true,
@@ -68,13 +56,9 @@ export async function GET(req: NextRequest) {
 // ============= POST - Create new template =============
 export async function POST(req: NextRequest) {
     try {
-        const client = await clientPromise;
-        const db = client.db("gold");
-        const collection = db.collection("meal_plan_templates");
-        
         const body = await req.json();
         
-        console.log("Received template data:", JSON.stringify(body, null, 2));
+
         
         // Validate required fields
         if (!body.name) {
@@ -92,7 +76,7 @@ export async function POST(req: NextRequest) {
             let isUnique = false;
             let attempts = 0;
             while (!isUnique && attempts < 5) {
-                const existing = await collection.findOne({ templateCode });
+                const existing = await prisma.mealPlanTemplate.findFirst({ where: { templateCode } });
                 if (!existing) {
                     isUnique = true;
                 } else {
@@ -161,11 +145,12 @@ export async function POST(req: NextRequest) {
             updatedAt: new Date(),
         };
         
-        console.log("Saving template data:", JSON.stringify(templateData, null, 2));
+
         
-        const result = await collection.insertOne(templateData);
+        const id = randomUUID();
+        await prisma.mealPlanTemplate.create({ data: { id, ...templateData } });
         
-        const createdTemplate = await collection.findOne({ _id: result.insertedId });
+        const createdTemplate = await prisma.mealPlanTemplate.findUnique({ where: { id } });
         
         return NextResponse.json({
             success: true,
@@ -188,20 +173,16 @@ export async function DELETE(req: NextRequest) {
         const url = new URL(req.url);
         const id = url.pathname.split('/').pop();
         
-        if (!id || !ObjectId.isValid(id)) {
+        if (!id) {
             return NextResponse.json(
                 { success: false, message: "Valid template ID is required" },
                 { status: 400 }
             );
         }
         
-        const client = await clientPromise;
-        const db = client.db("gold");
-        const collection = db.collection("meal_plan_templates");
+        const result = await prisma.mealPlanTemplate.deleteMany({ where: { id } });
         
-        const result = await collection.deleteOne({ _id: new ObjectId(id) });
-        
-        if (result.deletedCount === 0) {
+        if (result.count === 0) {
             return NextResponse.json(
                 { success: false, message: "Template not found" },
                 { status: 404 }

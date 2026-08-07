@@ -149,7 +149,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     // Check if there's a table parameter in the URL
     const tableParam = searchParams.get('table');
     if (tableParam) {
-      console.log('Table parameter detected:', tableParam);
+
       // You can handle the table parameter here if needed
       // For example, store it in state or context
     }

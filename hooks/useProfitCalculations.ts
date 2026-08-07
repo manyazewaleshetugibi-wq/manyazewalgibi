@@ -167,7 +167,6 @@ async function fetchTodayOrders(date?: Date): Promise<Order[]> {
   const startDate = format(startOfDay(today), "yyyy-MM-dd")
   const endDate = format(endOfDay(today), "yyyy-MM-dd")
   
-  console.log(`📅 Fetching orders from ${startDate} to ${endDate}`)
   
   try {
     const response = await fetch(
@@ -181,10 +180,6 @@ async function fetchTodayOrders(date?: Date): Promise<Order[]> {
     }
     
     const data = await response.json()
-    console.log(`📊 API Response Data:`, {
-      success: data.success,
-      ordersCount: data.orders?.length || 0,
-    })
     
     if (data.success && data.orders) {
       const todayOrders = data.orders.filter((order: Order) => {
@@ -194,7 +189,6 @@ async function fetchTodayOrders(date?: Date): Promise<Order[]> {
         return isToday && isCompleted
       })
       
-      console.log(`✅ Found ${todayOrders.length} completed orders for today`)
       return todayOrders
     }
     
@@ -216,7 +210,6 @@ async function fetchMenuItems(): Promise<MenuItem[]> {
     else if (data.items) items = data.items
     else if (Array.isArray(data)) items = data
     
-    console.log(`✅ Loaded ${items.length} menu items`)
     return items
   } catch (error) {
     console.error("❌ Error fetching menu items:", error)
@@ -235,7 +228,6 @@ async function fetchCategories(): Promise<Category[]> {
     else if (data.categories) categories = data.categories
     else if (Array.isArray(data)) categories = data
     
-    console.log(`✅ Loaded ${categories.length} categories`)
     return categories
   } catch (error) {
     console.error("❌ Error fetching categories:", error)
@@ -254,7 +246,6 @@ async function fetchStockItems(): Promise<StockItem[]> {
     else if (data.stock) stocks = data.stock
     else if (Array.isArray(data)) stocks = data
     
-    console.log(`✅ Loaded ${stocks.length} stock items`)
     return stocks
   } catch (error) {
     console.error("❌ Error fetching stock items:", error)
@@ -273,7 +264,6 @@ async function fetchPurchases(): Promise<Purchase[]> {
     else if (data.data) purchases = data.data
     else if (Array.isArray(data)) purchases = data
     
-    console.log(`✅ Loaded ${purchases.length} purchases`)
     return purchases
   } catch (error) {
     console.error("❌ Error fetching purchases:", error)
@@ -369,7 +359,6 @@ function calculateProfitability(
     // Aggregate sales by item from orders
     const salesMap = new Map<string, { quantity: number }>()
     
-    console.log(`Processing ${orders.length} completed orders for profit calculation`)
     
     orders.forEach((order, index) => {
       const orderItems = getOrderItems(order)
@@ -378,7 +367,6 @@ function calculateProfitability(
         return
       }
 
-      console.log(`Order ${index + 1}: ${orderItems.length} items`)
 
       orderItems.forEach((item: OrderItem) => {
         const itemId = item.menuItemId || item.itemId
@@ -397,7 +385,6 @@ function calculateProfitability(
       })
     })
 
-    console.log(`Found ${salesMap.size} unique items sold`)
 
     if (salesMap.size === 0) {
       return []

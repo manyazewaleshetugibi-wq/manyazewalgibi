@@ -1682,10 +1682,10 @@ function Dashboard() {
                         </div>
                       ) : (
                         <div className="space-y-3 max-h-64 overflow-y-auto">
-                          {criticalStock.slice(0, 5).map((item) => {
+                          {criticalStock.slice(0, 5).map((item, index) => {
                             const percentage = Math.min(100, Math.round((item.currentStock / item.minimumStock) * 100));
                             return (
-                              <div key={item._id} className="p-3 rounded-lg border border-red-100 dark:border-red-800/30 bg-gradient-to-br from-red-50 to-red-50/50 dark:from-red-900/10 dark:to-red-900/5">
+                              <div key={`${item._id}-${index}`} className="p-3 rounded-lg border border-red-100 dark:border-red-800/30 bg-gradient-to-br from-red-50 to-red-50/50 dark:from-red-900/10 dark:to-red-900/5">
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="font-medium text-purple-900 dark:text-purple-300">{item.name}</div>
                                   <Badge className="bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-0">

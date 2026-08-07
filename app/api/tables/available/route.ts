@@ -1,21 +1,9 @@
 // app/api/tables/available/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { TableArrangement, ITable } from '@/models/TableArrangement';
-import clientPromise from '@/lib/mongodb';
-import mongoose from 'mongoose';
-
-async function ensureConnection() {
-  if (mongoose.connection.readyState === 0) {
-    const client = await clientPromise;
-    await mongoose.connect(process.env.MONGODB_URI!);
-  }
-  return mongoose.connection;
-}
+import { prisma } from '@/lib/prisma';
 
 export async function GET(req: NextRequest) {
   try {
-    await ensureConnection();
-    
     const { searchParams } = new URL(req.url);
     const restaurantId = searchParams.get('restaurantId') || 'manyazewal1';
     const floor = searchParams.get('floor') || 'Ground Floor';
@@ -27,7 +15,10 @@ export async function GET(req: NextRequest) {
       isActive: true 
     };
 
-    const arrangement = await TableArrangement.findOne(query).sort({ updatedAt: -1 });
+    const arrangement = await prisma.tableArrangement.findFirst({
+      where: query,
+      orderBy: { updatedAt: 'desc' },
+    });
 
     if (!arrangement) {
       return NextResponse.json({ 
@@ -36,15 +27,15 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    let tables = arrangement.tables;
+    let tables = (arrangement.tables as any[]) || [];
     
     // Filter by status if not 'all'
     if (status !== 'all') {
-      tables = tables.filter((t: ITable) => t.status === status);
+      tables = tables.filter((t: any) => t.status === status);
     }
 
     // Return simplified table data for menu page
-    const simplifiedTables = tables.map((table: ITable) => ({
+    const simplifiedTables = tables.map((table: any) => ({
       id: table.id,
       number: table.number,
       capacity: table.capacity,

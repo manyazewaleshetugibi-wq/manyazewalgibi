@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 import { BlogSchema } from "@/models/Blogs";
-import { ObjectId } from "mongodb";
 import { requireRole } from "@/lib/api-auth";
 import { sanitizeBlogHtml } from "@/lib/sanitize";
 
@@ -54,7 +54,7 @@ async function uploadToCloudinary(
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(7);
     const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const publicId = `${CLOUDINARY_BLOG_FOLDER}/${type}s/${timestamp}_${randomString}_${safeFileName.replace(/\.[^/.]+$/, "")}`;
+    const publicId = `${timestamp}_${randomString}_${safeFileName.replace(/\.[^/.]+$/, "")}`;
     formData.append('public_id', publicId);
     
     // Add tags for organization
@@ -147,17 +147,14 @@ export async function GET(req: NextRequest) {
     const showAll = searchParams.get('showAll') === 'true';
     const includeUploads = searchParams.get('includeUploads') === 'true';
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     // Build query
     const query: any = {};
     
     if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { content: { $regex: search, $options: 'i' } },
-        { tags: { $regex: search, $options: 'i' } }
+      query.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { content: { contains: search, mode: 'insensitive' } },
+        { tags: { has: search } }
       ];
     }
     
@@ -175,44 +172,43 @@ export async function GET(req: NextRequest) {
     }
     
     // Get total count for pagination
-    const total = await db.collection("blogs").countDocuments(query);
+    const total = await prisma.blog.count({ where: query });
     
     // Determine sort direction
     const sortDirection = sortOrder === 'desc' ? -1 : 1;
-    const sortOptions: any = { [sortBy]: sortDirection };
     
     // Get paginated results
-    let blogs = await db.collection("blogs")
-      .find(query)
-      .sort(sortOptions)
-      .skip(page * limit)
-      .limit(limit)
-      .toArray();
+    const blogs = await prisma.blog.findMany({
+      where: query,
+      orderBy: { [sortBy]: sortDirection === -1 ? 'desc' : 'asc' } as any,
+      skip: page * limit,
+      take: limit,
+    });
 
     // Convert ObjectId to string and format dates for JSON serialization
     const formattedBlogs = blogs.map(blog => {
       const formattedBlog: any = {
-        _id: blog._id.toString(),
+        _id: blog.id,
         title: blog.title || "",
         content: blog.content || "",
         category: blog.category || "OTHER",
         tags: blog.tags || [],
         Image: blog.Image || "",
-        Video: blog.Video || "",
+        Video: (blog as any).Video || (blog.mediaType === "video" ? blog.fileUrl || "" : ""),
         mediaType: blog.mediaType || "none",
         isActive: blog.isActive !== undefined ? blog.isActive : true,
         excerpt: blog.excerpt || "",
         views: blog.views || 0,
         uploadStatus: blog.uploadStatus || "completed",
         uploadProgress: blog.uploadProgress || 100,
-        fileUrl: blog.fileUrl || blog.Video || blog.Image || "",
+        fileUrl: blog.fileUrl || (blog as any).Video || blog.Image || "",
         thumbnailUrl: blog.thumbnailUrl || "",
         publicId: blog.publicId || "",
         format: blog.format || "",
         fileSize: blog.fileSize || 0,
         originalFileName: blog.originalFileName || "",
         mimeType: blog.mimeType || "",
-        error: blog.error || "",
+        error: (blog as any).error || "",
       };
 
       // Format dates
@@ -227,7 +223,7 @@ export async function GET(req: NextRequest) {
       formattedBlog.createdAt = formatDate(blog.createdAt);
       formattedBlog.updatedAt = formatDate(blog.updatedAt);
       formattedBlog.completedAt = formatDate(blog.completedAt);
-      formattedBlog.failedAt = formatDate(blog.failedAt);
+      formattedBlog.failedAt = formatDate((blog as any).failedAt);
 
       // Generate thumbnail if video and not already set
       if (blog.mediaType === 'video' && blog.publicId && !formattedBlog.thumbnailUrl) {
@@ -287,7 +283,7 @@ export async function POST(req: NextRequest) {
     if (response) return response;
 
     const formData = await req.formData();
-    console.log("Received POST request with FormData");
+
     
     const title = formData.get("title") as string;
     const content = sanitizeBlogHtml(formData.get("content") as string);
@@ -311,16 +307,7 @@ export async function POST(req: NextRequest) {
       videoSource = "upload";
     }
 
-    console.log('Form data:', { 
-      title, 
-      description: content?.substring(0, 50), 
-      category, 
-      mediaSource, 
-      videoSource,
-      hasImageFile: !!imageFile,
-      hasVideoFile: !!videoFile,
-      videoUrl 
-    });
+
 
     // Basic validation
     if (!title || !content || !category) {
@@ -413,9 +400,6 @@ export async function POST(req: NextRequest) {
       ? tagsString.split(',').map((t: string) => t.trim()).filter(Boolean)
       : [];
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // Step 1: Create a pending blog record
     let blogDoc: any = { 
       title,
@@ -438,7 +422,6 @@ export async function POST(req: NextRequest) {
       // If a video URL is provided, create the complete document right away
       blogDoc = {
         ...blogDoc,
-        Video: videoUrl,
         fileUrl: videoUrl,
         uploadStatus: "completed",
         completedAt: new Date(),
@@ -448,27 +431,24 @@ export async function POST(req: NextRequest) {
       blogDoc.uploadStatus = "uploading";
     }
 
-    console.log('Creating blog document:', blogDoc);
-    
-    const result = await db.collection("blogs").insertOne(blogDoc);
-    const blogId = result.insertedId;
 
-    console.log('Blog created with ID:', blogId);
+    
+    const createdBlog = await prisma.blog.create({
+      data: { id: randomUUID(), ...blogDoc },
+    });
+    const blogId = createdBlog.id;
+
+
 
     // Update progress in database callback
     const updateProgress = async (progress: number) => {
       try {
-        await db.collection("blogs").updateOne(
-          { _id: blogId },
-          { 
-            $set: { 
+        await prisma.blog.updateMany({ where: { id: blogId }, data: { 
               uploadProgress: progress, 
               uploadStatus: progress === 100 ? 'processing' : 'uploading',
               updatedAt: new Date()
-            } 
-          }
-        );
-        console.log(`Progress updated: ${progress}%`);
+            } });
+
       } catch (progressError) {
         console.error('Error updating progress:', progressError);
       }
@@ -478,27 +458,20 @@ export async function POST(req: NextRequest) {
     let cloudinaryResult;
     if (mediaSource === "image" && imageFile) {
       try {
-        console.log('Starting image upload to Cloudinary...');
+
         cloudinaryResult = await uploadToCloudinary(imageFile, 'image', updateProgress);
         
-        console.log('Image upload successful:', cloudinaryResult);
+
         
       } catch (uploadError: any) {
         console.error('Image upload error:', uploadError);
         
         // Update with error status
-        await db.collection("blogs").updateOne(
-          { _id: blogId },
-          { 
-            $set: { 
+        await prisma.blog.updateMany({ where: { id: blogId }, data: { 
               uploadStatus: "failed", 
               uploadProgress: 0,
-              error: uploadError.message,
-              failedAt: new Date(),
               updatedAt: new Date(),
-            } 
-          }
-        );
+            } });
         
         return NextResponse.json(
           { 
@@ -510,27 +483,20 @@ export async function POST(req: NextRequest) {
       }
     } else if (mediaSource === "video" && videoSource === "upload" && videoFile) {
       try {
-        console.log('Starting video upload to Cloudinary...');
+
         cloudinaryResult = await uploadToCloudinary(videoFile, 'video', updateProgress);
         
-        console.log('Video upload successful:', cloudinaryResult);
+
         
       } catch (uploadError: any) {
         console.error('Video upload error:', uploadError);
         
         // Update with error status
-        await db.collection("blogs").updateOne(
-          { _id: blogId },
-          { 
-            $set: { 
+        await prisma.blog.updateMany({ where: { id: blogId }, data: { 
               uploadStatus: "failed", 
               uploadProgress: 0,
-              error: uploadError.message,
-              failedAt: new Date(),
               updatedAt: new Date(),
-            } 
-          }
-        );
+            } });
         
         return NextResponse.json(
           { 
@@ -562,44 +528,40 @@ export async function POST(req: NextRequest) {
         updatedBlog.Image = cloudinaryResult.url;
         updatedBlog.thumbnailUrl = cloudinaryResult.url; // Image is its own thumbnail
       } else if (mediaSource === 'video') {
-        updatedBlog.Video = cloudinaryResult.url;
         updatedBlog.thumbnailUrl = cloudinaryResult.thumbnailUrl || generateVideoThumbnailUrl(cloudinaryResult.publicId);
       }
       
-      await db.collection("blogs").updateOne(
-        { _id: blogId },
-        { $set: updatedBlog }
-      );
+      await prisma.blog.updateMany({ where: { id: blogId }, data: updatedBlog });
 
-      console.log('Blog updated with Cloudinary data');
+
     }
 
     // Get the complete blog record to return
-    const blog = await db.collection("blogs").findOne({ _id: blogId });
+    const blog = await prisma.blog.findUnique({ where: { id: blogId } });
 
     // Format the response
     const responseBlog: any = {
-      _id: blog?._id.toString(),
+      _id: blog?.id,
       title: blog?.title || "",
       content: blog?.content || "",
       category: blog?.category || "OTHER",
       tags: blog?.tags || [],
       Image: blog?.Image || "",
-      Video: blog?.Video || "",
+      Video: (blog as any)?.Video || (blog?.mediaType === "video" ? blog?.fileUrl || "" : ""),
       mediaType: blog?.mediaType || "none",
       isActive: blog?.isActive !== undefined ? blog.isActive : true,
       excerpt: blog?.excerpt || "",
       views: blog?.views || 0,
       uploadStatus: blog?.uploadStatus || "completed",
       uploadProgress: blog?.uploadProgress || 100,
-      fileUrl: blog?.fileUrl || blog?.Video || blog?.Image || "",
+      fileUrl: blog?.fileUrl || (blog as any)?.Video || blog?.Image || "",
       thumbnailUrl: blog?.thumbnailUrl || "",
       publicId: blog?.publicId || "",
       format: blog?.format || "",
       fileSize: blog?.fileSize || 0,
       originalFileName: blog?.originalFileName || "",
       mimeType: blog?.mimeType || "",
-      error: blog?.error || "",
+      error: (blog as any)?.error || "",
     };
 
     // Format dates
@@ -614,7 +576,7 @@ export async function POST(req: NextRequest) {
     responseBlog.createdAt = formatDate(blog?.createdAt);
     responseBlog.updatedAt = formatDate(blog?.updatedAt);
     responseBlog.completedAt = formatDate(blog?.completedAt);
-    responseBlog.failedAt = formatDate(blog?.failedAt);
+    responseBlog.failedAt = formatDate((blog as any)?.failedAt);
 
     // Validate using BlogSchema
     const parsed = BlogSchema.safeParse(responseBlog);
@@ -657,7 +619,7 @@ export async function PUT(req: NextRequest) {
     const id = url.pathname.split('/').pop();
     const body = await req.json();
     
-    console.log("Updating blog ID:", id, "Data:", JSON.stringify(body, null, 2));
+
     
     const { 
       title, 
@@ -681,18 +643,8 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid Blog ID" },
-        { status: 400 }
-      );
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
     // Get existing blog
-    const existingBlog = await db.collection("blogs").findOne({ _id: new ObjectId(id) });
+    const existingBlog = await prisma.blog.findUnique({ where: { id } });
     if (!existingBlog) {
       return NextResponse.json(
         { success: false, error: "Blog not found" },
@@ -716,7 +668,7 @@ export async function PUT(req: NextRequest) {
 
     // Handle media updates - for updates, we only handle URL changes, not file uploads
     let imageUrl = existingBlog.Image;
-    let videoMediaUrl = existingBlog.Video;
+    let videoMediaUrl = (existingBlog as any).Video || (existingBlog.mediaType === "video" ? existingBlog.fileUrl || "" : "");
     let finalMediaType = existingBlog.mediaType || "none";
 
     // Handle image removal or URL update
@@ -746,13 +698,13 @@ export async function PUT(req: NextRequest) {
             { status: 400 }
           );
         }
-      } else if (videoSource === "none" || (!videoBase64 && !videoUrl && !existingBlog.Video)) {
+      } else if (videoSource === "none" || (!videoBase64 && !videoUrl && !videoMediaUrl)) {
         // No video provided and no existing video
         videoMediaUrl = "";
         finalMediaType = "none";
       } else {
         // Keep existing video
-        videoMediaUrl = existingBlog.Video || "";
+        videoMediaUrl = videoMediaUrl || "";
         finalMediaType = "video";
       }
     } else if (mediaSource === "none") {
@@ -763,7 +715,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // Prepare update data
-    const updateData = {
+    const updateData: any = {
       title: title !== undefined ? title : existingBlog.title,
       content: content !== undefined ? content : existingBlog.content,
       category: category !== undefined ? category : existingBlog.category,
@@ -771,7 +723,6 @@ export async function PUT(req: NextRequest) {
       publishedAt: publishedAt ? new Date(publishedAt) : existingBlog.publishedAt,
       isActive: isActive !== undefined ? isActive : existingBlog.isActive,
       Image: imageUrl || "",
-      Video: videoMediaUrl || "",
       mediaType: finalMediaType,
       excerpt,
       updatedAt: new Date(),
@@ -787,10 +738,9 @@ export async function PUT(req: NextRequest) {
       fileSize: existingBlog.fileSize || 0,
       originalFileName: existingBlog.originalFileName || "",
       mimeType: existingBlog.mimeType || "",
-      error: existingBlog.error || "",
     };
 
-    console.log("Update data:", updateData);
+
 
     // Validate using BlogSchema
     const parsed = BlogSchema.safeParse(updateData);
@@ -806,12 +756,11 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const result = await db.collection("blogs").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: parsed.data }
-    );
+    const { Video, ...prismaUpdateData } = parsed.data;
 
-    if (result.matchedCount === 0) {
+    const result = await prisma.blog.updateMany({ where: { id }, data: prismaUpdateData as any });
+
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: "Blog not found" },
         { status: 404 }
@@ -864,18 +813,8 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid Blog ID" },
-        { status: 400 }
-      );
-    }
-
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     // Get blog first to get Cloudinary publicId for cleanup
-    const blog = await db.collection("blogs").findOne({ _id: new ObjectId(id) });
+    const blog = await prisma.blog.findUnique({ where: { id } });
 
     if (!blog) {
       return NextResponse.json(
@@ -890,9 +829,9 @@ export async function DELETE(req: NextRequest) {
     //   // This requires additional logic and Cloudinary admin API key
     // }
 
-    const result = await db.collection("blogs").deleteOne({ _id: new ObjectId(id) });
+    const result = await prisma.blog.deleteMany({ where: { id } });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: "Blog not found" },
         { status: 404 }

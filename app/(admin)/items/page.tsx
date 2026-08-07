@@ -804,7 +804,6 @@ export default function RestaurantMenuManagement() {
               label: alt.label || ''
             }))
         }))
-      console.log('Sending requiredStock:', JSON.stringify(validRequiredStock))
       formData.append("requiredStock", JSON.stringify(validRequiredStock))
       
       // 🔥 FIXED IMAGE HANDLING FOR EDIT MODE 🔥
@@ -814,20 +813,16 @@ export default function RestaurantMenuManagement() {
         
         if (selectedImage) {
           // Case 1: User selected a new image - upload it to Cloudinary
-          console.log("📸 Uploading new image for edit...")
           formData.append('image', selectedImage);
           // Don't send old imageUrl - let backend handle it
         } else if (isImageRemoved) {
           // Case 2: User removed the image
-          console.log("🗑️ Image removed during edit")
           formData.append("removeImage", "true")
         } else if (data.imageUrl && data.imageUrl.startsWith('http')) {
           // Case 3: Keep existing Cloudinary image (URL, not base64)
-          console.log("🖼️ Keeping existing Cloudinary image")
           formData.append("imageUrl", data.imageUrl)
         } else if (selectedItem.cloudinaryData?.url) {
           // Case 4: Use cloudinaryData.url from existing item
-          console.log("🖼️ Using cloudinaryData.url from existing item")
           formData.append("imageUrl", selectedItem.cloudinaryData.url)
         }
         // If none of the above, no image field is sent - backend should keep existing
@@ -840,7 +835,6 @@ export default function RestaurantMenuManagement() {
         }
       }
       
-      console.log("Sending data to API...")
       
       let response
       const isUpdate = selectedItem && selectedItem._id
@@ -1027,7 +1021,6 @@ export default function RestaurantMenuManagement() {
   }
 
   const handleEdit = (item: MenuItem) => {
-    console.log('handleEdit requiredStock:', JSON.stringify(item.requiredStock))
     setSelectedItem(item)
     setImagePreview(item.cloudinaryData?.url || item.imageUrl || null)
     setSelectedImage(null)
@@ -1527,13 +1520,13 @@ export default function RestaurantMenuManagement() {
                           render={({ field }) => (
                             <Select 
                               onValueChange={field.onChange} 
-                              value={field.value || undefined}
+                              value={field.value ?? ""}
                               disabled={isSubmitting || isUploading}
                             >
                               <SelectTrigger id="category" className={fieldErrors.categoryId ? "border-red-500" : ""}>
                                 <SelectValue placeholder="Select Category" />
                               </SelectTrigger>
-                              <SelectContent>
+                              <SelectContent className="max-h-[280px] overflow-y-auto">
                                 {categories.map((category) => (
                                   <SelectItem key={category._id} value={category._id}>
                                     {category.name}

@@ -97,7 +97,6 @@ api.interceptors.response.use(undefined, async (err) => {
   config.retryCount += 1
   
   const delayTime = 1000 * Math.pow(2, config.retryCount - 1)
-  console.log(`Retrying ${config.url} (attempt ${config.retryCount}) in ${delayTime}ms...`)
   
   await new Promise(resolve => setTimeout(resolve, delayTime))
   return api(config)
@@ -311,7 +310,6 @@ export default function OrderManagementMain() {
         // Use the extractor to safely get waitresses data
         const waitressesData = extractData<Waitress>(response, [])
         setWaitresses(waitressesData)
-        console.log(`✅ Loaded ${waitressesData.length} waitresses`)
       }
     } catch (error: any) {
       console.error("Error fetching waitresses:", error)
@@ -329,7 +327,6 @@ export default function OrderManagementMain() {
         // Extract data from the response
         const restaurantsData = extractData<Restaurant>(response, [])
         setRestaurants(restaurantsData)
-        console.log(`✅ Loaded ${restaurantsData.length} restaurants`)
       }
     } catch (error) {
       console.error("Error loading restaurants:", error)
@@ -341,18 +338,15 @@ export default function OrderManagementMain() {
   // ========== CHECK PENDING STOCK ORDERS ==========
   const checkPendingStockOrders = useCallback(async () => {
     try {
-      const response = await api.get('/order?all=true&status=COMPLETED')
-      const completedOrders: Order[] = response.data.orders || []
+      const response = await api.get('/order/stock?checkPending=true')
+      const data = response.data || {}
 
-      const pending = completedOrders.filter(
-        o => o.status === "COMPLETED" && !o.stockProcessed && !o.stockProcessingError
-      )
-      const failed = completedOrders.filter(
-        o => o.status === "COMPLETED" && !o.stockProcessed && !!o.stockProcessingError
-      )
-      const partial = completedOrders.filter(
-        o => o.status === "COMPLETED" && o.stockProcessed === true && o.hasPartialStock === true
-      )
+      const pending = (data.pendingOrders || [])
+        .map((o: Order) => ({ ...o, _id: o._id || (o as any).id }))
+      const failed = (data.failedOrders || [])
+        .map((o: Order) => ({ ...o, _id: o._id || (o as any).id }))
+      const partial = (data.partialOrders || [])
+        .map((o: Order) => ({ ...o, _id: o._id || (o as any).id }))
 
       if (isMountedRef.current) {
         setPendingStockCount(pending.length)
@@ -1372,7 +1366,7 @@ export default function OrderManagementMain() {
               <Volume2 className="h-4 w-4 mr-2" />Enable Sound
             </Button>
           )}
-          {(pendingStockCount > 0 || failedStockCount > 0 || partialStockCount > 0) && (
+          {(pendingStockCount > 0 || failedStockCount > 0 || partialStockCount > 0) ? (
             <Button
               onClick={() => setShowConfirmDialog(true)}
               disabled={processingStock}
@@ -1394,6 +1388,22 @@ export default function OrderManagementMain() {
                       {partialStockCount} partial
                     </Badge>
                   )}
+                </>
+              )}
+            </Button>
+          ) : (
+            <Button
+              onClick={() => setShowConfirmDialog(true)}
+              disabled={processingStock}
+              variant="outline"
+              className="text-green-700 border-green-300 hover:bg-green-50 gap-2"
+            >
+              {processingStock ? (
+                <><Loader2 className="h-4 w-4 animate-spin" />Processing...</>
+              ) : (
+                <>
+                  <Package className="h-4 w-4" />
+                  Process Stock ({pendingStockCount + partialStockCount})
                 </>
               )}
             </Button>

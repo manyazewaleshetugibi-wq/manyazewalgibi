@@ -1,8 +1,6 @@
 
-import { ObjectId } from "mongodb";
-
 export interface Expense {
-  _id?: ObjectId;
+  _id?: string;
   title: string;
   description?: string;
   amount: number;
@@ -11,7 +9,7 @@ export interface Expense {
   tags?: string[];
   recurring: boolean;
   frequency?: 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
-  createdBy: ObjectId;
+  createdBy: string;
   status: 'Pending' | 'Paid';
   notes?: string;
   priority: 'Low' | 'Medium' | 'High' | 'Critical';

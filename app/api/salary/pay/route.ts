@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
 import { logAudit } from '@/lib/audit';
 import { requireRole } from '@/lib/api-auth';
 
@@ -11,8 +10,6 @@ export async function POST(request: NextRequest) {
     const { response } = await requireRole(["admin", "finance"]);
     if (response) return response;
 
-    const client = await clientPromise;
-    const db = client.db('gold');
     const body = await request.json();
     const { salaryId, month, year, amount, notes } = body;
 
@@ -20,12 +17,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'salaryId, month, and year are required' }, { status: 400 });
     }
 
-    const salary = await db.collection('salary').findOne({ _id: new ObjectId(salaryId) });
+    const salary = await prisma.salary.findFirst({ where: { id: salaryId } });
     if (!salary) {
       return NextResponse.json({ success: false, error: 'Salary not found' }, { status: 404 });
     }
 
-    const existingPayment = (salary.history || []).find(
+    const existingPayment = ((salary.history as any[]) || []).find(
       (h: any) => h.month === parseInt(month) && h.year === parseInt(year) && h.status === 'paid'
     );
     if (existingPayment) {
@@ -42,9 +39,9 @@ export async function POST(request: NextRequest) {
       notes: notes || '',
     };
 
-    await db.collection('salary').updateOne(
-      { _id: new ObjectId(salaryId) },
-      { $push: { history: payment }, $set: { updatedAt: new Date().toISOString() } }
+    const currentHistory = (salary.history as any[]) || [];
+    await prisma.salary.updateMany(
+      { where: { id: salaryId }, data: { history: [...currentHistory, payment] as any, updatedAt: new Date().toISOString() } }
     );
 
     logAudit({ action: 'PAY', entity: 'salary', entityId: salaryId, userId: body._userId, userName: body._userName, userRole: body._userRole, description: `Paid salary ${salary.name} for ${MONTHS[parseInt(month) - 1]} ${year}: ${payAmount} ETB`, changes: { amount: { from: null, to: payAmount }, month: { from: null, to: `${MONTHS[parseInt(month) - 1]} ${year}` } } });

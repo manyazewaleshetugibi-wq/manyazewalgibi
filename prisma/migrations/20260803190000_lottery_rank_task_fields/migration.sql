@@ -1,0 +1,26 @@
+-- AlterTable
+ALTER TABLE "employee_rank" ADD COLUMN "department" TEXT,
+ADD COLUMN "performanceScore" DOUBLE PRECISION,
+ADD COLUMN "attendance" DOUBLE PRECISION,
+ADD COLUMN "efficiency" DOUBLE PRECISION,
+ADD COLUMN "salesTarget" DOUBLE PRECISION,
+ADD COLUMN "salesAchieved" DOUBLE PRECISION,
+ADD COLUMN "customerRating" DOUBLE PRECISION,
+ADD COLUMN "rank" DOUBLE PRECISION,
+ADD COLUMN "roleRank" DOUBLE PRECISION,
+ADD COLUMN "globalRank" DOUBLE PRECISION,
+ADD COLUMN "lastUpdated" TIMESTAMP(3);
+
+-- AlterTable
+ALTER TABLE "tasks" ADD COLUMN "actualStartTime" TEXT,
+ADD COLUMN "actualCompletedTime" TEXT,
+ADD COLUMN "notifiedOverdue" BOOLEAN,
+ADD COLUMN "notifiedDeadline" BOOLEAN;
+
+-- AlterTable
+ALTER TABLE "users" ADD COLUMN "avatar" TEXT,
+ADD COLUMN "lotteryTickets" DOUBLE PRECISION,
+ADD COLUMN "hasWonThisMonth" BOOLEAN,
+ADD COLUMN "lastWinDate" TEXT,
+ADD COLUMN "totalWins" DOUBLE PRECISION,
+ADD COLUMN "points" DOUBLE PRECISION;

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 
 export async function PATCH(
@@ -14,11 +13,9 @@ export async function PATCH(
     // Await the params in Next.js 15+
     const { id } = await params;
     
-    const client = await clientPromise;
-    const db = client.db();
     const updates = await request.json();
 
-    if (!id || !ObjectId.isValid(id)) {
+    if (!id) {
       return NextResponse.json(
         { success: false, message: 'Invalid participant ID' },
         { status: 400 }
@@ -32,17 +29,17 @@ export async function PATCH(
     delete updates.role;
 
     // Update participant lottery data
-    const result = await db.collection('users').updateOne(
-      { _id: new ObjectId(id) },
-      { 
-        $set: {
+    const result = await prisma.user.updateMany(
+      {
+        where: { id },
+        data: {
           ...updates,
           updatedAt: new Date()
         }
       }
     );
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, message: 'Participant not found' },
         { status: 404 }

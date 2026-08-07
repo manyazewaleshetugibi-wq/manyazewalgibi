@@ -17,7 +17,6 @@ export function useCart() {
     const loadCartFromStorage = () => {
       try {
         const storedCart = localStorage.getItem(CART_STORAGE_KEY)
-        console.log('🔍 Loading cart from localStorage:', storedCart)
         
         if (storedCart) {
           const parsedCart = JSON.parse(storedCart)
@@ -39,16 +38,12 @@ export function useCart() {
               tags: item.tags || []
             }))
             setCart(validatedCart)
-            console.log('✅ Cart loaded successfully:', validatedCart.length, 'items')
-            console.log('📦 Cart items:', validatedCart.map(i => `${i.name} x${i.quantity}`))
           } else {
-            console.log('📭 Cart is empty in localStorage')
             setCart([])
             // Clear empty cart from localStorage
             localStorage.removeItem(CART_STORAGE_KEY)
           }
         } else {
-          console.log('📭 No cart found in localStorage')
           setCart([])
         }
       } catch (error) {
@@ -67,25 +62,20 @@ export function useCart() {
   // Save cart to localStorage whenever it changes
   useEffect(() => {
     if (!isLoaded) {
-      console.log('⏳ Skipping save - cart not loaded yet')
       return
     }
     
     try {
       if (cart.length > 0) {
         localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart))
-        console.log('💾 Cart saved to localStorage:', cart.length, 'items')
-        console.log('📦 Saved items:', cart.map(i => `${i.name} x${i.quantity}`))
         
         // Debug: Verify save worked
         const verify = localStorage.getItem(CART_STORAGE_KEY)
         if (verify) {
           const parsed = JSON.parse(verify)
-          console.log('✅ Cart save verified:', parsed.length, 'items')
         }
       } else {
         localStorage.removeItem(CART_STORAGE_KEY)
-        console.log('🗑️ Cart cleared from localStorage')
       }
       
       // Update totals
@@ -99,8 +89,6 @@ export function useCart() {
       const newTotalItems = cart.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
       setTotalItems(newTotalItems)
       
-      console.log('💰 Subtotal:', newSubtotal)
-      console.log('🔢 Total items:', newTotalItems)
     } catch (error) {
       console.error('❌ Error saving cart to localStorage:', error)
     }
@@ -129,7 +117,6 @@ export function useCart() {
           specialInstructions: item.specialInstructions || updatedCart[existingItemIndex].specialInstructions
         }
         toast.success(`Updated ${item.name} in cart!`)
-        console.log(`🔄 Updated ${item.name} quantity to ${currentQuantity + addQuantity}`)
         return updatedCart
       } else {
         // Add new item - ensure it's a valid CartItem
@@ -150,7 +137,6 @@ export function useCart() {
         }
         
         toast.success(`Added ${newItem.name} to cart!`)
-        console.log(`➕ Added ${newItem.name} to cart`)
         return [...prevCart, newItem]
       }
     })
@@ -167,7 +153,6 @@ export function useCart() {
       const newCart = prevCart.filter(cartItem => cartItem._id !== itemId)
       if (item) {
         toast.success(`Removed ${item.name} from cart`)
-        console.log(`🗑️ Removed ${item.name} from cart`)
       }
       return newCart
     })
@@ -191,14 +176,12 @@ export function useCart() {
           : cartItem
       )
     })
-    console.log(`📦 Updated quantity for item ${itemId} to ${newQuantity}`)
   }, [removeFromCart])
 
   const clearCart = useCallback(() => {
     setCart([])
     try {
       localStorage.removeItem(CART_STORAGE_KEY)
-      console.log('🗑️ Cart cleared from state and localStorage')
     } catch (error) {
       console.error('❌ Error clearing cart from localStorage:', error)
     }
@@ -209,7 +192,6 @@ export function useCart() {
   const checkLocalStorage = useCallback(() => {
     try {
       const stored = localStorage.getItem(CART_STORAGE_KEY)
-      console.log('🔍 Current localStorage:', stored)
       return stored ? JSON.parse(stored) : null
     } catch (error) {
       console.error('❌ Error checking localStorage:', error)

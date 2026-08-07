@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    console.log(`🔍 AI Search: "${query}"`);
+
     
     const engine = getSearchEngine();
     const result = await engine.search(query);
@@ -55,5 +55,5 @@ export async function GET(request: NextRequest) {
     method: 'POST',
     body: JSON.stringify({ query }),
     headers: request.headers
-  }));
+  }) as NextRequest);
 }

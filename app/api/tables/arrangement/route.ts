@@ -2,9 +2,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { TableArrangement, ITable } from '@/models/TableArrangement';
-import clientPromise from '@/lib/mongodb';
-import mongoose from 'mongoose';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
 import { syncTablesWithPendingOrders, syncAllFloorsWithPendingOrders } from '@/lib/tableOrderSync';
 
 // In-memory store for real-time selections
@@ -34,18 +33,6 @@ setInterval(() => {
   for (const [key, s] of activeSelections.entries()) if (s.expiresAt < now) activeSelections.delete(key);
   for (const [key, s] of guestSessions.entries()) if (s.expiresAt < now) guestSessions.delete(key);
 }, 30000);
-
-async function ensureConnection() {
-  try {
-    if (mongoose.connection.readyState === 1) return mongoose.connection;
-    await clientPromise;
-    if (mongoose.connection.readyState === 0) await mongoose.connect(process.env.MONGODB_URI!);
-    return mongoose.connection;
-  } catch (error) {
-    console.error('DB connection error:', error);
-    throw error;
-  }
-}
 
 function getSelectionKey(restaurantId: string, floor: string) {
   return `${restaurantId}:${floor}`;
@@ -82,7 +69,6 @@ function validateGuestSession(guestId?: string): { valid: boolean; session?: any
 // ─── GET ────────────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
-    await ensureConnection();
     const { searchParams } = new URL(req.url);
     const restaurantId = searchParams.get('restaurantId');
     const floor = searchParams.get('floor');
@@ -91,18 +77,36 @@ export async function GET(req: NextRequest) {
     const skipSync = searchParams.get('skipSync') === 'true';
 
     if (fetchAll) {
-      const arrangements = await TableArrangement.find({ isActive: true })
-        .select('_id restaurantId restaurantName floor name layoutType totalTables availableTables occupiedTables totalCapacity updatedAt')
-        .sort({ restaurantName: 1, floor: 1 })
-        .lean();
-      return NextResponse.json({ success: true, data: arrangements });
+      const arrangements = await prisma.tableArrangement.findMany({
+        where: { isActive: true },
+        orderBy: [{ restaurantName: 'asc' }, { floor: 'asc' }],
+      });
+      return NextResponse.json({
+        success: true,
+        data: arrangements.map((a: any) => ({
+          _id: a.id,
+          restaurantId: a.restaurantId,
+          restaurantName: a.restaurantName,
+          floor: a.floor,
+          name: a.name,
+          layoutType: a.layoutType,
+          totalTables: a.totalTables,
+          availableTables: a.availableTables,
+          occupiedTables: a.occupiedTables,
+          totalCapacity: a.totalCapacity,
+          updatedAt: a.updatedAt,
+        })),
+      });
     }
 
     if (!restaurantId || !floor) {
       return NextResponse.json({ success: false, error: 'restaurantId and floor are required' }, { status: 400 });
     }
 
-    let arrangement = await TableArrangement.findOne({ restaurantId, floor, isActive: true }).sort({ updatedAt: -1 });
+    let arrangement = await prisma.tableArrangement.findFirst({
+      where: { restaurantId, floor, isActive: true },
+      orderBy: { updatedAt: 'desc' },
+    });
 
     if (arrangement && !skipSync) {
       try {
@@ -117,10 +121,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, data: null, message: 'No arrangement found' });
     }
 
-    const response: any = { success: true, data: arrangement };
+    const response: any = { success: true, data: { ...arrangement, _id: arrangement.id } };
 
     if (includeSelections) {
-      const selectionKey = getSelectionKey(arrangement.restaurantId, arrangement.floor);
+      const selectionKey = getSelectionKey(arrangement.restaurantId ?? "", arrangement.floor ?? "");
       const activeSelection = activeSelections.get(selectionKey);
       if (activeSelection && activeSelection.expiresAt > new Date()) {
         response.activeSelection = {
@@ -145,11 +149,9 @@ export async function GET(req: NextRequest) {
 }
 
 // ─── PATCH ───────────────────────────────────────────────────────────────────
-// Uses findOneAndUpdate with $set to avoid Mongoose VersionError on concurrent saves
+// Reads the arrangement, mutates the JSON tables array, then writes it back to avoid version conflicts
 export async function PATCH(req: NextRequest) {
   try {
-    await ensureConnection();
-
     const body = await req.json();
     const {
       restaurantId, floor, tableId,
@@ -218,24 +220,24 @@ export async function PATCH(req: NextRequest) {
 
       activeSelections.delete(selectionKey);
 
-      // Use findOne + atomic $set to avoid version conflicts
-      const arr = await TableArrangement.findOne(baseQuery).lean() as any;
+      const arr = await prisma.tableArrangement.findFirst({ where: baseQuery });
       if (arr) {
-        const idx = arr.tables.findIndex((t: any) => t.id === tableId);
-        if (idx !== -1 && arr.tables[idx].status === 'reserved') {
-          const updatePath: any = {};
-          updatePath[`tables.${idx}.status`] = 'available';
-          updatePath[`tables.${idx}.reservationInfo`] = null;
-          updatePath[`tables.${idx}.lastUpdated`] = new Date();
-          updatePath['updatedAt'] = new Date();
-
-          const allTables = arr.tables.map((t: any, i: number) =>
-            i === idx ? { ...t, status: 'available', reservationInfo: null } : t
+        const tables = (arr.tables as any[]) || [];
+        const idx = tables.findIndex((t: any) => t.id === tableId);
+        if (idx !== -1 && tables[idx].status === 'reserved') {
+          const allTables = tables.map((t: any, i: number) =>
+            i === idx ? { ...t, status: 'available', reservationInfo: null, lastUpdated: new Date() } : t
           );
-          updatePath['availableTables'] = allTables.filter((t: any) => t.status === 'available').length;
-          updatePath['reservedTables'] = allTables.filter((t: any) => t.status === 'reserved').length;
 
-          await TableArrangement.findOneAndUpdate(baseQuery, { $set: updatePath }, { new: true });
+          await prisma.tableArrangement.updateMany({
+            where: baseQuery,
+            data: {
+              tables: allTables,
+              availableTables: allTables.filter((t: any) => t.status === 'available').length,
+              reservedTables: allTables.filter((t: any) => t.status === 'reserved').length,
+              updatedAt: new Date(),
+            },
+          });
         }
       }
 
@@ -244,13 +246,14 @@ export async function PATCH(req: NextRequest) {
 
     // ── SWITCH TABLE ──────────────────────────────────────────────────────────
     if (switchTable && tableId) {
-      const arr = await TableArrangement.findOne(baseQuery).lean() as any;
+      const arr = await prisma.tableArrangement.findFirst({ where: baseQuery });
       if (!arr) return NextResponse.json({ success: false, error: 'Arrangement not found' }, { status: 404 });
 
-      const newIdx = arr.tables.findIndex((t: any) => t.id === tableId);
+      const tables = (arr.tables as any[]) || [];
+      const newIdx = tables.findIndex((t: any) => t.id === tableId);
       if (newIdx === -1) return NextResponse.json({ success: false, error: 'Table not found' }, { status: 404 });
 
-      const newTable = arr.tables[newIdx];
+      const newTable = tables[newIdx];
       if (newTable.status !== 'available') {
         return NextResponse.json({ success: false, error: `Table ${newTable.number} is currently ${newTable.status}` }, { status: 400 });
       }
@@ -258,40 +261,36 @@ export async function PATCH(req: NextRequest) {
       const expiresAt = new Date();
       expiresAt.setMinutes(expiresAt.getMinutes() + duration);
 
-      const updatePath: any = {};
       let previousTableId = null;
       let previousTableNumber = null;
 
       // Clear old table if exists
       if (existingSelection) {
-        const oldIdx = arr.tables.findIndex((t: any) => t.id === existingSelection!.tableId);
+        const oldIdx = tables.findIndex((t: any) => t.id === existingSelection!.tableId);
         if (oldIdx !== -1) {
-          previousTableId = arr.tables[oldIdx].id;
-          previousTableNumber = arr.tables[oldIdx].number;
-          updatePath[`tables.${oldIdx}.status`] = 'available';
-          updatePath[`tables.${oldIdx}.reservationInfo`] = null;
-          updatePath[`tables.${oldIdx}.lastUpdated`] = new Date();
+          previousTableId = tables[oldIdx].id;
+          previousTableNumber = tables[oldIdx].number;
         }
         activeSelections.delete(selectionKey);
       }
 
-      // Set new table
-      updatePath[`tables.${newIdx}.status`] = 'reserved';
-      updatePath[`tables.${newIdx}.reservationInfo`] = { reservedBy: selectedBy, reservedByName: selectedByName, reservedAt: new Date(), expiresAt };
-      updatePath[`tables.${newIdx}.lastUpdated`] = new Date();
-      updatePath['updatedAt'] = new Date();
-
       // Recalculate counts from current data
-      const simulatedTables = arr.tables.map((t: any, i: number) => {
-        if (existingSelection && t.id === existingSelection.tableId) return { ...t, status: 'available' };
-        if (i === newIdx) return { ...t, status: 'reserved' };
+      const simulatedTables = tables.map((t: any, i: number) => {
+        if (existingSelection && t.id === existingSelection.tableId) return { ...t, status: 'available', reservationInfo: null, lastUpdated: new Date() };
+        if (i === newIdx) return { ...t, status: 'reserved', reservationInfo: { reservedBy: selectedBy, reservedByName: selectedByName, reservedAt: new Date(), expiresAt }, lastUpdated: new Date() };
         return t;
       });
-      updatePath['availableTables'] = simulatedTables.filter((t: any) => t.status === 'available').length;
-      updatePath['reservedTables'] = simulatedTables.filter((t: any) => t.status === 'reserved').length;
 
-      const updated = await TableArrangement.findOneAndUpdate(baseQuery, { $set: updatePath }, { new: true });
-      if (!updated) return NextResponse.json({ success: false, error: 'Failed to update arrangement' }, { status: 500 });
+      const updated = await prisma.tableArrangement.updateMany({
+        where: baseQuery,
+        data: {
+          tables: simulatedTables,
+          availableTables: simulatedTables.filter((t: any) => t.status === 'available').length,
+          reservedTables: simulatedTables.filter((t: any) => t.status === 'reserved').length,
+          updatedAt: new Date(),
+        },
+      });
+      if (updated.count === 0) return NextResponse.json({ success: false, error: 'Failed to update arrangement' }, { status: 500 });
 
       const newSelection = {
         tableId: newTable.id, tableNumber: newTable.number,
@@ -304,7 +303,7 @@ export async function PATCH(req: NextRequest) {
         success: true,
         data: {
           selection: { ...newSelection, selectedAt: newSelection.selectedAt.toISOString(), expiresAt: newSelection.expiresAt.toISOString() },
-          table: updated.tables[newIdx],
+          table: simulatedTables[newIdx],
           previousTableId,
           previousTableNumber,
         },
@@ -320,13 +319,14 @@ export async function PATCH(req: NextRequest) {
 
     // ── SELECT TABLE ──────────────────────────────────────────────────────────
     if (selectTable && tableId) {
-      const arr = await TableArrangement.findOne(baseQuery).lean() as any;
+      const arr = await prisma.tableArrangement.findFirst({ where: baseQuery });
       if (!arr) return NextResponse.json({ success: false, error: 'Arrangement not found' }, { status: 404 });
 
-      const idx = arr.tables.findIndex((t: any) => t.id === tableId);
+      const tables = (arr.tables as any[]) || [];
+      const idx = tables.findIndex((t: any) => t.id === tableId);
       if (idx === -1) return NextResponse.json({ success: false, error: 'Table not found' }, { status: 404 });
 
-      const table = arr.tables[idx];
+      const table = tables[idx];
 
       if (table.status !== 'available') {
         return NextResponse.json({ success: false, error: `Table ${table.number} is currently ${table.status}` }, { status: 400 });
@@ -358,38 +358,43 @@ export async function PATCH(req: NextRequest) {
         existingSelection.selectedAt = new Date();
         activeSelections.set(selectionKey, existingSelection);
 
-        await TableArrangement.findOneAndUpdate(baseQuery, {
-          $set: {
-            [`tables.${idx}.reservationInfo.expiresAt`]: expiresAt,
-            [`tables.${idx}.reservationInfo.reservedAt`]: new Date(),
+        const refreshedTables = tables.map((t: any, i: number) =>
+          i === idx ? { ...t, reservationInfo: { ...(t.reservationInfo || {}), expiresAt, reservedAt: new Date() }, lastUpdated: new Date() } : t
+        );
+
+        await prisma.tableArrangement.updateMany({
+          where: baseQuery,
+          data: {
+            tables: refreshedTables,
             updatedAt: new Date(),
           },
-        }, { new: true });
+        });
 
         return NextResponse.json({
           success: true,
           data: {
             selection: { ...existingSelection, selectedAt: existingSelection.selectedAt.toISOString(), expiresAt: existingSelection.expiresAt.toISOString() },
-            table: arr.tables[idx],
+            table: tables[idx],
           },
           message: `Table ${table.number} selection renewed`,
         });
       }
 
       // New selection
-      const updatePath: any = {
-        [`tables.${idx}.status`]: 'reserved',
-        [`tables.${idx}.reservationInfo`]: { reservedBy: selectedBy, reservedByName: selectedByName, reservedAt: new Date(), expiresAt },
-        [`tables.${idx}.lastUpdated`]: new Date(),
-        updatedAt: new Date(),
-      };
+      const simulatedTables = tables.map((t: any, i: number) =>
+        i === idx ? { ...t, status: 'reserved', reservationInfo: { reservedBy: selectedBy, reservedByName: selectedByName, reservedAt: new Date(), expiresAt }, lastUpdated: new Date() } : t
+      );
 
-      const simulatedTables = arr.tables.map((t: any, i: number) => i === idx ? { ...t, status: 'reserved' } : t);
-      updatePath['availableTables'] = simulatedTables.filter((t: any) => t.status === 'available').length;
-      updatePath['reservedTables'] = simulatedTables.filter((t: any) => t.status === 'reserved').length;
-
-      const updated = await TableArrangement.findOneAndUpdate(baseQuery, { $set: updatePath }, { new: true });
-      if (!updated) return NextResponse.json({ success: false, error: 'Failed to update arrangement' }, { status: 500 });
+      const updated = await prisma.tableArrangement.updateMany({
+        where: baseQuery,
+        data: {
+          tables: simulatedTables,
+          availableTables: simulatedTables.filter((t: any) => t.status === 'available').length,
+          reservedTables: simulatedTables.filter((t: any) => t.status === 'reserved').length,
+          updatedAt: new Date(),
+        },
+      });
+      if (updated.count === 0) return NextResponse.json({ success: false, error: 'Failed to update arrangement' }, { status: 500 });
 
       const newSelection = {
         tableId: table.id, tableNumber: table.number,
@@ -402,7 +407,7 @@ export async function PATCH(req: NextRequest) {
         success: true,
         data: {
           selection: { ...newSelection, selectedAt: newSelection.selectedAt.toISOString(), expiresAt: newSelection.expiresAt.toISOString() },
-          table: updated.tables[idx],
+          table: simulatedTables[idx],
         },
         message: `Table ${table.number} selected successfully!`,
       };
@@ -427,7 +432,6 @@ export async function PATCH(req: NextRequest) {
 // ─── POST ────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
-    await ensureConnection();
     const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
@@ -456,27 +460,42 @@ export async function POST(req: NextRequest) {
       lastUpdated: new Date(),
     }));
 
-    const arrangement = await TableArrangement.findOneAndUpdate(
-      { restaurantId, floor, isActive: true },
-      {
-        restaurantId,
-        restaurantName: restaurantName || restaurantId,
-        floor,
-        tables: processedTables,
+    const data: any = {
+      restaurantId,
+      restaurantName: restaurantName || restaurantId,
+      floor,
+      tables: processedTables,
+      availableTables: processedTables.filter((t: any) => t.status === 'available').length,
+      occupiedTables: processedTables.filter((t: any) => t.status === 'occupied').length,
+      reservedTables: processedTables.filter((t: any) => t.status === 'reserved').length,
+      dimensions: dimensions || { width: 1200, height: 800 },
+      createdBy: session.user.email,
+      updatedAt: new Date(),
+      isActive: true,
+    };
+
+    const existing = await prisma.tableArrangement.findFirst({
+      where: { restaurantId, floor, isActive: true },
+    });
+
+    const arrangement = existing
+      ? await prisma.tableArrangement.update({
+          where: { id: existing.id },
+          data,
+        })
+      : await prisma.tableArrangement.create({
+          data: { id: randomUUID(), ...data },
+        });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...arrangement,
+        _id: arrangement.id,
         totalTables: processedTables.length,
         totalCapacity: processedTables.reduce((sum: number, t: any) => sum + (t.capacity || 0), 0),
-        availableTables: processedTables.filter((t: any) => t.status === 'available').length,
-        occupiedTables: processedTables.filter((t: any) => t.status === 'occupied').length,
-        reservedTables: processedTables.filter((t: any) => t.status === 'reserved').length,
-        dimensions: dimensions || { width: 1200, height: 800 },
-        createdBy: session.user.email,
-        updatedAt: new Date(),
-        isActive: true,
       },
-      { upsert: true, new: true }
-    );
-
-    return NextResponse.json({ success: true, data: arrangement });
+    });
   } catch (error) {
     console.error('Error saving table arrangement:', error);
     return NextResponse.json({ success: false, error: 'Failed to save table arrangement' }, { status: 500 });
@@ -486,7 +505,6 @@ export async function POST(req: NextRequest) {
 // ─── DELETE ──────────────────────────────────────────────────────────────────
 export async function DELETE(req: NextRequest) {
   try {
-    await ensureConnection();
     const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
@@ -500,15 +518,18 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'restaurantId and floor are required' }, { status: 400 });
     }
 
-    const updated = await TableArrangement.findOneAndUpdate(
-      { restaurantId, floor, isActive: true },
-      { $set: { isActive: false, updatedAt: new Date() } },
-      { new: true }
-    );
+    const existing = await prisma.tableArrangement.findFirst({
+      where: { restaurantId, floor, isActive: true },
+    });
 
-    if (!updated) {
+    if (!existing) {
       return NextResponse.json({ success: false, error: 'Arrangement not found' }, { status: 404 });
     }
+
+    await prisma.tableArrangement.update({
+      where: { id: existing.id },
+      data: { isActive: false, updatedAt: new Date() },
+    });
 
     activeSelections.delete(getSelectionKey(restaurantId, floor));
     return NextResponse.json({ success: true, message: 'Arrangement deleted successfully' });
@@ -521,7 +542,6 @@ export async function DELETE(req: NextRequest) {
 // ─── PUT ─────────────────────────────────────────────────────────────────────
 export async function PUT(req: NextRequest) {
   try {
-    await ensureConnection();
     const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });

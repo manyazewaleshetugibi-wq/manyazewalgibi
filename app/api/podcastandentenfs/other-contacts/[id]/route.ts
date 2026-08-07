@@ -1,10 +1,6 @@
 // app/api/podcastandentenfs/other-contacts/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server"
-import clientPromise from "@/lib/mongodb"
-import { ObjectId } from "mongodb"
-
-const DB_NAME = process.env.MONGODB_DB || 'retreat_management'
-const COLLECTION = 'otherContacts'
+import { prisma } from "@/lib/prisma"
 
 // GET - Fetch a single other contact by ID
 export async function GET(
@@ -21,18 +17,7 @@ export async function GET(
       )
     }
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid contact ID" },
-        { status: 400 }
-      )
-    }
-    
-    const client = await clientPromise
-    const db = client.db(DB_NAME)
-    const collection = db.collection(COLLECTION)
-    
-    const contact = await collection.findOne({ _id: new ObjectId(id) })
+    const contact = await prisma.otherContact.findFirst({ where: { id } })
     
     if (!contact) {
       return NextResponse.json(
@@ -43,7 +28,7 @@ export async function GET(
     
     return NextResponse.json({
       success: true,
-      data: contact
+      data: { ...contact, _id: contact.id }
     })
   } catch (error) {
     console.error("Error fetching contact:", error)
@@ -69,17 +54,7 @@ export async function PUT(
       )
     }
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid contact ID" },
-        { status: 400 }
-      )
-    }
-    
     const body = await request.json()
-    const client = await clientPromise
-    const db = client.db(DB_NAME)
-    const collection = db.collection(COLLECTION)
     
     // Validate call type if provided
     if (body.callType) {
@@ -106,30 +81,26 @@ export async function PUT(
     // Remove fields that shouldn't be updated
     const { _id, serialNumber, createdAt, ...updateData } = body
     
-    const result = await collection.findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      { 
-        $set: { 
-          ...updateData,
-          updatedAt: new Date()
-        } 
-      },
-      { returnDocument: 'after' }
-    )
+    const result = await prisma.otherContact.update({
+      where: { id },
+      data: {
+        ...updateData,
+        updatedAt: new Date()
+      }
+    })
     
-    if (!result) {
+    return NextResponse.json({
+      success: true,
+      data: { ...result, _id: result.id },
+      message: "Contact updated successfully"
+    })
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2025') {
       return NextResponse.json(
         { success: false, error: "Contact not found" },
         { status: 404 }
       )
     }
-    
-    return NextResponse.json({
-      success: true,
-      data: result,
-      message: "Contact updated successfully"
-    })
-  } catch (error) {
     console.error("Error updating contact:", error)
     return NextResponse.json(
       { success: false, error: "Failed to update contact" },
@@ -153,20 +124,9 @@ export async function DELETE(
       )
     }
     
-    if (!ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid contact ID" },
-        { status: 400 }
-      )
-    }
+    const result = await prisma.otherContact.deleteMany({ where: { id } })
     
-    const client = await clientPromise
-    const db = client.db(DB_NAME)
-    const collection = db.collection(COLLECTION)
-    
-    const result = await collection.deleteOne({ _id: new ObjectId(id) })
-    
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, error: "Contact not found" },
         { status: 404 }

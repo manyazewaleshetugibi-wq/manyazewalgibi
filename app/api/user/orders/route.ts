@@ -1,26 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
-import { MongoClient, ObjectId } from 'mongodb';
-
-const uri = process.env.MONGODB_URI;
+import { auth } from '@/auth';
+import { prisma } from '@/lib/prisma';
 
 export async function GET(req: NextRequest) {
-  const client = new MongoClient(uri || '');
   try {
-    // Check MongoDB URI
-    if (!uri) {
-      console.error('MONGODB_URI is not defined');
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Database configuration error',
-          message: 'Database connection is not properly configured'
-        },
-        { status: 500 }
-      );
-    }
-
     // Get query parameters for filtering
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
@@ -32,7 +15,7 @@ export async function GET(req: NextRequest) {
     const session = await auth();
     
     if (!session?.user) {
-      console.log('No session or user found');
+
       return NextResponse.json(
         { 
           success: false, 
@@ -47,73 +30,59 @@ export async function GET(req: NextRequest) {
     const userEmail = session.user.email;
     const userRole = session.user.role;
     
-    console.log('Fetching orders for user:', { userId, userEmail, userRole });
 
-    await client.connect();
-    const db = client.db();
-    
-    // Check if collections exist
-    const collections = await db.listCollections().toArray();
-    const collectionNames = collections.map(c => c.name);
-    console.log('Available collections:', collectionNames);
-    
+
     // Helper function to find user in different collections
     async function findUserInCollections() {
-      let userData = null;
+      let userData: any = null;
       let foundInCollection = '';
       
       // Try users collection
-      if (collectionNames.includes('users')) {
-        const usersCollection = db.collection('users');
-        userData = await usersCollection.findOne({
-          $or: [
-            { _id: ObjectId.isValid(userId) ? new ObjectId(userId) : null },
+      const usersUser = await prisma.user.findFirst({
+        where: {
+          OR: [
             { id: userId },
-            { userId: userId },
             { email: userEmail }
-          ].filter(condition => condition !== null)
-        });
-        
-        if (userData) {
-          foundInCollection = 'users';
-          return { userData, foundInCollection };
+          ]
         }
+      });
+      
+      if (usersUser) {
+        userData = usersUser;
+        foundInCollection = 'users';
+        return { userData, foundInCollection };
       }
       
       // Try staff collection
-      if (collectionNames.includes('staff')) {
-        const staffCollection = db.collection('staff');
-        userData = await staffCollection.findOne({
-          $or: [
-            { _id: ObjectId.isValid(userId) ? new ObjectId(userId) : null },
+      const staffUser = await prisma.staff.findFirst({
+        where: {
+          OR: [
             { id: userId },
-            { userId: userId },
             { email: userEmail }
-          ].filter(condition => condition !== null)
-        });
-        
-        if (userData) {
-          foundInCollection = 'staff';
-          return { userData, foundInCollection };
+          ]
         }
+      });
+      
+      if (staffUser) {
+        userData = staffUser;
+        foundInCollection = 'staff';
+        return { userData, foundInCollection };
       }
       
       // Try customers collection
-      if (collectionNames.includes('customers')) {
-        const customersCollection = db.collection('customers');
-        userData = await customersCollection.findOne({
-          $or: [
-            { _id: ObjectId.isValid(userId) ? new ObjectId(userId) : null },
+      const customerUser = await prisma.customer.findFirst({
+        where: {
+          OR: [
             { id: userId },
-            { userId: userId },
             { email: userEmail }
-          ].filter(condition => condition !== null)
-        });
-        
-        if (userData) {
-          foundInCollection = 'customers';
-          return { userData, foundInCollection };
+          ]
         }
+      });
+      
+      if (customerUser) {
+        userData = customerUser;
+        foundInCollection = 'customers';
+        return { userData, foundInCollection };
       }
       
       return { userData: null, foundInCollection: '' };
@@ -122,37 +91,18 @@ export async function GET(req: NextRequest) {
     const { userData, foundInCollection } = await findUserInCollections();
     
     if (userData) {
-      console.log(`User found in ${foundInCollection} collection`);
+
     }
 
     // Build comprehensive order query
     const orderQuery: any = {
-      $or: [
+      OR: [
         // Search by various user ID fields
         { customerId: userId },
         { customerId: userEmail },
         { userId: userId },
         { userId: userEmail },
-        { 'user.id': userId },
-        { 'user._id': ObjectId.isValid(userId) ? new ObjectId(userId) : null },
-        { 'customer.id': userId },
-        { 'customer._id': ObjectId.isValid(userId) ? new ObjectId(userId) : null },
-        
-        // Search by email
-        { email: userEmail },
-        { 'user.email': userEmail },
-        { 'customer.email': userEmail },
-        { 'deliveryInfo.email': userEmail },
-        
-        // Search by phone if available in userData
-        ...(userData?.phone ? [
-          { phone: userData.phone },
-          { 'user.phone': userData.phone },
-          { 'customer.phone': userData.phone },
-          { 'deliveryInfo.phone': userData.phone },
-          { 'deliveryInfo.phoneNumber': userData.phone }
-        ] : [])
-      ].filter(condition => condition !== null)
+      ]
     };
 
     // Add status filter if provided
@@ -160,65 +110,57 @@ export async function GET(req: NextRequest) {
       orderQuery.status = status;
     }
 
-    console.log('Order query:', JSON.stringify(orderQuery, null, 2));
+
 
     // Array to store orders from different collections
     let allOrders: any[] = [];
 
-    // Function to fetch orders from a collection
-    async function fetchOrdersFromCollection(collectionName: string) {
-      if (!collectionNames.includes(collectionName)) return [];
-      
-      const collection = db.collection(collectionName);
-      const orders = await collection
-        .find(orderQuery)
-        .sort({ createdAt: -1, date: -1, updatedAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .toArray();
-      
-      return orders.map(order => ({ ...order, sourceCollection: collectionName }));
-    }
+    // Fetch orders from the orders table
+    const orders = await prisma.order.findMany({
+      where: orderQuery,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    });
+    allOrders = [...allOrders, ...orders.map(order => ({ ...order, sourceCollection: 'orders' }))];
 
-    // Fetch from multiple order collections
-    const orderCollections = ['orders', 'posorders', 'deliveries', 'orderitems'];
-    
-    for (const collectionName of orderCollections) {
-      try {
-        const orders = await fetchOrdersFromCollection(collectionName);
-        allOrders = [...allOrders, ...orders];
-      } catch (err) {
-        console.log(`Error fetching from ${collectionName}:`, err);
-      }
-    }
+    // Fetch orders from the posorders table
+    const posOrders = await prisma.posOrder.findMany({
+      where: {
+        OR: [
+          { customerId: userId },
+          { customerId: userEmail },
+          { userId: userId },
+          { userId: userEmail },
+          { email: userEmail },
+        ]
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    });
+    allOrders = [...allOrders, ...posOrders.map(order => ({ ...order, sourceCollection: 'posorders' }))];
 
     // Also try to find orders where user appears in items or metadata
-    if (collectionNames.includes('orders')) {
-      const ordersCollection = db.collection('orders');
-      
-      // Search in order items for user information
-      const ordersWithUserInItems = await ordersCollection
-        .find({
-          'items': {
-            $elemMatch: {
-              $or: [
-                { 'userId': userId },
-                { 'customerId': userId },
-                { 'email': userEmail }
-              ]
-            }
-          }
-        })
-        .sort({ createdAt: -1 })
-        .toArray();
-      
-      allOrders = [...allOrders, ...ordersWithUserInItems.map(order => ({ ...order, sourceCollection: 'orders-items' }))];
-    }
+    const ordersWithUserInItems = await prisma.order.findMany({
+      where: orderQuery,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Search in order items for user information (computed in JS since items is Json)
+    const filteredOrdersWithUserInItems = ordersWithUserInItems.filter(order => {
+      const items = (order.items as any) || [];
+      return Array.isArray(items) && items.some((item: any) =>
+        item?.userId === userId || item?.customerId === userId || item?.email === userEmail
+      );
+    });
+
+    allOrders = [...allOrders, ...filteredOrdersWithUserInItems.map(order => ({ ...order, sourceCollection: 'orders-items' }))];
 
     // Remove duplicates based on order ID
     const uniqueOrdersMap = new Map();
     allOrders.forEach(order => {
-      const orderId = order._id.toString();
+      const orderId = order.id;
       if (!uniqueOrdersMap.has(orderId) || 
           (order.sourceCollection === 'orders' && uniqueOrdersMap.get(orderId).sourceCollection !== 'orders')) {
         uniqueOrdersMap.set(orderId, order);
@@ -227,81 +169,69 @@ export async function GET(req: NextRequest) {
 
     const uniqueOrders = Array.from(uniqueOrdersMap.values());
     
-    console.log(`Found ${uniqueOrders.length} unique orders for user`);
+
 
     // Process orders with items
     const ordersWithItems = await Promise.all(
-      uniqueOrders.map(async (order) => {
+      uniqueOrders.map(async (order: any) => {
         try {
-          let orderItems = [];
+          let orderItems: any[] = [];
           
           // If order already has items array, use it
-          if (order.items && Array.isArray(order.items) && order.items.length > 0) {
-            orderItems = order.items;
+          const orderItemsJson = (order.items as any);
+          if (orderItemsJson && Array.isArray(orderItemsJson) && orderItemsJson.length > 0) {
+            orderItems = orderItemsJson;
           } else {
-            // Try to fetch from orderItems collection
-            if (collectionNames.includes('orderItems')) {
-              orderItems = await db.collection('orderItems')
-                .find({ orderId: order._id })
-                .toArray();
-            }
-            
-            // Try to fetch from orderitems collection (lowercase)
-            if (orderItems.length === 0 && collectionNames.includes('orderitems')) {
-              orderItems = await db.collection('orderitems')
-                .find({ orderId: order._id })
-                .toArray();
-            }
+            // Try to fetch from orderitems table
+            orderItems = await prisma.orderItem.findMany({
+              where: { orderId: order.id }
+            });
           }
 
           // Fetch menu items for each order item
           const itemsWithDetails = await Promise.all(
             orderItems.map(async (item: any) => {
               try {
-                let menuItem = null;
+                let menuItem: any = null;
                 
                 // Try to find menu item by ID
                 if (item.menuItemId || item.itemId) {
                   const menuItemId = item.menuItemId || item.itemId;
                   
-                  // Try menuItems collection
-                  if (collectionNames.includes('menuItems')) {
-                    menuItem = await db.collection('menuItems')
-                      .findOne({ 
-                        $or: [
-                          { _id: ObjectId.isValid(menuItemId) ? new ObjectId(menuItemId) : null },
-                          { id: menuItemId },
-                          { itemId: menuItemId }
-                        ].filter(condition => condition !== null)
-                      });
-                  }
+                  // Try menuItems table
+                  menuItem = await prisma.menuItem.findFirst({
+                    where: {
+                      OR: [
+                        { id: menuItemId },
+                      ]
+                    }
+                  });
                   
-                  // Try items collection
-                  if (!menuItem && collectionNames.includes('items')) {
-                    menuItem = await db.collection('items')
-                      .findOne({ 
-                        $or: [
-                          { _id: ObjectId.isValid(menuItemId) ? new ObjectId(menuItemId) : null },
+                  // Try items table
+                  if (!menuItem) {
+                    menuItem = await prisma.item.findFirst({
+                      where: {
+                        OR: [
                           { id: menuItemId },
-                          { itemId: menuItemId }
-                        ].filter(condition => condition !== null)
-                      });
+                        ]
+                      }
+                    });
                   }
                 }
                 
                 return {
-                  id: item._id?.toString() || item.id,
+                  id: item.id || item._id?.toString(),
                   name: menuItem?.name || item.name || item.itemName || 'Unknown Item',
                   quantity: item.quantity || 1,
                   price: item.price || item.unitPrice || 0,
                   total: (item.quantity || 1) * (item.price || item.unitPrice || 0),
-                  image: menuItem?.image || item.image || item.imageUrl,
+                  image: menuItem?.image || menuItem?.imageUrl || item.image || item.imageUrl,
                   menuItemId: item.menuItemId || item.itemId
                 };
               } catch (itemError) {
                 console.error('Error fetching menu item:', itemError);
                 return {
-                  id: item._id?.toString() || item.id,
+                  id: item.id || item._id?.toString(),
                   name: item.name || item.itemName || 'Unknown Item',
                   quantity: item.quantity || 1,
                   price: item.price || item.unitPrice || 0,
@@ -326,18 +256,18 @@ export async function GET(req: NextRequest) {
 
           // Get delivery address
           let deliveryAddress = 'Not specified';
+          const deliveryInfo = (order.deliveryInfo as any) || {};
           if (order.deliveryAddress) {
             deliveryAddress = order.deliveryAddress;
           } else if (order.deliveryInfo) {
-            const info = order.deliveryInfo;
-            deliveryAddress = `${info.address || ''}${info.city ? ', ' + info.city : ''}`.trim() || 'Not specified';
+            deliveryAddress = `${deliveryInfo.address || ''}${deliveryInfo.city ? ', ' + deliveryInfo.city : ''}`.trim() || 'Not specified';
           } else if (order.address) {
             deliveryAddress = order.address;
           }
 
           return {
-            id: order._id.toString(),
-            orderNumber: order.orderNumber || order.orderId || `ORD-${order._id.toString().substring(0, 8).toUpperCase()}`,
+            id: order.id,
+            orderNumber: order.orderNumber || order.orderId || `ORD-${order.id.substring(0, 8).toUpperCase()}`,
             date: new Date(order.createdAt || order.date || order.orderDate || Date.now()).toLocaleDateString('en-US', {
               year: 'numeric',
               month: 'short',
@@ -358,18 +288,18 @@ export async function GET(req: NextRequest) {
             sourceCollection: order.sourceCollection,
             // Include additional fields that might be useful
             customerId: order.customerId || order.userId,
-            customerEmail: order.email || order.customerEmail || order.deliveryInfo?.email,
-            customerPhone: order.phone || order.customerPhone || order.deliveryInfo?.phone,
-            customerName: order.customerName || order.name || order.deliveryInfo?.fullName,
+            customerEmail: order.email || order.customerEmail || deliveryInfo?.email,
+            customerPhone: order.phone || order.customerPhone || deliveryInfo?.phone,
+            customerName: order.customerName || order.name || deliveryInfo?.fullName,
             createdAt: order.createdAt,
             completedAt: order.completedAt || order.deliveredAt,
             updatedAt: order.updatedAt
           };
         } catch (itemError) {
-          console.error('Error processing order:', order._id, itemError);
+          console.error('Error processing order:', order.id, itemError);
           return {
-            id: order._id.toString(),
-            orderNumber: order.orderNumber || order.orderId || `ORD-${order._id.toString().substring(0, 8).toUpperCase()}`,
+            id: order.id,
+            orderNumber: order.orderNumber || order.orderId || `ORD-${order.id.substring(0, 8).toUpperCase()}`,
             date: new Date(order.createdAt || order.date || Date.now()).toLocaleDateString('en-US', {
               year: 'numeric',
               month: 'short',
@@ -426,7 +356,7 @@ export async function GET(req: NextRequest) {
         userRole,
         foundInCollection,
         ordersFound: uniqueOrders.length,
-        collectionsSearched: orderCollections,
+        collectionsSearched: ['orders', 'posorders', 'deliveries', 'orderitems'],
         query: orderQuery
       } : undefined
     });
@@ -442,11 +372,5 @@ export async function GET(req: NextRequest) {
       },
       { status: 500 }
     );
-  } finally {
-    try {
-      await client.close();
-    } catch (closeError) {
-      console.error('Error closing MongoDB connection:', closeError);
-    }
   }
 }

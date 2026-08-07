@@ -1,7 +1,7 @@
 // app/api/order/clear-pending-request/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 import { auth } from "@/auth";
 
@@ -27,15 +27,11 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
-    const result = await db.collection("orders").updateOne(
-      { _id: new ObjectId(orderId) },
-      { $unset: { editRequest: "" } }
+    const result = await prisma.order.updateMany(
+      { where: { id: orderId }, data: { editRequest: Prisma.DbNull } }
     );
 
-    if (result.matchedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { error: 'Order not found', success: false },
         { status: 404 }

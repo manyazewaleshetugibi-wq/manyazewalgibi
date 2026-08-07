@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 export async function GET(
   req: NextRequest,
@@ -10,17 +9,13 @@ export async function GET(
     // Await the params Promise
     const { id } = await params;
     
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const contentCollection = db.collection("contents");
-
-    const content = await contentCollection.findOne({ _id: new ObjectId(id) });
+    const content = await prisma.content.findUnique({ where: { id } });
 
     if (!content) {
       return NextResponse.json({ message: "Content not found" }, { status: 404 });
     }
 
-    return NextResponse.json(content);
+    return NextResponse.json({ ...content, _id: content.id });
   } catch (error) {
     console.error("Error fetching content:", error);
     return NextResponse.json(
@@ -38,24 +33,19 @@ export async function PUT(
     // Await the params Promise
     const { id } = await params;
     
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const contentCollection = db.collection("contents");
-
     const data = await req.json();
 
-    const result = await contentCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: data }
-    );
+    const { _id, ...updateData } = data;
 
-    if (result.matchedCount === 0) {
+    const result = await prisma.content.updateMany({ where: { id }, data: updateData as any });
+
+    if (result.count === 0) {
       return NextResponse.json({ message: "Content not found" }, { status: 404 });
     }
 
-    const updatedContent = await contentCollection.findOne({ _id: new ObjectId(id) });
+    const updatedContent = await prisma.content.findUnique({ where: { id } });
 
-    return NextResponse.json(updatedContent);
+    return NextResponse.json(updatedContent ? { ...updatedContent, _id: updatedContent.id } : null);
   } catch (error) {
     console.error("Error updating content:", error);
     return NextResponse.json(
@@ -73,13 +63,9 @@ export async function DELETE(
     // Await the params Promise
     const { id } = await params;
     
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const contentCollection = db.collection("contents");
+    const result = await prisma.content.deleteMany({ where: { id } });
 
-    const result = await contentCollection.deleteOne({ _id: new ObjectId(id) });
-
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json({ message: "Content not found" }, { status: 404 });
     }
 

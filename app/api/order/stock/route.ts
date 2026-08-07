@@ -1,7 +1,6 @@
 // app/api/order/stock/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import clientPromise from "@/lib/mongodb";
+import prisma from "@/lib/prisma";
 import { debugLog, debugError, getCurrentUserData } from "../../utils/orderHelpers";
 import { processAllCompletedOrders, processOrderStockUsage } from "../../utils/stockHelpers";
 import { registerOrderActivity } from "../../utils/activityHelpers";
@@ -9,9 +8,6 @@ import { registerOrderActivity } from "../../utils/activityHelpers";
 // GET endpoint - Get stock usage records and pending orders status
 export async function GET(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     const url = new URL(req.url);
     const orderId = url.searchParams.get("orderId");
     const itemId = url.searchParams.get("itemId");
@@ -23,78 +19,107 @@ export async function GET(req: NextRequest) {
 
     // If checking pending orders
     if (checkPending) {
-      const pendingOrders = await db.collection("orders").find({
-        status: { $regex: /^completed$/i },
-        stockProcessed: { $ne: true },
-        "items.0": { $exists: true }
-      }).toArray();
+      // Scan ALL completed orders that still need stock work — no time window,
+      // so the button always shows the true number of pending/partial/failed orders.
+      const allCompleted = await prisma.order.findMany({
+        where: {
+          OR: [
+            { status: { contains: 'completed', mode: 'insensitive' } },
+            { status: { contains: 'delivered', mode: 'insensitive' } }
+          ],
+          AND: [
+            {
+              OR: [
+                { stockProcessed: { not: true } },
+                { stockProcessed: null },
+                { hasPartialStock: true }
+              ]
+            }
+          ]
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const withItems = allCompleted.filter(o =>
+        Array.isArray((o.items as any)) && (o.items as any).length > 0
+      );
+
+      const toOrder = (o: any) => ({
+        ...o,
+        _id: o.id,
+        orderId: o.id,
+        error: o.stockProcessingError || null,
+        lastAttempt: o.stockLastAttempt || null
+      });
+
+      const pendingOrders = withItems.filter(o =>
+        o.stockProcessed !== true && !o.stockProcessingError
+      );
+      const partialOrders = withItems.filter(o =>
+        o.stockProcessed === true && o.hasPartialStock === true
+      );
+      const failedOrders = withItems.filter(o =>
+        o.stockProcessed !== true && !!o.stockProcessingError
+      );
 
       return NextResponse.json({
         success: true,
         pendingCount: pendingOrders.length,
-        pendingOrders: pendingOrders.map(o => ({
-          orderId: o._id,
-          orderNumber: o.orderNumber,
-          error: o.stockProcessingError || null,
-          lastAttempt: o.stockLastAttempt || null
-        }))
+        partialCount: partialOrders.length,
+        failedCount: failedOrders.length,
+        pendingOrders: pendingOrders.map(toOrder),
+        partialOrders: partialOrders.map(toOrder),
+        failedOrders: failedOrders.map(toOrder)
       }, { status: 200 });
     }
 
     // Otherwise, get stock usage records
-    let query = {};
+    const where: any = {};
 
-    if (orderId && ObjectId.isValid(orderId)) {
-      query = { ...query, orderId: new ObjectId(orderId) };
+    if (orderId) {
+      where.orderId = orderId;
     }
 
-    if (itemId && ObjectId.isValid(itemId)) {
-      query = { ...query, "items.itemId": new ObjectId(itemId) };
-    }
-
-    if (stockId && ObjectId.isValid(stockId)) {
-      query = { ...query, stockId: new ObjectId(stockId) };
+    if (stockId) {
+      where.stockId = stockId;
     }
 
     if (startDate && endDate) {
-      query = {
-        ...query,
-        usedAt: {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate),
-        },
+      where.usedAt = {
+        gte: new Date(startDate),
+        lte: new Date(endDate),
       };
     }
 
-    const usedStock = await db
-      .collection("used_stock")
-      .find(query)
-      .sort({ usedAt: -1 })
-      .limit(limit)
-      .toArray();
+    let usedStock = await prisma.usedStock.findMany({
+      where,
+      orderBy: { usedAt: 'desc' }
+    });
 
-    const aggregation = [
-      { $match: query },
-      {
-        $group: {
-          _id: null,
-          totalQuantity: { $sum: "$totalQuantityUsed" },
-          totalCost: { $sum: "$totalCost" },
-          count: { $sum: 1 }
-        }
-      }
-    ];
+    // "items.itemId" filter (JSON array), applied in JS after fetch
+    if (itemId) {
+      usedStock = usedStock.filter(u =>
+        ((u.items as any) || []).some((i: any) => i.itemId === itemId)
+      );
+    }
 
-    const totals = await db
-      .collection("used_stock")
-      .aggregate(aggregation)
-      .toArray();
+    const totals = usedStock.reduce(
+      (acc, u) => {
+        acc.totalQuantity += Number(u.totalQuantityUsed) || 0;
+        acc.totalCost += Number(u.totalCost) || 0;
+        acc.count += 1;
+        return acc;
+      },
+      { totalQuantity: 0, totalCost: 0, count: 0 }
+    );
+
+    const limitedStock = usedStock.slice(0, limit).map(u => ({ ...u, _id: u.id }));
 
     return NextResponse.json({
       success: true,
-      usedStock,
-      totals: totals[0] || { totalQuantity: 0, totalCost: 0, count: 0 },
-      count: usedStock.length
+      usedStock: limitedStock,
+      totals,
+      count: limitedStock.length
     }, { status: 200 });
 
   } catch (error) {
@@ -109,20 +134,18 @@ export async function GET(req: NextRequest) {
 // POST endpoint - Process stock for specific order
 export async function POST(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const body = await req.json();
     
     const { orderId } = body;
     
-    if (!orderId || !ObjectId.isValid(orderId)) {
+    if (!orderId) {
       return NextResponse.json(
         { success: false, error: "Valid order ID is required" },
         { status: 400 }
       );
     }
 
-    const order = await db.collection("orders").findOne({ _id: new ObjectId(orderId) });
+    const order = await prisma.order.findFirst({ where: { id: orderId } });
 
     if (!order) {
       return NextResponse.json(
@@ -148,8 +171,6 @@ export async function POST(req: NextRequest) {
 // PATCH endpoint - Process all completed orders (manual trigger)
 export async function PATCH(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
     const userData = await getCurrentUserData(req);
     
     debugLog("Manual batch stock processing triggered by:", userData?.name || "Unknown");
@@ -164,7 +185,7 @@ export async function PATCH(req: NextRequest) {
         
         // Register activity if user triggered it
         if (userData && result.processedOrders > 0) {
-          await registerOrderActivity(db, userData, { 
+          await registerOrderActivity(prisma, userData, { 
             _id: 'batch-process', 
             orderNumber: 'BATCH-PROCESS',
             status: 'manual_trigger'

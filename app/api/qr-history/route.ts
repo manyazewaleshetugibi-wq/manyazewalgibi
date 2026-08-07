@@ -1,26 +1,31 @@
 // app/api/qr-history/route.ts - FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import mongoose from 'mongoose';
-import QRHistory from '@/models/QRHistory';
+import { prisma } from '@/lib/prisma';
+import { randomUUID } from 'crypto';
+import { requireRole } from '@/lib/api-auth';
 
-// Ensure database connection
-async function ensureConnection() {
-  if (mongoose.connection.readyState === 0) {
-    const client = await clientPromise;
-    await mongoose.connect(process.env.MONGODB_URI!);
-  }
-  return mongoose.connection;
+function mapQrBody(body: any): any {
+  const data: any = {};
+  if (body.restaurantId !== undefined) data.restaurantId = body.restaurantId;
+  if (body.restaurantName !== undefined) data.restaurantName = body.restaurantName;
+  if (body.floor !== undefined) data.floor = body.floor;
+  if (body.tableNumber !== undefined) data.tableNumber = Number(body.tableNumber);
+  if (body.tableId !== undefined) data.tableId = body.tableId;
+  if (body.qrCode !== undefined) data.qrCode = body.qrCode;
+  if (body.versionV !== undefined) data.versionV = Number(body.versionV);
+  if (body.scans !== undefined) data.scans = Number(body.scans);
+  return data;
 }
 
 export async function GET() {
+    const { response } = await requireRole(["admin", "manager"]);
+    if (response) return response;
+
     try {
-        await ensureConnection();
-        
-        const history = await QRHistory.find()
-            .sort({ generatedAt: -1 })
-            .limit(100)
-            .lean();
+        const history = await prisma.qRHistory.findMany({
+            orderBy: { generatedAt: 'desc' },
+            take: 100
+        });
         
         return NextResponse.json({
             success: true,
@@ -36,9 +41,10 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+    const { response } = await requireRole(["admin", "manager"]);
+    if (response) return response;
+
     try {
-        await ensureConnection();
-        
         const body = await request.json();
         
         // Validate required fields
@@ -50,24 +56,26 @@ export async function POST(request: NextRequest) {
         }
         
         // Check if QR already exists for this table
-        const existing = await QRHistory.findOne({
-            restaurantId: body.restaurantId,
-            floor: body.floor,
-            tableId: body.tableId
+        const existing = await prisma.qRHistory.findFirst({
+            where: {
+                restaurantId: body.restaurantId,
+                floor: body.floor,
+                tableId: body.tableId
+            }
         });
 
         if (existing) {
             // Update existing record - preserve scan count
-            const updated = await QRHistory.findByIdAndUpdate(
-                existing._id,
-                { 
-                    ...body,
+            const updated = await prisma.qRHistory.update({
+                where: { id: existing.id },
+                data: {
+                    ...mapQrBody(body),
                     generatedAt: new Date(),
                     scans: existing.scans || 0,
-                    lastUpdated: new Date()
-                },
-                { new: true, runValidators: true }
-            );
+                    lastUpdated: new Date(),
+                    updatedAt: new Date()
+                }
+            });
             
             return NextResponse.json({
                 success: true,
@@ -77,14 +85,17 @@ export async function POST(request: NextRequest) {
         }
 
         // Create new record
-        const history = new QRHistory({
-            ...body,
-            generatedAt: new Date(),
-            scans: 0,
-            lastUpdated: new Date()
+        const history = await prisma.qRHistory.create({
+            data: {
+                id: randomUUID(),
+                ...mapQrBody(body),
+                generatedAt: new Date(),
+                scans: 0,
+                lastUpdated: new Date(),
+                createdAt: new Date(),
+                updatedAt: new Date()
+            }
         });
-        
-        await history.save();
         
         return NextResponse.json({
             success: true,
@@ -102,8 +113,6 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
     try {
-        await ensureConnection();
-        
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
         
@@ -117,31 +126,32 @@ export async function PUT(request: NextRequest) {
         const body = await request.json().catch(() => ({}));
         const incrementScans = body.incrementScans !== false; // Default to true
         
-        const updateData: any = {
-            lastUpdated: new Date()
-        };
+        const existing = await prisma.qRHistory.findUnique({ where: { id } });
         
-        if (incrementScans) {
-            updateData.$inc = { scans: 1 };
-            updateData.lastScanned = new Date();
-        }
-        
-        if (body.scans !== undefined) {
-            updateData.scans = body.scans;
-        }
-        
-        const updated = await QRHistory.findByIdAndUpdate(
-            id,
-            updateData,
-            { new: true, runValidators: true }
-        );
-        
-        if (!updated) {
+        if (!existing) {
             return NextResponse.json(
                 { success: false, error: 'QR history not found' },
                 { status: 404 }
             );
         }
+        
+        const updateData: any = {
+            lastUpdated: new Date(),
+            updatedAt: new Date()
+        };
+        
+        if (incrementScans) {
+            updateData.scans = (existing.scans || 0) + 1;
+        }
+        
+        if (body.scans !== undefined) {
+            updateData.scans = Number(body.scans);
+        }
+        
+        const updated = await prisma.qRHistory.update({
+            where: { id },
+            data: updateData
+        });
         
         return NextResponse.json({
             success: true,
@@ -160,17 +170,15 @@ export async function PUT(request: NextRequest) {
 // DELETE endpoint to clean up old records
 export async function DELETE(request: NextRequest) {
     try {
-        await ensureConnection();
-        
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
         const olderThan = searchParams.get('olderThan'); // e.g., "30d" for 30 days
         
         if (id) {
             // Delete specific record
-            const deleted = await QRHistory.findByIdAndDelete(id);
+            const deleted = await prisma.qRHistory.deleteMany({ where: { id } });
             
-            if (!deleted) {
+            if (deleted.count === 0) {
                 return NextResponse.json(
                     { success: false, error: 'QR history not found' },
                     { status: 404 }
@@ -196,14 +204,14 @@ export async function DELETE(request: NextRequest) {
             const cutoffDate = new Date();
             cutoffDate.setDate(cutoffDate.getDate() - days);
             
-            const result = await QRHistory.deleteMany({
-                generatedAt: { $lt: cutoffDate }
+            const result = await prisma.qRHistory.deleteMany({
+                where: { generatedAt: { lt: cutoffDate } }
             });
             
             return NextResponse.json({
                 success: true,
-                message: `Deleted ${result.deletedCount} old QR history records`,
-                deletedCount: result.deletedCount
+                message: `Deleted ${result.count} old QR history records`,
+                deletedCount: result.count
             });
         }
         

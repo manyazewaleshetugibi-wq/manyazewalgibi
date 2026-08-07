@@ -1,10 +1,10 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcrypt'
-import clientPromise from '@/lib/mongodb'
-import { ObjectId } from 'mongodb'
-import type { IUser } from '@/models/customer'
+import { prisma } from '@/lib/prisma'
+import { randomUUID } from 'crypto'
 import nodemailer from 'nodemailer'
+import { rateLimit } from "@/lib/rate-limit"
 
 // Gmail SMTP Configuration
 const {
@@ -241,6 +241,18 @@ If you didn't create this account, please contact us immediately.
 
 export async function POST(request: NextRequest) {
   try {
+    const ip =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
+    const { success } = await rateLimit(ip, "register", 10, 3600);
+    if (!success) {
+      return NextResponse.json(
+        { message: "Too many registration attempts. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     // Parse request body
     const body = await request.json()
     
@@ -281,18 +293,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Connect to MongoDB
-    const client = await clientPromise
-    const db = client.db()
-
+    // Connect to database
     // Check if user exists by email or phone
-    const usersCollection = db.collection('users')
-    
-    const existingUser = await usersCollection.findOne({
-      $or: [
-        ...(email ? [{ email }] : []),
-        ...(phone ? [{ phone }] : [])
-      ]
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          ...(email ? [{ email }] : []),
+          ...(phone ? [{ phone }] : [])
+        ]
+      }
     })
 
     if (existingUser) {
@@ -308,11 +317,8 @@ export async function POST(request: NextRequest) {
     // Validate inviter code if provided
     let inviterId = null
     if (inviterCode) {
-      const inviter = await usersCollection.findOne({
-        $or: [
-          { referralCode: inviterCode },
-          { 'referralInfo.code': inviterCode }
-        ]
+      const inviter = await prisma.user.findFirst({
+        where: { referralCode: inviterCode }
       })
 
       if (!inviter) {
@@ -336,28 +342,19 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      inviterId = inviter._id
+      inviterId = inviter.id
     }
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10)
 
     // Generate unique referral code for new user
-    const newUserId = new ObjectId()
-    const referralCode = generateReferralCode(firstName, lastName, newUserId.toString())
+    const newUserId = randomUUID()
+    const referralCode = generateReferralCode(firstName, lastName, newUserId)
 
     // Create new user document with referral info
-    const newUser: IUser & { 
-      referralCode: string,
-      referredBy?: ObjectId,
-      referralInfo?: {
-        code: string,
-        referredUsers: ObjectId[],
-        totalReferrals: number,
-        pointsEarned: number
-      }
-    } = {
-      _id: newUserId,
+    const userData = {
+      id: newUserId,
       firstName,
       lastName,
       email: email || null,
@@ -384,41 +381,44 @@ export async function POST(request: NextRequest) {
         pointsEarned: 0
       },
       createdAt: new Date(),
-      updatedAt: new Date(),
-      __v: 0
+      updatedAt: new Date()
     }
 
     // Insert user into database
-    const result = await usersCollection.insertOne(newUser)
+    const created = await prisma.user.create({ data: userData as any })
 
     // If user was referred, update the referrer's record
     if (inviterId) {
-      await usersCollection.updateOne(
-        { _id: inviterId },
-        {
-          $push: { 
-            'referralInfo.referredUsers': newUserId 
+      const inviterRecord = await prisma.user.findUnique({ where: { id: inviterId } })
+      const refInfo = (inviterRecord?.referralInfo as any) || {}
+      const referredUsers = Array.isArray(refInfo.referredUsers) ? refInfo.referredUsers : []
+
+      await prisma.user.update({
+        where: { id: inviterId },
+        data: {
+          referralInfo: {
+            ...refInfo,
+            referredUsers: [...referredUsers, newUserId],
+            totalReferrals: Number(refInfo.totalReferrals || 0) + 1,
+            pointsEarned: Number(refInfo.pointsEarned || 0) + 10
           },
-          $inc: {
-            'referralInfo.totalReferrals': 1,
-            'referralInfo.pointsEarned': 10 // Award 10 points for referral
-          },
-          $set: { updatedAt: new Date() }
+          updatedAt: new Date()
         }
-      )
+      })
 
       // Also create a referral record in a separate collection if needed
-      const referralsCollection = db.collection('referrals')
-      await referralsCollection.insertOne({
-        _id: new ObjectId(),
-        referrerId: inviterId,
-        referredId: newUserId,
-        referredEmail: email,
-        referredName: `${firstName} ${lastName}`,
-        status: 'completed',
-        pointsAwarded: 10,
-        createdAt: new Date(),
-        updatedAt: new Date()
+      await prisma.referral.create({
+        data: {
+          id: randomUUID(),
+          referrerId: inviterId,
+          referredId: newUserId,
+          referredEmail: email || null,
+          referredName: `${firstName} ${lastName}`,
+          status: 'completed',
+          pointsAwarded: 10,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
       })
     }
 
@@ -439,7 +439,6 @@ export async function POST(request: NextRequest) {
         }
         
         const info = await transporter.sendMail(mailOptions)
-        console.log('Welcome email sent successfully:', info.messageId)
         emailSent = true
         
       } catch (error) {
@@ -449,7 +448,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Remove password from response
-    const { password: _, ...userResponse } = newUser
+    const { password: _, ...userResponse } = userData
 
     return NextResponse.json(
       { 
@@ -457,8 +456,8 @@ export async function POST(request: NextRequest) {
         message: inviterId 
           ? 'User registered successfully with referral' 
           : 'User registered successfully',
-        user: userResponse,
-        userId: result.insertedId,
+        user: { ...userResponse, _id: created.id },
+        userId: created.id,
         referralCode, // Return the generated referral code
         referredBy: inviterId ? true : false,
         emailSent: emailSent,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 
 // Cloudinary Configuration - Updated based on your data
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
@@ -60,7 +60,7 @@ async function uploadToCloudinary(
   file: File,
   type: string,
   onProgress?: (progress: number) => void
-): Promise<{ url: string; publicId: string; format: string; bytes: number }> {
+): Promise<{ url: string; publicId: string; format: string; bytes: number; thumbnailUrl?: string }> {
   try {
     const formData = new FormData();
     formData.append('file', file);
@@ -104,14 +104,7 @@ async function uploadToCloudinary(
         uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`;
     }
     
-    console.log('📁 Cloudinary Config:', {
-      type,
-      folder,
-      resourceType,
-      uploadUrl,
-      uploadPreset,
-      cloudName: CLOUDINARY_CLOUD_NAME
-    });
+
     
     // Create unique public ID
     const timestamp = Date.now();
@@ -126,14 +119,7 @@ async function uploadToCloudinary(
     formData.append('public_id', publicId);
     formData.append('tags', `${type},training`);
     
-    console.log('📤 Upload Details:', {
-      originalName: file.name,
-      publicId,
-      folder,
-      fileSize: file.size,
-      mimeType: file.type,
-      fileExtension
-    });
+
     
     // Simulate progress
     if (onProgress) {
@@ -162,13 +148,7 @@ async function uploadToCloudinary(
       onProgress(100);
     }
     
-    console.log('✅ Upload Success:', {
-      public_id: data.public_id,
-      resource_type: data.resource_type,
-      secure_url: data.secure_url,
-      format: data.format,
-      bytes: data.bytes
-    });
+
     
     let viewableUrl = data.secure_url;
     
@@ -177,11 +157,18 @@ async function uploadToCloudinary(
       viewableUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/raw/upload/v${data.version}/${data.public_id}.${fileExtension}`;
     }
     
+    // Generate thumbnail for videos (Cloudinary auto-generates a poster frame)
+    let thumbnailUrl: string | undefined;
+    if (type === 'video') {
+      thumbnailUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/video/upload/w_300,h_200,c_fill/${data.public_id}.jpg`;
+    }
+    
     return {
       url: viewableUrl,
       publicId: data.public_id,
       format: fileExtension,
       bytes: data.bytes,
+      thumbnailUrl,
     };
     
   } catch (error: any) {
@@ -191,7 +178,7 @@ async function uploadToCloudinary(
 }
 
 export async function POST(request: Request) {
-  console.log('📥 Training POST received');
+
   
   try {
     const formData = await request.formData();
@@ -201,7 +188,7 @@ export async function POST(request: Request) {
     const file = formData.get("file") as File | null;
     const linkUrl = formData.get("linkUrl") as string | null;
 
-    console.log('📝 Form Data:', { title, description, type, fileName: file?.name, fileSize: file?.size, linkUrl });
+
 
     if (!title || !description || !type || (!file && !linkUrl)) {
       return NextResponse.json({ 
@@ -250,9 +237,6 @@ export async function POST(request: Request) {
       }
     }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-
     const trainingDoc: any = { 
       title, 
       description, 
@@ -269,11 +253,13 @@ export async function POST(request: Request) {
       trainingDoc.completedAt = new Date();
     }
     
-    const result = await db.collection("trainings").insertOne(trainingDoc);
-    const trainingId = result.insertedId;
+    const result = await prisma.training.create({
+      data: { id: randomUUID(), ...trainingDoc }
+    });
+    const trainingId = result.id;
 
     if (linkUrl) {
-      const training = await db.collection("trainings").findOne({ _id: trainingId });
+      const training = await prisma.training.findUnique({ where: { id: trainingId } });
       return NextResponse.json({ 
         success: true,
         message: "Training created",
@@ -282,34 +268,33 @@ export async function POST(request: Request) {
     }
 
     const updateProgress = async (progress: number) => {
-      await db.collection("trainings").updateOne(
-        { _id: trainingId },
-        { $set: { uploadProgress: progress, updatedAt: new Date() } }
+      await prisma.training.update(
+        { where: { id: trainingId }, data: { uploadProgress: progress, updatedAt: new Date() } }
       );
     };
 
     try {
       const cloudinaryResult = await uploadToCloudinary(file!, type, updateProgress);
       
-      const updatedTraining = {
+      const updatedTraining: any = {
         fileUrl: cloudinaryResult.url,
         publicId: cloudinaryResult.publicId,
         format: cloudinaryResult.format,
         fileSize: cloudinaryResult.bytes,
         originalFileName: file!.name,
         mimeType: file!.type,
+        thumbnailUrl: cloudinaryResult.thumbnailUrl,
         uploadStatus: "completed",
         uploadProgress: 100,
         completedAt: new Date(),
         updatedAt: new Date(),
       };
       
-      await db.collection("trainings").updateOne(
-        { _id: trainingId },
-        { $set: updatedTraining }
+      await prisma.training.update(
+        { where: { id: trainingId }, data: updatedTraining }
       );
       
-      const training = await db.collection("trainings").findOne({ _id: trainingId });
+      const training = await prisma.training.findUnique({ where: { id: trainingId } });
       
       return NextResponse.json({ 
         success: true,
@@ -318,16 +303,8 @@ export async function POST(request: Request) {
       }, { status: 201 });
       
     } catch (uploadError: any) {
-      await db.collection("trainings").updateOne(
-        { _id: trainingId },
-        { 
-          $set: { 
-            uploadStatus: "failed", 
-            uploadProgress: 0,
-            error: uploadError.message,
-            failedAt: new Date(),
-          } 
-        }
+      await prisma.training.update(
+        { where: { id: trainingId }, data: { uploadStatus: "failed", uploadProgress: 0, error: uploadError.message || "Upload failed", failedAt: new Date(), updatedAt: new Date() } }
       );
       throw uploadError;
     }
@@ -343,16 +320,13 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const trainings = await db.collection("trainings")
-      .find()
-      .sort({ createdAt: -1 })
-      .toArray();
+    const trainings = await prisma.training.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
     
     return NextResponse.json({ 
       success: true,
-      data: trainings,
+      data: trainings.map((t: any) => ({ ...t, _id: t.id })),
       count: trainings.length 
     });
   } catch (error) {

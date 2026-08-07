@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
@@ -7,10 +7,7 @@ export async function GET(req: NextRequest) {
     const { response } = await requireAdmin();
     if (response) return response;
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold"); // Use the correct database name
-    
-    const orders = await db.collection("orders").find({ delivery: true }).toArray();
+    const orders = await prisma.order.findMany({ where: { delivery: true } });
 
     let totalSales = 0;
     let totalTax = 0;
@@ -19,13 +16,15 @@ export async function GET(req: NextRequest) {
     const dailySales: Record<string, number> = {};
 
     orders.forEach((order) => {
-      const date = order.createdAt.toISOString().split("T")[0];
+      const date = order.createdAt
+        ? order.createdAt.toISOString().split("T")[0]
+        : new Date().toISOString().split("T")[0];
       if (!dailySales[date]) dailySales[date] = 0;
 
-      dailySales[date] += order.finalAmount;
-      totalSales += order.finalAmount;
-      totalTax += order.tax;
-      totalDiscounts += order.discount;
+      dailySales[date] += Number(order.finalAmount) || 0;
+      totalSales += Number(order.finalAmount) || 0;
+      totalTax += Number(order.tax) || 0;
+      totalDiscounts += Number(order.discount) || 0;
     });
 
     return NextResponse.json({
@@ -34,7 +33,7 @@ export async function GET(req: NextRequest) {
       totalDiscounts,
       dailySales,
       orderCount: orders.length,
-      orders,
+      orders: orders.map(o => ({ ...o, _id: o.id })),
     });
   } catch (error) {
     console.error("Error generating report:", error);

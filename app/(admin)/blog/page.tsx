@@ -127,8 +127,8 @@ const formatDateSafe = (dateString?: string): string => {
 const getEmbedUrl = (url: string) => {
   if (!url) return null
   
-  // YouTube
-  const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i
+  // YouTube (watch, shorts, live, embed, v, e, youtu.be)
+  const youtubeRegex = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/|e\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i
   const youtubeMatch = url.match(youtubeRegex)
   if (youtubeMatch && youtubeMatch[1]) {
     return `https://www.youtube.com/embed/${youtubeMatch[1]}`
@@ -358,6 +358,11 @@ function BlogManagement() {
   }
 
   const BlogForm = ({ initialData, onSubmit }: { initialData?: Blog; onSubmit: (data: any) => void }) => {
+    // The `Video` column no longer exists after the Prisma migration, so video links
+    // are stored in `fileUrl`. Fall back to it so the URL can be seen/edited again.
+    const initialVideoUrl = initialData?.Video || (initialData?.mediaType === "video" ? initialData?.fileUrl || "" : "") || "";
+    const hasInitialVideoUrl = !!initialVideoUrl && !initialVideoUrl.startsWith("blob:") && !initialVideoUrl.startsWith("data:");
+
     const [formData, setFormData] = useState<BlogFormData>({
       title: initialData?.title || "",
       content: initialData?.content || "",
@@ -366,11 +371,11 @@ function BlogManagement() {
       publishedAt: initialData?.publishedAt || new Date().toISOString(),
       isActive: initialData?.isActive ?? true,
       Image: initialData?.Image || "",
-      Video: initialData?.Video || "",
+      Video: initialVideoUrl,
       mediaType: initialData?.mediaType || "none",
       mediaSource: (initialData?.mediaType === "video" || initialData?.mediaType === "image") ? initialData.mediaType : "none",
-      videoSource: initialData?.Video && !initialData.Video.startsWith("blob:") && !initialData.Video.startsWith("data:") ? "url" : "upload",
-      videoUrl: initialData?.Video && !initialData.Video.startsWith("blob:") && !initialData.Video.startsWith("data:") ? initialData.Video : "",
+      videoSource: hasInitialVideoUrl ? "url" : "upload",
+      videoUrl: hasInitialVideoUrl ? initialVideoUrl : "",
       imageBase64: "",
       videoBase64: "",
       videoFile: null,
@@ -551,7 +556,7 @@ function BlogManagement() {
         ...prev, 
         videoSource: value as "upload" | "url",
         videoBase64: "",
-        videoUrl: "",
+        videoUrl: value === "url" ? prev.videoUrl : "",
         videoFile: null,
       }))
       setSelectedVideoFile(null)

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
+import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 
 export async function GET(req: NextRequest) {
@@ -24,20 +24,18 @@ export async function GET(req: NextRequest) {
 
     let targetWaiterId = waiterId;
 
-    const dbClient = await clientPromise;
-
-    const db = dbClient.db("gold");
-
     // Auto-detect waiter from session
     if (!targetWaiterId) {
       const waiter =
-        await db.collection("waitresses").findOne({
-          email: session.user.email,
+        await prisma.waitress.findFirst({
+          where: {
+            email: session.user.email,
+          },
         });
 
       if (waiter) {
         targetWaiterId =
-          waiter._id.toString();
+          waiter.id;
       } else {
         targetWaiterId = session.user.id;
       }
@@ -54,25 +52,26 @@ export async function GET(req: NextRequest) {
     }
 
     // Find assigned pending table orders
-    const orders = await db
-      .collection("orders")
-      .find({
+    const orders = await prisma.order.findMany({
+      where: {
         waiterId: targetWaiterId,
-
         status: "PENDING",
+      },
+    });
 
-        "assignmentRequest.status":
-          "pending",
-
-        "assignmentRequest.type":
-          "table_assignment",
-      })
-      .toArray();
+    // Filter nested assignmentRequest JSON (equivalent of Mongo dot-notation filter)
+    const assignmentOrders = orders.filter(
+      (order) =>
+        (order.assignmentRequest as any)?.status ===
+          "pending" &&
+        (order.assignmentRequest as any)?.type ===
+          "table_assignment"
+    );
 
     // Transform response
-    const transformedOrders = orders.map(
+    const transformedOrders = assignmentOrders.map(
       (order) => ({
-        id: order._id.toString(),
+        id: order.id,
 
         orderNumber: order.orderNumber,
 

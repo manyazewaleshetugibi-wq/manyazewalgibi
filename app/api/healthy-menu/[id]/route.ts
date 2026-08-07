@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
 const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
@@ -53,17 +52,7 @@ export async function GET(
     // Await the params promise to get the id
     const { id } = await params;
     
-    if (!id || !ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid item ID" },
-        { status: 400 }
-      );
-    }
-    
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
-    const item = await db.collection("healthy_menu").findOne({ _id: new ObjectId(id) });
+    const item = await prisma.healthyMenu.findUnique({ where: { id } });
     
     if (!item) {
       return NextResponse.json(
@@ -72,7 +61,7 @@ export async function GET(
       );
     }
     
-    return NextResponse.json({ success: true, data: item });
+    return NextResponse.json({ success: true, data: { ...item, _id: item.id } });
     
   } catch (error) {
     console.error("GET /api/healthy-menu/[id] Error:", error);
@@ -92,13 +81,6 @@ export async function PUT(
     // Await the params promise to get the id
     const { id } = await params;
     
-    if (!id || !ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid item ID" },
-        { status: 400 }
-      );
-    }
-    
     const formData = await req.formData();
     
     const name = formData.get("name") as string;
@@ -114,10 +96,7 @@ export async function PUT(
     const imageFile = formData.get("image") as File | null;
     const removeImage = formData.get("removeImage") === "true";
     
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
-    const existingItem = await db.collection("healthy_menu").findOne({ _id: new ObjectId(id) });
+    const existingItem = await prisma.healthyMenu.findUnique({ where: { id } });
     if (!existingItem) {
       return NextResponse.json(
         { success: false, message: "Item not found" },
@@ -150,7 +129,7 @@ export async function PUT(
       
       try {
         cloudinaryData = await uploadToCloudinary(imageFile);
-        imageUrl = cloudinaryData.url;
+        imageUrl = (cloudinaryData as any).url;
       } catch (uploadError: any) {
         console.error('Image upload error:', uploadError);
         return NextResponse.json(
@@ -178,7 +157,7 @@ export async function PUT(
       }
     }
     
-    let requiredStock = existingItem.requiredStock || [];
+    let requiredStock = (existingItem.requiredStock as any) || [];
     if (requiredStockString) {
       try {
         requiredStock = JSON.parse(requiredStockString);
@@ -191,7 +170,7 @@ export async function PUT(
       name: name !== undefined ? name : existingItem.name,
       description: description !== undefined ? description : existingItem.description,
       price: price !== undefined ? parseFloat(price) : existingItem.price,
-      categoryId: categoryId !== undefined ? new ObjectId(categoryId) : existingItem.categoryId,
+      categoryId: categoryId !== undefined ? categoryId : existingItem.categoryId,
       preparationTime: preparationTime !== undefined ? parseFloat(preparationTime) : existingItem.preparationTime,
       isActive: isActive !== undefined ? isActive === "true" : existingItem.isActive,
       isFeatured: isFeatured !== undefined ? isFeatured === "true" : existingItem.isFeatured,
@@ -200,31 +179,31 @@ export async function PUT(
       nutritionalInfo,
       dietaryInfo,
       requiredStock: requiredStock.map((stock: any) => ({
-        stockId: new ObjectId(stock.stockId),
+        stockId: stock.stockId,
         quantity: stock.quantity,
       })),
       updatedAt: new Date(),
     };
     
-    const result = await db.collection("healthy_menu").updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateData }
-    );
-    
-    if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { success: false, message: "Item not found" },
-        { status: 404 }
-      );
+    try {
+      await prisma.healthyMenu.update({ where: { id }, data: updateData });
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return NextResponse.json(
+          { success: false, message: "Item not found" },
+          { status: 404 }
+        );
+      }
+      throw e;
     }
     
-    const updatedItem = await db.collection("healthy_menu").findOne({ _id: new ObjectId(id) });
+    const updatedItem = await prisma.healthyMenu.findUnique({ where: { id } });
     
     return NextResponse.json(
       {
         success: true,
         message: "Item updated successfully",
-        data: updatedItem,
+        data: updatedItem ? { ...updatedItem, _id: updatedItem.id } : updatedItem,
       },
       { status: 200 }
     );
@@ -247,17 +226,7 @@ export async function DELETE(
     // Await the params promise to get the id
     const { id } = await params;
     
-    if (!id || !ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid item ID" },
-        { status: 400 }
-      );
-    }
-    
-    const client = await clientPromise;
-    const db = client.db("gold");
-    
-    const item = await db.collection("healthy_menu").findOne({ _id: new ObjectId(id) });
+    const item = await prisma.healthyMenu.findUnique({ where: { id } });
     if (!item) {
       return NextResponse.json(
         { success: false, message: "Item not found" },
@@ -265,9 +234,9 @@ export async function DELETE(
       );
     }
     
-    const result = await db.collection("healthy_menu").deleteOne({ _id: new ObjectId(id) });
+    const result = await prisma.healthyMenu.deleteMany({ where: { id } });
     
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       return NextResponse.json(
         { success: false, message: "Item not found" },
         { status: 404 }

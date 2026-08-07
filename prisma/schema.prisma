@@ -1,0 +1,1331 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model StockTransfer {
+  id           String    @id
+  stockId      String?
+  quantity     Float?
+  receiverName String?
+  note         String?
+  date         String?
+  createdAt    DateTime?
+  updatedAt    DateTime?
+
+  @@map("stock_transfers")
+}
+
+model EmployeeRank {
+  id               String    @id
+  userId           String?
+  name             String?
+  email            String?
+  role             String?
+  employeeId       String?
+  points           Float?
+  totalPoints      Float?
+  completedOrders  Float?
+  totalOrders      Float?
+  createdAt        DateTime?
+  updatedAt        DateTime?
+  lastActivity     DateTime?
+  lastActivityType String?
+  lastOrderId      String?
+  lastOrderNumber  String?
+  activityHistory  Json?
+  department       String?
+  performanceScore Float?
+  attendance       Float?
+  efficiency       Float?
+  salesTarget      Float?
+  salesAchieved    Float?
+  customerRating   Float?
+  rank                   Float?
+  roleRank               Float?
+  globalRank             Float?
+  lastUpdated            DateTime?
+  recalculatedAt         DateTime?
+  totalOrdersProcessed   Float?
+  acceptedOrders         Float?
+  cancelledOrders        Float?
+  deliveredOrders        Float?
+
+  @@map("employee_rank")
+}
+
+model Feedback {
+  id         String    @id
+  fullName   String?
+  message    String?
+  visibility String?
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@map("feedback")
+}
+
+model DeletionRequest {
+  id             String    @id
+  orderId        String?
+  reason         String?
+  requestedBy    String?
+  requestedAt    DateTime?
+  status         String?
+  createdAt      DateTime?
+  approvedBy     String?
+  approvedAt     DateTime?
+  note           String?
+  deletedOrderId String?
+
+  @@map("deletion_requests")
+}
+
+model Standard {
+  id               String  @id
+  role             String?
+  roleDisplayName  String?
+  department       String?
+  departmentIcon   String?
+  standards        Json?
+  description      Json?
+  effectiveFrom    Json?
+  reviewDate       Json?
+  createdBy        String?
+  createdByRole    String?
+  isAdminCreated   Boolean?
+  createdAt        DateTime?
+  updatedAt        DateTime?
+  isActive         Boolean?
+  version          Float?
+  updatedBy        String?
+
+  @@map("standards")
+}
+
+model Book {
+  id             String    @id
+  title          String?
+  price          Float?
+  category       String?
+  imageUrl       String?
+  cloudinaryData Json?
+  createdAt      DateTime?
+  updatedAt      DateTime?
+  quantity       Float?
+
+  @@map("books")
+}
+
+model ItemCategory {
+  id          String   @id
+  name        String?
+  description String?
+  type        String?
+  imageUrl    String?
+  station     String?
+
+  @@map("itemCategories")
+}
+
+model Salary {
+  id          String    @id
+  userId      String?
+  name        String?
+  email       String?
+  role        String?
+  position    String?
+  baseSalary  Float?
+  bankAccount String?
+  notes       String?
+  status      String?
+  history     Json?
+  createdAt   DateTime?
+  updatedAt   DateTime?
+
+  @@map("salary")
+}
+
+model TableArrangement {
+  id                String   @id
+  floor             String?
+  restaurantId      String?
+  isActive          Boolean?
+  versionV          Float?
+  availableTables   Float?
+  cleaningTables    Float?
+  createdAt         DateTime?
+  createdBy         String?
+  dimensions        Json?
+  layoutType        String?
+  maintenanceTables Float?
+  occupiedTables    Float?
+  reservedTables    Float?
+  restaurantName    String?
+  sections          Json?
+  tables            Json?
+  updatedAt         DateTime?
+
+  @@map("tablearrangements")
+}
+
+model Blog {
+  id                String    @id
+  title             String?
+  content           String?
+  category          String?
+  tags              String[] @default([])
+  publishedAt       DateTime?
+  isActive          Boolean?
+  excerpt           String?
+  views             Float?
+  uploadProgress    Float?
+  createdAt         DateTime?
+  updatedAt         DateTime?
+  mediaType         String?
+  uploadStatus      String?
+  Image             String?
+  completedAt       DateTime?
+  fileSize          Float?
+  fileUrl           String?
+  format            String?
+  mimeType          String?
+  originalFileName  String?
+  publicId          String?
+  thumbnailUrl      String?
+
+  @@map("blogs")
+}
+
+model SystemSetting {
+  id        String    @id
+  key       String?
+  value     Json?
+  createdAt DateTime?
+  updatedAt DateTime?
+
+  @@map("system_settings")
+}
+
+model QRHistory {
+  id             String    @id
+  restaurantId   String?
+  restaurantName String?
+  floor          String?
+  tableNumber    Float?
+  tableId        String?
+  qrCode         String?
+  scans          Float?
+  generatedAt    DateTime?
+  lastUpdated    DateTime?
+  createdAt      DateTime?
+  updatedAt      DateTime?
+  versionV       Float?
+
+  @@map("qrhistories")
+}
+
+model Waitress {
+  id                  String    @id
+  name                String?
+  phone               String?
+  shift               String?
+  isActive            Boolean?
+  createdAt           DateTime?
+  updatedAt           DateTime?
+  userId              String?
+  email               String?
+  role                String?
+  registeredFromUser  Boolean?
+  registrationDate    DateTime?
+
+  @@map("waitresses")
+}
+
+model DeliveryAccepter {
+  id                   String   @id
+  orderId              String?
+  orderNumber          String?
+  previousStatus       String?
+  newStatus            String?
+  reason               Json?
+  accepterId           String?
+  accepterName         String?
+  accepterEmail        String?
+  accepterRole         String?
+  changeDate           DateTime?
+  employeeRegistration Json?
+  orderDetails         Json?
+
+  @@map("delivery_accepter")
+}
+
+model Prize {
+  id          String    @id
+  name        String?
+  value       Float?
+  icon        String?
+  rarity      String?
+  probability Float?
+  description String?
+  isActive    Boolean?
+  color       String?
+  gradient    String?
+  textColor   String?
+  totalWon    Float?
+  createdAt   DateTime?
+  updatedAt   DateTime?
+
+  @@map("prizes")
+}
+
+model Item {
+  id               String    @id
+  name             String?
+  description      String?
+  categoryId       String?
+  price            Float?
+  imageUrl         String?
+  requiredStock    Json?
+  isActive         Boolean?
+  isFeatured       Boolean?
+  createdAt        DateTime?
+  updatedAt        DateTime?
+  cloudinaryData   Json?
+  nutritionalInfo  Json?
+  preparationTime  Float?
+
+  @@map("items")
+}
+
+model LotteryWinner {
+  id           String    @id
+  employeeId   String?
+  employeeName String?
+  prize        String?
+  winDate      String?
+  month        String?
+  prizeValue   Float?
+  claimed      Boolean?
+  createdAt    DateTime?
+  updatedAt    DateTime?
+
+  @@map("lottery_winners")
+}
+
+model Task {
+  id             String    @id
+  title          String?
+  description    String?
+  assignedTo     Json?
+  assignedBy     Json?
+  startTime      DateTime?
+  endTime        DateTime?
+  priority       String?
+  estimatedHours Float?
+  status         String?
+  notes          Json?
+  actualHours    Json?
+  completedAt    DateTime?
+  createdAt      DateTime?
+  updatedAt      DateTime?
+  actualStartTime     String?
+  actualCompletedTime String?
+  notifiedOverdue     Boolean?
+  notifiedDeadline    Boolean?
+
+  @@map("tasks")
+}
+
+model Stock {
+  id               String    @id
+  name             String?
+  categoryId       String?
+  unit             String?
+  minimumStock     Float?
+  currentStock     Float?
+  isActive         Boolean?
+  createdAt        DateTime?
+  updatedAt        DateTime?
+  quantity         Float?
+  lastUsed         DateTime?
+  lastUsedInOrder  String?
+  stockUsed        Float?
+  reorderFrequency String?
+  requiredAmount   Float?
+
+  @@map("stocks")
+}
+
+model StockCategory {
+  id          String    @id
+  name        String?
+  description String?
+  createdAt   DateTime?
+  updatedAt   DateTime?
+
+  @@map("stock_categories")
+}
+
+model Referral {
+  id             String    @id
+  name           String?
+  email          String?
+  code           String?
+  referredBy     String?
+  points         Float?
+  createdAt      DateTime?
+  updatedAt      DateTime?
+  referrerId     String?
+  referredId     String?
+  referredEmail  String?
+  referredName   String?
+  status         String?
+  pointsAwarded  Float?
+
+  @@map("referrals")
+}
+
+model Order {
+  id                      String    @id
+  orderNumber             String?
+  tableNumber             String?
+  tableId                 Json?
+  restaurantId            String?
+  restaurantName          String?
+  floor                   Json?
+  arrangementId           Json?
+  tableCapacity           Json?
+  tableLocation           Json?
+  tableFeatures           Json?
+  tableShape              Json?
+  waiterId                String?
+  waiterName              String?
+  customerId              String?
+  userId                  String?
+  numberOfGuests          Float?
+  items                   Json?
+  subtotal                Float?
+  tax                     Float?
+  totalAmount             Float?
+  discount                Float?
+  finalAmount             Float?
+  deliveryFee             Float?
+  packagingCharge         Float?
+  categoryChargesTotal    Float?
+  paymentMethod           String?
+  status                  String?
+  specialRequirements     String?
+  isActive                Boolean?
+  stockProcessed          Boolean?
+  hasPartialStock         Boolean?
+  pendingStockItems       Json?
+  bookStockProcessed      Boolean?
+  stockProcessingError    String?
+  stockProcessingFailedAt DateTime?
+  inTable                 Boolean?
+  delivery                Boolean?
+  deliveryInfo            Json?
+  paymentScreenshotUrl    Json?
+  markedForDeletion       Boolean?
+  deletionRequestReason   Json?
+  deletionRequestedBy     Json?
+  deletionRequestedAt     Json?
+  deletedAt               Json?
+  deletedBy               Json?
+  deletionReason          Json?
+  createdAt               DateTime?
+  updatedAt               DateTime?
+  completedAt             DateTime?
+  stockProcessedAt        DateTime?
+  createdBy               Json?
+  creatorTracked          Boolean?
+  creatorTrackedAt        DateTime?
+  stockProcessingNote     String?
+  editRequest             Json?
+  assignmentRequest       Json?
+  notifications           Json?
+  customerName            String?
+  notes                   String?
+  paymentStatus           String?
+  orderItems              Json?
+  updatedBy               Json?
+  calculated              Boolean?
+  completedBy             Json?
+  completionRegistered    Boolean?
+  completionRegisteredAt  DateTime?
+  employeePointsAwarded   Float?
+  waitressPointsAwarded   Float?
+  completedOrdersIncremented Boolean?
+  registrationFixed       Boolean?
+  registrationFixedAt     DateTime?
+  pointsAwardedOnFix      Float?
+  waitressActivityRegistered Boolean?
+  transactionId           String?
+  deliveryAddress         String?
+  note                    String?
+  cancellationReason      String?
+  cancelledBy             String?
+  cancelledAt             DateTime?
+
+  @@index([orderNumber])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model UsedStock {
+  id                 String   @id
+  orderId            String?
+  orderNumber        String?
+  stockId            String?
+  stockName          String?
+  stockCategory      String?
+  stockUnit          String?
+  unitCost           Float?
+  totalQuantityUsed  Float?
+  totalCost          Float?
+  items              Json?
+  usedAt             DateTime?
+  processedAt        DateTime?
+  createdAt          DateTime?
+  deletedWithOrder   Boolean?
+  deletedAt          DateTime?
+  deletedBy          String?
+  deletedOrderId     String?
+
+  @@index([stockId])
+  @@index([orderId])
+  @@map("used_stock")
+}
+
+model StockWastage {
+  id        String    @id
+  stockId   String?
+  quantity  Float?
+  reason    String?
+  date      String?
+  createdAt DateTime?
+  updatedAt DateTime?
+
+  @@map("stock_wastages")
+}
+
+model Notification {
+  id        String    @id
+  title     String?
+  message   String?
+  userId    String?
+  type      String?
+  read      Boolean?
+  createdAt DateTime?
+  updatedAt DateTime?
+
+  @@map("notifications")
+}
+
+model CommonExpense {
+  id          String    @id
+  title       String?
+  description String?
+  amount      Float?
+  category    String?
+  frequency   String?
+  startDate   DateTime?
+  endDate     DateTime?
+  tags        String[] @default([])
+  isActive    Boolean?
+  priority    String?
+  notes       String?
+  createdBy   String?
+  createdAt   DateTime?
+  updatedAt   DateTime?
+
+  @@map("commonExpenses")
+}
+
+model DeletedOrder {
+  id                      String    @id
+  orderNumber             String?
+  tableNumber             String?
+  tableId                 Json?
+  restaurantId            String?
+  restaurantName          String?
+  floor                   Json?
+  arrangementId           Json?
+  tableCapacity           Json?
+  tableLocation           Json?
+  tableFeatures           Json?
+  tableShape              Json?
+  waiterId                String?
+  waiterName              String?
+  customerId              String?
+  numberOfGuests          Float?
+  items                   Json?
+  subtotal                Float?
+  tax                     Float?
+  totalAmount             Float?
+  discount                Float?
+  finalAmount             Float?
+  deliveryFee             Float?
+  packagingCharge         Float?
+  categoryChargesTotal    Float?
+  paymentMethod           String?
+  status                  String?
+  specialRequirements     String?
+  isActive                Boolean?
+  stockProcessed          Boolean?
+  inTable                 Boolean?
+  delivery                Boolean?
+  deliveryInfo            Json?
+  paymentScreenshotUrl    Json?
+  markedForDeletion       Boolean?
+  deletionRequestReason   Json?
+  deletionRequestedBy     Json?
+  deletionRequestedAt     Json?
+  deletedAt               Json?
+  deletedBy               Json?
+  deletionReason          Json?
+  createdAt               DateTime?
+  updatedAt               DateTime?
+  completedAt             DateTime?
+  stockProcessedAt        DateTime?
+  createdBy               Json?
+  creatorTracked          Boolean?
+  creatorTrackedAt        DateTime?
+  customerName            String?
+  notes                   String?
+  orderItems              Json?
+  deletedByRole           String?
+  deletionMethod          String?
+  originalOrderId         String?
+  originalOrderNumber     String?
+  deletedFromCollection   String?
+  movedToCollection       String?
+  deletionLogId           String?
+  userId                  String?
+  stockProcessingNote     String?
+  paymentStatus           String?
+  editRequest             Json?
+  assignmentRequest       Json?
+  notifications           Json?
+  updatedBy               Json?
+  calculated              Boolean?
+  completedBy             Json?
+  completionRegistered    Boolean?
+  completionRegisteredAt  DateTime?
+  employeePointsAwarded   Float?
+  waitressPointsAwarded   Float?
+  completedOrdersIncremented Boolean?
+  registrationFixed       Boolean?
+  registrationFixedAt     DateTime?
+  pointsAwardedOnFix      Float?
+  waitressActivityRegistered Boolean?
+
+  @@index([orderNumber])
+  @@map("deleted_orders")
+}
+
+model PurchaseRequest {
+  id                  String    @id
+  stockId             String?
+  stockName           String?
+  categoryId          String?
+  unit                String?
+  reorderFrequency    String?
+  requiredAmount      Float?
+  requestDate         String?
+  requestDateTime     DateTime?
+  requestedQuantity   Float?
+  currentStock        Float?
+  minimumStock        Float?
+  estimatedUnitPrice  Float?
+  estimatedTotalCost  Float?
+  isDelivered         Boolean?
+  isPurchased         Boolean?
+  isConfirmed         Boolean?
+  reason              String?
+  status              String?
+  notes               String?
+  createdAt           DateTime?
+  updatedAt           DateTime?
+  deliveredAt         DateTime?
+  deliveredBy         String?
+  actualTotalCost     Float?
+  actualUnitPrice     Float?
+  purchasedAt         DateTime?
+  purchasedBy         String?
+  confirmedAt         DateTime?
+  confirmedBy         String?
+
+  @@index([stockId])
+  @@map("purchase_requests")
+}
+
+model StandardsLog {
+  id             String    @id
+  action         String?
+  standardId     String?
+  role           String?
+  standardsCount Float?
+  createdBy      String?
+  createdAt      DateTime?
+
+  @@map("standards_logs")
+}
+
+model Staff {
+  id                      String    @id
+  name                    String?
+  email                   String?
+  password                String?
+  phone                   String?
+  employeeId              String?
+  role                    String?
+  status                  String?
+  permissions             String[] @default([])
+  requiresPasswordChange  Boolean?
+  createdAt               DateTime?
+  updatedAt               DateTime?
+
+  @@map("staff")
+}
+
+model User {
+  id                      String    @id
+  name                    String?
+  email                   String?
+  phone                   String?
+  employeeId              String?
+  role                    String?
+  password                String?
+  status                  String?
+  permissions             String[] @default([])
+  requiresPasswordChange  Boolean?
+  loginAttempts           Float?
+  lastLogin               DateTime?
+  createdAt               DateTime?
+  updatedAt               DateTime?
+  lastPasswordChange      DateTime?
+  address                 String?
+  fcmTokens               String[] @default([])
+  lastSeen                Json?
+  online                  Boolean?
+  image                   String?
+  googleId                String?
+  emailVerified           DateTime?
+  specialization          String?
+  shift                   String?
+  pin                     String?
+  department              String?
+  restaurantId            String?
+  firstName               String?
+  lastName                String?
+  birthDate               DateTime?
+  gender                  String?
+  location                Json?
+  registrationSource      String?
+  locationConsent         Boolean?
+  referralCode            String?
+  referredBy              String?
+  referralInfo            Json?
+  avatar                  String?
+  lotteryTickets          Float?
+  hasWonThisMonth         Boolean?
+  lastWinDate             String?
+  totalWins               Float?
+  points                  Float?
+
+  @@index([email])
+  @@map("users")
+}
+
+model Expense {
+  id        String    @id
+  title     String?
+  description String?
+  amount    Float?
+  category  String?
+  date      DateTime?
+  notes     String?
+  createdAt DateTime?
+  updatedAt DateTime?
+
+  @@map("expense")
+}
+
+model PreparationLog {
+  id          String    @id
+  action      String?
+  recipeId    String?
+  itemId      String?
+  itemName    String?
+  stepsCount  Float?
+  createdBy   String?
+  createdAt   DateTime?
+
+  @@map("preparation_logs")
+}
+
+model Training {
+  id                String    @id
+  title             String?
+  description       String?
+  type              String?
+  uploadProgress    Float?
+  uploadStatus      String?
+  createdAt         DateTime?
+  updatedAt         DateTime?
+  fileUrl           String?
+  thumbnailUrl      String?
+  publicId          String?
+  format            String?
+  fileSize          Float?
+  originalFileName  String?
+  mimeType          String?
+  error             String?
+  completedAt       DateTime?
+  failedAt          DateTime?
+
+  @@map("trainings")
+}
+
+model Audit {
+  id          String    @id
+  action      String?
+  entity      String?
+  entityId    String?
+  userId      String?
+  userName    String?
+  userRole    String?
+  description String?
+  changes     Json?
+  createdAt   DateTime?
+
+  @@index([entity])
+  @@map("audit")
+}
+
+model ExpenseRecord {
+  id          String    @id
+  title       String?
+  description String?
+  amount      Float?
+  category    String?
+  date        DateTime?
+  tags        String[] @default([])
+  recurring   Boolean?
+  frequency   String?
+  notes       String?
+  priority    String?
+  status      String?
+  createdBy   String?
+
+  @@map("expenses")
+}
+
+model MealPlanTemplate {
+  id                  String    @id
+  templateCode        String?
+  name                String?
+  description         String?
+  criteria            Json?
+  nutritionalTargets  Json?
+  weeklySchedule      Json?
+  mealPrepTips        Json?
+  groceryTips         Json?
+  shoppingList        Json?
+  notesForClient      String?
+  status              String?
+  usageCount          Float?
+  createdBy           String?
+  createdAt           DateTime?
+  updatedAt           DateTime?
+
+  @@map("meal_plan_templates")
+}
+
+model TelegramBotUser {
+  id          String    @id
+  telegramId  String?
+  username    String?
+  firstName   String?
+  lastName    String?
+  phone       String?
+  createdAt   DateTime?
+  updatedAt   DateTime?
+
+  @@map("telegram_bot_users")
+}
+
+model SecurityLog {
+  id        String    @id
+  timestamp DateTime?
+  type      String?
+  severity  String?
+  path      String?
+  method    String?
+  ip        String?
+  userAgent String?
+  sessionId Json?
+  details   Json?
+  storedAt  DateTime?
+
+  @@index([timestamp])
+  @@map("security_logs")
+}
+
+model StockPurchase {
+  id           String    @id
+  stockId      String?
+  purchaseDate DateTime?
+  quantity     Float?
+  unitPrice    Float?
+  supplier     String?
+
+  @@index([stockId])
+  @@map("stock_purchases")
+}
+
+model Promocode {
+  id        String    @id
+  code      String?
+  discount  Float?
+  expiresAt DateTime?
+  isActive  Boolean?
+  createdAt DateTime?
+  updatedAt DateTime?
+
+  @@map("promocodes")
+}
+
+model DeletionLog {
+  id                    String    @id
+  orderId               String?
+  orderNumber           String?
+  deletedBy             String?
+  deletedByRole         String?
+  deletionReason        String?
+  orderData             Json?
+  deletedAt             DateTime?
+  deletedOrderDocumentId String?
+  createdAt             DateTime?
+
+  @@index([orderId])
+  @@map("deletion_logs")
+}
+
+model EmployeeActivity {
+  id          String    @id
+  employeeId  String?
+  userId      String?
+  type        String?
+  description String?
+  metadata    Json?
+  createdAt   DateTime?
+
+  @@map("employee_activities")
+}
+
+model WaitressLegacy {
+  id                  String    @id
+  name                String?
+  phone               String?
+  shift               String?
+  isActive            Boolean?
+  createdAt           DateTime?
+  updatedAt           DateTime?
+  userId              String?
+  email               String?
+  role                String?
+  registeredFromUser  Boolean?
+  registrationDate    DateTime?
+
+  @@map("waitress")
+}
+
+model Restaurant {
+  id          String    @id
+  name        String?
+  description String?
+  address     String?
+  phone       String?
+  email       String?
+  website     String?
+  cuisine     String[] @default([])
+  location    Json?
+  isActive    Boolean?
+  createdAt   DateTime?
+  updatedAt   DateTime?
+
+  @@map("restaurants")
+}
+
+model DailyCash {
+  id           String    @id
+  date         String?
+  cashAmount   Float?
+  transferAmount Float?
+  totalAmount  Float?
+  zReportNumber String?
+  notes        String?
+  createdBy    String?
+  createdAt    DateTime?
+  updatedAt    DateTime?
+
+  @@map("dailyCash")
+}
+
+model Content {
+  id                String    @id
+  platformName      String?
+  content           String?
+  postType          String?
+  scheduleTime      DateTime?
+  status            String?
+  retryCount        Float?
+  contentValidation Boolean?
+  createdAt         DateTime?
+  updatedAt         DateTime?
+
+  @@map("contents")
+}
+
+model UserPoint {
+  id        String    @id
+  userId    String?
+  points    Float?
+  activity  Json?
+  createdAt DateTime?
+  updatedAt DateTime?
+
+  @@map("userPoints")
+}
+
+model PreparationRecipe {
+  id              String    @id
+  itemId          String?
+  itemName        String?
+  steps           Json?
+  totalTime       Float?
+  createdBy       String?
+  createdByRole   Json?
+  isAdminCreated  Boolean?
+  createdAt       DateTime?
+  updatedAt       DateTime?
+  isActive        Boolean?
+  version         Float?
+  updatedBy       String?
+
+  @@index([itemId])
+  @@map("preparation_recipes")
+}
+
+model HealthyMenu {
+  id               String    @id
+  name             String?
+  description      String?
+  price            Float?
+  cost             Float?
+  categoryId       String?
+  imageUrl         String?
+  cloudinaryData   Json?
+  requiredStock    Json?
+  nutritionalInfo  Json?
+  preparationTime  Float?
+  isActive         Boolean?
+  isFeatured       Boolean?
+  healthLabels     Json?
+  dietaryInfo      Json?
+  createdAt        DateTime?
+  updatedAt        DateTime?
+
+  @@map("healthy_menu")
+}
+
+model Culture {
+  id             String    @id
+  title          String?
+  description    String?
+  imageUrl       String?
+  cloudinaryData Json?
+  createdBy      String?
+  createdByEmail String?
+  createdAt      DateTime?
+  updatedAt      DateTime?
+  isActive       Boolean?
+
+  @@map("cultures")
+}
+
+model Attendance {
+  id              String   @id
+  userId          String?
+  date            String?
+  clockIn         String?
+  clockOut        String?
+  status          String?
+  shift           String?
+  lateMinutes     Float?
+  overtimeMinutes Float?
+  pinVerified     Boolean?
+  note            String?
+  restaurantId    String?
+  locationLat     Float?
+  locationLng     Float?
+  createdAt       DateTime?
+  updatedAt       DateTime?
+
+  @@index([userId])
+  @@index([date])
+  @@unique([userId, date])
+  @@map("attendance")
+}
+
+model WebAuthnCredential {
+  id           String   @id
+  userId       String?
+  credentialId String?
+  publicKey    String?
+  counter      Float?
+  transports   String[] @default([])
+  deviceName   String?
+  createdAt    DateTime?
+  updatedAt    DateTime?
+
+  @@index([userId])
+  @@index([credentialId])
+  @@map("webAuthnCredentials")
+}
+
+model WebAuthnChallenge {
+  id        String    @id
+  userId    String?   @unique
+  challenge String?
+  createdAt DateTime?
+
+  @@map("webAuthnChallenges")
+}
+
+model Subscription {
+  id           String    @id
+  subscription Json?
+  endpoint     String?
+  userId       String?
+  createdAt    DateTime?
+  updatedAt    DateTime?
+
+  @@index([endpoint])
+  @@map("subscriptions")
+}
+
+model Waiter {
+  id               String    @id
+  name             String?
+  phone            String?
+  shift            String?
+  isActive         Boolean?
+  createdAt        DateTime?
+  updatedAt        DateTime?
+  userId           String?
+  email            String?
+  role             String?
+  registeredFromUser Boolean?
+  registrationDate DateTime?
+
+  @@map("waiters")
+}
+
+model StockRecord {
+  id           String    @id
+  name         String?
+  categoryId   String?
+  unit         String?
+  minimumStock Float?
+  currentStock Float?
+  isActive     Boolean?
+  createdAt    DateTime?
+  updatedAt    DateTime?
+  quantity     Float?
+
+  @@index([name])
+  @@map("stock")
+}
+
+model UserFavorite {
+  id        String    @id
+  userId    String?
+  itemIds   String[] @default([])
+  createdAt DateTime?
+  updatedAt DateTime?
+
+  @@map("userFavorites")
+}
+
+model Customer {
+  id        String    @id
+  name      String?
+  email     String?
+  phone     String?
+  address   String?
+  points    Float?
+  userId    String?
+  createdAt DateTime?
+  updatedAt DateTime?
+
+  @@index([email])
+  @@map("customers")
+}
+
+model OrderItem {
+  id         String    @id
+  orderId    String?
+  itemId     String?
+  menuItemId String?
+  name       String?
+  itemName   String?
+  quantity   Float?
+  price      Float?
+  subtotal   Float?
+  total      Float?
+  createdAt  DateTime?
+
+  @@index([orderId])
+  @@map("orderitems")
+}
+
+model MenuItem {
+  id          String    @id
+  name        String?
+  price       Float?
+  description String?
+  imageUrl    String?
+  categoryId  String?
+  isActive    Boolean?
+  createdAt   DateTime?
+  updatedAt   DateTime?
+
+  @@map("menuItems")
+}
+
+model PosOrder {
+  id         String    @id
+  customerId String?
+  userId     String?
+  email      String?
+  items      Json?
+  total      Float?
+  status     String?
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@map("posorders")
+}
+
+model Redemption {
+  id        String    @id
+  userId    String?
+  points    Float?
+  reward    String?
+  itemId    String?
+  itemName  String?
+  status    String?
+  createdAt DateTime?
+
+  @@index([userId])
+  @@map("redemptions")
+}
+
+model PodcastApplication {
+  id             String    @id
+  fullName       String?
+  email          String?
+  phone          String?
+  categoryId     String?
+  requiredStock  Json?
+  message        String?
+  status         String?
+  adminNotes     String?
+  createdAt      DateTime?
+
+  @@map("podcastApplications")
+}
+
+model EntenfisApplication {
+  id       String    @id
+  fullName String?
+  email    String?
+  phone    String?
+  message  String?
+  status   String?
+  adminNotes String?
+  createdAt DateTime?
+
+  @@map("entenfisApplications")
+}
+
+model PodcastGuest {
+  id              String    @id
+  serialNumber    Float?
+  fullName        String?
+  name            String?
+  email           String?
+  phone           String?
+  phoneNumber     String?
+  workSector      String?
+  scheduledDate   String?
+  scheduledTime   String?
+  additionalNotes String?
+  bio             String?
+  episode         String?
+  status          String?
+  createdAt       DateTime?
+  updatedAt       DateTime?
+
+  @@map("podcastGuests")
+}
+
+model EntenfisCase {
+  id           String    @id
+  serialNumber Float?
+  name         String?
+  fullName     String?
+  userName     String?
+  email        String?
+  phone        String?
+  phoneNumber  String?
+  category     String?
+  priority     String?
+  status       String?
+  description  String?
+  summary      String?
+  notes        String?
+  createdAt    DateTime?
+  updatedAt    DateTime?
+
+  @@map("entenfesCases")
+}
+
+model OtherContact {
+  id             String    @id
+  serialNumber   Float?
+  fullName       String?
+  phoneNumber    String?
+  email          String?
+  location       String?
+  reasonForCall  String?
+  callType       String?
+  message        String?
+  followUpNeeded Boolean?
+  followUpDate   String?
+  status         String?
+  notes          String?
+  createdAt      DateTime?
+  updatedAt      DateTime?
+
+  @@map("otherContacts")
+}

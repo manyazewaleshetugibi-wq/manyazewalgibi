@@ -3,6 +3,8 @@
  * Properly decodes HTML entities, URL encoding, and special characters
  */
 
+import CryptoJS from 'crypto-js';
+
 export interface URLTableParams {
   table: string | null;
   tableId: string | null;
@@ -12,6 +14,73 @@ export interface URLTableParams {
   capacity: string | null;
   isQRScan: boolean;
 }
+
+/**
+ * Derive the client-side encryption key (same derivation as lib/encryption.ts).
+ * Returns null when the keys are not configured so callers can fall back to
+ * plaintext parameters instead of crashing.
+ */
+const getClientKey = (): string | null => {
+  const baseKey = process.env.NEXT_PUBLIC_ENCRYPTION_KEY;
+  const salt = process.env.NEXT_PUBLIC_ENCRYPTION_SALT;
+  if (!baseKey || !salt) return null;
+  return CryptoJS.SHA256(`${baseKey}:${salt}`).toString();
+};
+
+/**
+ * Encrypt sensitive table parameters into a single URL-safe token.
+ * Hides internal DB ids (tableId, restaurantId) from being readable/guessable
+ * in the query string. Returns null if encryption is not configured.
+ */
+export const encryptTableToken = (
+  tableId: string,
+  restaurantId: string
+): string | null => {
+  const key = getClientKey();
+  if (!key) return null;
+  try {
+    const payload = JSON.stringify({ tableId, restaurantId });
+    const encrypted = CryptoJS.AES.encrypt(payload, key, {
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7,
+    }).toString();
+    // URL-safe base64 encoding
+    return btoa(encrypted)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Decrypt a table token produced by encryptTableToken.
+ * Returns the decrypted values or null when decryption fails.
+ */
+export const decryptTableToken = (
+  token: string
+): { tableId: string; restaurantId: string } | null => {
+  const key = getClientKey();
+  if (!key) return null;
+  try {
+    // Restore standard base64
+    let base64 = token.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4 !== 0) base64 += '=';
+    const encrypted = atob(base64);
+    const bytes = CryptoJS.AES.decrypt(encrypted, key, {
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7,
+    });
+    const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+    if (!decrypted) return null;
+    const parsed = JSON.parse(decrypted);
+    if (!parsed.tableId || !parsed.restaurantId) return null;
+    return { tableId: parsed.tableId, restaurantId: parsed.restaurantId };
+  } catch {
+    return null;
+  }
+};
 
 export interface ParsedTableData {
   tableNumber: number;

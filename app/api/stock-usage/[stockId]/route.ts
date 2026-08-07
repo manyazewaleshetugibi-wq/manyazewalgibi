@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 
 // Type for stock processing status
@@ -49,32 +48,20 @@ interface MenuItemDetail {
 
 // GET - Get detailed usage for a specific stock ID
 // Includes stock processing status and order details
-export async function GET(req: NextRequest, { params }: { params: { stockId: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ stockId: string }> }) {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const client = await clientPromise;
-    const db = client.db("gold");
-    const { stockId } = params;
-
-    // Validate stock ID
-    if (!ObjectId.isValid(stockId)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid stock ID" },
-        { status: 400 }
-      );
-    }
-
-    const stockObjectId = new ObjectId(stockId);
+    const { stockId } = await params;
 
     // Get all used_stock records for this specific stock
-    const usedStockRecords = await db.collection("used_stock")
-      .find({ stockId: stockObjectId })
-      .sort({ usedAt: -1 })
-      .toArray();
+    const usedStockRecords = await prisma.usedStock.findMany({
+      where: { stockId },
+      orderBy: { usedAt: 'desc' },
+    });
 
     if (usedStockRecords.length === 0) {
       return NextResponse.json(
@@ -84,22 +71,21 @@ export async function GET(req: NextRequest, { params }: { params: { stockId: str
     }
 
     // Get unique order IDs
-    const uniqueOrderIds = [...new Set(usedStockRecords.map(record => record.orderId))];
+    const uniqueOrderIds = [...new Set(usedStockRecords.map(record => record.orderId).filter((id): id is string => !!id))];
 
     // Get order details from orders collection
-    const orders = await db.collection("orders")
-      .find({ _id: { $in: uniqueOrderIds.map(id => new ObjectId(id)) } })
-      .toArray();
+    const orders = await prisma.order.findMany({
+      where: { id: { in: uniqueOrderIds } },
+    });
 
     // Build orderId to order mapping
     const orderMap = new Map<string, any>();
     orders.forEach(order => {
-      orderMap.set(order._id.toString(), order);
+      orderMap.set(order.id, order);
     });
 
     // Get stock details
-    const stock = await db.collection("stocks")
-      .findOne({ _id: stockObjectId });
+    const stock = await prisma.stock.findUnique({ where: { id: stockId } });
 
     if (!stock) {
       return NextResponse.json(
@@ -113,7 +99,7 @@ export async function GET(req: NextRequest, { params }: { params: { stockId: str
     const menuItemsMap: Map<string, MenuItemDetail> = new Map();
 
     for (const record of usedStockRecords) {
-      const orderId = record.orderId?.toString();
+      const orderId = record.orderId || "";
       const order = orderMap.get(orderId);
       const orderNumber = record.orderNumber || "Unknown";
 
@@ -124,7 +110,7 @@ export async function GET(req: NextRequest, { params }: { params: { stockId: str
       };
 
       if (order?.stockProcessed) {
-        if (order.hasPartialStock) {
+        if ((order as any).hasPartialStock) {
           processingStatus = {
             isProcessed: true,
             processedAt: order.stockProcessedAt ? new Date(order.stockProcessedAt) : undefined,
@@ -139,11 +125,11 @@ export async function GET(req: NextRequest, { params }: { params: { stockId: str
             note: order.stockProcessingNote || "Fully processed"
           };
         }
-      } else if (order?.stockProcessingError) {
+      } else if ((order as any)?.stockProcessingError) {
         processingStatus = {
           isProcessed: false,
           status: 'failed',
-          error: order.stockProcessingError,
+          error: (order as any).stockProcessingError,
           note: order.stockProcessingNote || "Processing failed"
         };
       }
@@ -151,14 +137,14 @@ export async function GET(req: NextRequest, { params }: { params: { stockId: str
       const orderDetail: OrderDetails = {
         orderId,
         orderNumber,
-        quantityUsed: record.totalQuantityUsed,
-        totalCost: record.totalCost,
+        quantityUsed: record.totalQuantityUsed || 0,
+        totalCost: record.totalCost || 0,
         status: order?.status || "Unknown",
         usedAt: record.usedAt || new Date(),
         stockProcessed: order?.stockProcessed,
         stockProcessedAt: order?.stockProcessedAt ? new Date(order.stockProcessedAt) : undefined,
-        hasPartialStock: order?.hasPartialStock,
-        stockProcessingError: order?.stockProcessingError,
+        hasPartialStock: (order as any)?.hasPartialStock,
+        stockProcessingError: (order as any)?.stockProcessingError,
         stockProcessingNote: order?.stockProcessingNote,
         isFullyProcessed: processingStatus.status === 'completed',
         processingStatus
@@ -167,8 +153,8 @@ export async function GET(req: NextRequest, { params }: { params: { stockId: str
       orderDetailsList.push(orderDetail);
 
       // Get items that used this stock for each order
-      if (record.items && record.items.length > 0) {
-        for (const item of record.items) {
+      if ((record.items as any) && (record.items as any).length > 0) {
+        for (const item of (record.items as any)) {
           const itemId = item.itemId?.toString() || "unknown";
           const itemName = item.itemName || "Unknown Item";
 
@@ -191,9 +177,9 @@ export async function GET(req: NextRequest, { params }: { params: { stockId: str
 
             // Add stock consumption details
             menuItemDetail.stockConsumption.push({
-              stockId: record.stockId.toString(),
-              stockName: record.stockName,
-              stockCategory: record.stockCategory || stock.category || "General",
+              stockId: record.stockId || "",
+              stockName: record.stockName || "",
+              stockCategory: record.stockCategory || (stock as any).category || "General",
               stockUnit: record.stockUnit || stock.unit || "unit",
               quantityUsed: item.quantityUsed || 0,
               totalCost: (item.quantityUsed || 0) * (record.unitCost || 0),
@@ -219,8 +205,8 @@ export async function GET(req: NextRequest, { params }: { params: { stockId: str
     });
 
     // Calculate summary statistics
-    const totalQuantityUsed = usedStockRecords.reduce((sum, record) => sum + record.totalQuantityUsed, 0);
-    const totalCost = usedStockRecords.reduce((sum, record) => sum + record.totalCost, 0);
+    const totalQuantityUsed = usedStockRecords.reduce((sum, record) => sum + (record.totalQuantityUsed || 0), 0);
+    const totalCost = usedStockRecords.reduce((sum, record) => sum + (record.totalCost || 0), 0);
     const uniqueOrders = orderDetailsList.length;
     const processedOrders = orderDetailsList.filter(order => order.isFullyProcessed).length;
     const pendingOrders = orderDetailsList.filter(order => order.hasPartialStock).length;
@@ -239,9 +225,9 @@ export async function GET(req: NextRequest, { params }: { params: { stockId: str
       data: {
         stockId: stockId,
         stockName: stock.name,
-        stockCategory: stock.category || "General",
+        stockCategory: (stock as any).category || "General",
         stockUnit: stock.unit || "unit",
-        unitCost: stock.costPerUnit || stock.unitCost || 0,
+        unitCost: (stock as any).costPerUnit || (stock as any).unitCost || 0,
         currentStock: currentStock,
         minimumStock: minimumStock,
         currentStatus: currentStatus,
@@ -267,5 +253,4 @@ export async function GET(req: NextRequest, { params }: { params: { stockId: str
     );
   }
 }
-
 

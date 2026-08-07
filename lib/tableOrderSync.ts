@@ -1,8 +1,5 @@
 // lib/tableOrderSync.ts
-import { TableArrangement, ITable } from '@/models/TableArrangement';
-// Import your actual Order model - adjust the import path as needed
-import { TableOrder } from '@/models/Orders'; 
-import mongoose from 'mongoose';
+import { prisma } from '@/lib/prisma';
 
 interface PendingOrder {
   tableNumber: string | number; // Your orders use string for tableNumber
@@ -10,6 +7,30 @@ interface PendingOrder {
   status: string;
   customerName?: string;
   orderNumber?: string;
+}
+
+interface TableData {
+  id: string;
+  number: number;
+  capacity?: number;
+  shape?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  status: string;
+  rotation?: number;
+  location?: string;
+  description?: string;
+  tags?: string[];
+  features?: string[];
+  lastUpdated?: Date | string;
+  section?: string;
+  merged?: boolean;
+  mergedWith?: string[];
+  currentOrder?: string;
+  waiterId?: string;
+  reservationInfo?: any;
 }
 
 /**
@@ -24,10 +45,13 @@ export async function syncTablesWithPendingOrders(
 ) {
   try {
     // Find the table arrangement
-    const arrangement = await TableArrangement.findOne({
-      restaurantId,
-      floor,
-      isActive: true
+    const arrangement = await prisma.tableArrangement.findFirst({
+      where: {
+        restaurantId,
+        floor,
+        isActive: true
+      },
+      orderBy: { updatedAt: 'desc' }
     });
 
     if (!arrangement) {
@@ -35,31 +59,32 @@ export async function syncTablesWithPendingOrders(
     }
 
     // Get all pending orders (all statuses except 'COMPLETED' and 'CANCELLED')
-    // Using your actual status enum values
-    const pendingOrders = await TableOrder.find({
-      restaurantId: restaurantId,
-      floor: floor,
-      isActive: true,
-      status: { $nin: ['COMPLETED', 'CANCELLED'] }
-    }).lean();
+    const pendingOrders = await prisma.order.findMany({
+      where: {
+        restaurantId: restaurantId,
+        floor: { equals: floor },
+        isActive: true,
+        status: { notIn: ['COMPLETED', 'CANCELLED'] }
+      }
+    });
 
     // Create a map of tableNumber → order details
     // Your tableNumber can be string, so we need to handle conversion
     const orderMap = new Map<number, PendingOrder>();
-    (pendingOrders as any[]).forEach((order: any) => {
+    pendingOrders.forEach((order) => {
       if (order.tableNumber) {
         // Convert tableNumber to number if it's a string
-        const tableNum = typeof order.tableNumber === 'string' 
-          ? parseInt(order.tableNumber) 
+        const tableNum = typeof order.tableNumber === 'string'
+          ? parseInt(order.tableNumber)
           : order.tableNumber;
-        
+
         if (!isNaN(tableNum)) {
           orderMap.set(tableNum, {
             tableNumber: tableNum,
-            orderId: order._id.toString(),
-            status: order.status,
+            orderId: order.id,
+            status: order.status || '',
             customerName: order.customerName || order.notes?.split('\n')[0],
-            orderNumber: order.orderNumber
+            orderNumber: order.orderNumber || undefined
           });
         }
       }
@@ -69,11 +94,13 @@ export async function syncTablesWithPendingOrders(
     let reservedCount = 0;
     let availableCount = 0;
 
+    const tables = (arrangement.tables as unknown as TableData[]) || [];
+
     // Update each table based on pending orders
-    const updatedTables = arrangement.tables.map((table: ITable) => {
+    const updatedTables = tables.map((table: TableData) => {
       const hasPendingOrder = orderMap.has(table.number);
       const currentStatus = table.status;
-      
+
       let newStatus = currentStatus;
       const updates: any = {};
 
@@ -84,7 +111,7 @@ export async function syncTablesWithPendingOrders(
           const order = orderMap.get(table.number)!;
           newStatus = 'reserved';
           reservedCount++;
-          
+
           // Update reservation info with order details
           updates.reservationInfo = {
             reservedBy: 'system',
@@ -95,7 +122,7 @@ export async function syncTablesWithPendingOrders(
             customerName: order.customerName,
             orderStatus: order.status
           };
-          
+
           if (newStatus !== currentStatus) updatedCount++;
         } else {
           // No pending order, set to available if it was reserved
@@ -108,28 +135,26 @@ export async function syncTablesWithPendingOrders(
         }
       }
 
-      // Handle toObject() safely
-      const tableObj = table.toObject ? table.toObject() : table;
-      
       return {
-        ...tableObj,
+        ...table,
         status: newStatus,
         ...updates,
         lastUpdated: new Date()
       };
     });
 
-    arrangement.tables = updatedTables;
-
-    // Recalculate statistics
-    arrangement.availableTables = arrangement.tables.filter((t: any) => t.status === 'available').length;
-    arrangement.reservedTables = arrangement.tables.filter((t: any) => t.status === 'reserved').length;
-    arrangement.occupiedTables = arrangement.tables.filter((t: any) => t.status === 'occupied').length;
-    arrangement.cleaningTables = arrangement.tables.filter((t: any) => t.status === 'cleaning').length;
-    arrangement.maintenanceTables = arrangement.tables.filter((t: any) => t.status === 'maintenance').length;
-    arrangement.updatedAt = new Date();
-
-    await arrangement.save({ validateBeforeSave: false });
+    const updated = await prisma.tableArrangement.update({
+      where: { id: arrangement.id },
+      data: {
+        tables: updatedTables,
+        availableTables: updatedTables.filter((t) => t.status === 'available').length,
+        reservedTables: updatedTables.filter((t) => t.status === 'reserved').length,
+        occupiedTables: updatedTables.filter((t) => t.status === 'occupied').length,
+        cleaningTables: updatedTables.filter((t) => t.status === 'cleaning').length,
+        maintenanceTables: updatedTables.filter((t) => t.status === 'maintenance').length,
+        updatedAt: new Date()
+      }
+    });
 
     return {
       success: true,
@@ -139,7 +164,7 @@ export async function syncTablesWithPendingOrders(
         availableCount,
         updatedCount,
         totalPendingOrders: pendingOrders.length,
-        arrangement
+        arrangement: updated
       }
     };
   } catch (error) {
@@ -153,14 +178,16 @@ export async function syncTablesWithPendingOrders(
  */
 export async function syncAllFloorsWithPendingOrders(restaurantId: string) {
   try {
-    const arrangements = await TableArrangement.find({
-      restaurantId,
-      isActive: true
+    const arrangements = await prisma.tableArrangement.findMany({
+      where: {
+        restaurantId,
+        isActive: true
+      }
     });
 
     const results = [];
     for (const arrangement of arrangements) {
-      const result = await syncTablesWithPendingOrders(restaurantId, arrangement.floor);
+      const result = await syncTablesWithPendingOrders(restaurantId, arrangement.floor || '');
       results.push({ floor: arrangement.floor, ...result });
     }
 
@@ -171,5 +198,5 @@ export async function syncAllFloorsWithPendingOrders(restaurantId: string) {
   } catch (error) {
     console.error('Error syncing all floors:', error);
     return { success: false, message: 'Failed to sync all floors', error };
-  } 
+  }
 }

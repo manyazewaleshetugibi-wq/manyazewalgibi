@@ -1,15 +1,5 @@
 // lib/qrScanHelper.ts
-import QRHistory from '@/models/QRHistory';
-import clientPromise from '@/lib/mongodb';
-import mongoose from 'mongoose';
-
-async function ensureConnection() {
-    if (mongoose.connection.readyState === 0) {
-        const client = await clientPromise;
-        await mongoose.connect(process.env.MONGODB_URI!);
-    }
-    return mongoose.connection;
-}
+import { prisma } from '@/lib/prisma';
 
 export async function incrementQRScan(
     restaurantId: string,
@@ -17,29 +7,34 @@ export async function incrementQRScan(
     tableId: string
 ) {
     try {
-        await ensureConnection();
-        
         // Find the QR history entry
-        const history = await QRHistory.findOne({
-            restaurantId,
-            floor,
-            tableId
+        const history = await prisma.qRHistory.findFirst({
+            where: {
+                restaurantId,
+                floor,
+                tableId
+            }
         });
-        
+
         if (!history) {
             // Create a new entry if it doesn't exist (shouldn't happen normally)
             return { success: false, error: 'QR history not found' };
         }
-        
+
         // Increment scan count
-        history.scans += 1;
-        history.lastScanned = new Date();
-        await history.save();
-        
-        return { 
-            success: true, 
-            data: history,
-            message: `QR scan recorded for table ${history.tableNumber}`
+        const updated = await prisma.qRHistory.update({
+            where: { id: history.id },
+            data: {
+                scans: (history.scans || 0) + 1,
+                lastUpdated: new Date(),
+                updatedAt: new Date()
+            }
+        });
+
+        return {
+            success: true,
+            data: updated,
+            message: `QR scan recorded for table ${updated.tableNumber}`
         };
     } catch (error) {
         console.error('Error incrementing QR scan:', error);
@@ -49,16 +44,43 @@ export async function incrementQRScan(
 
 export async function getQRScanStats(restaurantId?: string) {
     try {
-        await ensureConnection();
-        
-        const stats = await QRHistory.getScanStats(restaurantId);
-        const topTables = await QRHistory.getMostScannedTables(10);
-        
+        const where = restaurantId ? { restaurantId } : undefined;
+
+        const agg = await prisma.qRHistory.aggregate({
+            where,
+            _sum: { scans: true },
+            _count: true,
+            _avg: { scans: true },
+            _max: { scans: true }
+        });
+
+        const topTables = await prisma.qRHistory.groupBy({
+            by: ['restaurantId', 'restaurantName', 'tableNumber', 'tableId', 'floor'],
+            where,
+            _sum: { scans: true },
+            _max: { lastUpdated: true },
+            _count: true,
+            orderBy: { _sum: { scans: 'desc' } },
+            take: 10
+        });
+
         return {
             success: true,
             data: {
-                ...stats,
-                topTables
+                totalScans: agg._sum.scans || 0,
+                totalQRCodes: agg._count,
+                avgScans: agg._avg.scans || 0,
+                maxScans: agg._max.scans || 0,
+                topTables: topTables.map((t) => ({
+                    restaurantId: t.restaurantId,
+                    restaurantName: t.restaurantName,
+                    tableNumber: t.tableNumber,
+                    tableId: t.tableId,
+                    floor: t.floor,
+                    totalScans: t._sum.scans || 0,
+                    lastScanned: t._max.lastUpdated,
+                    count: t._count
+                }))
             }
         };
     } catch (error) {

@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 
 export async function GET(request: NextRequest) {
   try {
     const { response } = await requireAdmin();
     if (response) return response;
-
-    const client = await clientPromise;
-    const db = client.db();
 
     // Get query parameters
     const { searchParams } = new URL(request.url);
@@ -24,13 +20,13 @@ export async function GET(request: NextRequest) {
     // Filter by active status if specified (users are always active unless specified)
     if (active === 'true') {
       // You might want to add an isActive field or consider users with loginAttempts < 5 as active
-      query.loginAttempts = { $lt: 5 };
+      query.loginAttempts = { lt: 5 };
     }
 
     // Fetch all users with role "user" from database
-    const users = await db.collection('users').find(query).toArray();
+    const users = await prisma.user.findMany({ where: query });
 
-    console.log(`Found ${users.length} users with role="user"`);
+
 
     // Map users to Employee interface format with ALL fields
     const participants = users.map(user => {
@@ -57,7 +53,7 @@ export async function GET(request: NextRequest) {
             });
           }
         } catch (error) {
-          console.error('Error parsing birth date for user:', user._id, error);
+          console.error('Error parsing birth date for user:', user.id, error);
         }
       }
 
@@ -96,7 +92,7 @@ export async function GET(request: NextRequest) {
       const isActive = (user.loginAttempts || 0) < 5; // Consider active if less than 5 failed attempts
 
       return {
-        id: user._id.toString(),
+        id: user.id,
         firstName: firstName,
         lastName: lastName,
         name: fullName || 'Unknown User',
@@ -126,20 +122,12 @@ export async function GET(request: NextRequest) {
         loginAttempts: user.loginAttempts || 0,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
-        __v: user.__v || 0
       };
     });
 
     // Log sample data to verify
     if (participants.length > 0) {
-      console.log('Sample participant:', {
-        id: participants[0].id,
-        name: participants[0].name,
-        email: participants[0].email,
-        phone: participants[0].phone,
-        birthMonth: participants[0].birthMonth,
-        birthDay: participants[0].birthDay
-      });
+
     }
 
     // Filter by month if specified

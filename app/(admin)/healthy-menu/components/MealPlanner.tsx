@@ -809,7 +809,6 @@ export function MealPlanner({ isOpen, onClose, menuItems = [], categories = [] }
                 updatedAt: new Date(),
             }
 
-            console.log("Saving template data:", JSON.stringify(templateData, null, 2))
 
             const response = await fetch('/api/meal-planner/templates', {
                 method: 'POST',

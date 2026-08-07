@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
+import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcrypt';
 import { createClockinToken, checkRateLimit } from '@/lib/attendance-auth';
 
@@ -21,25 +21,24 @@ export async function POST(request: NextRequest) {
       }, { status: 429 });
     }
 
-    const client = await clientPromise;
-    const db = client.db('gold');
-    const usersCollection = db.collection('users');
+    const staffUsers = await prisma.user.findMany({
+      where: {
+        status: 'active',
+        OR: [{ role: { not: 'customer' } }, { role: null }],
+      },
+      select: { id: true, name: true, employeeId: true, department: true, role: true, password: true, pin: true },
+    });
 
-    const otherUsers = await usersCollection.find(
-      { role: 'other', status: 'active' },
-      { projection: { _id: 1, name: 1, employeeId: 1, department: 1, role: 1, password: 1, pin: 1 } }
-    ).toArray();
-
-    for (const user of otherUsers) {
+    for (const user of staffUsers) {
       const storedHash = user.password || user.pin;
       if (storedHash) {
         const match = await bcrypt.compare(password.trim(), storedHash);
         if (match) {
           return NextResponse.json({
             success: true,
-            token: createClockinToken(user._id.toString()),
+            token: createClockinToken(user.id),
             data: {
-              _id: user._id,
+              _id: user.id,
               name: user.name,
               employeeId: user.employeeId,
               department: user.department,

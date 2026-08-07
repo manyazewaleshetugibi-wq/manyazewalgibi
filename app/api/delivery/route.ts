@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { DeliveryOrderSchema } from "@/models/DeliveryOrders";
 
 import { auth } from "@/auth";
@@ -24,11 +25,44 @@ const VALID_STATUSES = [
 
 type OrderStatus = typeof VALID_STATUSES[number];
 
+// Helper to enrich orders with user details and item details (replaces Mongo $lookup pipeline)
+async function enrichOrders(orders: any[]) {
+  const userIds = Array.from(new Set(orders.map(o => o.userId).filter(Boolean)));
+  const userDetails = userIds.length
+    ? await prisma.user.findMany({ where: { id: { in: userIds } } })
+    : [];
+  const userMap = new Map(userDetails.map(u => [u.id, u]));
+
+  const itemIds = Array.from(new Set(
+    orders.flatMap(o => ((o.items as any) || []).map((i: any) => i?.itemId).filter(Boolean))
+  ));
+  const items = itemIds.length
+    ? await prisma.item.findMany({ where: { id: { in: itemIds } } })
+    : [];
+  const itemMap = new Map(items.map(it => [it.id, it]));
+
+  return orders.map(order => {
+    const enriched: any = { ...order, _id: order.id };
+
+    if (order.userId) {
+      const u = userMap.get(order.userId);
+      if (u) enriched.userDetails = u;
+    }
+
+    const rawItems: any[] = Array.isArray(order.items) ? (order.items as any[]) : [];
+    enriched.items = rawItems.map(item => {
+      const enrichedItem: any = { ...item };
+      const details = item?.itemId ? itemMap.get(item.itemId) : null;
+      if (details) enrichedItem.itemDetails = details;
+      return enrichedItem;
+    });
+
+    return enriched;
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     let body;
     let paymentScreenshotFile: File | null = null;
 
@@ -72,7 +106,7 @@ export async function POST(req: NextRequest) {
     let paymentScreenshotUrl = null;
     if (paymentScreenshotFile) {
       try {
-        console.log("📤 Uploading payment screenshot to Cloudinary...");
+
         const arrayBuffer = await paymentScreenshotFile.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
         const base64Data = buffer.toString('base64');
@@ -90,7 +124,7 @@ export async function POST(req: NextRequest) {
         if (uploadRes.ok) {
           const uploadData = await uploadRes.json();
           paymentScreenshotUrl = uploadData.secure_url;
-          console.log("✅ Cloudinary upload successful:", paymentScreenshotUrl);
+
         } else {
           const errorText = await uploadRes.text();
           console.error("❌ Cloudinary upload failed:", errorText);
@@ -110,7 +144,7 @@ export async function POST(req: NextRequest) {
       // If no file was uploaded, check if URL was provided in body
       if (body.paymentScreenshotUrl) {
         paymentScreenshotUrl = body.paymentScreenshotUrl;
-        console.log("📦 Using provided payment screenshot URL:", paymentScreenshotUrl);
+
       } else {
         return NextResponse.json(
           { error: "Payment screenshot is required" },
@@ -133,17 +167,10 @@ export async function POST(req: NextRequest) {
     // Process items with their correct tax breakdown
     const itemsWithDetails = [];
     for (const item of body.items) {
-      if (!ObjectId.isValid(item.itemId)) {
-        return NextResponse.json(
-          { error: "Invalid item ID format" },
-          { status: 400 }
-        );
-      }
-
       // Fetch the item details from the database
-      const itemData = await db
-        .collection("items")
-        .findOne({ _id: new ObjectId(item.itemId) });
+      const itemData = await prisma.item.findFirst({
+        where: { id: item.itemId }
+      });
 
       if (!itemData) {
         return NextResponse.json(
@@ -152,7 +179,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const priceWithTax = itemData.price;
+      const priceWithTax = itemData.price ?? 0;
       const priceWithoutTax = priceWithTax / 1.15;
       const itemTaxAmount = priceWithTax - priceWithoutTax;
       const quantity = Number(item.quantity) || 0;
@@ -215,38 +242,24 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date()
     };
 
-    console.log("💾 Saving order with values:", {
-      orderNumber: orderData.orderNumber,
-      subtotal: orderData.subtotal,
-      tax: orderData.tax,
-      totalAmount: orderData.totalAmount,
-      deliveryFee: orderData.deliveryFee,
-      finalAmount: orderData.finalAmount,
-      hasScreenshot: !!orderData.paymentScreenshotUrl,
-      hasCoordinates: !!orderData.deliveryInfo?.location?.coordinates,
-      itemsCount: itemsWithDetails.length
-    });
+
 
     // Validate with schema
     const validatedOrder = DeliveryOrderSchema.parse(orderData);
 
-    // Insert order into the database
-    const result = await db.collection("orders").insertOne(validatedOrder);
+    const data: any = { id: randomUUID(), ...validatedOrder };
+    if (data.deliveryInfo === null) data.deliveryInfo = Prisma.DbNull;
+    if (data.paymentScreenshotUrl === null) data.paymentScreenshotUrl = Prisma.DbNull;
 
-    console.log("✅ Order created successfully:", {
-      id: result.insertedId,
-      orderNumber: orderData.orderNumber,
-      subtotal: orderData.subtotal,
-      tax: orderData.tax,
-      totalAmount: orderData.totalAmount,
-      finalAmount: orderData.finalAmount,
-      hasCoordinates: !!orderData.deliveryInfo?.location?.coordinates
-    });
+    // Insert order into the database
+    const result = await prisma.order.create({ data });
+
+
 
     return NextResponse.json(
       {
         success: true,
-        orderId: result.insertedId,
+        orderId: result.id,
         orderNumber: orderData.orderNumber,
         finalAmount,
         tax: taxFromFrontend,
@@ -271,9 +284,6 @@ export async function GET(req: NextRequest) {
     const { response } = await requireRole(["admin", "kitchen", "delivery"]);
     if (response) return response;
 
-    const dbClient = await clientPromise;
-    const db = dbClient.db("gold");
-
     // Parse query parameters
     const url = new URL(req.url);
     const statusParam = url.searchParams.get("status");
@@ -290,7 +300,7 @@ export async function GET(req: NextRequest) {
       } else if (statusParam === "notConfirmed") {
         matchQuery = {
           delivery: true,
-          status: { $ne: "CONFIRMED" }
+          status: { not: "CONFIRMED" }
         };
       } else {
         if (!VALID_STATUSES.includes(statusParam as OrderStatus)) {
@@ -304,7 +314,7 @@ export async function GET(req: NextRequest) {
     } else {
       matchQuery = {
         delivery: true,
-        status: { $ne: "CONFIRMED" }
+        status: { not: "CONFIRMED" }
       };
     }
 
@@ -313,70 +323,18 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch orders with location data
-    const orders = await db.collection("orders").aggregate([
-      { $match: matchQuery },
-      {
-        $addFields: {
-          userIdObj: {
-            $cond: {
-              if: { $and: [{ $ne: ["$userId", null] }, { $ne: ["$userId", ""] }] },
-              then: { $toObjectId: "$userId" },
-              else: null
-            }
-          }
-        }
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "userIdObj",
-          foreignField: "_id",
-          as: "userDetails"
-        }
-      },
-      { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
-      { $unwind: "$items" },
-      {
-        $addFields: {
-          "items.itemIdObj": { $toObjectId: "$items.itemId" }
-        }
-      },
-      {
-        $lookup: {
-          from: "items",
-          localField: "items.itemIdObj",
-          foreignField: "_id",
-          as: "items.itemDetails"
-        }
-      },
-      {
-        $unwind: {
-          path: "$items.itemDetails",
-          preserveNullAndEmptyArrays: true
-        }
-      },
-      {
-        $group: {
-          _id: "$_id",
-          root: { $first: "$$ROOT" },
-          items: { $push: "$items" }
-        }
-      },
-      {
-        $replaceRoot: {
-          newRoot: {
-            $mergeObjects: ["$root", { items: "$items" }]
-          }
-        }
-      },
-      { $sort: { createdAt: -1 } }
-    ]).toArray();
+    const orders = await prisma.order.findMany({
+      where: matchQuery,
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const enrichedOrders = await enrichOrders(orders);
 
     return NextResponse.json(
       { 
         success: true,
-        orders,
-        count: orders.length,
+        orders: enrichedOrders,
+        count: enrichedOrders.length,
         filter: matchQuery
       },
       { status: 200 }

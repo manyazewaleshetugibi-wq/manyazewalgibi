@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
+import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/api-auth';
 
 export async function GET(request: NextRequest) {
   try {
     const { response } = await requireAdmin();
     if (response) return response;
-
-    const client = await clientPromise;
-    const db = client.db();
 
     const { searchParams } = new URL(request.url);
     const month = searchParams.get('month');
@@ -21,23 +18,25 @@ export async function GET(request: NextRequest) {
     }
 
     // Get total spins (total winners count)
-    const totalSpins = await db.collection('lottery_winners').countDocuments();
+    const totalSpins = await prisma.lotteryWinner.count();
 
     // Get current month's winners
     const monthWinners = month 
-      ? await db.collection('lottery_winners').find(winnerQuery).toArray()
+      ? await prisma.lotteryWinner.findMany({ where: winnerQuery })
       : [];
 
     // Calculate total prize value for current month
     const totalPrizeValue = monthWinners.reduce((sum, winner) => sum + (winner.prizeValue || 0), 0);
 
     // Get total participants (users with role="user")
-    const totalParticipants = await db.collection('users').countDocuments({ role: 'user' });
+    const totalParticipants = await prisma.user.count({ where: { role: 'user' } });
 
     // Get active participants
-    const activeParticipants = await db.collection('users').countDocuments({ 
-      role: 'user',
-      status: 'active'
+    const activeParticipants = await prisma.user.count({ 
+      where: {
+        role: 'user',
+        status: 'active'
+      }
     });
 
     // Calculate jackpot value (example formula - adjust as needed)

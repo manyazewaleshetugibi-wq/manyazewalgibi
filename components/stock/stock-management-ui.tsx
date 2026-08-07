@@ -39,6 +39,7 @@ import {
   DollarSign,
   Filter,
   Search,
+  SearchX,
   XCircle,
   RefreshCw,
   AlertOctagon,
@@ -233,7 +234,7 @@ export function StockManagementUI({
       if (localSearchQuery !== searchQuery) {
         onSearchChange(localSearchQuery)
       }
-    }, 300)
+    }, 250)
     return () => clearTimeout(timer)
   }, [localSearchQuery, searchQuery, onSearchChange])
 
@@ -698,7 +699,32 @@ export function StockManagementUI({
     )
   }
 
-  if (stocks.length === 0) {
+  const searchInput = (
+    <div className="mb-6">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search stocks..."
+          value={localSearchQuery}
+          onChange={(e) => setLocalSearchQuery(e.target.value)}
+          className="pl-9 pr-20 h-11 text-base bg-background"
+        />
+        {localSearchQuery && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 px-2"
+            onClick={clearSearch}
+          >
+            <XCircle className="h-4 w-4 mr-1" />
+            <span className="text-xs">Clear</span>
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+
+  if (stocks.length === 0 && !localSearchQuery && !searchQuery) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <div className="bg-muted/50 rounded-full p-4 mb-4">
@@ -720,30 +746,25 @@ export function StockManagementUI({
 
   return (
     <>
-      <div className="mb-6">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search stocks..."
-            value={localSearchQuery}
-            onChange={(e) => setLocalSearchQuery(e.target.value)}
-            className="pl-9 pr-20 h-11 text-base bg-background"
-          />
-          {localSearchQuery && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 px-2"
-              onClick={clearSearch}
-            >
-              <XCircle className="h-4 w-4 mr-1" />
-              <span className="text-xs">Clear</span>
-            </Button>
-          )}
-        </div>
-      </div>
+      {searchInput}
 
-      {viewMode === 'grid' ? (
+      {filteredStocks.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="bg-muted/50 rounded-full p-4 mb-4">
+            <SearchX className="h-12 w-12 text-muted-foreground" />
+          </div>
+          <h3 className="text-lg font-semibold mb-2">
+            No stocks match {localSearchQuery ? `"${localSearchQuery}"` : "the current filters"}
+          </h3>
+          <p className="text-muted-foreground mb-6 max-w-sm">
+            Try a different search term or clear the search to see all stocks.
+          </p>
+          <Button variant="outline" onClick={clearSearch} size="lg">
+            <XCircle className="mr-2 h-4 w-4" />
+            Clear search
+          </Button>
+        </div>
+      ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredStocks.map((stock) => {
             const status = getStockStatus(stock)

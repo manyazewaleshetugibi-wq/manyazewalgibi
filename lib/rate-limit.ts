@@ -1,5 +1,3 @@
-import { Redis } from '@upstash/redis';
-
 // Simple in-memory rate limiter (use Redis for production)
 interface RateLimitStore {
   [key: string]: {
