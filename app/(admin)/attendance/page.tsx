@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { QRCodeCanvas } from "qrcode.react"
 import { toast } from "react-hot-toast"
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, parseISO, addMonths, subMonths } from "date-fns"
-import { Search, QrCode, CheckCircle, XCircle, RefreshCw, Printer, ChevronLeft, ChevronRight, Eye, Clock, CalendarX, CalendarCheck2, TrendingUp, User } from "lucide-react"
+import { Search, QrCode, CheckCircle, XCircle, RefreshCw, Printer, ChevronLeft, ChevronRight, Eye, Clock, Timer, CalendarX, CalendarCheck2, TrendingUp } from "lucide-react"
 import { localDateStr } from "@/lib/attendance-date"
 
 interface StaffUser {
@@ -131,11 +131,39 @@ export default function AttendancePage() {
   const formatTime = (iso?: string | null) => {
     if (!iso) return "—"
     try {
-      const date = parseISO(iso)
+      let date: Date | null = null
+      try { date = parseISO(iso) } catch { date = null }
+      if (!date || isNaN(date.getTime())) date = new Date(iso)
+      if (isNaN(date.getTime())) return "—"
       return format(date, 'hh:mm a')
     } catch {
       return "—"
     }
+  }
+
+  const getWorkedMinutes = (rec?: AttendanceRecord) => {
+    if (!rec?.clockIn || !rec?.clockOut) return null
+    const inTime = new Date(rec.clockIn).getTime()
+    const outTime = new Date(rec.clockOut).getTime()
+    if (isNaN(inTime) || isNaN(outTime) || outTime <= inTime) return null
+    return Math.round((outTime - inTime) / 60000)
+  }
+
+  const formatMinutes = (mins?: number | null) => {
+    if (mins == null) return "—"
+    const h = Math.floor(mins / 60)
+    const m = mins % 60
+    return h === 0 ? `${m}m` : `${h}h ${m}m`
+  }
+
+  const shiftBadgeClass = (shift?: string) => {
+    const s = (shift || '').toLowerCase()
+    const map: Record<string, string> = {
+      morning: 'bg-amber-100 text-amber-700',
+      afternoon: 'bg-blue-100 text-blue-700',
+      evening: 'bg-purple-100 text-purple-700',
+    }
+    return `inline-block px-2 py-0.5 rounded-full font-medium capitalize ${map[s] || 'bg-gray-100 text-gray-700'}`
   }
 
   const detailRecords = useMemo(() => {
@@ -146,14 +174,23 @@ export default function AttendancePage() {
   }, [detailUser, records])
 
   const detailSummary = useMemo(() => {
-    if (!detailUser) return { present: 0, absent: 0, total: 0, late: 0, percent: 0 }
+    if (!detailUser) return { present: 0, absent: 0, total: 0, late: 0, percent: 0, workedMinutes: 0, overtimeMinutes: 0 }
     const summary = getMonthSummary(detailUser._id)
+    let workedMinutes = 0
+    let overtimeMinutes = 0
+    detailRecords.forEach(r => {
+      const wm = getWorkedMinutes(r)
+      if (wm != null) workedMinutes += wm
+      overtimeMinutes += r.overtimeMinutes || 0
+    })
     return {
       ...summary,
       late: getMonthLateCount(detailUser._id),
       percent: getPercent(summary),
+      workedMinutes,
+      overtimeMinutes,
     }
-  }, [detailUser, records, daysInMonth])
+  }, [detailUser, records, daysInMonth, detailRecords])
 
   if (isLoading) {
     return (
@@ -332,7 +369,7 @@ export default function AttendancePage() {
                             return <span className={`inline-block px-2 py-1 rounded-full font-bold ${color}`}>{pct}%</span>
                           })()}
                         </td>
-                  {detailUser && daysInMonth.map((day, i) => {
+                        {daysInMonth.map((day, i) => {
                           const status = getDayStatus(user._id, day)
                           const isToday = format(day, 'yyyy-MM-dd') === today
                           const isSunday = getDay(day) === 0
@@ -383,33 +420,40 @@ export default function AttendancePage() {
 
         {/* Staff Detail Dialog */}
         <Dialog open={!!detailUser} onOpenChange={(open) => { if (!open) setDetailUser(null) }}>
-          <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <User className="h-5 w-5 text-purple-600" />
-                {detailUser?.name}
+          <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <DialogHeader className="text-left">
+              <DialogTitle className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-full bg-gradient-to-br from-purple-600 to-purple-400 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                  {(detailUser?.name || "?").split(" ").filter(Boolean).map(p => p[0]).slice(0, 2).join("").toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate">{detailUser?.name}</span>
+                    <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100 capitalize">{detailUser?.role || "Staff"}</Badge>
+                  </div>
+                  <DialogDescription className="mt-1">
+                    {detailUser?.department && <span className="capitalize">{detailUser.department}</span>}
+                    {detailUser?.employeeId && <span> · {detailUser.employeeId}</span>}
+                    {detailUser?.shift && <span className="capitalize"> · {detailUser.shift.toLowerCase()} shift</span>}
+                    <span> · {format(currentMonth, 'MMMM yyyy')}</span>
+                  </DialogDescription>
+                </div>
               </DialogTitle>
-              <DialogDescription>
-                {detailUser?.role && <span className="capitalize">{detailUser.role}</span>}
-                {detailUser?.department && <span className="capitalize"> · {detailUser.department}</span>}
-                {detailUser?.employeeId && <span> · {detailUser.employeeId}</span>}
-                <span> · {format(currentMonth, 'MMMM yyyy')}</span>
-              </DialogDescription>
             </DialogHeader>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-2">
               <Card className="rounded-xl">
                 <CardContent className="p-3 flex flex-col items-center gap-1">
                   <CalendarCheck2 className="h-4 w-4 text-green-600" />
                   <span className="text-lg font-bold">{detailSummary.present}</span>
-                  <span className="text-[10px] text-muted-foreground">Present</span>
+                  <span className="text-[10px] text-muted-foreground">Present Days</span>
                 </CardContent>
               </Card>
               <Card className="rounded-xl">
                 <CardContent className="p-3 flex flex-col items-center gap-1">
                   <CalendarX className="h-4 w-4 text-red-600" />
                   <span className="text-lg font-bold">{detailSummary.absent}</span>
-                  <span className="text-[10px] text-muted-foreground">Absent</span>
+                  <span className="text-[10px] text-muted-foreground">Absent Days</span>
                 </CardContent>
               </Card>
               <Card className="rounded-xl">
@@ -421,6 +465,15 @@ export default function AttendancePage() {
               </Card>
               <Card className="rounded-xl">
                 <CardContent className="p-3 flex flex-col items-center gap-1">
+                  <Timer className="h-4 w-4 text-blue-600" />
+                  <span className="text-lg font-bold">{formatMinutes(detailSummary.workedMinutes)}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {detailSummary.overtimeMinutes > 0 ? `Worked · +${formatMinutes(detailSummary.overtimeMinutes)} OT` : "Total Worked"}
+                  </span>
+                </CardContent>
+              </Card>
+              <Card className="rounded-xl">
+                <CardContent className="p-3 flex flex-col items-center gap-1">
                   <TrendingUp className="h-4 w-4 text-purple-600" />
                   <span className="text-lg font-bold">{detailSummary.percent}%</span>
                   <span className="text-[10px] text-muted-foreground">Performance</span>
@@ -428,23 +481,25 @@ export default function AttendancePage() {
               </Card>
             </div>
 
-            <div className="w-full bg-gray-200 rounded-full h-2.5">
+            <div className="w-full bg-gray-200 rounded-full h-2.5 mt-3">
               <div
                 className={`h-2.5 rounded-full ${detailSummary.percent >= 80 ? 'bg-green-500' : detailSummary.percent >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
                 style={{ width: `${detailSummary.percent}%` }}
               />
             </div>
 
-            <ScrollArea className="flex-1 min-h-0 rounded-xl border">
-              <table className="w-full text-xs">
+            <ScrollArea className="flex-1 min-h-0 mt-4 rounded-xl border">
+              <table className="w-full text-xs whitespace-nowrap">
                 <thead className="sticky top-0 bg-white z-10">
-                  <tr className="border-b">
+                  <tr className="border-b bg-gray-50/80">
                     <th className="p-2 text-left font-semibold">Date</th>
                     <th className="p-2 text-center font-semibold">Clock In</th>
                     <th className="p-2 text-center font-semibold">Clock Out</th>
+                    <th className="p-2 text-center font-semibold">Worked</th>
                     <th className="p-2 text-center font-semibold">Shift</th>
                     <th className="p-2 text-center font-semibold">Late</th>
                     <th className="p-2 text-center font-semibold">Status</th>
+                    <th className="p-2 text-left font-semibold">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -453,33 +508,54 @@ export default function AttendancePage() {
                     const dayRecords = detailRecords.filter(r => r.date === dateStr)
                     const rec = dayRecords[0]
                     const isSunday = getDay(day) === 0
+                    const isToday = dateStr === today
                     const status = getDayStatus(detailUser._id, day)
+                    const workedMinutes = getWorkedMinutes(rec)
+                    const isLate = (rec?.lateMinutes || 0) > 0
                     return (
-                      <tr key={i} className={`border-b ${isSunday ? 'bg-gray-50' : ''} ${dateStr === today ? 'bg-purple-50' : ''}`}>
+                      <tr key={i} className={`border-b ${isSunday ? 'bg-gray-50' : ''} ${isToday ? 'bg-purple-50' : ''}`}>
                         <td className="p-2">
                           <div className="font-medium">{format(day, 'EEE, MMM d')}</div>
-                          {isSunday && <span className="text-[10px] text-muted-foreground">Rest day</span>}
+                          {isSunday
+                            ? <span className="text-[10px] text-muted-foreground">Rest day</span>
+                            : isToday
+                              ? <span className="text-[10px] text-purple-600 font-medium">Today</span>
+                              : <span className="text-[10px] text-muted-foreground">{format(day, 'yyyy')}</span>}
                         </td>
-                        <td className="p-2 text-center">{formatTime(rec?.clockIn)}</td>
-                        <td className="p-2 text-center">{formatTime(rec?.clockOut)}</td>
-                        <td className="p-2 text-center capitalize">{rec?.shift || "—"}</td>
                         <td className="p-2 text-center">
-                          {(rec?.lateMinutes || 0) > 0 ? (
-                            <span className="text-red-600 font-medium">{Math.round(rec!.lateMinutes!)}m</span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
+                          {isSunday ? "—" : formatTime(rec?.clockIn)}
+                        </td>
+                        <td className="p-2 text-center">
+                          {isSunday ? "—" : formatTime(rec?.clockOut)}
+                        </td>
+                        <td className="p-2 text-center">{formatMinutes(workedMinutes)}</td>
+                        <td className="p-2 text-center">
+                          {rec?.shift
+                            ? <span className={shiftBadgeClass(rec.shift)}>{rec.shift.toLowerCase()}</span>
+                            : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="p-2 text-center">
+                          {isLate
+                            ? <span className="text-red-600 font-medium">{Math.round(rec!.lateMinutes!)}m</span>
+                            : <span className="text-muted-foreground">—</span>}
                         </td>
                         <td className="p-2 text-center">
                           {isSunday ? (
                             <Badge variant="outline" className="text-[10px]">Rest</Badge>
                           ) : status === 'completed' ? (
-                            <Badge className="bg-green-500 text-[10px]">Present</Badge>
+                            isLate ? (
+                              <Badge className="bg-orange-400 text-white text-[10px]">Late</Badge>
+                            ) : (
+                              <Badge className="bg-green-500 text-[10px]">Present</Badge>
+                            )
                           ) : status === 'active' ? (
                             <Badge className="bg-yellow-400 text-yellow-900 text-[10px]">Active</Badge>
                           ) : (
                             <Badge variant="destructive" className="text-[10px]">Absent</Badge>
                           )}
+                        </td>
+                        <td className="p-2 text-left max-w-[180px] truncate text-muted-foreground">
+                          {rec?.note ? rec.note : <span className="text-muted-foreground/60">—</span>}
                         </td>
                       </tr>
                     )

@@ -12,8 +12,8 @@ const RP_NAME = 'Manyazewal Eshetu Gibi';
 const RP_ID = process.env.NEXT_PUBLIC_RP_ID
   || (process.env.NEXT_PUBLIC_BASE_URL
     ? new URL(process.env.NEXT_PUBLIC_BASE_URL).hostname
-    : 'localhost');
-const ORIGIN = (process.env.NEXT_PUBLIC_ORIGIN || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
+    : 'manyazewalgibi.vercel.app');
+const ORIGIN = (process.env.NEXT_PUBLIC_ORIGIN || process.env.NEXT_PUBLIC_BASE_URL || 'https://manyazewalgibi.vercel.app').replace(/\/+$/, '');
 
 export function getRelyingParty() {
   return { rpName: RP_NAME, rpID: RP_ID, origin: ORIGIN };
