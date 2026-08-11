@@ -85,13 +85,13 @@ export default function StockCategoriesPage() {
     name: "",
     description: "",
     isActive: true,
-    tags: [],
+    tags: [] as string[],
   });
   const [updatedCategory, setUpdatedCategory] = useState({
     name: "",
     description: "",
     isActive: true,
-    tags: [],
+    tags: [] as string[],
   });
   const [isLoading, setIsLoading] = useState(false);
   const [sortConfig, setSortConfig] = useState<{

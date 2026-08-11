@@ -239,7 +239,7 @@ export default function SalaryPage() {
         Notes: s.notes || '-',
       }
     })
-    data.push({ Name: 'TOTAL', Position: '', 'Base Salary': stats.total, 'Daily Rate': '', 'Days Worked': '', 'Days Absent': '', [`${MONTHS[viewMonth - 1]} ${viewYear}`]: `${stats.paid} paid / ${stats.unpaid} unpaid`, 'Bank Account': '', Notes: '' })
+    data.push({ Name: 'TOTAL', Position: '', 'Base Salary': stats.total, 'Daily Rate': 0, 'Days Worked': 0, 'Days Absent': 0, [`${MONTHS[viewMonth - 1]} ${viewYear}`]: `${stats.paid} paid / ${stats.unpaid} unpaid`, 'Bank Account': '', Notes: '' })
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Salary')

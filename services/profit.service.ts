@@ -269,7 +269,7 @@ export class ProfitService {
   // Get latest price for a stock item
   static getLatestPrice(stockId: string, purchases: Purchase[]): { 
     price: number
-    date: string
+    purchaseDate: string
     supplier: string 
   } {
     const stockPurchases = purchases
@@ -279,11 +279,11 @@ export class ProfitService {
     if (stockPurchases.length > 0) {
       return {
         price: stockPurchases[0].unitPrice,
-        date: stockPurchases[0].purchaseDate,
+        purchaseDate: stockPurchases[0].purchaseDate,
         supplier: stockPurchases[0].supplier
       }
     }
-    return { price: 0, date: '', supplier: '' }
+    return { price: 0, purchaseDate: '', supplier: '' }
   }
 
   // Get stock name by ID

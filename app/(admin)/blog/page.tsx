@@ -276,10 +276,11 @@ function BlogManagement() {
     getNextPageParam: (lastPage, pages) => 
       lastPage?.data?.length === ITEMS_PER_PAGE ? pages.length : undefined,
     initialPageParam: 0,
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Check if any uploads are in progress
-      const hasUploading = data?.pages?.some(page => 
-        page?.data?.some((blog: Blog) => 
+      const pages = (query.state.data as { pages?: { data?: { uploadStatus?: string }[] }[] } | undefined)?.pages
+      const hasUploading = pages?.some(page =>
+        page?.data?.some((blog) =>
           blog.uploadStatus === "uploading" || blog.uploadStatus === "processing"
         )
       )
@@ -1030,11 +1031,11 @@ function BlogManagement() {
              formData.videoUrl && 
              !formData.videoUrl.startsWith('http')) ||
             (formData.mediaSource === "image" && 
-             selectedImageFile && 
+             !!selectedImageFile && 
              selectedImageFile.size > MAX_IMAGE_SIZE) ||
             (formData.mediaSource === "video" && 
              formData.videoSource === "upload" && 
-             selectedVideoFile && 
+             !!selectedVideoFile && 
              selectedVideoFile.size > MAX_VIDEO_SIZE)
           }
           className="w-full"

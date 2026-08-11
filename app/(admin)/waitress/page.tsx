@@ -186,7 +186,7 @@ export default function WaitressManagement() {
             </DialogHeader>
             <WaitressForm
               onSubmit={editingWaitress ? (data) => handleUpdateWaitress(editingWaitress._id, data) : handleAddWaitress}
-              initialData={editingWaitress}
+              initialData={editingWaitress ?? undefined}
             />
           </DialogContent>
         </Dialog>

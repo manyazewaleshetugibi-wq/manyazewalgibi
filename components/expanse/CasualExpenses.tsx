@@ -373,7 +373,7 @@ export function CasualExpenses() {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="rounded-xl border-0 shadow-xl">
-                    <Calendar mode="single" selected={customStartDate || undefined} onSelect={setCustomStartDate} />
+                    <Calendar mode="single" selected={customStartDate || undefined} onSelect={(day) => setCustomStartDate(day ?? null)} />
                   </PopoverContent>
                 </Popover>
               </div>

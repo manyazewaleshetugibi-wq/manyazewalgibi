@@ -13,6 +13,7 @@ declare module 'crypto-js' {
     }
 
     export interface Hash {
+        (message: string | WordArray, cfg?: object): WordArray;
         toString(): string;
         toString(encoder: Encoder): string;
     }

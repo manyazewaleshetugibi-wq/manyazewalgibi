@@ -1252,7 +1252,7 @@ export default function POSPage() {
               id: matchingWaiter._id,
               name: matchingWaiter.name,
               role: matchingWaiter.role || sessionData.user.role,
-              email: matchingWaiter.email,
+              email: matchingWaiter.email || sessionData.user.email || '',
               restaurantId: waiterRestaurantId,
               restaurantName: waiterRestaurantName
             });

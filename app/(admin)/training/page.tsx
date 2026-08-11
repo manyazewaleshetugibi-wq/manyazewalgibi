@@ -655,8 +655,8 @@ export default function TrainingPage() {
           isUploading ||
           newTraining.title.length < 3 ||
           newTraining.description.length < 10 ||
-          (newTraining.linkUrl.trim() && !newTraining.linkUrl.startsWith('http')) ||
-          (uploadedFile && uploadedFile.size > getMaxFileSize())
+          (!!newTraining.linkUrl.trim() && !newTraining.linkUrl.startsWith('http')) ||
+          (!!uploadedFile && uploadedFile.size > getMaxFileSize())
         }
         className="w-full"
       >

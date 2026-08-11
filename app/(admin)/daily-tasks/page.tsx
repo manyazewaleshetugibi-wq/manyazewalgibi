@@ -482,9 +482,9 @@ function DailyTasksDashboard() {
     assignedToEmail: "",
     startTime: "",
     endTime: "",
-    priority: "medium" as const,
-    estimatedHours: "",
+    priority: "medium" as "low" | "medium" | "high" | "urgent",
   });
+
 
   // State for template dropdown
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");

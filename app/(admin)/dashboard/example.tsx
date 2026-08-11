@@ -2,6 +2,7 @@
 
 import { useSession } from "next-auth/react"
 import { redirect } from "next/navigation"
+import { UserRole } from "@/models/User"
 
 export default function RoleBasedContent() {
   const { data: session, status } = useSession()
@@ -19,9 +20,9 @@ export default function RoleBasedContent() {
   }
 
   switch (session.user.role) {
-    case "ADMIN":
+    case UserRole.ADMIN:
       return <AdminContent />
-    case "CUSTOMER":
+    case UserRole.CUSTOMER:
       return <UserContent />
     default:
       return <div>Error: Unknown user role</div>

@@ -5,9 +5,11 @@ import { getToken } from 'next-auth/jwt';
 import { localDateStr } from '@/lib/attendance-date';
 import { verifyAttendanceIdentity } from '@/lib/attendance-auth';
 
-const OFFICE_LAT = Number(process.env.OFFICE_LAT) || 8.99410;
-const OFFICE_LNG = Number(process.env.OFFICE_LNG) || 38.79260;
-const RADIUS_METERS = Number(process.env.ATTENDANCE_RADIUS_METERS) || 5;
+const LOCATIONS = [
+  { name: 'Main Office', lat: Number(process.env.OFFICE_LAT) || 8.99410, lng: Number(process.env.OFFICE_LNG) || 38.79260 },
+  { name: 'Second Location', lat: Number(process.env.OFFICE2_LAT) || 8.995558248661382, lng: Number(process.env.OFFICE2_LNG) || 38.791852326625836 },
+];
+const RADIUS_METERS = Number(process.env.ATTENDANCE_RADIUS_METERS) || 20;
 const BYPASS_LOCATION = process.env.BYPASS_CLOCKIN_LOCATION === 'true';
 const SHIFT_START_HOUR: Record<string, number> = {
   MORNING: 8,
@@ -27,7 +29,7 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 }
 
 function verifyLocation(latitude: number, longitude: number): { valid: boolean; distance: number } {
-  const distance = haversineDistance(latitude, longitude, OFFICE_LAT, OFFICE_LNG);
+  const distance = Math.min(...LOCATIONS.map(loc => haversineDistance(latitude, longitude, loc.lat, loc.lng)));
   return { valid: distance <= RADIUS_METERS, distance };
 }
 
@@ -84,7 +86,7 @@ export async function POST(request: NextRequest) {
     if (!BYPASS_LOCATION && !locationCheck.valid) {
       return NextResponse.json({
         success: false,
-        error: `You are ${Math.round(locationCheck.distance)}m away. Must be within ${RADIUS_METERS}m of the office to clock in/out.`
+        error: `You are ${Math.round(locationCheck.distance)}m away. Must be within ${RADIUS_METERS}m of a work location to clock in/out.`
       }, { status: 403 });
     }
 

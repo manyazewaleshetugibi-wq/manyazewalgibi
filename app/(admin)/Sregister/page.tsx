@@ -306,6 +306,7 @@ export default function StandardsRegisterPage() {
       number: subItemForm.number,
       title: subItemForm.title,
       description: subItemForm.description,
+      isRequired: true,
     };
 
     setStandards(prev => prev.map(standard => {

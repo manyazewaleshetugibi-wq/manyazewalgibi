@@ -240,7 +240,7 @@ async function fetchPurchases(): Promise<Purchase[]> {
 // HELPER FUNCTIONS
 // ============================================
 
-function getLatestPrice(stockId: string, purchases: Purchase[]): { price: number, date: string, supplier: string } {
+function getLatestPrice(stockId: string, purchases: Purchase[]): { price: number, purchaseDate: string, supplier: string } {
   const stockPurchases = purchases
     .filter(p => p.stockId === stockId)
     .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
@@ -248,11 +248,11 @@ function getLatestPrice(stockId: string, purchases: Purchase[]): { price: number
   if (stockPurchases.length > 0) {
     return {
       price: stockPurchases[0].unitPrice,
-      date: stockPurchases[0].purchaseDate,
+      purchaseDate: stockPurchases[0].purchaseDate,
       supplier: stockPurchases[0].supplier
     }
   }
-  return { price: 0, date: '', supplier: '' }
+  return { price: 0, purchaseDate: '', supplier: '' }
 }
 
 function getStockName(stockId: string, stocks: StockItem[]): string {

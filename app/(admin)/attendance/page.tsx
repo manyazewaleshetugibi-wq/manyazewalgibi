@@ -7,10 +7,12 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { QRCodeCanvas } from "qrcode.react"
 import { toast } from "react-hot-toast"
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, parseISO, isSameDay, addMonths, subMonths } from "date-fns"
-import { Search, QrCode, CheckCircle, XCircle, RefreshCw, Printer, ChevronLeft, ChevronRight, User } from "lucide-react"
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, parseISO, addMonths, subMonths } from "date-fns"
+import { Search, QrCode, CheckCircle, XCircle, RefreshCw, Printer, ChevronLeft, ChevronRight, Eye, Clock, CalendarX, CalendarCheck2, TrendingUp, User } from "lucide-react"
 import { localDateStr } from "@/lib/attendance-date"
 
 interface StaffUser {
@@ -19,6 +21,8 @@ interface StaffUser {
   email: string
   role: string
   employeeId?: string
+  department?: string
+  shift?: string
   status: string
 }
 
@@ -29,6 +33,10 @@ interface AttendanceRecord {
   clockIn: string
   clockOut: string | null
   status: string
+  shift?: string
+  lateMinutes?: number
+  overtimeMinutes?: number
+  note?: string
 }
 
 export default function AttendancePage() {
@@ -38,6 +46,7 @@ export default function AttendancePage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [roleFilter, setRoleFilter] = useState("all")
   const [currentMonth, setCurrentMonth] = useState(() => new Date())
+  const [detailUser, setDetailUser] = useState<StaffUser | null>(null)
 
   const today = localDateStr()
 
@@ -110,6 +119,41 @@ export default function AttendancePage() {
     })
     return { present, absent, total: present + absent }
   }
+
+  const getMonthLateCount = (userId: string) => {
+    return records.filter(r => r.userId === userId && (r.lateMinutes || 0) > 0).length
+  }
+
+  const getPercent = (summary: { present: number; total: number }) => {
+    return summary.total > 0 ? Math.round((summary.present / summary.total) * 100) : 0
+  }
+
+  const formatTime = (iso?: string | null) => {
+    if (!iso) return "—"
+    try {
+      const date = parseISO(iso)
+      return format(date, 'hh:mm a')
+    } catch {
+      return "—"
+    }
+  }
+
+  const detailRecords = useMemo(() => {
+    if (!detailUser) return []
+    return records
+      .filter(r => r.userId === detailUser._id)
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+  }, [detailUser, records])
+
+  const detailSummary = useMemo(() => {
+    if (!detailUser) return { present: 0, absent: 0, total: 0, late: 0, percent: 0 }
+    const summary = getMonthSummary(detailUser._id)
+    return {
+      ...summary,
+      late: getMonthLateCount(detailUser._id),
+      percent: getPercent(summary),
+    }
+  }, [detailUser, records, daysInMonth])
 
   if (isLoading) {
     return (
@@ -282,7 +326,11 @@ export default function AttendancePage() {
                           </div>
                         </td>
                         <td className="p-2 border-b text-center text-[10px]">
-                          {summary.total > 0 ? Math.round((summary.present / summary.total) * 100) : 0}%
+                          {(() => {
+                            const pct = getPercent(summary)
+                            const color = pct >= 80 ? 'bg-green-100 text-green-700' : pct >= 60 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
+                            return <span className={`inline-block px-2 py-1 rounded-full font-bold ${color}`}>{pct}%</span>
+                          })()}
                         </td>
                         {daysInMonth.map((day, i) => {
                           const status = getDayStatus(user._id, day)
@@ -307,12 +355,22 @@ export default function AttendancePage() {
                             </td>
                           )
                         })}
+                        <td className="p-2 border-b text-center">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="rounded-full text-[11px]"
+                            onClick={() => setDetailUser(user)}
+                          >
+                            <Eye className="h-3 w-3 mr-1" /> Details
+                          </Button>
+                        </td>
                       </tr>
                     )
                   })}
                   {filteredStaff.length === 0 && (
                     <tr>
-                      <td colSpan={daysInMonth.length + 4} className="text-center py-10 text-muted-foreground">
+                      <td colSpan={daysInMonth.length + 5} className="text-center py-10 text-muted-foreground">
                         No staff found
                       </td>
                     </tr>
@@ -322,6 +380,115 @@ export default function AttendancePage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Staff Detail Dialog */}
+        <Dialog open={!!detailUser} onOpenChange={(open) => { if (!open) setDetailUser(null) }}>
+          <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <User className="h-5 w-5 text-purple-600" />
+                {detailUser?.name}
+              </DialogTitle>
+              <DialogDescription>
+                {detailUser?.role && <span className="capitalize">{detailUser.role}</span>}
+                {detailUser?.department && <span className="capitalize"> · {detailUser.department}</span>}
+                {detailUser?.employeeId && <span> · {detailUser.employeeId}</span>}
+                <span> · {format(currentMonth, 'MMMM yyyy')}</span>
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <Card className="rounded-xl">
+                <CardContent className="p-3 flex flex-col items-center gap-1">
+                  <CalendarCheck2 className="h-4 w-4 text-green-600" />
+                  <span className="text-lg font-bold">{detailSummary.present}</span>
+                  <span className="text-[10px] text-muted-foreground">Present</span>
+                </CardContent>
+              </Card>
+              <Card className="rounded-xl">
+                <CardContent className="p-3 flex flex-col items-center gap-1">
+                  <CalendarX className="h-4 w-4 text-red-600" />
+                  <span className="text-lg font-bold">{detailSummary.absent}</span>
+                  <span className="text-[10px] text-muted-foreground">Absent</span>
+                </CardContent>
+              </Card>
+              <Card className="rounded-xl">
+                <CardContent className="p-3 flex flex-col items-center gap-1">
+                  <Clock className="h-4 w-4 text-yellow-600" />
+                  <span className="text-lg font-bold">{detailSummary.late}</span>
+                  <span className="text-[10px] text-muted-foreground">Late Arrivals</span>
+                </CardContent>
+              </Card>
+              <Card className="rounded-xl">
+                <CardContent className="p-3 flex flex-col items-center gap-1">
+                  <TrendingUp className="h-4 w-4 text-purple-600" />
+                  <span className="text-lg font-bold">{detailSummary.percent}%</span>
+                  <span className="text-[10px] text-muted-foreground">Performance</span>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="w-full bg-gray-200 rounded-full h-2.5">
+              <div
+                className={`h-2.5 rounded-full ${detailSummary.percent >= 80 ? 'bg-green-500' : detailSummary.percent >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                style={{ width: `${detailSummary.percent}%` }}
+              />
+            </div>
+
+            <ScrollArea className="flex-1 min-h-0 rounded-xl border">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b">
+                    <th className="p-2 text-left font-semibold">Date</th>
+                    <th className="p-2 text-center font-semibold">Clock In</th>
+                    <th className="p-2 text-center font-semibold">Clock Out</th>
+                    <th className="p-2 text-center font-semibold">Shift</th>
+                    <th className="p-2 text-center font-semibold">Late</th>
+                    <th className="p-2 text-center font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {daysInMonth.map((day, i) => {
+                    const dateStr = format(day, 'yyyy-MM-dd')
+                    const dayRecords = detailRecords.filter(r => r.date === dateStr)
+                    const rec = dayRecords[0]
+                    const isSunday = getDay(day) === 0
+                    const status = getDayStatus(detailUser!._id, day)
+                    return (
+                      <tr key={i} className={`border-b ${isSunday ? 'bg-gray-50' : ''} ${dateStr === today ? 'bg-purple-50' : ''}`}>
+                        <td className="p-2">
+                          <div className="font-medium">{format(day, 'EEE, MMM d')}</div>
+                          {isSunday && <span className="text-[10px] text-muted-foreground">Rest day</span>}
+                        </td>
+                        <td className="p-2 text-center">{formatTime(rec?.clockIn)}</td>
+                        <td className="p-2 text-center">{formatTime(rec?.clockOut)}</td>
+                        <td className="p-2 text-center capitalize">{rec?.shift || "—"}</td>
+                        <td className="p-2 text-center">
+                          {(rec?.lateMinutes || 0) > 0 ? (
+                            <span className="text-red-600 font-medium">{Math.round(rec!.lateMinutes!)}m</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="p-2 text-center">
+                          {isSunday ? (
+                            <Badge variant="outline" className="text-[10px]">Rest</Badge>
+                          ) : status === 'completed' ? (
+                            <Badge className="bg-green-500 text-[10px]">Present</Badge>
+                          ) : status === 'active' ? (
+                            <Badge className="bg-yellow-400 text-yellow-900 text-[10px]">Active</Badge>
+                          ) : (
+                            <Badge variant="destructive" className="text-[10px]">Absent</Badge>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </ScrollArea>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

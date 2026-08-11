@@ -163,7 +163,7 @@ async function fetchStockPurchases(): Promise<StockPurchase[]> {
     const { stockApi } = await import("@/services/expense.service")
     const purchasesData = await stockApi.getStockPurchases()
     const stocks = await stockApi.getStockItems()
-    const stockMap = new Map(stocks.map(s => [s._id, s.name]))
+    const stockMap = new Map(stocks.map((s: any) => [s._id, s.name]))
     
     return purchasesData.map((p: any) => ({
       ...p,

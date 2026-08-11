@@ -9,10 +9,16 @@ import { Badge } from "@/components/ui/badge"
 import { Clock, CheckCircle, XCircle, Loader2, User, Smartphone, MapPin, Navigation, Fingerprint, Lock } from "lucide-react"
 import { startRegistration, startAuthentication } from "@simplewebauthn/browser"
 
-const OFFICE_LAT = Number(process.env.NEXT_PUBLIC_OFFICE_LAT) || 8.99410
-const OFFICE_LNG = Number(process.env.NEXT_PUBLIC_OFFICE_LNG) || 38.79260
-const RADIUS_METERS = Number(process.env.NEXT_PUBLIC_ATTENDANCE_RADIUS_METERS) || 5
+const LOCATIONS = [
+  { name: 'Main Office', lat: Number(process.env.NEXT_PUBLIC_OFFICE_LAT) || 8.99410, lng: Number(process.env.NEXT_PUBLIC_OFFICE_LNG) || 38.79260 },
+  { name: 'Second Location', lat: Number(process.env.NEXT_PUBLIC_OFFICE2_LAT) || 8.995558248661382, lng: Number(process.env.NEXT_PUBLIC_OFFICE2_LNG) || 38.791852326625836 },
+]
+const RADIUS_METERS = Number(process.env.NEXT_PUBLIC_ATTENDANCE_RADIUS_METERS) || 20
 const BYPASS_LOCATION = process.env.NEXT_PUBLIC_BYPASS_CLOCKIN_LOCATION === 'true'
+
+function distanceToNearestLocation(lat: number, lng: number): number {
+  return Math.min(...LOCATIONS.map(loc => haversineDistance(lat, lng, loc.lat, loc.lng)))
+}
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000
@@ -58,8 +64,8 @@ function ClockInForm() {
 
   const requestLocation = useCallback(async (user: any) => {
     if (BYPASS_LOCATION) {
-      setUserLat(OFFICE_LAT)
-      setUserLng(OFFICE_LNG)
+      setUserLat(LOCATIONS[0].lat)
+      setUserLng(LOCATIONS[0].lng)
       checkFingerprintThenProceed(user)
       return
     }
@@ -73,7 +79,7 @@ function ClockInForm() {
       (position) => {
         const lat = position.coords.latitude
         const lng = position.coords.longitude
-        const dist = haversineDistance(lat, lng, OFFICE_LAT, OFFICE_LNG)
+        const dist = distanceToNearestLocation(lat, lng)
         if (dist <= RADIUS_METERS) {
           setUserLat(lat)
           setUserLng(lng)
