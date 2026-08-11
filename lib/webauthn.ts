@@ -28,12 +28,15 @@ export async function getCredentialById(credentialId: string) {
 }
 
 export async function saveCredential(userId: string, credential: any) {
+  const publicKey = credential.publicKey instanceof Uint8Array
+    ? Buffer.from(credential.publicKey).toString('base64')
+    : credential.publicKey;
   await prisma.webAuthnCredential.create({
     data: {
       id: randomUUID(),
       userId,
       credentialId: credential.id,
-      publicKey: credential.publicKey,
+      publicKey,
       counter: credential.counter,
       transports: credential.transports || [],
       deviceName: '',
