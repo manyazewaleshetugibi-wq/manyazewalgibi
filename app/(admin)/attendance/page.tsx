@@ -332,7 +332,7 @@ export default function AttendancePage() {
                             return <span className={`inline-block px-2 py-1 rounded-full font-bold ${color}`}>{pct}%</span>
                           })()}
                         </td>
-                        {daysInMonth.map((day, i) => {
+                  {detailUser && daysInMonth.map((day, i) => {
                           const status = getDayStatus(user._id, day)
                           const isToday = format(day, 'yyyy-MM-dd') === today
                           const isSunday = getDay(day) === 0
@@ -448,12 +448,12 @@ export default function AttendancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {daysInMonth.map((day, i) => {
+                  {detailUser && daysInMonth.map((day, i) => {
                     const dateStr = format(day, 'yyyy-MM-dd')
                     const dayRecords = detailRecords.filter(r => r.date === dateStr)
                     const rec = dayRecords[0]
                     const isSunday = getDay(day) === 0
-                    const status = getDayStatus(detailUser!._id, day)
+                    const status = getDayStatus(detailUser._id, day)
                     return (
                       <tr key={i} className={`border-b ${isSunday ? 'bg-gray-50' : ''} ${dateStr === today ? 'bg-purple-50' : ''}`}>
                         <td className="p-2">
