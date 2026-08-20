@@ -49,10 +49,12 @@ export default function RootLayout({
         <Providers>
           <UserDataProvider>
             <Suspense fallback={<LoadingScreen />}>
-              <UnauthorizedBanner />
               <ProtectedRoute>
                 {children}
               </ProtectedRoute>
+            </Suspense>
+            <Suspense fallback={null}>
+              <UnauthorizedBanner />
             </Suspense>
           </UserDataProvider>
         </Providers>
