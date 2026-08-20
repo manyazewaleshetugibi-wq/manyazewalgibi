@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { AISearchEngine } from '@/lib/ai-search-engine';
+import { requireRole } from '@/lib/api-auth';
 
 let searchEngine: AISearchEngine | null = null;
 
@@ -14,6 +15,9 @@ function getSearchEngine() {
 
 export async function POST(request: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "kitchen", "waitress", "pos", "stock_manager", "marketing", "finance"]);
+    if (response) return response;
+    
     const body = await request.json();
     const { query } = body;
     

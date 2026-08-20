@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { PurchaseSchema } from "@/models/Stock";
+import { requireRole } from "@/lib/api-auth";
 
 // ✅ GET purchase by ID - RETURNS ACTUAL DATA
 export async function GET(
@@ -41,6 +42,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager"]);
+    if (response) return response;
+    
     const { id } = await params;
 
     const result = await prisma.stockPurchase.deleteMany({ where: { id } });
@@ -73,6 +77,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager"]);
+    if (response) return response;
+    
     const { id } = await params;
 
     const body = await req.json();

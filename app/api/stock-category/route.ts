@@ -3,10 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { StockCategorySubschema } from "@/models/Stock";
 import { createResponse } from "@/lib/utils";
+import { requireRole } from "@/lib/api-auth";
 
-// ✅ GET all categories
+// GET all categories
 export async function GET() {
   try {
+    const { response } = await requireRole(["admin", "stock_manager", "kitchen", "finance"]);
+    if (response) return response;
+    
     const categories = await prisma.stockCategory.findMany();
 
     return createResponse(200, true, "Stock categories retrieved successfully", categories.map((c: any) => ({ ...c, _id: c.id })));
@@ -19,6 +23,9 @@ export async function GET() {
 // ✅ POST (Create a new category)
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager"]);
+    if (response) return response;
+    
     const body = await req.json();
     const parsed = StockCategorySubschema.parse(body); // Validation using Zod
 

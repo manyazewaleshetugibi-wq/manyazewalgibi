@@ -31,11 +31,23 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const expenseData: any = await req.json()
     delete expenseData._id // Ensure _id is not updated
 
-    if (expenseData.createdBy) {
-      expenseData.createdBy = String(expenseData.createdBy)
+    // Filter to only allow safe fields
+    const allowedFields = ['title', 'description', 'amount', 'category', 'date', 'tags', 'recurring', 'frequency', 'notes', 'priority', 'status'];
+    const safeData: Record<string, any> = {};
+    for (const key of Object.keys(expenseData)) {
+      if (allowedFields.includes(key)) {
+        safeData[key] = expenseData[key];
+      }
     }
 
-    const result = await prisma.expenseRecord.updateMany({ where: { id }, data: expenseData })
+    if (safeData.amount !== undefined) {
+      safeData.amount = parseFloat(safeData.amount);
+      if (isNaN(safeData.amount)) {
+        return NextResponse.json({ success: false, error: "Invalid amount value" }, { status: 400 })
+      }
+    }
+
+    const result = await prisma.expenseRecord.updateMany({ where: { id }, data: safeData })
 
     if (result.count === 0) {
       return NextResponse.json({ success: false, error: "Expense not found" }, { status: 404 })

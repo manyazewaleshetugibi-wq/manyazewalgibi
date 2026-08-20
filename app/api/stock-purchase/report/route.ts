@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireRole } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
   try {
-    // ✅ Extract query parameters
+    const { response } = await requireRole(["admin", "stock_manager", "finance"]);
+    if (response) return response;
+    
     const { searchParams } = new URL(req.url);
     const startDateParam = searchParams.get("startDate");
     const endDateParam = searchParams.get("endDate");

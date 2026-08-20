@@ -3,11 +3,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { WastageCreateSchema } from "@/models/Stock"; // Import the schema
+import { WastageCreateSchema } from "@/models/Stock";
+import { requireRole } from "@/lib/api-auth";
 
 // GET - Fetch all wastages or filter by stockId
 export async function GET(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager", "kitchen"]);
+    if (response) return response;
+    
     const { searchParams } = new URL(req.url);
     const stockId = searchParams.get("stockId");
     const startDate = searchParams.get("startDate");
@@ -59,6 +63,9 @@ export async function GET(req: NextRequest) {
 // POST - Create new wastage with validation
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager", "kitchen"]);
+    if (response) return response;
+    
     const body = await req.json();
     
     // ✅ Validate with Zod schema
@@ -147,6 +154,9 @@ export async function POST(req: NextRequest) {
 // DELETE - Delete a wastage record
 export async function DELETE(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager"]);
+    if (response) return response;
+    
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 

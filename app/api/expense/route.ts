@@ -10,8 +10,14 @@ export async function POST(req: NextRequest) {
     if (response) return response;
 
     const expenseData: Expense = await req.json()
-    const data: any = { ...expenseData }
-    delete data._id
+
+    const allowedFields = ["name", "amount", "date", "category", "description", "receiptUrl", "paymentMethod", "taxDeductible", "taxAmount", "currency", "createdBy"];
+    const data: any = {};
+    for (const key of allowedFields) {
+      if (expenseData[key as keyof Expense] !== undefined) {
+        data[key] = expenseData[key as keyof Expense];
+      }
+    }
     data.createdBy = expenseData.createdBy ? String(expenseData.createdBy) : null
 
     const result = await prisma.expenseRecord.create({

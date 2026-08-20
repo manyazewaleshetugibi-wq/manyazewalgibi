@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
 
-  allowedDevOrigins: ['192.168.1.8'],
-
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -76,7 +74,6 @@ const nextConfig = {
           "base-uri 'self'",
           "form-action 'self'",
           "frame-ancestors 'none'",
-          'upgrade-insecure-requests',
         ].join('; '),
       },
     ];

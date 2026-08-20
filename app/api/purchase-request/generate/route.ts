@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { createResponse } from "@/lib/utils";
+import { requireRole } from "@/lib/api-auth";
 
 function daysBetween(date1: Date, date2: Date): number {
   const diffTime = Math.abs(date2.getTime() - date1.getTime());
@@ -30,6 +31,8 @@ function getFrequencyDays(frequency: string): number {
 
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "finance", "stock_manager", "purchasing"]);
+    if (response) return response;
     // Removed the 21-hour check - can generate anytime
 
     const today = new Date().toISOString().split('T')[0];
@@ -153,6 +156,8 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "finance", "stock_manager", "purchasing"]);
+    if (response) return response;
     const settings = await prisma.systemSetting.findFirst({ where: { key: "last_purchase_request_generation" } });
     const lastGenerationTime = settings?.value ? new Date(settings.value as string) : null;
 

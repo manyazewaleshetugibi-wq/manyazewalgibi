@@ -2,9 +2,12 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { createResponse } from "@/lib/utils";
+import { requireRole } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "finance", "stock_manager", "purchasing"]);
+    if (response) return response;
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const stockId = searchParams.get('stockId');
@@ -99,6 +102,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager", "purchasing"]);
+    if (response) return response;
     const body = await req.json();
 
     if (!body.stockId) {

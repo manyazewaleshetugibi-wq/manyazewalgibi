@@ -1,6 +1,7 @@
 // app/api/waitress/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireRole } from "@/lib/api-auth";
 
 export async function GET(
     req: NextRequest,
@@ -52,6 +53,9 @@ export async function PUT(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
+        const { response } = await requireRole(["admin"]);
+        if (response) return response;
+        
         const { id } = await params;
 
         const body = await req.json();
@@ -107,6 +111,9 @@ export async function DELETE(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
+        const { response } = await requireRole(["admin"]);
+        if (response) return response;
+        
         const { id } = await params;
 
         // Get waitress to check if it exists and get userId

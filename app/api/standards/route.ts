@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { getCurrentUserData } from "../utils/orderHelpers";
 import { Standard, DepartmentRole, departmentOptions } from "@/types/standards";
+import { requireRole } from "@/lib/api-auth";
 
 // Helper function to check if user is admin
 const isAdminRole = (role: string | undefined): boolean => {
@@ -54,6 +55,9 @@ export async function GET(req: NextRequest) {
 // POST endpoint - Create new standards
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin"]);
+    if (response) return response;
+    
     const body = await req.json();
     
     const { role, standards, description, effectiveFrom, reviewDate } = body;

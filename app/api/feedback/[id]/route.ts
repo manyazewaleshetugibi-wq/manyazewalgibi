@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { FeedbackSchema } from "@/models/Feedback";
+import { requireRole } from "@/lib/api-auth";
 
 // PUT: Update Feedback
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+
     const { id } = await params;
 
     const body = await req.json();
@@ -32,6 +36,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 // DELETE: Delete Feedback
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+    
     const { id } = await params;
 
     // Delete feedback from the database

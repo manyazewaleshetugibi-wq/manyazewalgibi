@@ -1,6 +1,7 @@
 // app/api/restaurants/[id]/route.ts (UPDATED - with location support)
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireRole } from '@/lib/api-auth'
 
 // GET - Fetch single restaurant
 export async function GET(
@@ -39,6 +40,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin"]);
+    if (response) return response;
+    
     const { id } = await params
 
     const body = await request.json()
@@ -178,6 +182,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { response } = await requireRole(["admin"]);
+    if (response) return response;
+    
     const { id } = await params
 
     const result = await prisma.restaurant.deleteMany({ where: { id } })

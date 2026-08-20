@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import prisma from "@/lib/prisma";
 import { getCurrentUserData } from "../../utils/orderHelpers";
+import { normalizeStatus } from "../../utils/orderHelpers";
 
 // Helper function to check if a user role is admin (case-insensitive)
 const isAdminRole = (role: string | undefined): boolean => {
@@ -57,12 +58,22 @@ export async function PUT(
 
     const body = await req.json();
 
+    // Filter to only allow safe fields to be updated (prevent mass assignment)
+    const allowedFields = [
+      'tableNumber', 'notes', 'specialRequirements', 'numberOfGuests',
+      'paymentMethod', 'paymentStatus', 'customerName', 'floor',
+      'deliveryInfo', 'paymentScreenshotUrl', 'isActive'
+    ];
+    const safeData: Record<string, any> = { updatedAt: new Date() };
+    for (const key of Object.keys(body)) {
+      if (allowedFields.includes(key)) {
+        safeData[key] = body[key];
+      }
+    }
+
     const result = await prisma.order.updateMany({
       where: { id: orderId },
-      data: {
-        ...body,
-        updatedAt: new Date(),
-      },
+      data: safeData,
     });
 
     if (result.count === 0) {
@@ -224,8 +235,11 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       );
     }
 
+    // Normalize status before saving
+    const normalizedStatus = normalizeStatus(status);
+
     const updateResult = await prisma.order.updateMany(
-      { where: { id: params.id }, data: { status, updatedAt: new Date() } }
+      { where: { id: params.id }, data: { status: normalizedStatus, updatedAt: new Date() } }
     );
 
     if (updateResult.count === 0) {

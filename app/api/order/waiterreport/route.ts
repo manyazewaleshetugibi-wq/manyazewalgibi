@@ -189,11 +189,12 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
 
-    // Calculate daily sales (grouped by UTC date, matching $dateToString %Y-%m-%d)
+    // Calculate daily sales (grouped by Ethiopia local date UTC+3)
     const dailyMap = new Map<string, { total: number; orders: number; averageOrderValue: number }>();
     for (const o of summaryOrders) {
       if (!o.createdAt) continue;
-      const key = o.createdAt.toISOString().slice(0, 10);
+      const localDate = new Date(o.createdAt.getTime() + ETH_OFFSET_MS)
+      const key = localDate.toISOString().slice(0, 10);
       const cur = dailyMap.get(key) || { total: 0, orders: 0, averageOrderValue: 0 };
       cur.total += o.finalAmount || 0;
       cur.orders += 1;

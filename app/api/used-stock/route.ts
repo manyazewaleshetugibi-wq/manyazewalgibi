@@ -261,8 +261,10 @@ export async function PUT(req: NextRequest) {
     const action = url.searchParams.get('action');
 
     if (action === 'summary') {
-      // Fetch all used_stock records once and compute statistics in JS
+      // Fetch used_stock records for last 90 days (bounded query)
+      const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
       const allRecords = await prisma.usedStock.findMany({
+        where: { usedAt: { gte: ninetyDaysAgo } },
         select: {
           stockId: true,
           stockName: true,
@@ -330,18 +332,20 @@ export async function PUT(req: NextRequest) {
         _id: item.stockId?.toString() || '',
       }));
 
-      // Daily usage for last 30 days
+      // Daily usage for last 30 days (Ethiopia local time UTC+3)
+      const ETH_OFFSET_MS = 3 * 60 * 60 * 1000
       const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const dailyMap = new Map<string, { year: number; month: number; day: number; totalUsed: number; totalCost: number; count: number }>();
       allRecords.forEach((record) => {
         const usedAt = record.usedAt;
         if (!usedAt || usedAt.getTime() < cutoff.getTime()) return;
-        const date = usedAt.toISOString().split('T')[0];
+        const localDate = new Date(usedAt.getTime() + ETH_OFFSET_MS)
+        const date = localDate.toISOString().split('T')[0];
         if (!dailyMap.has(date)) {
           dailyMap.set(date, {
-            year: usedAt.getUTCFullYear(),
-            month: usedAt.getUTCMonth() + 1,
-            day: usedAt.getUTCDate(),
+            year: localDate.getFullYear(),
+            month: localDate.getMonth() + 1,
+            day: localDate.getDate(),
             totalUsed: 0,
             totalCost: 0,
             count: 0,

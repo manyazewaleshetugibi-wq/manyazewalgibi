@@ -6,63 +6,16 @@ import { ShiftType } from "@/models/Waitress";
 
 export async function GET(req: NextRequest) {
     try {
-        // --- Automatic registration of POS users as waitresses ---
-        // 1. Get all users with "pos" role
-        const posUsers = await prisma.user.findMany({
-            where: { role: "pos" },
-            take: 1000,
-        });
-
-        // 2. Get all existing waitresses who were registered from a user account
-        const existingWaitresses = await prisma.waitress.findMany({
-            where: { userId: { not: null } },
-            select: { userId: true },
-        });
-        
-        const existingWaitressUserIds = new Set(existingWaitresses.map(w => w.userId).filter(Boolean));
-
-        const newWaitressesToRegister: any[] = [];
-
-        // 3. Check which POS users are not yet registered as waitresses
-        for (const user of posUsers) {
-            if (!existingWaitressUserIds.has(user.id)) {
-                const userShift = (user.shift || "").toUpperCase() as ShiftType;
-                const newWaitress = {
-                    id: randomUUID(),
-                    name: user.name || "",
-                    phone: user.phone || "N/A",
-                    shift: Object.values(ShiftType).includes(userShift) ? userShift : ShiftType.MORNING,
-                    isActive: user.status === 'active',
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                    userId: user.id,
-                    email: user.email,
-                    role: user.role,
-                    registeredFromUser: true,
-                    registrationDate: new Date(),
-                };
-                newWaitressesToRegister.push(newWaitress);
-            }
-        }
-
-        // 4. Batch insert new waitresses if any
-        if (newWaitressesToRegister.length > 0) {
-            await prisma.waitress.createMany({
-                data: newWaitressesToRegister,
-            });
-        }
-
-        // 5. Get all waitresses
+        // Get all waitresses (with optional sync of POS users)
         const allWaitresses = await prisma.waitress.findMany({
             orderBy: { name: 'asc' },
         });
 
-        // 6. Return success with data
         return NextResponse.json({ 
             success: true,
             data: allWaitresses.map((w: any) => ({ ...w, _id: w.id })),
-            message: "Waitress data retrieved and synchronized successfully",
-            count: newWaitressesToRegister.length
+            message: "Waitress data retrieved successfully",
+            count: allWaitresses.length
         }, { status: 200 });
         
     } catch (error) {

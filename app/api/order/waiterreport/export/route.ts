@@ -28,29 +28,32 @@ export async function POST(req: Request) {
       doc.text(`Waiter: ${waiterId === 'all' ? 'All Waiters' : waiterId}`);
       doc.moveDown();
       
-      // Add summary stats
+      // Add summary stats (with null safety)
+      const stats = data?.stats || {};
       doc.fontSize(14).text('Summary', { underline: true });
-      doc.fontSize(12).text(`Total Orders: ${data.stats.totalOrders}`);
-      doc.text(`Total Sales: $${data.stats.totalSales.toFixed(2)}`);
-      doc.text(`Average Order: $${data.stats.averageOrderValue.toFixed(2)}`);
+      doc.fontSize(12).text(`Total Orders: ${stats.totalOrders || 0}`);
+      doc.text(`Total Sales: $${(stats.totalSales || 0).toFixed(2)}`);
+      doc.text(`Average Order: $${(stats.averageOrderValue || 0).toFixed(2)}`);
       doc.moveDown();
       
       // Add orders table
       doc.fontSize(14).text('Orders', { underline: true });
-      (data.orders as any[]).forEach((order: any) => {
+      (data?.orders || []).forEach((order: any) => {
         doc.fontSize(10).text(
-          `${order.orderNumber} | ${order.date} | ${order.customer} | $${order.total.toFixed(2)}`
+          `${order.orderNumber} | ${order.date} | ${order.customer} | $${(order.total || 0).toFixed(2)}`
         );
       });
       
-      // Convert PDF to buffer
-      const buffers: Buffer[] = [];
-      doc.on('data', buffers.push.bind(buffers));
-      doc.end();
+      // Convert PDF to buffer - wait for doc to finish writing
+      const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+        const buffers: Buffer[] = [];
+        doc.on('data', buffers.push.bind(buffers));
+        doc.on('end', () => resolve(Buffer.concat(buffers)));
+        doc.on('error', reject);
+        doc.end();
+      });
       
-      const pdfBuffer = Buffer.concat(buffers);
-      
-      return new NextResponse(pdfBuffer, {
+      return new NextResponse(new Uint8Array(pdfBuffer), {
         status: 200,
         headers: {
           'Content-Type': 'application/pdf',

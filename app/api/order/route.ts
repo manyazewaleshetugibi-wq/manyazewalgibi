@@ -477,9 +477,9 @@ export async function POST(req: NextRequest) {
       const itemTaxAmount = priceWithTax - priceWithoutTax;
       
       const quantity = Number(item.quantity) || 0;
-      const itemSubtotal = item.subtotal || (priceWithoutTax * quantity);
-      const itemTaxTotal = item.taxTotal || (itemTaxAmount * quantity);
-      const itemTotal = item.total || (priceWithTax * quantity);
+      const itemSubtotal = priceWithoutTax * quantity;
+      const itemTaxTotal = itemTaxAmount * quantity;
+      const itemTotal = priceWithTax * quantity;
       
       const processedItem = {
         itemId: item.itemId,
@@ -502,15 +502,10 @@ export async function POST(req: NextRequest) {
       processedItems.push(processedItem);
     }
 
-    if (!subtotalAmount || subtotalAmount === 0) {
-      subtotalAmount = processedItems.reduce((sum, item) => sum + item.subtotal, 0);
-    }
-    if (!taxAmount || taxAmount === 0) {
-      taxAmount = processedItems.reduce((sum, item) => sum + item.taxTotal, 0);
-    }
-    if (!totalAmount || totalAmount === 0) {
-      totalAmount = processedItems.reduce((sum, item) => sum + item.total, 0);
-    }
+    // Always recalculate totals server-side from items
+    subtotalAmount = processedItems.reduce((sum, item) => sum + item.subtotal, 0);
+    taxAmount = processedItems.reduce((sum, item) => sum + item.taxTotal, 0);
+    totalAmount = processedItems.reduce((sum, item) => sum + item.total, 0);
 
     const finalAmount = totalAmount + deliveryFee + packagingCharge - discount;
 
@@ -782,7 +777,7 @@ export async function PATCH(req: NextRequest) {
           reason: reason,
           requestedBy: requestedBy || userData?.name || userData?.email || "Unknown User",
           requestedAt: new Date(),
-          status: "pending",
+        status: "PENDING",
           createdAt: new Date()
         }
       });
@@ -1029,6 +1024,8 @@ export async function DELETE(req: NextRequest) {
       orderItems: normalizeJson(order.orderItems),
       updatedBy: normalizeJson(order.updatedBy),
       completedBy: normalizeJson(order.completedBy),
+      pendingStockItems: normalizeJson((order as any).pendingStockItems),
+      usedStockIds: normalizeJson((order as any).usedStockIds),
       // Add deletion metadata
       deletedAt: new Date(),
       deletedBy: userData?.name || userData?.email || "Unknown Admin",
@@ -1150,9 +1147,19 @@ export async function DELETE(req: NextRequest) {
   }
 }
 
-// PUT endpoint for fixes and maintenance
+// PUT endpoint for fixes and maintenance - Admin only
 export async function PUT(req: NextRequest) {
   try {
+    const userData = await getCurrentUserData(req);
+    const isAdmin = isAdminRole(userData?.role);
+    
+    if (!isAdmin) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized. Only administrators can perform maintenance operations." },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const { action, orderId, userId, fixAll = false } = body;
 

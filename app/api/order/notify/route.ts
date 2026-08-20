@@ -30,7 +30,7 @@ interface DeliveryInfo {
 }
 
 interface Order {
-  _id: string;
+  id: string;
   userId: string;
   orderNumber: string;
   deliveryInfo: DeliveryInfo;
@@ -537,7 +537,7 @@ Phone: ${orderDetails.deliveryInfo.phoneNumber}
 Total Amount: ETB ${orderDetails?.finalAmount?.toFixed(2) || '0.00'}
 
 For order tracking and details, visit:
-https://www.manyazewaleshetugibi.com/orders/${orderDetails?._id}
+https://www.manyazewaleshetugibi.com/orders/${orderDetails?.id || ''}
 
 Need assistance?
 Phone: 0904003377
@@ -630,7 +630,7 @@ export async function POST(request: NextRequest) {
         html: getOrderStatusEmailHTML(
           order.deliveryInfo.fullName, 
           order.orderNumber, 
-          order._id.toString(), 
+          order.id, 
           status, 
           order
         ),
@@ -648,7 +648,7 @@ export async function POST(request: NextRequest) {
       // Update order with notification status
       const currentNotifications = (order as any).notifications || []
       await prisma.order.update({
-        where: { id: order._id },
+        where: { id: order.id },
         data: {
           notifications: [
             ...currentNotifications,
@@ -689,7 +689,7 @@ export async function POST(request: NextRequest) {
         success: true, 
         message: `Order ${status} notification sent successfully to ${order.deliveryInfo.email}`,
         data: {
-          orderId: order._id,
+          orderId: order.id,
           orderNumber: order.orderNumber,
           customerEmail: order.deliveryInfo.email,
           customerName: order.deliveryInfo.fullName,

@@ -39,14 +39,35 @@ export async function POST(request: NextRequest) {
       notes: notes || '',
     };
 
-    const currentHistory = (salary.history as any[]) || [];
-    await prisma.salary.updateMany(
-      { where: { id: salaryId }, data: { history: [...currentHistory, payment] as any, updatedAt: new Date().toISOString() } }
-    );
+    // Atomic read-check-write inside a transaction to prevent race conditions
+    const result = await prisma.$transaction(async (tx) => {
+      const freshSalary = await tx.salary.findFirst({ 
+        where: { id: salaryId },
+        select: { history: true }
+      });
+      
+      const currentHistory = (freshSalary?.history as any[]) || [];
+      const alreadyPaid = currentHistory.find(
+        (h: any) => h.month === parseInt(month) && h.year === parseInt(year) && h.status === 'paid'
+      );
+      
+      if (alreadyPaid) {
+        throw new Error('Already paid for this month');
+      }
+
+      await tx.salary.updateMany(
+        { where: { id: salaryId }, data: { history: [...currentHistory, payment] as any, updatedAt: new Date().toISOString() } }
+      );
+      
+      return payment;
+    });
 
     logAudit({ action: 'PAY', entity: 'salary', entityId: salaryId, userId: body._userId, userName: body._userName, userRole: body._userRole, description: `Paid salary ${salary.name} for ${MONTHS[parseInt(month) - 1]} ${year}: ${payAmount} ETB`, changes: { amount: { from: null, to: payAmount }, month: { from: null, to: `${MONTHS[parseInt(month) - 1]} ${year}` } } });
-    return NextResponse.json({ success: true, data: payment });
+    return NextResponse.json({ success: true, data: result });
   } catch (error: any) {
+    if (error.message === 'Already paid for this month') {
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

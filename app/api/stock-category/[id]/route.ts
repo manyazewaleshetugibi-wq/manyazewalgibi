@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { StockCategorySubschema } from "@/models/Stock";
+import { requireRole } from "@/lib/api-auth";
 
-// ✅ GET category by ID    
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -21,6 +21,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 // ✅ PUT (Update Category by ID)
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager"]);
+    if (response) return response;
+    
     const { id } = await params;
 
     const body = await req.json();
@@ -49,6 +52,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 // ✅ DELETE Category
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager"]);
+    if (response) return response;
+    
     const { id } = await params;
 
     const result = await prisma.stockCategory.deleteMany({ where: { id } });

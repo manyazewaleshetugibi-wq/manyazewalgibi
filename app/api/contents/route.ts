@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
+import { requireRole } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
     try {
@@ -30,12 +31,20 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+    
     const contentData = await req.json();
     
+    // Validate required fields
+    if (!contentData.platformName || !contentData.content || !contentData.postType) {
+      return NextResponse.json({ success: false, error: "Missing required fields: platformName, content, postType" }, { status: 400 });
+    }
+    
     // Ensure that `scheduleTime` is properly parsed as a Date object
-    contentData.scheduleTime = new Date(contentData.scheduleTime);
+    contentData.scheduleTime = contentData.scheduleTime ? new Date(contentData.scheduleTime) : new Date();
 
-    const { _id, ...rest } = contentData;
+    const { _id, id, createdAt, updatedAt, ...rest } = contentData;
 
     const result = await prisma.content.create({
       data: { id: randomUUID(), ...rest } as any,

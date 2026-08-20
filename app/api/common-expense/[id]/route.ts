@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireRole } from '@/lib/api-auth';
 
 interface RouteParams {
   params: Promise<{
@@ -9,6 +10,9 @@ interface RouteParams {
 
 export async function GET(request: Request, { params }: RouteParams) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const { id } = await params;
     
     const expense = await prisma.commonExpense.findUnique({ where: { id } });
@@ -35,6 +39,9 @@ export async function GET(request: Request, { params }: RouteParams) {
 
 export async function PUT(request: Request, { params }: RouteParams) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const { id } = await params;
     const body = await request.json();
     
@@ -114,6 +121,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
 
 export async function DELETE(request: Request, { params }: RouteParams) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const { id } = await params;
     
     const result = await prisma.commonExpense.deleteMany({ where: { id } });
@@ -141,6 +151,9 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 // Optional: Add PATCH method for partial updates
 export async function PATCH(request: Request, { params }: RouteParams) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const { id } = await params;
     const body = await request.json();
     
@@ -153,7 +166,14 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     
     // Convert amount to number if present
     if (body.amount !== undefined) {
-      updateData.amount = parseFloat(body.amount);
+      const parsedAmount = parseFloat(body.amount);
+      if (isNaN(parsedAmount)) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid amount value' },
+          { status: 400 }
+        );
+      }
+      updateData.amount = parsedAmount;
     }
     
     // Convert startDate/endDate to Date objects if present
@@ -200,7 +220,6 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       data: { 
         ...updatedExpense, 
         _id: updatedExpense.id,
-        date: updatedExpense.date ? new Date(updatedExpense.date).toISOString() : new Date().toISOString()
       } 
     });
   } catch (error: any) {

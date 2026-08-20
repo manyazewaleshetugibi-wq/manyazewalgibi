@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { randomUUID } from 'crypto'
+import { requireRole } from '@/lib/api-auth'
 
 // GET - Fetch all restaurants
 export async function GET() {
@@ -27,6 +28,9 @@ export async function GET() {
 // POST - Create new restaurant
 export async function POST(request: NextRequest) {
   try {
+    const { response } = await requireRole(["admin"]);
+    if (response) return response;
+    
     const body = await request.json()
     const { 
       name, 

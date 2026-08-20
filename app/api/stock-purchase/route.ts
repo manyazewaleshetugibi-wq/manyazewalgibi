@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { PurchaseSchema } from "@/models/Stock";
+import { requireRole } from "@/lib/api-auth";
 
-// ✅ GET all purchases - RETURNS ACTUAL DATA
+// GET all purchases - RETURNS ACTUAL DATA
 export async function GET() {
   try {
+    const { response } = await requireRole(["admin", "stock_manager", "finance"]);
+    if (response) return response;
+    
     const purchases = await prisma.stockPurchase.findMany();
 
     // ✅ Return the actual data
@@ -26,6 +30,9 @@ export async function GET() {
 // ✅ POST (Create a new purchase) - RETURNS CREATED DATA
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager"]);
+    if (response) return response;
+    
     const body = await req.json();
     const parsed = PurchaseSchema.parse(body);
 

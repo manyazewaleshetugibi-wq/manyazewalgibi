@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
+import { requireRole } from "@/lib/api-auth";
 
 const COLLECTION_NAME = "employee_rank";
 
@@ -54,6 +55,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin", "employee_rank"]);
+    if (response) return response;
+    
     const body = await req.json();
     const {
       userId,
@@ -94,13 +98,13 @@ export async function POST(req: NextRequest) {
             email,
             role,
             department,
-            performanceScore: performanceScore || existingRank.performanceScore,
-            attendance: attendance || existingRank.attendance,
-            efficiency: efficiency || existingRank.efficiency,
-            salesTarget: salesTarget || existingRank.salesTarget,
-            salesAchieved: salesAchieved || existingRank.salesAchieved,
-            customerRating: customerRating || existingRank.customerRating,
-            points: points || existingRank.points,
+            performanceScore: performanceScore ?? existingRank.performanceScore,
+            attendance: attendance ?? existingRank.attendance,
+            efficiency: efficiency ?? existingRank.efficiency,
+            salesTarget: salesTarget ?? existingRank.salesTarget,
+            salesAchieved: salesAchieved ?? existingRank.salesAchieved,
+            customerRating: customerRating ?? existingRank.customerRating,
+            points: points ?? existingRank.points,
             lastUpdated: now,
           },
         }
@@ -153,6 +157,9 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const { response } = await requireRole(["admin"]);
+    if (response) return response;
+    
     const body = await req.json();
     const { action, userId, points, data } = body;
     

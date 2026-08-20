@@ -23,8 +23,6 @@ export async function POST(request: NextRequest) {
         data: {
           lotteryTickets: 1, // Give 1 ticket to each active user
           hasWonThisMonth: false,
-          totalWins: 0,
-          points: 0,
           updatedAt: new Date()
         }
       }));

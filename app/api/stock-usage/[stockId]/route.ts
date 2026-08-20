@@ -192,14 +192,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stoc
 
     // Calculate percentage of item consumption
     menuItemsMap.forEach(menuItem => {
-      const totalQuantity = menuItemsMap.size > 0 
-        ? menuItemsMap.values().next().value?.totalQuantity ?? 1
-        : 1;
+      const menuItemTotal = menuItem.totalQuantity || 1;
 
       menuItem.stockConsumption.forEach(consumption => {
-        menuItem.totalQuantity = consumption.quantityUsed; // Simplified: use last item's quantity as total
-        consumption.percentageOfItem = totalQuantity > 0
-          ? (consumption.quantityUsed / totalQuantity) * 100
+        consumption.percentageOfItem = menuItemTotal > 0
+          ? (consumption.quantityUsed / menuItemTotal) * 100
           : 0;
       });
     });

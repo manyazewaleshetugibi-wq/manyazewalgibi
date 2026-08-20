@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { FeedbackSchema } from "@/models/Feedback";
+import { requireRole } from "@/lib/api-auth";
 
-// POST: Create Feedback
+// POST: Create Feedback (open for customers)
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -32,7 +33,9 @@ export async function POST(req: NextRequest) {
 // GET: Retrieve Feedback (paginated and optional filtering)
 export async function GET(req: NextRequest) {
   try {
-    // Extract query parameters for filtering and pagination
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+    
     const url = new URL(req.url);
     const page = parseInt(url.searchParams.get("page") || "1", 10);
     const limit = parseInt(url.searchParams.get("limit") || "10", 10);

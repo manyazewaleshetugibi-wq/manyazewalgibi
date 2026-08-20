@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
+import { requireRole } from "@/lib/api-auth";
 
 // Cloudinary Configuration - Updated based on your data
-const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
-const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || '972889222288323';
-const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || 'LuJ8tJeTt8phDWxo_bODm6wyyO0';
+const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 
 // Upload presets
 const CLOUDINARY_VIDEO_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_VIDEO_UPLOAD_PRESET || 'goldgold';
@@ -178,9 +179,10 @@ async function uploadToCloudinary(
 }
 
 export async function POST(request: Request) {
-
-  
   try {
+    const { response } = await requireRole(["admin", "marketing", "kitchen", "fb"]);
+    if (response) return response;
+
     const formData = await request.formData();
     const title = formData.get("title") as string;
     const description = formData.get("description") as string;
@@ -320,6 +322,9 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
+    const { response } = await requireRole(["admin", "marketing", "kitchen", "fb", "stock_manager"]);
+    if (response) return response;
+    
     const trainings = await prisma.training.findMany({
       orderBy: { createdAt: 'desc' }
     });

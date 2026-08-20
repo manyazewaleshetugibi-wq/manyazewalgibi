@@ -139,78 +139,64 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const [isClient, setIsClient] = useState(false);
   const [normalizedPath, setNormalizedPath] = useState<string>('');
 
+  const currentPath = normalizePathname(pathname);
+  const publicNow = isPublicRoute(currentPath);
+
   useEffect(() => {
     setIsClient(true);
-    
-    // Normalize the pathname to handle semicolon URLs
     const normalized = normalizePathname(pathname);
     setNormalizedPath(normalized);
-    
-    // Check if there's a table parameter in the URL
-    const tableParam = searchParams.get('table');
-    if (tableParam) {
-
-      // You can handle the table parameter here if needed
-      // For example, store it in state or context
-    }
-  }, [pathname, searchParams]);
+  }, [pathname]);
 
   useEffect(() => {
     if (!isClient) return;
-    
-    // Use normalized path for route checking
-    const currentPath = normalizedPath || normalizePathname(pathname);
-    
-    // Check if it's a public route
-    if (isPublicRoute(currentPath)) {
+
+    const cp = normalizedPath || normalizePathname(pathname);
+
+    if (isPublicRoute(cp)) {
       setIsAuthorized(true);
       return;
     }
 
-    // If still loading, keep showing loading
     if (status === 'loading') {
-      setIsAuthorized(null);
       return;
     }
 
-    // If not authenticated, redirect to login
     if (status === 'unauthenticated') {
       setIsAuthorized(false);
       router.push('/login');
       return;
     }
 
-    // Check role-based access
     if (status === 'authenticated' && session?.user?.role) {
       const userRole = normalizeRole(session.user.role);
       const allowedRoutes = ALL_ROUTES[userRole as keyof typeof ALL_ROUTES] || ALL_ROUTES.DEFAULT;
-      
-      // Check if current normalized path is allowed
-      const isAllowed = allowedRoutes.some(route => 
-        currentPath === route || currentPath.startsWith(route + '/')
+
+      const isAllowed = allowedRoutes.some(route =>
+        cp === route || cp.startsWith(route + '/')
       );
 
       if (isAllowed) {
         setIsAuthorized(true);
       } else {
         setIsAuthorized(false);
-        // Redirect to default page for this role
         const defaultPage = getDefaultRedirect(userRole);
         router.push(defaultPage + '?unauthorized=true');
       }
     }
   }, [status, session, pathname, normalizedPath, router, isClient]);
 
-  // Show loading screen while checking authorization
+  if (publicNow) {
+    return <>{children}</>;
+  }
+
   if (!isClient || status === 'loading' || isAuthorized === null) {
     return <LoadingScreen />;
   }
 
-  // If authorized, render children
   if (isAuthorized) {
     return <>{children}</>;
   }
 
-  // If not authorized, show nothing (will redirect)
   return null;
 }

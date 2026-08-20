@@ -18,7 +18,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return createResponse(404, false, "Stock not found");
     }
 
-    return createResponse(200, true, "Stock retrieved successfully", null);
+    return createResponse(200, true, "Stock retrieved successfully", stock);
   } catch (error) {
     return createResponse(500, false, "Internal Server Error");
   }

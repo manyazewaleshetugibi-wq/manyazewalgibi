@@ -148,10 +148,15 @@ export async function POST(request: NextRequest) {
 
     const now = new Date();
     const clockIn = now.toISOString();
-    const shiftHour = now.getHours();
-    let shift = 'MORNING';
-    if (shiftHour >= 12 && shiftHour < 17) shift = 'AFTERNOON';
-    else if (shiftHour >= 17) shift = 'EVENING';
+    // Use the employee's assigned shift if available, otherwise auto-detect
+    let shift = user.shift || 'MORNING';
+    const validShifts = ['MORNING', 'AFTERNOON', 'EVENING'];
+    if (!validShifts.includes(shift)) {
+      const shiftHour = now.getHours();
+      shift = 'MORNING';
+      if (shiftHour >= 12 && shiftHour < 17) shift = 'AFTERNOON';
+      else if (shiftHour >= 17) shift = 'EVENING';
+    }
 
     let status = 'present';
     let lateMinutes = 0;

@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { randomUUID } from 'crypto';
+import { requireRole } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date');
     const limit = parseInt(searchParams.get('limit') || '100');
@@ -48,6 +51,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const body = await request.json();
 
     // Validate required fields - Updated to match frontend
@@ -73,17 +79,18 @@ export async function POST(request: Request) {
     const transferAmount = parseFloat(body.transferAmount) || 0;
     const zedAmount = parseFloat(body.zedAmount) || 0;
     
-    // Calculate total - use bankAmount or transferAmount whichever is provided
-    const totalAmount = cashAmount + (bankAmount || transferAmount);
+    // Calculate total - sum all amount sources
+    const totalAmount = cashAmount + bankAmount + transferAmount + zedAmount;
     
     // Generate Z-Report number if not provided
     const zReportNumber = body.zReportNumber || `ZR-${body.date.replace(/-/g, '')}-${Date.now()}`;
 
     const newEntry = {
       date: body.date,
-      // Store all amount fields
       cashAmount: cashAmount,
-      transferAmount: transferAmount || bankAmount,
+      bankAmount: bankAmount,
+      transferAmount: transferAmount,
+      zedAmount: zedAmount,
       totalAmount: totalAmount,
       zReportNumber: zReportNumber,
       notes: body.notes || '',
@@ -115,6 +122,9 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const body = await request.json();
@@ -132,11 +142,13 @@ export async function PUT(request: Request) {
     const transferAmount = parseFloat(body.transferAmount) || 0;
     const zedAmount = parseFloat(body.zedAmount) || 0;
     
-    const totalAmount = cashAmount + (bankAmount || transferAmount);
+    const totalAmount = cashAmount + bankAmount + transferAmount + zedAmount;
 
     const updateData: any = {
       cashAmount: cashAmount,
-      transferAmount: transferAmount || bankAmount,
+      bankAmount: bankAmount,
+      transferAmount: transferAmount,
+      zedAmount: zedAmount,
       totalAmount: totalAmount,
       notes: body.notes || '',
       updatedAt: new Date(),
@@ -182,6 +194,9 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 

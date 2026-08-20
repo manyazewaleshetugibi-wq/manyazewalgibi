@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { createResponse } from "@/lib/utils";
+import { requireRole } from "@/lib/api-auth";
 
 function getNextReorderDate(frequency: string, fromDate: Date): Date {
   const map: Record<string, number> = {
@@ -26,6 +27,9 @@ function getNextReorderDate(frequency: string, fromDate: Date): Date {
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "finance", "stock_manager", "purchasing"]);
+    if (response) return response;
+    
     const { id } = await params;
 
     const request = await prisma.purchaseRequest.findUnique({ where: { id } });
@@ -56,6 +60,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "finance", "stock_manager", "purchasing"]);
+    if (response) return response;
+    
     const { id } = await params;
 
     const body = await req.json();
@@ -157,6 +164,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireRole(["admin", "stock_manager"]);
+    if (response) return response;
+    
     const { id } = await params;
 
     // EXPENSE DELETION REMOVED - No longer deleting expense records

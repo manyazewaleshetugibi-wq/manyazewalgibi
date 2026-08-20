@@ -27,6 +27,16 @@ export async function PATCH(
     delete updates.id;
     delete updates.email;
     delete updates.role;
+    delete updates.password;
+    delete updates.status;
+    delete updates.permissions;
+    delete updates.isAdmin;
+    delete updates.balance;
+    delete updates.points;
+    delete updates.lotteryTickets;
+    delete updates.hasWonThisMonth;
+    delete updates.totalWins;
+    delete updates.employeeId;
 
     // Update participant lottery data
     const result = await prisma.user.updateMany(

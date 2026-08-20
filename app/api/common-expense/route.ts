@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { randomUUID } from 'crypto';
+import { requireRole } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const { searchParams } = new URL(request.url);
     const isActive = searchParams.get('isActive');
     
@@ -79,6 +83,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const body = await request.json();
     
     if (!body.title || !body.amount || !body.frequency || !body.startDate) {
@@ -161,6 +168,9 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     
@@ -189,7 +199,7 @@ export async function PUT(request: Request) {
     const updateData: any = {
       title: body.title,
       description: body.description || '',
-      amount: parseFloat(body.amount),
+      amount: body.amount !== undefined ? parseFloat(body.amount) : undefined,
       category: body.category || 'Other',
       frequency: body.frequency,
       startDate: new Date(body.startDate),
@@ -200,6 +210,14 @@ export async function PUT(request: Request) {
       notes: body.notes || '',
       updatedAt: new Date(),
     };
+
+    // Validate amount
+    if (updateData.amount !== undefined && isNaN(updateData.amount)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid amount value' },
+        { status: 400 }
+      );
+    }
 
     let updatedExpense: any;
     try {
@@ -258,6 +276,9 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     
@@ -293,6 +314,9 @@ export async function DELETE(request: Request) {
 // Optional: Add PATCH method for partial updates
 export async function PATCH(request: Request) {
   try {
+    const { response } = await requireRole(["admin", "finance"]);
+    if (response) return response;
+    
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     
@@ -323,7 +347,16 @@ export async function PATCH(request: Request) {
     // Only add fields that are provided in the request
     if (body.title !== undefined) updateData.title = body.title;
     if (body.description !== undefined) updateData.description = body.description;
-    if (body.amount !== undefined) updateData.amount = parseFloat(body.amount);
+    if (body.amount !== undefined) {
+      const parsedAmount = parseFloat(body.amount);
+      if (isNaN(parsedAmount)) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid amount value' },
+          { status: 400 }
+        );
+      }
+      updateData.amount = parsedAmount;
+    }
     if (body.category !== undefined) updateData.category = body.category;
     if (body.frequency !== undefined) updateData.frequency = body.frequency;
     if (body.startDate !== undefined) updateData.startDate = body.startDate ? new Date(body.startDate) : null;

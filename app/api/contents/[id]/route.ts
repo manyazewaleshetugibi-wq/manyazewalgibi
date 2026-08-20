@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireRole } from "@/lib/api-auth";
 
 export async function GET(
   req: NextRequest,
@@ -30,7 +31,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Await the params Promise
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+    
     const { id } = await params;
     
     const data = await req.json();
@@ -60,7 +63,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Await the params Promise
+    const { response } = await requireRole(["admin", "marketing"]);
+    if (response) return response;
+    
     const { id } = await params;
     
     const result = await prisma.content.deleteMany({ where: { id } });

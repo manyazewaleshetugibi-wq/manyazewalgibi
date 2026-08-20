@@ -263,20 +263,21 @@ export async function PATCH(req: NextRequest) {
     debugLog(`PATCH update for order ${orderId} by waitress ${waitress.name}`, updates);
 
     // Prepare update data - only update provided fields
+    const allowedFields = ['notes', 'tableNumber', 'status', 'customerName', 'discount', 'numberOfGuests', 'specialRequirements', 'paymentMethod', 'paymentStatus', 'items', 'orderItems'];
     const updateData: any = {
       updatedAt: new Date(),
-      ...updates
     };
 
-    // Remove any system fields that shouldn't be updated
-    delete updateData._id;
-    delete updateData.createdAt;
-    delete updateData.waiterId;
-    delete updateData.orderNumber;
+    // Only copy allowed fields from updates
+    for (const key of Object.keys(updates)) {
+      if (allowedFields.includes(key)) {
+        updateData[key] = updates[key];
+      }
+    }
 
     // Normalize status if provided
     if (updateData.status) {
-      updateData.status = normalizeStatus(updateData.status);
+      updateData.status = String(updateData.status).toUpperCase();
     }
 
     // If updating items, recalculate totals
@@ -383,9 +384,15 @@ export async function DELETE(req: NextRequest) {
 
     const waitressDbId = waitress.id;
     
-    // Delete order only if it belongs to this waitress
-    let result = await prisma.order.deleteMany({
-      where: { id: orderId, waiterId: waitressDbId }
+    // Delete order only if it belongs to this waitress - soft delete instead of hard delete
+    let result = await prisma.order.updateMany({
+      where: { id: orderId, waiterId: waitressDbId },
+      data: {
+        deletedAt: new Date(),
+        deletedBy: waitress.name || waitress.email || "Waitress",
+        isActive: false,
+        updatedAt: new Date()
+      }
     });
 
     if (result.count === 0) {
