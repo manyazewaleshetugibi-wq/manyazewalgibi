@@ -1,0 +1,16 @@
+{
+  "name": "mongo-to-postgres-migration",
+  "version": "1.0.0",
+  "description": "One-shot data migration: MongoDB Atlas (gold) -> your own PostgreSQL",
+  "private": true,
+  "scripts": {
+    "inspect": "node inspect-mongo.js",
+    "migrate": "node migrate.js --create-schema",
+    "migrate:data": "node migrate.js",
+    "verify": "node verify.js"
+  },
+  "dependencies": {
+    "mongodb": "^6.20.0",
+    "pg": "^8.16.0"
+  }
+}

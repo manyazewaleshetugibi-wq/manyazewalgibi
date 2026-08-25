@@ -34,7 +34,17 @@ export async function GET(req: NextRequest) {
     const { response } = await requireRole(["admin", "finance"]);
     if (response) return response;
 
-    const expenses = await prisma.expenseRecord.findMany()
+    const expenses = await prisma.expenseRecord.findMany({
+      select: {
+        id: true,
+        title: true,
+        amount: true,
+        date: true,
+        category: true,
+        description: true,
+        createdBy: true,
+      }
+    })
 
     return NextResponse.json({
       success: true,

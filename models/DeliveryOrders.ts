@@ -43,6 +43,8 @@ export const DeliveryOrderSchema = z.object({
   userId: z.string().optional().nullable(),
   orderNumber: z.string().min(1, "Order number is required"),
   waiterId: z.string().optional().nullable(),
+  restaurantId: z.string().optional().nullable(),
+  restaurantName: z.string().optional().nullable(),
   deliveryAddress: z.string().optional().nullable(),
   deliveryInfo: DeliveryInfoSchema.optional().nullable(),
   note: z.string().optional().nullable(),

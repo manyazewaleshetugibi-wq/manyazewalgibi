@@ -3,7 +3,20 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest) {
   try {
-    const orders = await prisma.order.findMany({ where: { status: "COMPLETED" } });
+    const { searchParams } = new URL(req.url);
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
+
+    const where: any = { status: "COMPLETED" };
+
+    if (startDate && endDate) {
+      const ETH_OFFSET_MS = 3 * 60 * 60 * 1000;
+      const fromDate = new Date(new Date(startDate + 'T00:00:00.000Z').getTime() - ETH_OFFSET_MS);
+      const toDate = new Date(new Date(endDate + 'T23:59:59.999Z').getTime() - ETH_OFFSET_MS);
+      where.createdAt = { gte: fromDate, lte: toDate };
+    }
+
+    const orders = await prisma.order.findMany({ where });
 
     let totalSales = 0;
     let totalTax = 0;

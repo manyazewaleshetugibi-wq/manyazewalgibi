@@ -10,7 +10,16 @@ export async function GET() {
     const { response } = await requireRole(["admin", "stock_manager", "finance"]);
     if (response) return response;
     
-    const purchases = await prisma.stockPurchase.findMany();
+    const purchases = await prisma.stockPurchase.findMany({
+      select: {
+        id: true,
+        stockId: true,
+        purchaseDate: true,
+        quantity: true,
+        unitPrice: true,
+        supplier: true,
+      }
+    });
 
     // ✅ Return the actual data
     return NextResponse.json({ 

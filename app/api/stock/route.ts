@@ -10,7 +10,21 @@ export async function GET(req: NextRequest) {
     const { response } = await requireRole(["admin", "kitchen", "stock_manager", "pos"]);
     if (response) return response;
 
-    const stocks = await prisma.stock.findMany();
+    const stocks = await prisma.stock.findMany({
+      select: {
+        id: true,
+        name: true,
+        currentStock: true,
+        minimumStock: true,
+        categoryId: true,
+        unit: true,
+        requiredAmount: true,
+        reorderFrequency: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      }
+    });
 
     return createResponse(200, true, "Stocks retrieved successfully", stocks.map((s: any) => ({ ...s, _id: s.id })));
   } catch (error) {

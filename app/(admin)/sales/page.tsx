@@ -480,6 +480,11 @@ const getOrderRestaurantId = (
     if (match) return match._id
   }
   
+  // Delivery orders belong to Restaurant 1 (legacy ones have no restaurantId)
+  if (order.delivery === true) {
+    return "manyazewal1"
+  }
+  
   if (order.waiterId) {
     const waiter = waitersList.find(w => w._id === order.waiterId)
     if (waiter?.restaurantId) {
@@ -1431,8 +1436,10 @@ export default function DashboardPage() {
     const waiterSales = new Map<string, { name: string; sales: number; orders: number }>()
     
     filteredOverviewOrders.forEach(order => {
-      const waiterId = order.waiterId || 'unknown'
-      const waiterName = order.waiterName || 'Unknown'
+      // Unassigned delivery orders are grouped under a "Delivery" entry
+      const isUnassignedDelivery = order.delivery === true && !order.waiterId
+      const waiterId = isUnassignedDelivery ? 'delivery' : (order.waiterId || 'unknown')
+      const waiterName = isUnassignedDelivery ? 'Delivery' : (order.waiterName || 'Unknown')
       const existing = waiterSales.get(waiterId) || { name: waiterName, sales: 0, orders: 0 }
       waiterSales.set(waiterId, {
         name: waiterName,

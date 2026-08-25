@@ -5,46 +5,37 @@ import type React from "react"
 import { useState, useMemo, useCallback, useEffect } from "react"
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query"
 import axios from "axios"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip, PieChart, Pie, Cell } from "recharts"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip } from "recharts"
 import { motion, AnimatePresence } from "framer-motion"
 import { useTheme } from "next-themes"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowDownIcon, DollarSign, ShoppingCart, Package, TrendingUp, Calendar, Users, Clock, ArrowUp, ArrowDown, Loader2, Building2, UserCog, TrendingDown, PieChart as PieChartIcon, Percent, LayoutGrid, Home, Briefcase, Coffee, Utensils, CreditCard, Eye, ThumbsUp, MessageCircle, BarChart3, Menu, X, ChevronRight } from "lucide-react"
+import { ArrowDownIcon, DollarSign, ShoppingCart, Package, TrendingUp, Calendar, Users, Clock, ArrowUp, ArrowDown, Loader2, Building2, UserCog, TrendingDown, LayoutGrid, Home, BarChart3, ChevronRight } from "lucide-react"
 import { ChartContainer } from "@/components/ui/chart"
 import { DateRangePicker } from "./date-range-picker"
-import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { isSameDay, parseISO, format, eachDayOfInterval, startOfDay, endOfDay, subDays } from "date-fns"
 import { useCachedProfitCalculations } from "@/hooks/useProfitCalculations"
-import { CommonExpenses } from "@/components/expanse/CommonExpenses"
 
 // API client setup
 const api = axios.create({
   baseURL: "/api",
 })
 
-// API functions
-const fetchExpenses = () => api.get("/expense").then((res) => res.data.data)
-const fetchCommonExpenses = () => api.get("/common-expense").then((res) => res.data.data)
-const fetchOrderReport = () => api.get("/order/report").then((res) => res.data)
-const fetchStock = () => api.get("/stock").then((res) => res.data.data)
-
-// ✅ FIXED: Properly handle the API response for stock purchases
-const fetchStockPurchases = async () => {
-  try {
-    const response = await api.get("/stock-purchase")
-    return response.data.data || []
-  } catch (error) {
-    console.error("Error fetching stock purchases:", error)
-    return []
-  }
+// Single unified fetch — 1 request instead of 9
+interface DashboardData {
+  expenses: Expense[]
+  commonExpenses: CommonExpense[]
+  orderReport: OrderReport
+  stock: StockItem[]
+  stockPurchases: StockPurchase[]
+  dailyCash: DailyCashEntry[]
+  menuItems: any[]
+  categories: any[]
 }
-
-const fetchDailyCash = () => api.get("/daily-cash").then((res) => res.data.data)
+const fetchDashboardData = () => api.get("/dashboard").then((res) => res.data.data as DashboardData)
 
 // Types
 interface Expense {
@@ -781,9 +772,25 @@ function Dashboard() {
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
-  // ============================================
-  // USE PROFIT PAGE CALCULATIONS
-  // ============================================
+  const queryOptions = {
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: true,
+  }
+
+  const { data: dashboardData, isLoading: isLoadingDashboard } = useQuery<DashboardData>({
+    queryKey: ["dashboard"],
+    queryFn: fetchDashboardData,
+    ...queryOptions,
+  })
+
+  const expenses = dashboardData?.expenses
+  const commonExpenses = dashboardData?.commonExpenses
+  const orderReport = dashboardData?.orderReport
+  const stock = dashboardData?.stock
+  const stockPurchases = dashboardData?.stockPurchases
+  const dailyCashEntries = dashboardData?.dailyCash
+
   const {
     summary: profitSummary,
     items: profitItems,
@@ -794,55 +801,18 @@ function Dashboard() {
     {
       sortBy: 'margin',
       sortOrder: 'desc'
+    },
+    60000,
+    {
+      stocks: stock,
+      purchases: stockPurchases,
+      menuItems: dashboardData?.menuItems,
+      categories: dashboardData?.categories,
     }
   )
 
-  const queryOptions = {
-    staleTime: 30000,
-    refetchOnWindowFocus: false,
-    refetchOnMount: true,
-  }
-
-  const { data: expenses, isLoading: isLoadingExpenses } = useQuery<Expense[]>({ 
-    queryKey: ["expenses"], 
-    queryFn: fetchExpenses,
-    ...queryOptions
-  })
-  
-  const { data: commonExpenses, isLoading: isLoadingCommon } = useQuery<CommonExpense[]>({
-    queryKey: ["commonExpenses"],
-    queryFn: fetchCommonExpenses,
-    ...queryOptions
-  })
-  
-  const { data: orderReport, isLoading: isLoadingOrderReport } = useQuery<OrderReport>({
-    queryKey: ["orderReport"],
-    queryFn: fetchOrderReport,
-    ...queryOptions
-  })
-  
-  const { data: stock, isLoading: isLoadingStock } = useQuery<StockItem[]>({ 
-    queryKey: ["stock"], 
-    queryFn: fetchStock,
-    ...queryOptions
-  })
-  
-  const { data: stockPurchases, isLoading: isLoadingStockPurchases } = useQuery<StockPurchase[]>({
-    queryKey: ["stockPurchases"],
-    queryFn: fetchStockPurchases,
-    ...queryOptions
-  })
-
-  const { data: dailyCashEntries, isLoading: isLoadingDailyCash } = useQuery<DailyCashEntry[]>({
-    queryKey: ["dailyCash"],
-    queryFn: fetchDailyCash,
-    ...queryOptions
-  })
-
   // Combine loading states
-  const isLoading = isLoadingExpenses || isLoadingCommon || isLoadingOrderReport || 
-                    isLoadingStock || isLoadingStockPurchases || isLoadingDailyCash || 
-                    isLoadingProfit
+  const isLoading = isLoadingDashboard || isLoadingProfit
 
   const ETH_OFFSET_MS = 3 * 60 * 60 * 1000
   const todayLocalDate = new Date(Date.now() + ETH_OFFSET_MS)
@@ -1068,13 +1038,6 @@ function Dashboard() {
       to: new Date() 
     })
   }, [])
-
-  const recentCasualExpenses = useMemo(() => {
-    if (!expenses) return []
-    return [...expenses]
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 5)
-  }, [expenses])
 
   if (!isClient) {
     return (
@@ -1523,225 +1486,7 @@ function Dashboard() {
               </Card>
             </motion.div>
 
-            {/* Two Column - Expenses with CommonExpenses Component */}
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ duration: 0.3, delay: 0.3 }}
-              className="grid gap-4 md:grid-cols-2"
-            >
-              <Card className="border-purple-200/50 dark:border-purple-800/30 shadow-lg">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="flex items-center text-purple-900 dark:text-purple-300">
-                    <ArrowDownIcon className="h-5 w-5 mr-2 text-red-500" />
-                    Recent Casual Expenses
-                  </CardTitle>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => router.push('/expenses')}
-                    className="text-purple-700 hover:text-purple-900 hover:bg-purple-50"
-                  >
-                    View All →
-                  </Button>
-                </CardHeader>
-                <CardDescription className="px-6 pb-2">Latest one-time expenses</CardDescription>
-                <CardContent>
-                  {recentCasualExpenses.length > 0 ? (
-                    <div className="rounded-md border border-purple-200/50 dark:border-purple-800/30 overflow-hidden">
-                      <Table>
-                        <TableHeader className="bg-purple-50 dark:bg-purple-950/30">
-                          <TableRow>
-                            <TableHead className="text-purple-900 dark:text-purple-300">Title</TableHead>
-                            <TableHead className="text-purple-900 dark:text-purple-300">Category</TableHead>
-                            <TableHead className="text-purple-900 dark:text-purple-300 text-right">Amount</TableHead>
-                            <TableHead className="text-purple-900 dark:text-purple-300">Date</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {recentCasualExpenses.map((expense) => (
-                            <TableRow key={expense._id} className="hover:bg-purple-50/50 dark:hover:bg-purple-950/20">
-                              <TableCell className="font-medium">{expense.title}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className="bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800/30 text-purple-700 dark:text-purple-300">
-                                  {expense.category}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-red-600 dark:text-red-400 font-medium text-right">{formatCurrency(expense.amount)}</TableCell>
-                              <TableCell className="text-gray-500 dark:text-gray-400">
-                                {new Date(expense.date).toLocaleDateString()}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-8 text-center">
-                      <div className="bg-purple-100 dark:bg-purple-900/30 p-3 rounded-full mb-4">
-                        <Clock className="h-8 w-8 text-purple-400" />
-                      </div>
-                      <p className="text-gray-700 dark:text-gray-300 font-medium">No recent expenses</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mt-1">
-                        There are no expense records available to display
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
 
-              {/* === COMMON EXPENSES COMPONENT INTEGRATED === */}
-              <Card className="border-purple-200/50 dark:border-purple-800/30 shadow-lg">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="flex items-center text-purple-900 dark:text-purple-300">
-                    <Package className="h-5 w-5 mr-2 text-purple-500" />
-                    Common Expenses
-                  </CardTitle>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => router.push('/common-expense')}
-                    className="text-purple-700 hover:text-purple-900 hover:bg-purple-50"
-                  >
-                    View All →
-                  </Button>
-                </CardHeader>
-                <CardDescription className="px-6 pb-2">Recurring operational costs with daily breakdown</CardDescription>
-                <CardContent className="p-0">
-                  {/* Integrated CommonExpenses component */}
-                  <CommonExpenses />
-                </CardContent>
-              </Card>
-            </motion.div>
-
-            {/* Stock Management */}
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ duration: 0.3, delay: 0.35 }}
-            >
-              <Card className="border-purple-200/50 dark:border-purple-800/30 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center text-purple-900 dark:text-purple-300">
-                    <Package className="h-5 w-5 mr-2 text-purple-500" />
-                    Stock Management Overview
-                  </CardTitle>
-                  <CardDescription>Monitor your inventory levels and stock status</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-6 lg:grid-cols-2">
-                    <div>
-                      <h4 className="text-sm font-medium mb-4 text-purple-900 dark:text-purple-300">Stock Status Distribution</h4>
-                      <div className="h-64">
-                        {stockStatusPieData.length > 0 ? (
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={stockStatusPieData}
-                                cx="50%"
-                                cy="50%"
-                                labelLine={false}
-                                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                                outerRadius={80}
-                                fill="#8884d8"
-                                dataKey="value"
-                              >
-                                {stockStatusPieData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={entry.color} />
-                                ))}
-                              </Pie>
-                              <RechartsTooltip
-                                formatter={(value) => [`${value} items`, 'Count']}
-                              />
-                              <Legend />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center text-center py-8">
-                            <Package className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
-                            <p className="text-gray-500 dark:text-gray-400">No stock data available</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="text-sm font-medium mb-4 flex items-center text-purple-900 dark:text-purple-300">
-                        <span className="h-2 w-2 rounded-full bg-red-500 mr-2"></span>
-                        Critical Stock Items
-                      </h4>
-                      {criticalStock.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-8 text-center">
-                          <div className="bg-green-100 dark:bg-green-900/30 p-3 rounded-full mb-4">
-                            <Package className="h-8 w-8 text-green-600 dark:text-green-400" />
-                          </div>
-                          <p className="text-gray-700 dark:text-gray-300 font-medium">All inventory items are at healthy levels</p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mt-1">
-                            There are no items below their minimum stock threshold
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-3 max-h-64 overflow-y-auto">
-                          {criticalStock.slice(0, 5).map((item, index) => {
-                            const percentage = Math.min(100, Math.round((item.currentStock / item.minimumStock) * 100));
-                            return (
-                              <div key={`${item._id}-${index}`} className="p-3 rounded-lg border border-red-100 dark:border-red-800/30 bg-gradient-to-br from-red-50 to-red-50/50 dark:from-red-900/10 dark:to-red-900/5">
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className="font-medium text-purple-900 dark:text-purple-300">{item.name}</div>
-                                  <Badge className="bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-0">
-                                    Critical
-                                  </Badge>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <div className="w-full">
-                                    <Progress value={percentage} className="h-2 bg-red-200" />
-                                    <div className="flex justify-between mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                      <span>Current: <span className="text-red-600 dark:text-red-400">{item.currentStock}</span></span>
-                                      <span>Minimum: {item.minimumStock}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                          {criticalStock.length > 5 && (
-                            <div className="text-center pt-2">
-                              <Button variant="outline" size="sm" onClick={() => router.push('/stock')} className="border-purple-300 text-purple-700 hover:bg-purple-50">
-                                View all {criticalStock.length} items
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-4 mt-6 pt-4 border-t border-purple-200/30 dark:border-purple-800/30">
-                    <div className="text-center cursor-pointer hover:bg-purple-50/50 dark:hover:bg-purple-950/20 p-3 rounded-xl transition-colors" onClick={() => router.push('/stock?filter=critical')}>
-                      <div className="flex items-center justify-center gap-2">
-                        <span className="h-3 w-3 rounded-full bg-red-500"></span>
-                        <span className="text-sm font-medium text-purple-900 dark:text-purple-300">Critical</span>
-                      </div>
-                      <p className="text-2xl font-bold text-purple-900 dark:text-purple-100 mt-1">{stockStatusCounts.critical}</p>
-                    </div>
-                    <div className="text-center cursor-pointer hover:bg-purple-50/50 dark:hover:bg-purple-950/20 p-3 rounded-xl transition-colors" onClick={() => router.push('/stock?filter=low')}>
-                      <div className="flex items-center justify-center gap-2">
-                        <span className="h-3 w-3 rounded-full bg-amber-500"></span>
-                        <span className="text-sm font-medium text-purple-900 dark:text-purple-300">Low Stock</span>
-                      </div>
-                      <p className="text-2xl font-bold text-purple-900 dark:text-purple-100 mt-1">{stockStatusCounts.low}</p>
-                    </div>
-                    <div className="text-center cursor-pointer hover:bg-purple-50/50 dark:hover:bg-purple-950/20 p-3 rounded-xl transition-colors" onClick={() => router.push('/stock?filter=good')}>
-                      <div className="flex items-center justify-center gap-2">
-                        <span className="h-3 w-3 rounded-full bg-green-500"></span>
-                        <span className="text-sm font-medium text-purple-900 dark:text-purple-300">Good Stock</span>
-                      </div>
-                      <p className="text-2xl font-bold text-purple-900 dark:text-purple-100 mt-1">{stockStatusCounts.good}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
 
             {/* Quick Navigation */}
             <motion.div

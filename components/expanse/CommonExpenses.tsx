@@ -45,9 +45,9 @@ const getDailyCommonAmount = (expense: CommonExpense, date: Date): number => {
   }
 }
 
-export function CommonExpenses() {
-  const [expenses, setExpenses] = useState<CommonExpense[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+export function CommonExpenses({ initialExpenses }: { initialExpenses?: CommonExpense[] }) {
+  const [expenses, setExpenses] = useState<CommonExpense[]>(initialExpenses || [])
+  const [isLoading, setIsLoading] = useState(!initialExpenses)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [dateFilterType, setDateFilterType] = useState<DateFilterType>('today')
   const [customStartDate, setCustomStartDate] = useState<Date | null>(null)
@@ -55,7 +55,9 @@ export function CommonExpenses() {
   const [chartView, setChartView] = useState<'bar' | 'area' | 'line'>('bar')
 
   useEffect(() => {
-    fetchCommonExpenses()
+    if (!initialExpenses || initialExpenses.length === 0) {
+      fetchCommonExpenses()
+    }
   }, [])
 
   const fetchCommonExpenses = async () => {

@@ -162,6 +162,7 @@ export function NavBar() {
   const [isPlayingVideo, setIsPlayingVideo] = useState(false)
   const [frameImages, setFrameImages] = useState<string[]>([])
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [mounted, setMounted] = useState(false)
   
   const pathname = usePathname()
   const router = useRouter()
@@ -169,6 +170,10 @@ export function NavBar() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animationFrameRef = useRef<number | null>(null)
   
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   // Cast session user to ExtendedUser type
   const user = session?.user as ExtendedUser | undefined
 
@@ -590,7 +595,7 @@ export function NavBar() {
   };
 
   const renderUserMenu = () => {
-    if (status === "loading" || isCheckingStatus) {
+    if (!mounted || status === "loading" || isCheckingStatus) {
       return (
         <div className="flex items-center gap-3">
           <div className="h-9 w-20 bg-gray-200 rounded-md animate-pulse"></div>

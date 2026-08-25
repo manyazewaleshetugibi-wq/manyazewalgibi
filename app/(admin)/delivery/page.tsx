@@ -101,6 +101,10 @@ type DeliveryOrder = {
     city?: string
     landmark?: string
     deliveryInstructions?: string
+    location?: {
+      type: string
+      coordinates: [number, number] // [lng, lat] format
+    }
   }
   note?: string
   specialRequirements?: string
@@ -417,12 +421,19 @@ export default function DeliveryManagement() {
       }
     }
 
-    // Get coordinates from userDetails (GeoJSON format: [lng, lat])
+    // Get coordinates: prefer the order's delivery location (captured at checkout),
+    // fall back to the customer's profile location (GeoJSON format: [lng, lat])
     const getCoordinates = (): { lat: number; lng: number } | null => {
-      if (order.userDetails?.location?.coordinates && 
-          order.userDetails.location.coordinates.length === 2) {
-        const [lng, lat] = order.userDetails.location.coordinates
-        return { lat, lng }
+      const sources = [
+        order.deliveryInfo?.location?.coordinates,
+        order.userDetails?.location?.coordinates,
+      ]
+      for (const coords of sources) {
+        if (Array.isArray(coords) && coords.length === 2 &&
+            typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+          const [lng, lat] = coords
+          return { lat, lng }
+        }
       }
       return null
     }
@@ -837,12 +848,19 @@ export default function DeliveryManagement() {
     const address = order.deliveryInfo?.address || order.deliveryAddress || order.userDetails?.address || "No address"
     const city = order.deliveryInfo?.city || ""
     
-    // Get coordinates from userDetails
+    // Get coordinates: prefer the order's delivery location (captured at checkout),
+    // fall back to the customer's profile location (GeoJSON format: [lng, lat])
     const getCoordinates = (): { lat: number; lng: number } | null => {
-      if (order.userDetails?.location?.coordinates && 
-          order.userDetails.location.coordinates.length === 2) {
-        const [lng, lat] = order.userDetails.location.coordinates
-        return { lat, lng }
+      const sources = [
+        order.deliveryInfo?.location?.coordinates,
+        order.userDetails?.location?.coordinates,
+      ]
+      for (const coords of sources) {
+        if (Array.isArray(coords) && coords.length === 2 &&
+            typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+          const [lng, lat] = coords
+          return { lat, lng }
+        }
       }
       return null
     }

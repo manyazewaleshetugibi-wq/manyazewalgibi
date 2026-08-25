@@ -622,17 +622,20 @@ function calculateTotals(items: DailySoldItem[]): {
 
 async function getProfitData(
   date?: Date,
-  filters: ProfitFilters = {}
+  filters: ProfitFilters = {},
+  externalStocks?: StockItem[],
+  externalPurchases?: Purchase[],
+  externalMenuItems?: MenuItem[],
+  externalCategories?: Category[]
 ): Promise<ProfitDataResult> {
   const targetDate = date || new Date()
   
-  // Fetch all data in parallel (same as profit page)
   const [orders, menuItems, categories, stocks, purchases] = await Promise.all([
     fetchTodayOrders(targetDate),
-    fetchMenuItems(),
-    fetchCategories(),
-    fetchStockItems(),
-    fetchPurchases()
+    externalMenuItems ? Promise.resolve(externalMenuItems) : fetchMenuItems(),
+    externalCategories ? Promise.resolve(externalCategories) : fetchCategories(),
+    externalStocks ? Promise.resolve(externalStocks) : fetchStockItems(),
+    externalPurchases ? Promise.resolve(externalPurchases) : fetchPurchases()
   ])
 
   // Calculate profitability (same as profit page)
@@ -767,7 +770,8 @@ interface CachedProfitData {
 export function useCachedProfitCalculations(
   date?: Date,
   initialFilters: ProfitFilters = {},
-  cacheDuration: number = 60000 // 1 minute cache
+  cacheDuration: number = 60000, // 1 minute cache
+  externalData?: { stocks?: any[]; purchases?: any[]; menuItems?: any[]; categories?: any[] }
 ): UseProfitCalculationsReturn {
   const [cachedData, setCachedData] = useState<CachedProfitData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -788,7 +792,7 @@ export function useCachedProfitCalculations(
     setIsLoading(true)
     setError(null)
     try {
-      const result = await getProfitData(targetDate, filters)
+      const result = await getProfitData(targetDate, filters, externalData?.stocks, externalData?.purchases, externalData?.menuItems, externalData?.categories)
       
       const cacheEntry: CachedProfitData = {
         data: result,
@@ -804,7 +808,7 @@ export function useCachedProfitCalculations(
     } finally {
       setIsLoading(false)
     }
-  }, [targetDate, filters, cachedData, cacheDuration, dateKey])
+  }, [targetDate, filters, cachedData, cacheDuration, dateKey, externalData])
 
   useEffect(() => {
     fetchData()

@@ -215,11 +215,22 @@ export async function POST(req: NextRequest) {
       location: body.deliveryInfo?.location || null // This will store coordinates
     };
 
+    // Delivery orders belong to Restaurant 1 (Manyazewal Eshetu Gibi 1)
+    const restaurantOne =
+      (await prisma.restaurant.findUnique({ where: { id: "manyazewal1" } })) ||
+      (await prisma.restaurant.findFirst({
+        where: { isActive: true, name: { contains: "1" } },
+      }));
+    const deliveryRestaurantId = restaurantOne?.id || "manyazewal1";
+    const deliveryRestaurantName = restaurantOne?.name || "Manyazewal Eshetu Gibi 1";
+
     // Prepare the order data with CORRECT values
     const orderData = {
       orderNumber: body.orderNumber || `ORD-${Date.now().toString().slice(-6)}`,
       userId: session?.user?.id,
       customerId: body.customerId || session?.user?.id,
+      restaurantId: deliveryRestaurantId,
+      restaurantName: deliveryRestaurantName,
       items: itemsWithDetails,
       deliveryInfo: deliveryInfo,
       specialRequirements: body.specialRequirements || '',

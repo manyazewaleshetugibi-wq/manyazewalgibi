@@ -2799,53 +2799,68 @@ export default function MenuPage() {
         </Sheet>
       </div>
 
-      {/* Desktop Full-Screen Cart */}
-      {isCartOpen && isDesktop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsCartOpen(false)} />
-          <div className="relative w-[96vw] h-[93vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-            <CartPanel 
-              cart={cartItems} 
-              onClose={() => setIsCartOpen(false)} 
-              onRemoveItem={removeFromCart} 
-              onUpdateQuantity={updateQuantity} 
-              orderType={orderType} 
-              onOrderTypeChange={handleOrderTypeChange}
-              tableNumber={tableNumber} 
-              onTableNumberChange={setTableNumber} 
-              selectedTableData={selectedTableData} 
-              onTableSelect={handleTableSelect} 
-              waiters={waiters} 
-              selectedWaiter={getAutoAssignedWaiter()} 
-              onWaiterChange={() => {}} 
-              numberOfGuests={numberOfGuests} 
-              onGuestsChange={setNumberOfGuests} 
-              specialRequirements={specialRequirements} 
-              onSpecialRequirementsChange={(value) => handleTextInputChange(value, setSpecialRequirements, 'Special requirements')}
-              subtotal={adjustedSubtotal} 
-              tax={calculatedTax} 
-              deliveryFee={deliveryFee} 
-              total={finalTotal} 
-              orderNumber={orderNumber} 
-              onPlaceOrder={handlePlaceOrder} 
-              isPlacingOrder={isPlacingOrder} 
-              isUserLoggedIn={isLoggedIn}
-              onLoginRequired={() => {}}
-              userData={userData as UserData | null}
-              onNavigateToProfile={handleNavigateToProfile} 
-              isCalculatingDelivery={isCalculatingDelivery} 
-              restaurantId="manyazewal1" 
-              floor="Ground Floor" 
-              arrangementId={arrangementId}
-              onGuestOrder={handleGuestOrder}
-              tableFromQR={isQRTable}
-              onPlaceOrderDirect={isQRTable ? handleDirectOrder : undefined}
-              onQRDetected={() => setIsQRTable(true)}
-              fullScreen
+      {/* Desktop Cart - Slide-in Side Panel */}
+      <AnimatePresence>
+        {isCartOpen && isDesktop && (
+          <div className="fixed inset-0 z-50">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setIsCartOpen(false)}
             />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="absolute right-0 top-0 h-full w-full max-w-lg bg-white border-l border-purple-100 rounded-l-2xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <CartPanel
+                cart={cartItems}
+                onClose={() => setIsCartOpen(false)}
+                onRemoveItem={removeFromCart}
+                onUpdateQuantity={updateQuantity}
+                orderType={orderType}
+                onOrderTypeChange={handleOrderTypeChange}
+                tableNumber={tableNumber}
+                onTableNumberChange={setTableNumber}
+                selectedTableData={selectedTableData}
+                onTableSelect={handleTableSelect}
+                waiters={waiters}
+                selectedWaiter={getAutoAssignedWaiter()}
+                onWaiterChange={() => {}}
+                numberOfGuests={numberOfGuests}
+                onGuestsChange={setNumberOfGuests}
+                specialRequirements={specialRequirements}
+                onSpecialRequirementsChange={(value) => handleTextInputChange(value, setSpecialRequirements, 'Special requirements')}
+                subtotal={adjustedSubtotal}
+                tax={calculatedTax}
+                deliveryFee={deliveryFee}
+                total={finalTotal}
+                orderNumber={orderNumber}
+                onPlaceOrder={handlePlaceOrder}
+                isPlacingOrder={isPlacingOrder}
+                isUserLoggedIn={isLoggedIn}
+                onLoginRequired={() => {}}
+                userData={userData as UserData | null}
+                onNavigateToProfile={handleNavigateToProfile}
+                isCalculatingDelivery={isCalculatingDelivery}
+                restaurantId="manyazewal1"
+                floor="Ground Floor"
+                arrangementId={arrangementId}
+                onGuestOrder={handleGuestOrder}
+                tableFromQR={isQRTable}
+                onPlaceOrderDirect={isQRTable ? handleDirectOrder : undefined}
+                onQRDetected={() => setIsQRTable(true)}
+                fullScreen
+              />
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Mobile Cart Sheet */}
       {!isDesktop && (

@@ -66,15 +66,26 @@ export async function GET(req: NextRequest) {
         gte: fromDate,
         lte: toDate,
       },
-      status: 'COMPLETED',
+      AND: [
+        // Completed orders + delivered delivery orders
+        // (delivery orders are often left at DELIVERED and never marked COMPLETED)
+        {
+          OR: [
+            { status: 'COMPLETED' },
+            { status: 'DELIVERED', delivery: true },
+          ],
+        },
+      ],
     };
 
     // Exclude calculated orders if requested
     if (excludeCalculated) {
-      where.OR = [
-        { calculated: { not: true } },
-        { calculated: null },
-      ];
+      where.AND.push({
+        OR: [
+          { calculated: { not: true } },
+          { calculated: null },
+        ],
+      });
     }
 
     // Add waiter filter if specified and not 'all'
@@ -84,7 +95,17 @@ export async function GET(req: NextRequest) {
 
     // Add restaurant filter if specified
     if (restaurantId && restaurantId !== 'all' && restaurantId !== 'unassigned') {
-      where.restaurantId = restaurantId;
+      if (restaurantId === 'manyazewal1') {
+        // Delivery orders belong to Restaurant 1 (legacy ones have no restaurantId)
+        where.AND.push({
+          OR: [
+            { restaurantId: 'manyazewal1' },
+            { delivery: true },
+          ],
+        });
+      } else {
+        where.restaurantId = restaurantId;
+      }
     }
 
     // Add payment method filter if specified
@@ -139,8 +160,8 @@ export async function GET(req: NextRequest) {
         .filter(Boolean) || [],
     }));
 
-    // Get summary statistics (computed in JS from all matching orders)
-    const summaryOrders = await prisma.order.findMany({ where });
+    // Reuse already-fetched orders for summary instead of a duplicate DB query
+    const summaryOrders = orders;
 
     const totalSales = summaryOrders.reduce((acc, o) => acc + (o.finalAmount || 0), 0);
     const summary = {

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useSession } from "next-auth/react"
+import { useSession, signOut } from "next-auth/react"
 import { useTheme } from "next-themes"
 import { ChevronDown, Moon, Sun, Menu, Home, Utensils, Coffee, Users, ClipboardList, BarChart2, Settings, LogOut } from 'lucide-react'
 
@@ -111,11 +111,9 @@ export function Sidebars() {
             </div>
           </div>
           <Separator className="my-4" />
-          <Button variant="ghost" className="w-full justify-start" asChild>
-            <a href="/api/auth/signout">
+          <Button variant="ghost" className="w-full justify-start" onClick={() => signOut({ callbackUrl: "/login" })}>
               <LogOut className="mr-2 h-4 w-4" />
               Log out
-            </a>
           </Button>
         </SidebarFooter>
       </Sidebar>

@@ -196,7 +196,7 @@ export function TransferDisplay({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[95vh] p-4 sm:p-6">
+      <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader className="pb-4">
           <DialogTitle className="text-xl font-bold flex items-center gap-2">
             <ArrowRightLeft className="h-5 w-5 text-blue-500" />

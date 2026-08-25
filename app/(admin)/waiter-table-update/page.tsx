@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -371,7 +371,7 @@ export default function WaiterTableUpdatePage() {
                         <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => router.push('/api/auth/signout')}
+                            onClick={() => signOut({ callbackUrl: "/login" })}
                             className="text-red-600 hover:text-red-700"
                         >
                             <LogOut className="w-4 h-4" />

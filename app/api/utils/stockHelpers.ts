@@ -60,7 +60,8 @@ type ProcessingError = {
 // but we keep a small retry loop for write-conflict / deadlock errors.
 async function withTransactionRetry<T>(
   callback: (tx: Prisma.TransactionClient) => Promise<T>,
-  maxRetries: number = 3
+  maxRetries: number = 3,
+  txOptions: { maxWait?: number; timeout?: number } = {}
 ): Promise<T> {
   let lastError: any;
   
@@ -68,6 +69,13 @@ async function withTransactionRetry<T>(
     try {
       return await prisma.$transaction(async (tx) => {
         return await callback(tx);
+      }, {
+        // Defaults must comfortably exceed the worst-case loop inside the
+        // callback (several sequential queries per ingredient). Prisma's
+        // default timeout is only 5s, which causes P2028
+        // "Transaction already closed" when the DB is slow.
+        maxWait: txOptions.maxWait ?? 10_000,
+        timeout: txOptions.timeout ?? 90_000,
       });
     } catch (error: any) {
       lastError = error;
@@ -218,28 +226,36 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
     );
   }
 
-  for (const [itemIdString, aggItem] of aggregatedItems.entries()) {
-    if (booksAlreadyProcessed) break;
-    if (!itemIdString) continue;
+  if (!booksAlreadyProcessed) {
+    // One query for all potential books instead of one per item
+    const aggItemIds = Array.from(aggregatedItems.keys()).filter(Boolean);
+    const bookDocs = aggItemIds.length
+      ? await prisma.book.findMany({ where: { id: { in: aggItemIds } } })
+      : [];
+    const booksById = new Map(bookDocs.map((b: any) => [b.id, b]));
 
-    const bookData = await prisma.book.findFirst({ where: { id: itemIdString } });
-    if (!bookData) continue;
+    for (const [itemIdString, aggItem] of aggregatedItems.entries()) {
+      if (!itemIdString) continue;
 
-    bookItemIds.push(itemIdString);
+      const bookData: any = booksById.get(itemIdString);
+      if (!bookData) continue;
 
-    const quantityToDeduct = roundQty(aggItem.quantity);
-    const newQuantity = Math.max(0, (Number(bookData.quantity) || 0) - quantityToDeduct);
-    await prisma.book.updateMany(
-      {
-        where: { id: itemIdString },
-        data: {
-          quantity: newQuantity,
-          updatedAt: new Date(),
-        },
-      }
-    );
+      bookItemIds.push(itemIdString);
 
-    debugLog(`📚 Book "${aggItem.itemName}": sold ${quantityToDeduct} (remaining clamped to 0)`);
+      const quantityToDeduct = roundQty(aggItem.quantity);
+      const newQuantity = Math.max(0, (Number(bookData.quantity) || 0) - quantityToDeduct);
+      await prisma.book.updateMany(
+        {
+          where: { id: itemIdString },
+          data: {
+            quantity: newQuantity,
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      debugLog(`📚 Book "${aggItem.itemName}": sold ${quantityToDeduct} (remaining clamped to 0)`);
+    }
   }
 
   // Collect ingredients (skip books — they have no stock/ingredients)
