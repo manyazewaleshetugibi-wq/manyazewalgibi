@@ -977,16 +977,18 @@ model Restaurant {
 }
 
 model DailyCash {
-  id           String    @id
-  date         String?
-  cashAmount   Float?
+  id             String    @id
+  date           String?
+  cashAmount     Float?
+  bankAmount     Float?
   transferAmount Float?
-  totalAmount  Float?
-  zReportNumber String?
-  notes        String?
-  createdBy    String?
-  createdAt    DateTime?
-  updatedAt    DateTime?
+  zedAmount      Float?
+  totalAmount    Float?
+  zReportNumber  String?
+  notes          String?
+  createdBy      String?
+  createdAt      DateTime?
+  updatedAt      DateTime?
 
   @@map("dailyCash")
 }
