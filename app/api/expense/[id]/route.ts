@@ -53,7 +53,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ success: false, error: "Expense not found" }, { status: 404 })
     }
 
-    return NextResponse.json({ success: true, message: "Expense updated successfully" })
+    const updated = await prisma.expenseRecord.findFirst({ where: { id } })
+
+    return NextResponse.json({ success: true, message: "Expense updated successfully", data: updated ? { ...updated, _id: updated.id } : null })
   } catch (error) {
     return NextResponse.json({ success: false, error: (error as Error).message }, { status: 500 })
   }

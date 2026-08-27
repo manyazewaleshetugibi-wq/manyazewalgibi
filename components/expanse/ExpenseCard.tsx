@@ -30,7 +30,7 @@ export function ExpenseCard({
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-lg">{expense.title}</CardTitle>
+            <CardTitle className="text-lg">{expense.title || expense.description || "Untitled expense"}</CardTitle>
             <CardDescription>{expense.category}</CardDescription>
           </div>
           <DropdownMenu>

@@ -84,7 +84,7 @@ export function CasualExpenses() {
   const filteredExpenses = useMemo(() => {
     return getFilteredExpensesByDate
       .filter((expense) =>
-        expense.title?.toLowerCase().includes(searchTerm.toLowerCase())
+        `${expense.title || ""} ${expense.description || ""}`.toLowerCase().includes(searchTerm.toLowerCase())
       )
       .filter((expense) => !filterCategory || expense.category === filterCategory)
       .filter((expense) => !filterStatus || expense.status === filterStatus)
@@ -114,8 +114,12 @@ export function CasualExpenses() {
       }
       const response = await casualApi.addCost(expenseData)
       if (response.success || response.data) {
-        const newExpense = response.data || response
-        setExpenses((prev) => [newExpense, ...prev])
+        const newExpense = response.data
+        if (newExpense && newExpense._id && newExpense.amount !== undefined) {
+          setExpenses((prev) => [newExpense, ...prev])
+        } else {
+          await fetchExpenses()
+        }
         toast.success("Expense added successfully!")
         setIsDialogOpen(false)
       }
@@ -136,8 +140,12 @@ export function CasualExpenses() {
       }
       const response = await casualApi.updateCost(id, expenseData)
       if (response.success || response.data) {
-        const updatedExpense = response.data || response
-        setExpenses((prev) => prev.map((exp) => exp._id === id ? updatedExpense : exp))
+        const updatedExpense = response.data
+        setExpenses((prev) => prev.map((exp) => {
+          if (exp._id !== id) return exp
+          if (updatedExpense && updatedExpense._id) return updatedExpense
+          return { ...exp, ...expenseData, date: expenseData.date }
+        }))
         toast.success("Expense updated successfully!")
       }
     } catch (error) {

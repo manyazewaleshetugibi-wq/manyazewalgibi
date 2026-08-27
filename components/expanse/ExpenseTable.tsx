@@ -65,7 +65,7 @@ export function ExpenseTable({
         <TableBody>
           {expenses.map((expense) => (
             <TableRow key={expense._id} className="hover:bg-muted/30">
-              <TableCell className="font-medium">{expense.title}</TableCell>
+              <TableCell className="font-medium">{expense.title || expense.description || "Untitled expense"}</TableCell>
               <TableCell className="font-semibold text-amber-600">{formatCurrency(expense.amount)}</TableCell>
               <TableCell>
                 <Badge variant="secondary" className="rounded-full">{expense.category}</Badge>
