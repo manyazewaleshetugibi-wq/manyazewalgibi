@@ -4,7 +4,7 @@ export interface Staff {
   email: string;
   phone: string;
   employeeId: string;
-  role: 'admin' | 'kitchen' | 'stock_manager' | 'fb' | 'marketing' | 'finance' | 'pos';
+  role: 'admin' | 'kitchen' | 'stock_manager' | 'purchasing' | 'delivery' | 'fb' | 'marketing' | 'finance' | 'pos' | 'waitress' | 'barista' | 'coffee_maker' | 'other';
   status: 'active' | 'inactive' | 'suspended';
   requiresPasswordChange: boolean;
   permissions: string[];

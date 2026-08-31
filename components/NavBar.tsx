@@ -70,6 +70,9 @@ type Role =
   | "purchasing"
   | "delivery"
   | "waitress"
+  | "barista"
+  | "coffee_maker"
+  | "other"
   | "customer" 
   | "user"
 
@@ -430,7 +433,7 @@ export function NavBar() {
   useEffect(() => {
     if (!user) return
 
-    const staffRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'waitress', 'fb', 'marketing', 'finance', 'pos']
+    const staffRoles = ['admin', 'kitchen', 'stock_manager', 'purchasing', 'delivery', 'waitress', 'fb', 'marketing', 'finance', 'pos', 'barista', 'coffee_maker', 'other']
     const isStaff = staffRoles.includes(user.role)
     const intervalTime = !isStaff ? 300000 : 60000
 
@@ -532,6 +535,9 @@ export function NavBar() {
       purchasing: { path: "/purchase-request", label: "Purchasing Dashboard", icon: ShoppingBag },
       delivery: { path: "/delivery", label: "Delivery Dashboard", icon: Truck },
       waitress: { path: "/pos", label: "Take Orders", icon: Store },
+      barista: { path: "/orders", label: "Beverage Prep", icon: ChefHat },
+      coffee_maker: { path: "/orders", label: "Coffee Service", icon: ChefHat },
+      other: { path: "/Culture", label: "Other", icon: User },
       customer: { path: "/blogs", label: "Blogs", icon: BookOpen },
       user: { path: "/", label: "Dashboard", icon: LayoutDashboard }
     }

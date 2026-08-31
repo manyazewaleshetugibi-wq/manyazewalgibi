@@ -39,6 +39,9 @@ export const redirectBasedOnRole = (role: string, router: any, requiresPasswordC
     case "stock_manager":
       router.replace("/stock");
       break;
+    case "other":
+      router.replace("/Culture");
+      break;
       case "user":
         router.replace("/dashboard");
         break;

@@ -71,6 +71,10 @@ const ALL_ROUTES = {
     '/Culture', '/orders', '/training', '/preparation', '/standards',
     '/daily-tasks', '/profile', '/change-password'
   ],
+  OTHER: [
+    '/Culture', '/training', '/preparation', '/standards',
+    '/daily-tasks', '/profile', '/attendance'
+  ],
   DEFAULT: [
     '/Culture', '/training', '/daily-tasks', '/profile',
     '/change-password'
@@ -102,6 +106,7 @@ const getDefaultRedirect = (role: string): string => {
     WAITRESS: '/pos',
     BARISTA: '/orders',
     COFFEE_MAKER: '/orders',
+    OTHER: '/Culture',
     DEFAULT: '/dashboard'
   };
   return defaults[role as keyof typeof defaults] || '/dashboard';

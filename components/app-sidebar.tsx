@@ -111,6 +111,10 @@ const ALL_ROUTES = {
     '/Culture', '/orders', '/training', '/preparation', '/standards',
     '/daily-tasks', '/profile', '/change-password'
   ],
+  OTHER: [
+    '/Culture', '/training', '/preparation', '/standards',
+    '/daily-tasks', '/profile', '/attendance'
+  ],
   DEFAULT: [
     '/Culture', '/training', '/daily-tasks', '/profile',
     
@@ -525,6 +529,18 @@ const roleBasedNavigation = {
     ],
   },
 
+  OTHER: {
+    navMain: [],
+    projects: [
+      { name: "Training", url: "/training", icon: BookCheckIcon },
+      { name: "Preparation", url: "/preparation", icon: ChefHat },
+      { name: "Standards", url: "/standards", icon: ClipboardCheck },
+      { name: "Daily Tasks", url: "/daily-tasks", icon: ListOrderedIcon },
+      { name: "Culture", url: "/Culture", icon: AudioWaveform },
+      { name: "Attendance", url: "/attendance", icon: Clock },
+    ],
+  },
+
   DEFAULT: {
     navMain: [],
     projects: [
@@ -646,6 +662,7 @@ const getDefaultRedirect = (role: string): string => {
     WAITRESS: '/pos',
     BARISTA: '/orders',
     COFFEE_MAKER: '/orders',
+    OTHER: '/Culture',
     DEFAULT: '/dashboard'
   };
   return defaults[role as keyof typeof defaults] || '/dashboard';
