@@ -11,9 +11,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { QRCodeCanvas } from "qrcode.react"
 import { toast } from "react-hot-toast"
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, parseISO, addMonths, subMonths } from "date-fns"
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths } from "date-fns"
 import { Search, QrCode, CheckCircle, XCircle, RefreshCw, Printer, ChevronLeft, ChevronRight, Eye, Clock, Timer, CalendarX, CalendarCheck2, TrendingUp } from "lucide-react"
-import { localDateStr } from "@/lib/attendance-date"
+import { localDateStr, formatEATTime } from "@/lib/attendance-date"
 
 interface StaffUser {
   _id: string
@@ -129,16 +129,7 @@ export default function AttendancePage() {
   }
 
   const formatTime = (iso?: string | null) => {
-    if (!iso) return "—"
-    try {
-      let date: Date | null = null
-      try { date = parseISO(iso) } catch { date = null }
-      if (!date || isNaN(date.getTime())) date = new Date(iso)
-      if (isNaN(date.getTime())) return "—"
-      return format(date, 'hh:mm a')
-    } catch {
-      return "—"
-    }
+    return formatEATTime(iso)
   }
 
   const getWorkedMinutes = (rec?: AttendanceRecord) => {
@@ -420,7 +411,7 @@ export default function AttendancePage() {
 
         {/* Staff Detail Dialog */}
         <Dialog open={!!detailUser} onOpenChange={(open) => { if (!open) setDetailUser(null) }}>
-          <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+          <DialogContent className="max-w-4xl h-[85vh] max-h-[90vh] flex flex-col overflow-hidden">
             <DialogHeader className="text-left">
               <DialogTitle className="flex items-center gap-3">
                 <div className="h-11 w-11 rounded-full bg-gradient-to-br from-purple-600 to-purple-400 flex items-center justify-center text-white font-bold text-sm shrink-0">
