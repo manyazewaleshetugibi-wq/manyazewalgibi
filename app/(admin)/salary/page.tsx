@@ -193,14 +193,18 @@ export default function SalaryPage() {
     const s = new Set(expandedRows); s.has(id) ? s.delete(id) : s.add(id); setExpandedRows(s)
   }
 
-  function calcSalary(sal: Salary): { salary: number; penalty: number; present: number; absent: number; dailyRate: number } {
+  function calcSalary(sal: Salary): { salary: number | null; penalty: number | null; present: number; absent: number; dailyRate: number; registered: boolean } {
     const att = attendanceMap[sal.userId]
+    const registered = !!att
     const present = att?.present || 0
+    if (!registered) {
+      return { salary: null, penalty: null, present, absent: present, dailyRate: 0, registered }
+    }
     const absent = Math.max(0, workingDays - present)
     const dailyRate = workingDays > 0 ? sal.baseSalary / workingDays : 0
     const penalty = Math.round(dailyRate * absent)
     const salary = Math.max(0, Math.round(sal.baseSalary - penalty))
-    return { salary, penalty, present, absent, dailyRate: Math.round(dailyRate) }
+    return { salary, penalty, present, absent, dailyRate: Math.round(dailyRate), registered }
   }
 
   const stats = useMemo(() => {
@@ -208,8 +212,8 @@ export default function SalaryPage() {
     const paid = salaries.filter(s => s.paidThisMonth)
     const unpaid = salaries.filter(s => !s.paidThisMonth)
     const paidAmount = paid.reduce((s, x) => s + (x.paymentThisMonth?.amount || x.baseSalary || 0), 0)
-    const penaltyTotal = salaries.reduce((s, x) => s + calcSalary(x).penalty, 0)
-    const salaryTotal = salaries.reduce((s, x) => s + calcSalary(x).salary, 0)
+    const penaltyTotal = salaries.reduce((s, x) => s + (calcSalary(x).penalty || 0), 0)
+    const salaryTotal = salaries.reduce((s, x) => s + (calcSalary(x).salary || 0), 0)
     return { total, paid: paid.length, unpaid: unpaid.length, paidAmount, count: salaries.length, penaltyTotal, salaryTotal }
   }, [salaries, attendanceMap, workingDays])
 
@@ -234,9 +238,9 @@ export default function SalaryPage() {
         Name: s.name,
         Role: s.position || s.role,
         'Base Salary': s.baseSalary,
-        Penalty: calc.penalty,
-        Salary: calc.salary,
-        [`Attendance (${MONTHS[viewMonth - 1]} ${viewYear})`]: `${calc.present} present / ${calc.absent} absent`,
+        Penalty: calc.registered ? calc.penalty : '',
+        Salary: calc.registered ? calc.salary : '',
+        [`Attendance (${MONTHS[viewMonth - 1]} ${viewYear})`]: calc.registered ? `${calc.present} present / ${calc.absent} absent` : 'Not registered',
         [`Payment (${MONTHS[viewMonth - 1]} ${viewYear})`]: s.paidThisMonth ? `Paid ${ccy(s.paymentThisMonth?.amount || s.baseSalary)}` : 'Unpaid',
         'Bank Account': s.bankAccount || '-',
         Notes: s.notes || '-',
@@ -365,20 +369,26 @@ export default function SalaryPage() {
                       <TableCell><Badge variant="secondary" className="capitalize text-xs">{sal.position || sal.role}</Badge></TableCell>
                       <TableCell className="text-right font-bold text-sm">{ccy(sal.baseSalary)}</TableCell>
                       <TableCell className="text-right">
-                        {calc.penalty > 0 ? (
+                        {calc.registered && calc.penalty && calc.penalty > 0 ? (
                           <span className="text-red-500 font-medium text-sm">−{ccy(calc.penalty)}</span>
                         ) : <span className="text-xs text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="text-sm font-bold text-green-700">{ccy(calc.salary)}</div>
-                        <div className="text-[10px] text-muted-foreground">{calc.dailyRate}/day</div>
+                        {calc.salary !== null ? (
+                          <>
+                            <div className="text-sm font-bold text-green-700">{ccy(calc.salary)}</div>
+                            <div className="text-[10px] text-muted-foreground">{calc.dailyRate}/day</div>
+                          </>
+                        ) : <span className="text-xs text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="text-center">
-                        <span className="text-xs">
-                          <span className="text-green-600 font-semibold">{calc.present}</span>
-                          <span className="text-muted-foreground"> / </span>
-                          <span className={calc.absent > 0 ? 'text-red-500 font-semibold' : 'text-muted-foreground'}>{calc.absent}</span>
-                        </span>
+                        {calc.registered ? (
+                          <span className="text-xs">
+                            <span className="text-green-600 font-semibold">{calc.present}</span>
+                            <span className="text-muted-foreground"> / </span>
+                            <span className={calc.absent > 0 ? 'text-red-500 font-semibold' : 'text-muted-foreground'}>{calc.absent}</span>
+                          </span>
+                        ) : <span className="text-xs text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="text-center">
                         {sal.paidThisMonth ? (
@@ -609,7 +619,7 @@ export default function SalaryPage() {
               {showPay.salary?.name} — {MONTHS[viewMonth - 1]} {viewYear}
               {showPay.salary && (() => {
                 const calc = calcSalary(showPay.salary)
-                return calc.penalty > 0 ? ` (base − penalty → ${ccy(calc.salary)})` : ''
+                return calc.penalty !== null && calc.penalty > 0 ? ` (base − penalty → ${ccy(calc.salary as number)})` : ''
               })()}
             </DialogDescription>
           </DialogHeader>
@@ -619,7 +629,7 @@ export default function SalaryPage() {
               return (
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="bg-blue-50 rounded-lg p-2">
-                    <div className="font-semibold text-blue-700">{ccy(calc.penalty)}</div>
+                    <div className="font-semibold text-blue-700">{calc.penalty !== null ? ccy(calc.penalty) : '—'}</div>
                     <div className="text-muted-foreground">Penalty</div>
                   </div>
                   <div className="bg-green-50 rounded-lg p-2">
