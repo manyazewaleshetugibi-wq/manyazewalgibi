@@ -271,7 +271,8 @@ export async function GET(req: NextRequest) {
           { stockProcessed: null }
         ],
         updatedAt: { gte: twoHoursAgoForStock }
-      }
+      },
+      select: { id: true, items: true }
     });
     const pendingStockCount = pendingStockOrders.filter(o =>
       Array.isArray((o.items as any)) && (o.items as any).length > 0
@@ -298,53 +299,68 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // For each order, check if it has used stock records
-    const ordersWithStockInfo = await Promise.all(
-      orders.map(async (order) => {
-        const usedStock = await prisma.usedStock.findMany({ where: { orderId: order.id } });
-        
-        let additionalDetails = {};
+    // For each order, check if it has used stock records (batched, not N+1)
+    const orderIds = orders.map((o) => o.id);
+    const [allUsedStock, waitressRows, waiterRows] = await Promise.all([
+      prisma.usedStock.findMany({
+        where: { orderId: { in: orderIds } },
+        orderBy: { usedAt: 'desc' },
+      }),
+      prisma.waitress.findMany({
+        where: { id: { in: orderIds } },
+        select: { id: true, name: true, shift: true },
+      }),
+      prisma.waiter.findMany({
+        where: { id: { in: orderIds } },
+        select: { id: true, name: true, shift: true },
+      }),
+    ]);
 
-        if ((order.inTable === true || order.waiterId) && (!order.delivery)) {
-          try {
-            if (order.waiterId) {
-              let waiter = await prisma.waitress.findFirst(
-                { where: { id: order.waiterId }, select: { name: true, shift: true } }
-              );
-              
-              if (!waiter) {
-                waiter = await prisma.waiter.findFirst(
-                  { where: { id: order.waiterId }, select: { name: true, shift: true } }
-                );
-              }
-              
-              if (waiter) {
-                additionalDetails = { waiter };
-              }
-            }
-          } catch (err) {
-            console.error(`Failed to fetch waiter for order ${order.id}`, err);
+    const usedStockByOrder = new Map<string, any[]>();
+    for (const us of allUsedStock) {
+      const key = us.orderId || '';
+      const list = usedStockByOrder.get(key) || [];
+      list.push(us);
+      usedStockByOrder.set(key, list);
+    }
+
+    const waiterByOrder = new Map<string, any>();
+    for (const w of waitressRows) waiterByOrder.set(w.id, w);
+    for (const w of waiterRows) {
+      if (!waiterByOrder.has(w.id)) waiterByOrder.set(w.id, w);
+    }
+
+    const ordersWithStockInfo = orders.map((order) => {
+      const usedStock = usedStockByOrder.get(order.id) || [];
+
+      let additionalDetails = {};
+
+      if ((order.inTable === true || order.waiterId) && (!order.delivery)) {
+        if (order.waiterId) {
+          const waiter = waiterByOrder.get(order.waiterId);
+          if (waiter) {
+            additionalDetails = { waiter };
           }
         }
-        
-        if (order.delivery === true && (!order.inTable)) {
-          if (!order.deliveryInfo) {
-            (order as any).deliveryInfo = {};
-          }
-          if (!order.paymentScreenshotUrl) {
-            (order as any).paymentScreenshotUrl = null;
-          }
-        }
+      }
 
-        return {
-          ...order,
-          _id: order.id,
-          ...additionalDetails,
-          usedStockCount: usedStock.length,
-          usedStock: usedStock.length > 0 ? usedStock.slice(0, 5) : []
-        };
-      })
-    );
+      if (order.delivery === true && (!order.inTable)) {
+        if (!order.deliveryInfo) {
+          (order as any).deliveryInfo = {};
+        }
+        if (!order.paymentScreenshotUrl) {
+          (order as any).paymentScreenshotUrl = null;
+        }
+      }
+
+      return {
+        ...order,
+        _id: order.id,
+        ...additionalDetails,
+        usedStockCount: usedStock.length,
+        usedStock: usedStock.slice(0, 5),
+      };
+    });
 
     return NextResponse.json(
       { 

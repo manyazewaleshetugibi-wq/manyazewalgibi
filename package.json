@@ -16,6 +16,8 @@
     "@emailjs/browser": "^4.4.1",
     "@hookform/resolvers": "^3.10.0",
     "@mantine/dates": "^7.16.3",
+    "@neondatabase/serverless": "^1.1.0",
+    "@prisma/adapter-neon": "^5.10.0",
     "@prisma/client": "5.10.2",
     "@radix-ui/react-accordion": "^1.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.5",

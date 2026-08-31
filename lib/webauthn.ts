@@ -9,14 +9,32 @@ import { prisma } from '@/lib/prisma';
 import { randomUUID } from 'crypto';
 
 const RP_NAME = 'Manyazewal Eshetu Gibi';
+const DEFAULT_ORIGIN = 'https://www.manyazewaleshetugibi.com';
 const RP_ID = process.env.NEXT_PUBLIC_RP_ID
   || (process.env.NEXT_PUBLIC_BASE_URL
     ? new URL(process.env.NEXT_PUBLIC_BASE_URL).hostname
-    : 'manyazewalgibi.vercel.app');
-const ORIGIN = (process.env.NEXT_PUBLIC_ORIGIN || process.env.NEXT_PUBLIC_BASE_URL || 'https://manyazewalgibi.vercel.app').replace(/\/+$/, '');
+    : 'www.manyazewaleshetugibi.com');
+const ORIGIN = (process.env.NEXT_PUBLIC_ORIGIN || process.env.NEXT_PUBLIC_BASE_URL || DEFAULT_ORIGIN).replace(/\/+$/, '');
 
-export function getRelyingParty() {
-  return { rpName: RP_NAME, rpID: RP_ID, origin: ORIGIN };
+// Derive the relying party from the actual request host so the RP ID always
+// matches the domain the user is currently on. This avoids stale/mismatched
+// env-configured values (e.g. an old vercel.app RP ID) even in production.
+function deriveRelyingParty(requestUrl?: string | null) {
+  if (requestUrl) {
+    try {
+      const u = new URL(requestUrl);
+      if (u.hostname && u.origin) {
+        return { rpID: u.hostname, origin: u.origin };
+      }
+    } catch {
+      // fall through to env/default
+    }
+  }
+  return { rpID: RP_ID, origin: ORIGIN };
+}
+
+export function getRelyingParty(requestUrl?: string | null) {
+  return { rpName: RP_NAME, ...deriveRelyingParty(requestUrl) };
 }
 
 export async function getCredentialsByUserId(userId: string) {
@@ -53,8 +71,8 @@ export async function updateCredentialCounter(credentialId: string, counter: num
   });
 }
 
-export async function createRegistrationOptions(userId: string, userName: string) {
-  const { rpName, rpID, origin } = getRelyingParty();
+export async function createRegistrationOptions(userId: string, userName: string, requestUrl?: string | null) {
+  const { rpName, rpID, origin } = getRelyingParty(requestUrl);
   const existingCredentials = await getCredentialsByUserId(userId);
   const excludeCredentials = existingCredentials.map((cred: any) => ({
     id: cred.credentialId,
@@ -92,8 +110,8 @@ export async function createRegistrationOptions(userId: string, userName: string
   return options;
 }
 
-export async function verifyRegistration(userId: string, response: any) {
-  const { rpID, origin } = getRelyingParty();
+export async function verifyRegistration(userId: string, response: any, requestUrl?: string | null) {
+  const { rpID, origin } = getRelyingParty(requestUrl);
   const challengeDoc = await prisma.webAuthnChallenge.findFirst({ where: { userId } });
 
   if (!challengeDoc) {
@@ -115,8 +133,8 @@ export async function verifyRegistration(userId: string, response: any) {
   return verification.verified;
 }
 
-export async function createAuthenticationOptions(userId: string) {
-  const { rpID } = getRelyingParty();
+export async function createAuthenticationOptions(userId: string, requestUrl?: string | null) {
+  const { rpID } = getRelyingParty(requestUrl);
   const credentials = await getCredentialsByUserId(userId);
   const allowCredentials = credentials.map((cred: any) => ({
     id: cred.credentialId,
@@ -147,8 +165,8 @@ export async function createAuthenticationOptions(userId: string) {
   return options;
 }
 
-export async function verifyAuthentication(userId: string, response: any) {
-  const { rpID, origin } = getRelyingParty();
+export async function verifyAuthentication(userId: string, response: any, requestUrl?: string | null) {
+  const { rpID, origin } = getRelyingParty(requestUrl);
   const challengeDoc = await prisma.webAuthnChallenge.findFirst({ where: { userId } });
 
   if (!challengeDoc) {

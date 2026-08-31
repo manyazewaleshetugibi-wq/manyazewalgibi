@@ -18,6 +18,7 @@ export interface CasualExpense {
 export interface CommonExpense {
   _id: string
   title: string
+  description?: string
   amount: number
   category: string
   frequency: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'one-time'
@@ -25,6 +26,8 @@ export interface CommonExpense {
   endDate?: string | null
   isActive: boolean
   tags?: string[]
+  notes?: string
+  priority?: string
 }
 
 export interface StockItem {

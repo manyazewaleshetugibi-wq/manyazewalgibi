@@ -310,7 +310,9 @@ function ClockInForm() {
               <Fingerprint className="h-10 w-10 text-purple-600" />
             </div>
             <p className="text-sm font-medium">
-              {needsFingerprintReg ? "Register your fingerprint (optional)" : "Scan your fingerprint to clock in/out"}
+              {needsFingerprintReg
+                ? "You don't have a fingerprint yet. Register & confirm to clock in."
+                : "Place your finger on the scanner to clock in/out."}
             </p>
           </div>
           {error && (
@@ -334,9 +336,6 @@ function ClockInForm() {
                 <><Fingerprint className="h-4 w-4 mr-2" /> Already have fingerprint? Scan</>
               </Button>
             )}
-            <Button onClick={() => doClockIn()} disabled={submitting} variant="outline" className="w-full rounded-xl">
-              <><Lock className="h-4 w-4 mr-2" /> Skip fingerprint & Clock In</>
-            </Button>
             <Button variant="ghost" className="w-full rounded-xl" onClick={() => { setStep('password'); setSelectedUser(null); setError("") }}>
               Not you? Try again
             </Button>

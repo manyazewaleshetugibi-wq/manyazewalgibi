@@ -10,12 +10,19 @@ const isAdminRole = (role: string | undefined): boolean => {
   return role.toUpperCase() === "ADMIN";
 };
 
+// Permission may be stored as an array of strings or an object (legacy)
+const hasCanAssignPermission = (permissions: any): boolean => {
+  if (!permissions) return false;
+  if (Array.isArray(permissions)) return permissions.includes("canAssignTasks");
+  return permissions.canAssignTasks === true;
+};
+
 // Helper to check if user can assign tasks (case-insensitive)
 const canUserAssignTasks = (user: any): boolean => {
   if (!user) return false;
   const role = user.role || user.userRole;
   if (isAdminRole(role)) return true;
-  return user.permissions?.canAssignTasks === true;
+  return hasCanAssignPermission(user.permissions);
 };
 
 // Helper to calculate actual hours worked
@@ -52,16 +59,26 @@ export async function GET(request: Request) {
     const userPermissions = currentStaff?.permissions || {};
     const userEmail = sessionUser?.email;
     
-    const canViewAllTasks = isAdminRole(userRole) || (userPermissions as any).canAssignTasks === true;
+    const canViewAllTasks = isAdminRole(userRole) || hasCanAssignPermission(userPermissions);
     
     let query: any = {};
-    
+
+    // Exact-match a JSON path value using only operators supported by the running
+    // Prisma client. `assignedTo` is a JSON object, so we match the email stored
+    // inside it via starts_with + ends_with on the 'email' path.
+    const emailJsonFilter = (email: string) => ({
+      AND: [
+        { assignedTo: { path: ['email'], string_starts_with: email } },
+        { assignedTo: { path: ['email'], string_ends_with: email } },
+      ],
+    });
+
     if (!canViewAllTasks) {
-      query.assignedTo = { path: ['email'], string_equals: userEmail };
+      query.AND = emailJsonFilter(userEmail).AND;
     } else {
       const assignedToEmail = searchParams.get('assignedTo');
       if (assignedToEmail && assignedToEmail !== '') {
-        query.assignedTo = { path: ['email'], string_equals: assignedToEmail };
+        query.AND = emailJsonFilter(assignedToEmail).AND;
       }
     }
     
@@ -75,12 +92,52 @@ export async function GET(request: Request) {
       query.priority = priority;
     }
     
-    const tasks = await prisma.task.findMany({
-      where: query,
-      orderBy: { startTime: 'desc' },
-    });
+    const from = searchParams.get('from');
+    const to = searchParams.get('to');
+    if (from) {
+      const fromDate = new Date(from);
+      if (!isNaN(fromDate.getTime())) {
+        query.startTime = { ...(query.startTime || {}), gte: fromDate };
+      }
+    }
+    if (to) {
+      const toDate = new Date(to);
+      if (!isNaN(toDate.getTime())) {
+        query.startTime = { ...(query.startTime || {}), lte: toDate };
+      }
+    }
     
-    return NextResponse.json({ success: true, tasks: tasks.map(t => ({ ...t, _id: t.id })) });
+    // Soft-deleted tasks are hidden from active lists but kept for the report.
+    // The report passes includeDeleted=1 to still see them.
+    const includeDeleted = searchParams.get('includeDeleted') === '1';
+    if (!includeDeleted) {
+      query.deletedAt = null;
+    }
+    
+    // Pagination for performance
+    const limitRaw = searchParams.get('limit');
+    const offsetRaw = searchParams.get('offset');
+    const limit = limitRaw ? Math.min(Math.max(parseInt(limitRaw) || 100, 1), 500) : 100;
+    const offset = offsetRaw ? Math.max(parseInt(offsetRaw) || 0, 0) : 0;
+    
+    const [total, tasks] = await Promise.all([
+      prisma.task.count({ where: query }),
+      prisma.task.findMany({
+        where: query,
+        orderBy: { startTime: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+    ]);
+    
+    return NextResponse.json({
+      success: true,
+      tasks: tasks.map(t => ({ ...t, _id: t.id })),
+      total,
+      limit,
+      offset,
+      hasMore: offset + tasks.length < total,
+    });
   } catch (error) {
     console.error('Error fetching tasks:', error);
     return NextResponse.json({ error: 'Failed to fetch tasks' }, { status: 500 });
@@ -120,12 +177,22 @@ export async function POST(request: Request) {
       startTime, 
       endTime, 
       priority, 
-      estimatedHours 
+      estimatedHours,
+      voiceNote,
+      repeat
     } = body;
     
-    if (!title || !description || !assignedToEmail || !startTime || !endTime) {
+    // Title & description are optional when a voice note is provided.
+    const hasVoice = !!voiceNote;
+    if ((!title || !description) && !hasVoice) {
       return NextResponse.json({ 
-        error: 'Missing required fields: title, description, assignedToEmail, startTime, endTime' 
+        error: 'Missing required fields: title, description (or a voice note), assignedToEmail, startTime, endTime' 
+      }, { status: 400 });
+    }
+    
+    if (!assignedToEmail || !startTime || !endTime) {
+      return NextResponse.json({ 
+        error: 'Missing required fields: assignedToEmail, startTime, endTime' 
       }, { status: 400 });
     }
     
@@ -135,7 +202,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid date format' }, { status: 400 });
     }
     
-    if (startDate >= endDate) {
+    const durationMs = endDate.getTime() - startDate.getTime();
+    if (durationMs <= 0) {
       return NextResponse.json({ 
         error: 'End time must be after start time' 
       }, { status: 400 });
@@ -158,43 +226,59 @@ export async function POST(request: Request) {
     if (!assignedUser) {
       return NextResponse.json({ error: 'Assigned user not found' }, { status: 404 });
     }
+
+    // How many times to repeat the task daily. `repeat` is a day count.
+    // "" (or invalid) = single occurrence. Otherwise repeat every day for N days.
+    const repeatDays = parseInt(repeat, 10);
+    const count = Number.isFinite(repeatDays) && repeatDays > 1 && repeatDays <= 60
+      ? repeatDays
+      : 1;
+
+    const cleanTitle = (title || "Voice Task").trim();
+    const cleanDescription = (description || "Task created from a voice instruction.").trim();
+
+    const taskInstances: any[] = [];
+    for (let i = 0; i < count; i++) {
+      const occStart = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
+      const occEnd = new Date(occStart.getTime() + durationMs);
+      taskInstances.push({
+        title: cleanTitle,
+        description: cleanDescription,
+        assignedTo: {
+          userId: assignedUser.id,
+          name: assignedUser.name,
+          email: assignedUser.email,
+        },
+        assignedBy: {
+          userId: currentStaff?.id || sessionUser?.email,
+          name: currentStaff?.name || sessionUser?.name || 'Unknown',
+          email: sessionUser?.email,
+          role: userRole
+        },
+        startTime: occStart,
+        endTime: occEnd,
+        priority: priority || 'medium',
+        estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
+        status: 'pending',
+        notes: voiceNote ? { voice: voiceNote } : Prisma.DbNull,
+        actualHours: Prisma.DbNull,
+        actualStartTime: null,
+        actualCompletedTime: null,
+        completedAt: null,
+        notifiedOverdue: false,
+        notifiedDeadline: false,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+    }
     
-    const task: any = {
-      title: title.trim(),
-      description: description.trim(),
-      assignedTo: {
-        userId: assignedUser.id,
-        name: assignedUser.name,
-        email: assignedUser.email,
-      },
-      assignedBy: {
-        userId: currentStaff?.id || sessionUser?.email,
-        name: currentStaff?.name || sessionUser?.name || 'Unknown',
-        email: sessionUser?.email,
-        role: userRole
-      },
-      startTime: startDate,
-      endTime: endDate,
-      priority: priority || 'medium',
-      estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
-      status: 'pending',
-      notes: Prisma.DbNull,
-      actualHours: Prisma.DbNull,
-      actualStartTime: null,
-      actualCompletedTime: null,
-      completedAt: null,
-      notifiedOverdue: false,
-      notifiedDeadline: false,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    
-    const created = await prisma.task.create({ data: { id: randomUUID(), ...task } });
-    const createdTask = { ...created, _id: created.id };
+    const created = await prisma.task.createMany({
+      data: taskInstances.map((t) => ({ id: randomUUID(), ...t })),
+    });
     
     return NextResponse.json({ 
       success: true, 
-      task: createdTask,
+      count: created.count,
       message: 'Task assigned successfully'
     });
   } catch (error) {
@@ -248,8 +332,10 @@ export async function PUT(request: Request) {
       }, { status: 403 });
     }
     
+    const now = new Date();
+    
     const updateData: any = {
-      updatedAt: new Date()
+      updatedAt: now
     };
     
     // Update status and track times
@@ -290,9 +376,21 @@ export async function PUT(request: Request) {
       }
     }
     
-    // Update notes
+    // Update notes, preserving any existing voice instruction
     if (notes !== undefined) {
-      updateData.notes = notes === null ? Prisma.DbNull : notes;
+      const existingNotes = existingTask.notes as any;
+      const existingVoice =
+        existingNotes && typeof existingNotes === 'object' && existingNotes.voice
+          ? existingNotes.voice
+          : null;
+
+      if (notes === null) {
+        updateData.notes = existingVoice ? { voice: existingVoice } : Prisma.DbNull;
+      } else if (typeof notes === 'string') {
+        updateData.notes = existingVoice ? { voice: existingVoice, text: notes } : notes;
+      } else {
+        updateData.notes = notes;
+      }
     }
     
     // Update actual hours manually
@@ -357,8 +455,30 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
     
-    await prisma.task.deleteMany({ 
-      where: { id }
+    if (taskToDelete.deletedAt) {
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Task already deleted' 
+      });
+    }
+    
+    // Soft-delete: keep the row for reporting but free the audio.
+    // The voice note is removed from `notes` so the stored audio is released
+    // while the task's history stays available in the report.
+    const existingNotes = taskToDelete.notes as any;
+    const reportNotes =
+      existingNotes && typeof existingNotes === "object"
+        ? (typeof existingNotes.text === "string" ? existingNotes.text : null)
+        : (typeof existingNotes === "string" ? existingNotes : null);
+
+    await prisma.task.updateMany({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        deletedBy: sessionUser?.email || null,
+        notes: reportNotes ? { text: reportNotes } : Prisma.DbNull,
+        updatedAt: new Date(),
+      },
     });
     
     return NextResponse.json({ 

@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
-    const verified = await verifyRegistration(userId, response);
+    const verified = await verifyRegistration(userId, response, request.url);
     if (!verified) {
       return NextResponse.json({ success: false, error: 'Registration verification failed' }, { status: 400 });
     }

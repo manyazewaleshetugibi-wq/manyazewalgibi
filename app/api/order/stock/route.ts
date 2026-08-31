@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
     if (checkPending) {
       // Scan ALL completed orders that still need stock work — no time window,
       // so the button always shows the true number of pending/partial/failed orders.
+      // Bounded by take + only lightweight fields sent to the client (items stripped).
       const allCompleted = await prisma.order.findMany({
         where: {
           OR: [
@@ -37,20 +38,30 @@ export async function GET(req: NextRequest) {
             }
           ]
         },
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: {
+          id: true, orderNumber: true, createdAt: true, updatedAt: true,
+          status: true, items: true, stockProcessed: true, hasPartialStock: true,
+          stockProcessingError: true, stockProcessingFailedAt: true, pendingStockItems: true,
+          waiterName: true, tableNumber: true, delivery: true, deliveryInfo: true,
+          customerName: true, totalAmount: true, finalAmount: true,
+        }
       });
 
       const withItems = allCompleted.filter(o =>
         Array.isArray((o.items as any)) && (o.items as any).length > 0
       );
 
-      const toOrder = (o: any) => ({
-        ...o,
-        _id: o.id,
-        orderId: o.id,
-        error: o.stockProcessingError || null,
-        lastAttempt: o.stockLastAttempt || null
-      });
+      const toOrder = (o: any) => {
+        const { items, ...rest } = o;
+        return {
+          ...rest,
+          _id: o.id,
+          orderId: o.id,
+          error: o.stockProcessingError || null,
+        };
+      };
 
       const pendingOrders = withItems.filter(o =>
         o.stockProcessed !== true && !o.stockProcessingError

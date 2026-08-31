@@ -23,6 +23,19 @@ export const casualApi = {
 // Common Expenses API
 export const commonApi = {
   getExpenses: () => fetch(`${API_BASE_URL}/common-expense`).then(res => res.json()).then(data => data.data || []),
+  addExpense: (expense: any) => fetch(`${API_BASE_URL}/common-expense`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(expense),
+  }).then(res => res.json()),
+  updateExpense: (id: string, expense: any) => fetch(`${API_BASE_URL}/common-expense/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(expense),
+  }).then(res => res.json()),
+  deleteExpense: (id: string) => fetch(`${API_BASE_URL}/common-expense/${id}`, {
+    method: "DELETE",
+  }).then(res => res.json()),
 }
 
 // Stock API

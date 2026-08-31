@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'userId and response required' }, { status: 400 });
     }
 
-    const verified = await verifyAuthentication(userId, response);
+    const verified = await verifyAuthentication(userId, response, request.url);
     if (!verified) {
       return NextResponse.json({ success: false, error: 'Authentication failed' }, { status: 401 });
     }

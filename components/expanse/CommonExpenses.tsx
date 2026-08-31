@@ -10,11 +10,16 @@ import { Calendar } from "@/components/ui/calendar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Toaster, toast } from "react-hot-toast"
-import { CalendarIcon, LayoutGrid, TrendingUp, Wallet, Sparkles, RefreshCw, Info } from "lucide-react"
+import { CalendarIcon, LayoutGrid, TrendingUp, Wallet, Sparkles, RefreshCw, Info, Plus, Pencil, Trash2 } from "lucide-react"
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, AreaChart, Area, LineChart, Line } from "recharts"
 import { commonApi } from "@/services/expense.service"
 import { CommonExpense, DateFilterType } from "@/types/expense.types"
 import { formatCurrency, formatShortCurrency, getDateRange } from "@/lib/utils/expense.utils"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 
 // Fixed version of getDailyCommonAmount
 const getDailyCommonAmount = (expense: CommonExpense, date: Date): number => {
@@ -53,6 +58,102 @@ export function CommonExpenses({ initialExpenses }: { initialExpenses?: CommonEx
   const [customStartDate, setCustomStartDate] = useState<Date | null>(null)
   const [customEndDate, setCustomEndDate] = useState<Date | null>(null)
   const [chartView, setChartView] = useState<'bar' | 'area' | 'line'>('bar')
+
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingExpense, setEditingExpense] = useState<CommonExpense | null>(null)
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    amount: "",
+    category: "Other",
+    frequency: "monthly" as CommonExpense["frequency"],
+    startDate: format(new Date(), "yyyy-MM-dd"),
+    isActive: true,
+    notes: "",
+  })
+  const [isSaving, setIsSaving] = useState(false)
+
+  const openAddDialog = () => {
+    setEditingExpense(null)
+    setForm({
+      title: "",
+      description: "",
+      amount: "",
+      category: "Other",
+      frequency: "monthly",
+      startDate: format(new Date(), "yyyy-MM-dd"),
+      isActive: true,
+      notes: "",
+    })
+    setDialogOpen(true)
+  }
+
+  const openEditDialog = (expense: CommonExpense) => {
+    setEditingExpense(expense)
+    setForm({
+      title: expense.title || "",
+      description: expense.description || "",
+      amount: String(expense.amount ?? ""),
+      category: expense.category || "Other",
+      frequency: (expense.frequency as CommonExpense["frequency"]) || "monthly",
+      startDate: expense.startDate ? format(parseISO(expense.startDate), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
+      isActive: expense.isActive !== false,
+      notes: expense.notes || "",
+    })
+    setDialogOpen(true)
+  }
+
+  const handleSubmit = async () => {
+    if (!form.title.trim() || !form.amount || isNaN(parseFloat(form.amount))) {
+      toast.error("Title and valid amount are required")
+      return
+    }
+    setIsSaving(true)
+    try {
+      const payload = {
+        title: form.title.trim(),
+        description: form.description.trim(),
+        amount: parseFloat(form.amount),
+        category: form.category,
+        frequency: form.frequency,
+        startDate: form.startDate,
+        isActive: form.isActive,
+        notes: form.notes.trim(),
+      }
+      if (editingExpense) {
+        const res = await commonApi.updateExpense(editingExpense._id, payload)
+        if (res?.success === false) throw new Error(res.error)
+        toast.success("Expense updated")
+      } else {
+        const res = await commonApi.addExpense(payload)
+        if (res?.success === false) throw new Error(res.error)
+        toast.success("Expense added")
+      }
+      setDialogOpen(false)
+      fetchCommonExpenses()
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to save expense")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDelete = async (expense: CommonExpense) => {
+    if (!window.confirm(`Delete "${expense.title}"? This cannot be undone.`)) return
+    try {
+      const res = await commonApi.deleteExpense(expense._id)
+      if (res?.success === false) throw new Error(res.error)
+      toast.success("Expense deleted")
+      fetchCommonExpenses()
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to delete expense")
+    }
+  }
+
+  const commonCategories = [
+    "Rent", "Utilities", "Salaries", "Supplies", "Transportation", "Marketing",
+    "Maintenance", "Insurance", "Licenses", "Cleaning", "Internet", "Other",
+  ]
 
   useEffect(() => {
     if (!initialExpenses || initialExpenses.length === 0) {
@@ -233,15 +334,24 @@ export function CommonExpenses({ initialExpenses }: { initialExpenses?: CommonEx
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">Recurring operational expenses (daily, weekly, monthly, etc.)</p>
         </div>
-        <Button 
-          variant="outline" 
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className="rounded-full border-2 hover:border-purple-400 transition-all hover:shadow-md"
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="rounded-full border-2 hover:border-purple-400 transition-all hover:shadow-md"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Button 
+            onClick={openAddDialog}
+            className="rounded-full bg-purple-600 hover:bg-purple-700 shadow-md shadow-purple-500/25 transition-all"
+          >
+            <Plus className="h-4 w-4 mr-1.5" />
+            Add Expense
+          </Button>
+        </div>
       </div>
 
       {/* Date Filter Bar */}
@@ -428,6 +538,7 @@ export function CommonExpenses({ initialExpenses }: { initialExpenses?: CommonEx
                     <TableHead className="text-right font-semibold">Daily Eq.</TableHead>
                     <TableHead className="font-semibold hidden md:table-cell">Start Date</TableHead>
                     <TableHead className="font-semibold">Status</TableHead>
+                    <TableHead className="text-right font-semibold">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -468,6 +579,16 @@ export function CommonExpenses({ initialExpenses }: { initialExpenses?: CommonEx
                             {expense.isActive ? '✅ Active' : '⏸️ Inactive'}
                           </Badge>
                         </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-indigo-500 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/30" onClick={() => openEditDialog(expense)} title="Edit">
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30" onClick={() => handleDelete(expense)} title="Delete">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     )
                   })}
@@ -494,6 +615,94 @@ export function CommonExpenses({ initialExpenses }: { initialExpenses?: CommonEx
           </div>
         </CardContent>
       </Card>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="rounded-2xl max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-purple-700 dark:text-purple-300">
+              {editingExpense ? "Edit Common Expense" : "Add Common Expense"}
+            </DialogTitle>
+            <DialogDescription>
+              {editingExpense ? "Update the recurring expense details." : "Add a recurring operational expense."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label>Title</Label>
+              <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Rent" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Amount (ETB)</Label>
+                <Input type="number" min="0" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder="0.00" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Frequency</Label>
+                <Select value={form.frequency} onValueChange={(v) => setForm({ ...form, frequency: v as CommonExpense["frequency"] })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="quarterly">Quarterly</SelectItem>
+                    <SelectItem value="yearly">Yearly</SelectItem>
+                    <SelectItem value="one-time">One Time</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Category</Label>
+                <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {commonCategories.map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Start Date</Label>
+                <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={2} placeholder="Optional description" />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Notes</Label>
+              <Textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} placeholder="Optional notes" />
+            </div>
+
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={e => setForm({ ...form, isActive: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+              />
+              Active
+            </label>
+          </div>
+
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={isSaving} className="rounded-full">
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={isSaving} className="rounded-full bg-purple-600 hover:bg-purple-700">
+              {isSaving ? "Saving..." : editingExpense ? "Update" : "Add Expense"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Toaster position="top-right" toastOptions={{
         style: {
           borderRadius: '12px',

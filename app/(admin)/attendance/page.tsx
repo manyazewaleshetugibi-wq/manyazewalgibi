@@ -441,7 +441,9 @@ export default function AttendancePage() {
               </DialogTitle>
             </DialogHeader>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-2">
+            <ScrollArea className="flex-1 min-h-0 mt-2 rounded-xl border">
+              <div className="p-2 sm:p-3 space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
               <Card className="rounded-xl">
                 <CardContent className="p-3 flex flex-col items-center gap-1">
                   <CalendarCheck2 className="h-4 w-4 text-green-600" />
@@ -481,15 +483,14 @@ export default function AttendancePage() {
               </Card>
             </div>
 
-            <div className="w-full bg-gray-200 rounded-full h-2.5 mt-3">
+            <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div
                 className={`h-2.5 rounded-full ${detailSummary.percent >= 80 ? 'bg-green-500' : detailSummary.percent >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
                 style={{ width: `${detailSummary.percent}%` }}
               />
             </div>
 
-            <ScrollArea className="flex-1 min-h-0 mt-4 rounded-xl border">
-              <table className="w-full text-xs whitespace-nowrap">
+            <table className="w-full text-xs whitespace-nowrap">
                 <thead className="sticky top-0 bg-white z-10">
                   <tr className="border-b bg-gray-50/80">
                     <th className="p-2 text-left font-semibold">Date</th>
@@ -562,6 +563,7 @@ export default function AttendancePage() {
                   })}
                 </tbody>
               </table>
+              </div>
             </ScrollArea>
           </DialogContent>
         </Dialog>

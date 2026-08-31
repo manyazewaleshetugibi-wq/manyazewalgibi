@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'User not found' }, { status: 404 });
     }
 
-    const options = await createAuthenticationOptions(userId);
+    const options = await createAuthenticationOptions(userId, request.url);
     return NextResponse.json({ success: true, options });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

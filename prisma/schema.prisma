@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
@@ -337,6 +338,8 @@ model Task {
   actualCompletedTime String?
   notifiedOverdue     Boolean?
   notifiedDeadline    Boolean?
+  deletedAt           DateTime?
+  deletedBy           String?
 
   @@map("tasks")
 }

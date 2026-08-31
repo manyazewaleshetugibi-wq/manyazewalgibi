@@ -573,6 +573,7 @@ const filterNavItemsByRole = (items: any[], role: string): any[] => {
       const filteredItems = item.items
         .map(filterItems)
         .filter((subItem: any) => {
+          if (!subItem) return false;
           if (subItem.url && subItem.url !== '#') {
             return allowedRoutes.includes(subItem.url);
           }
@@ -582,6 +583,7 @@ const filterNavItemsByRole = (items: any[], role: string): any[] => {
           return subItem.items && subItem.items.length > 0;
         })
         .filter((subItem: any) => {
+          if (!subItem) return false;
           if (subItem.url === '#' && subItem.items && subItem.items.length === 0) {
             return false;
           }
@@ -601,10 +603,11 @@ const filterNavItemsByRole = (items: any[], role: string): any[] => {
   return items
     .map(filterItems)
     .filter(item => {
+      if (!item) return false;
       if (item.url === '#' && item.items && item.items.length === 0) {
         return false;
       }
-      return item !== null;
+      return true;
     });
 };
 

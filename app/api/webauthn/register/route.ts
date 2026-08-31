@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'User not found' }, { status: 404 });
     }
 
-    const options = await createRegistrationOptions(userId, name || user.name || '');
+    const options = await createRegistrationOptions(userId, name || user.name || '', request.url);
     return NextResponse.json({ success: true, options });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

@@ -35,7 +35,11 @@ interface DashboardData {
   menuItems: any[]
   categories: any[]
 }
-const fetchDashboardData = () => api.get("/dashboard").then((res) => res.data.data as DashboardData)
+const fetchDashboardData = (days?: number) =>
+  api.get(days ? `/dashboard?days=${days}` : "/dashboard").then((res) => res.data.data as DashboardData)
+
+const fetchTodaySales = () =>
+  api.get("/dashboard?today=1").then((res) => res.data.data as { dailySales: Record<string, number>; todaySales: number })
 
 // Types
 interface Expense {
@@ -772,21 +776,35 @@ function Dashboard() {
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
-  const queryOptions = {
-    staleTime: 30000,
+  const salesDays = useMemo(() => {
+    const diff = Math.ceil((dateRange.to.getTime() - dateRange.from.getTime()) / (24 * 60 * 60 * 1000))
+    return Math.max(1, Math.min(diff, 90))
+  }, [dateRange])
+
+  const historyOptions = {
+    staleTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
-    refetchOnMount: true,
-  }
+    refetchOnMount: false,
+    refetchInterval: false,
+  } as const
 
   const { data: dashboardData, isLoading: isLoadingDashboard } = useQuery<DashboardData>({
-    queryKey: ["dashboard"],
-    queryFn: fetchDashboardData,
-    ...queryOptions,
+    queryKey: ["dashboard", "history", salesDays],
+    queryFn: () => fetchDashboardData(salesDays),
+    ...historyOptions,
+  })
+
+  const { data: todayData } = useQuery<{ dailySales: Record<string, number>; todaySales: number }>({
+    queryKey: ["dashboard", "today"],
+    queryFn: fetchTodaySales,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    refetchInterval: 30000,
   })
 
   const expenses = dashboardData?.expenses
   const commonExpenses = dashboardData?.commonExpenses
-  const orderReport = dashboardData?.orderReport
   const stock = dashboardData?.stock
   const stockPurchases = dashboardData?.stockPurchases
   const dailyCashEntries = dashboardData?.dailyCash
@@ -824,6 +842,23 @@ function Dashboard() {
   const yesterdayLocalDate = new Date(yesterday.getTime() + ETH_OFFSET_MS)
   const yesterdayStr = yesterdayLocalDate.toISOString().split("T")[0]
   const yesterdayDate = yesterday
+
+  // Merge cached history with fresh "today" figure.
+  // History (past days) is cached and rarely changes; only today is refetched live (30s).
+  const orderReport = useMemo(() => {
+    const baseDailySales = dashboardData?.orderReport?.dailySales || {}
+    const mergedDailySales = { ...baseDailySales }
+    if (todayData?.dailySales) {
+      for (const [date, amount] of Object.entries(todayData.dailySales)) {
+        mergedDailySales[date] = amount
+      }
+    }
+    return {
+      ...dashboardData?.orderReport,
+      dailySales: mergedDailySales,
+      orderCount: (dashboardData?.orderReport?.orderCount as number) || 0,
+    }
+  }, [dashboardData, todayData])
 
   // ============================================
   // DAILY EXPENSE CALCULATION (Matches CommonExpenses component)
