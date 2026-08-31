@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from "react"
 import { useSession } from "next-auth/react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -193,12 +193,14 @@ export default function SalaryPage() {
     const s = new Set(expandedRows); s.has(id) ? s.delete(id) : s.add(id); setExpandedRows(s)
   }
 
-  function calcSuggestedPay(sal: Salary): { amount: number; present: number; absent: number; dailyRate: number } {
+  function calcSalary(sal: Salary): { salary: number; penalty: number; present: number; absent: number; dailyRate: number } {
     const att = attendanceMap[sal.userId]
     const present = att?.present || 0
-    const absent = workingDays - present
-    const dailyRate = sal.baseSalary / workingDays
-    return { amount: Math.round(dailyRate * present), present, absent, dailyRate: Math.round(dailyRate) }
+    const absent = Math.max(0, workingDays - present)
+    const dailyRate = workingDays > 0 ? sal.baseSalary / workingDays : 0
+    const penalty = Math.round(dailyRate * absent)
+    const salary = Math.max(0, Math.round(sal.baseSalary - penalty))
+    return { salary, penalty, present, absent, dailyRate: Math.round(dailyRate) }
   }
 
   const stats = useMemo(() => {
@@ -206,8 +208,9 @@ export default function SalaryPage() {
     const paid = salaries.filter(s => s.paidThisMonth)
     const unpaid = salaries.filter(s => !s.paidThisMonth)
     const paidAmount = paid.reduce((s, x) => s + (x.paymentThisMonth?.amount || x.baseSalary || 0), 0)
-    const suggestedTotal = salaries.reduce((s, x) => s + calcSuggestedPay(x).amount, 0)
-    return { total, paid: paid.length, unpaid: unpaid.length, paidAmount, count: salaries.length, suggestedTotal }
+    const penaltyTotal = salaries.reduce((s, x) => s + calcSalary(x).penalty, 0)
+    const salaryTotal = salaries.reduce((s, x) => s + calcSalary(x).salary, 0)
+    return { total, paid: paid.length, unpaid: unpaid.length, paidAmount, count: salaries.length, penaltyTotal, salaryTotal }
   }, [salaries, attendanceMap, workingDays])
 
   const unregisteredStaff = useMemo(
@@ -226,24 +229,24 @@ export default function SalaryPage() {
   const exportExcel = async () => {
     const XLSX = await import('xlsx')
     const data = salaries.map(s => {
-      const sug = calcSuggestedPay(s)
+      const calc = calcSalary(s)
       return {
         Name: s.name,
-        Position: s.position || s.role,
+        Role: s.position || s.role,
         'Base Salary': s.baseSalary,
-        'Daily Rate': sug.dailyRate,
-        'Days Worked': sug.present,
-        'Days Absent': sug.absent,
-        [`${MONTHS[viewMonth - 1]} ${viewYear}`]: s.paidThisMonth ? `Paid ${ccy(s.paymentThisMonth?.amount || s.baseSalary)}` : 'Unpaid',
+        Penalty: calc.penalty,
+        Salary: calc.salary,
+        [`Attendance (${MONTHS[viewMonth - 1]} ${viewYear})`]: `${calc.present} present / ${calc.absent} absent`,
+        [`Payment (${MONTHS[viewMonth - 1]} ${viewYear})`]: s.paidThisMonth ? `Paid ${ccy(s.paymentThisMonth?.amount || s.baseSalary)}` : 'Unpaid',
         'Bank Account': s.bankAccount || '-',
         Notes: s.notes || '-',
       }
     })
-    data.push({ Name: 'TOTAL', Position: '', 'Base Salary': stats.total, 'Daily Rate': 0, 'Days Worked': 0, 'Days Absent': 0, [`${MONTHS[viewMonth - 1]} ${viewYear}`]: `${stats.paid} paid / ${stats.unpaid} unpaid`, 'Bank Account': '', Notes: '' })
+    data.push({ Name: 'TOTAL', Role: '', 'Base Salary': stats.total, Penalty: stats.penaltyTotal, Salary: stats.salaryTotal, [`Attendance (${MONTHS[viewMonth - 1]} ${viewYear})`]: '', [`Payment (${MONTHS[viewMonth - 1]} ${viewYear})`]: `${stats.paid} paid / ${stats.unpaid} unpaid`, 'Bank Account': '', Notes: '' })
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Salary')
-    ws['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 20 }]
+    ws['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 20 }]
     XLSX.writeFile(wb, `Salary_${MONTHS[viewMonth - 1]}_${viewYear}.xlsx`)
   }
 
@@ -299,9 +302,9 @@ export default function SalaryPage() {
         </Card>
         <Card className="rounded-xl border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100/50">
           <CardContent className="p-3 sm:p-4">
-            <p className="text-xs text-muted-foreground">Suggested Pay</p>
-            <p className="text-lg sm:text-2xl font-bold text-blue-700">{ccy(stats.suggestedTotal)}</p>
-            <p className="text-xs text-muted-foreground">based on attendance</p>
+            <p className="text-xs text-muted-foreground">Total Penalty</p>
+            <p className="text-lg sm:text-2xl font-bold text-blue-700">{ccy(stats.penaltyTotal)}</p>
+            <p className="text-xs text-muted-foreground">base − penalty</p>
           </CardContent>
         </Card>
         <Card className="rounded-xl border-0 shadow-md bg-gradient-to-br from-amber-50 to-amber-100/50">
@@ -320,9 +323,9 @@ export default function SalaryPage() {
         </Card>
         <Card className="rounded-xl border-0 shadow-md bg-gradient-to-br from-purple-50 to-purple-100/50">
           <CardContent className="p-3 sm:p-4">
-            <p className="text-xs text-muted-foreground">Remaining</p>
-            <p className="text-lg sm:text-2xl font-bold text-purple-700">{ccy(stats.total - stats.paidAmount)}</p>
-            <p className="text-xs text-muted-foreground">to pay</p>
+            <p className="text-xs text-muted-foreground">Net Salary</p>
+            <p className="text-lg sm:text-2xl font-bold text-purple-700">{ccy(stats.salaryTotal)}</p>
+            <p className="text-xs text-muted-foreground">base − penalty</p>
           </CardContent>
         </Card>
       </div>
@@ -332,15 +335,15 @@ export default function SalaryPage() {
           <Table ref={tableRef}>
             <TableHeader>
               <TableRow>
-                <TableHead>Staff</TableHead>
-                <TableHead>Position</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead className="text-right">Base Salary</TableHead>
+                <TableHead className="text-right">Penalty</TableHead>
                 <TableHead className="text-right">Salary</TableHead>
-                <TableHead className="text-center">Present</TableHead>
-                <TableHead className="text-center">Absent</TableHead>
-                <TableHead className="text-right">Suggested</TableHead>
+                <TableHead className="text-center">Attendance</TableHead>
                 <TableHead className="text-center">{MONTHS[viewMonth - 1]}</TableHead>
                 <TableHead className="text-center"></TableHead>
-                <TableHead className="text-center">Hist</TableHead>
+                <TableHead className="text-center">History</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -350,64 +353,104 @@ export default function SalaryPage() {
                 </TableCell></TableRow>
               )}
               {salaries.map(sal => {
-                const sug = calcSuggestedPay(sal)
-                const att = attendanceMap[sal.userId]
+                const calc = calcSalary(sal)
+                const history = (sal.history as any[]) || []
                 return (
-                  <TableRow key={sal._id} className={sal.paidThisMonth ? 'bg-green-50/30' : ''}>
-                    <TableCell>
-                      <div className="font-medium text-sm">{sal.name}</div>
-                      {sal.email && <div className="text-[10px] text-muted-foreground">{sal.email}</div>}
-                    </TableCell>
-                    <TableCell><Badge variant="secondary" className="capitalize text-xs">{sal.position || sal.role}</Badge></TableCell>
-                    <TableCell className="text-right font-bold text-sm">{ccy(sal.baseSalary)}</TableCell>
-                    <TableCell className="text-center">
-                      {att ? (
-                        <span className="text-green-600 font-medium text-sm">{sug.present}</span>
-                      ) : <span className="text-xs text-muted-foreground">—</span>}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {att ? (
-                        <span className={sug.absent > 0 ? 'text-red-500 font-medium text-sm' : 'text-xs text-muted-foreground'}>
-                          {sug.absent}
+                  <Fragment key={sal._id}>
+                    <TableRow className={sal.paidThisMonth ? 'bg-green-50/30' : ''}>
+                      <TableCell>
+                        <div className="font-medium text-sm">{sal.name}</div>
+                        {sal.email && <div className="text-[10px] text-muted-foreground">{sal.email}</div>}
+                      </TableCell>
+                      <TableCell><Badge variant="secondary" className="capitalize text-xs">{sal.position || sal.role}</Badge></TableCell>
+                      <TableCell className="text-right font-bold text-sm">{ccy(sal.baseSalary)}</TableCell>
+                      <TableCell className="text-right">
+                        {calc.penalty > 0 ? (
+                          <span className="text-red-500 font-medium text-sm">−{ccy(calc.penalty)}</span>
+                        ) : <span className="text-xs text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="text-sm font-bold text-green-700">{ccy(calc.salary)}</div>
+                        <div className="text-[10px] text-muted-foreground">{calc.dailyRate}/day</div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="text-xs">
+                          <span className="text-green-600 font-semibold">{calc.present}</span>
+                          <span className="text-muted-foreground"> / </span>
+                          <span className={calc.absent > 0 ? 'text-red-500 font-semibold' : 'text-muted-foreground'}>{calc.absent}</span>
                         </span>
-                      ) : <span className="text-xs text-muted-foreground">—</span>}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="text-sm font-medium text-blue-700">{ccy(sug.amount)}</div>
-                      <div className="text-[10px] text-muted-foreground">{sug.dailyRate}/day</div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {sal.paidThisMonth ? (
-                        <Badge className="bg-green-100 text-green-800 border-0 text-xs"><CheckCircle className="h-3 w-3 mr-1" /> Paid</Badge>
-                      ) : (
-                        <Button size="sm" variant="outline" className="rounded-full text-xs h-7"
-                          onClick={() => {
-                            const suggestAmount = sug.amount || sal.baseSalary
-                            setShowPay({ salary: sal, open: true })
-                            setPayForm({ amount: String(suggestAmount), notes: '' })
-                          }}>
-                          <Banknote className="h-3 w-3 mr-1" /> Pay
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {sal.paidThisMonth ? (
+                          <Badge className="bg-green-100 text-green-800 border-0 text-xs"><CheckCircle className="h-3 w-3 mr-1" /> Paid</Badge>
+                        ) : (
+                          <Button size="sm" variant="outline" className="rounded-full text-xs h-7"
+                            onClick={() => {
+                              const suggestAmount = calc.salary || sal.baseSalary
+                              setShowPay({ salary: sal, open: true })
+                              setPayForm({ amount: String(suggestAmount), notes: '' })
+                            }}>
+                            <Banknote className="h-3 w-3 mr-1" /> Pay
+                          </Button>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-full text-muted-foreground hover:text-blue-600 hover:bg-blue-50"
+                            onClick={() => openEdit(sal)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-full text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleDelete(sal._id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Button variant="ghost" size="sm" onClick={() => toggleExpand(sal._id)} className="h-7 rounded-full">
+                          {history.length === 0 ? (
+                            <span className="text-[10px] text-muted-foreground">—</span>
+                          ) : expandedRows.has(sal._id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </Button>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-full text-muted-foreground hover:text-blue-600 hover:bg-blue-50"
-                          onClick={() => openEdit(sal)}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-full text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => handleDelete(sal._id)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Button variant="ghost" size="sm" onClick={() => toggleExpand(sal._id)} className="h-7 rounded-full">
-                        {expandedRows.has(sal._id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                      </TableCell>
+                    </TableRow>
+                    {expandedRows.has(sal._id) && history.length > 0 && (
+                      <TableRow className="bg-muted/30">
+                        <TableCell colSpan={9} className="p-3">
+                          <div className="text-xs font-semibold text-muted-foreground mb-2">Payment History</div>
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b">
+                                <th className="text-left p-1.5 font-semibold">Month</th>
+                                <th className="text-left p-1.5 font-semibold">Year</th>
+                                <th className="text-right p-1.5 font-semibold">Amount</th>
+                                <th className="text-right p-1.5 font-semibold">Paid At</th>
+                                <th className="text-left p-1.5 font-semibold">Status</th>
+                                <th className="text-left p-1.5 font-semibold">Notes</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[...history].sort((a, b) => (b.year - a.year) || (b.month - a.month)).map((h, i) => (
+                                <tr key={i} className="border-b">
+                                  <td className="p-1.5">{MONTHS[(h.month || 1) - 1]}</td>
+                                  <td className="p-1.5">{h.year}</td>
+                                  <td className="p-1.5 text-right font-medium">{ccy(h.amount || 0)}</td>
+                                  <td className="p-1.5 text-right">{h.paidAt ? new Date(h.paidAt).toLocaleDateString() : '—'}</td>
+                                  <td className="p-1.5">
+                                    <Badge variant={h.status === 'paid' ? 'default' : 'secondary'} className="text-[10px] capitalize">{h.status || 'paid'}</Badge>
+                                  </td>
+                                  <td className="p-1.5 text-muted-foreground">{h.notes || '—'}</td>
+                                </tr>
+                              ))}
+                              {history.length === 0 && (
+                                <tr><td colSpan={6} className="p-3 text-center text-muted-foreground">No payments recorded yet.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
                 )
               })}
             </TableBody>
@@ -565,26 +608,26 @@ export default function SalaryPage() {
             <DialogDescription>
               {showPay.salary?.name} — {MONTHS[viewMonth - 1]} {viewYear}
               {showPay.salary && (() => {
-                const sug = calcSuggestedPay(showPay.salary)
-                return sug.amount !== showPay.salary.baseSalary ? ` (${sug.present} days worked → ${ccy(sug.amount)})` : ''
+                const calc = calcSalary(showPay.salary)
+                return calc.penalty > 0 ? ` (base − penalty → ${ccy(calc.salary)})` : ''
               })()}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             {showPay.salary && (() => {
-              const sug = calcSuggestedPay(showPay.salary)
+              const calc = calcSalary(showPay.salary)
               return (
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="bg-blue-50 rounded-lg p-2">
-                    <div className="font-semibold text-blue-700">{sug.dailyRate}</div>
-                    <div className="text-muted-foreground">Daily</div>
+                    <div className="font-semibold text-blue-700">{ccy(calc.penalty)}</div>
+                    <div className="text-muted-foreground">Penalty</div>
                   </div>
                   <div className="bg-green-50 rounded-lg p-2">
-                    <div className="font-semibold text-green-700">{sug.present}</div>
+                    <div className="font-semibold text-green-700">{calc.present}</div>
                     <div className="text-muted-foreground">Present</div>
                   </div>
                   <div className="bg-red-50 rounded-lg p-2">
-                    <div className="font-semibold text-red-600">{sug.absent}</div>
+                    <div className="font-semibold text-red-600">{calc.absent}</div>
                     <div className="text-muted-foreground">Absent</div>
                   </div>
                 </div>
