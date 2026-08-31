@@ -99,14 +99,14 @@ const api = axios.create({ baseURL: "/api" });
 const RESTAURANT_TASKS = {
   "Back of House (BOH)": [
     {
-      title: "Receive and Inspect Deliveries",
+      title: "ጎመን መቀንጠስ",
       description: "Check incoming food deliveries for quality, quantity, and temperature. Verify invoices against received items. Report any discrepancies to management.",
       priority: "high" as const,
       estimatedHours: 1.5,
       category: "BOH"
     },
     {
-      title: "Store Inventory Using FIFO Method",
+      title: "ጎመን መቀቀል",
       description: "Rotate stock using First-In-First-Out method. Log all temperatures for refrigerated and frozen items. Ensure proper labeling and dating of all stored items.",
       priority: "medium" as const,
       estimatedHours: 1,
@@ -305,6 +305,37 @@ const RESTAURANT_TASKS = {
       estimatedHours: 0.5,
       category: "Dishwashing"
     }
+  ],
+  "የኩሽና ስራዎች (Kitchen Tasks)": [
+    { title: "ጎመን መቀንጠስ", description: "Fresh vegetables", priority: "medium" as const, estimatedHours: 1.5, category: "Kitchen" },
+    { title: "ጎመን መቀቀል", description: "Boiled vegetables", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ፎሰሴ መስራት", description: "Prepare fosech", priority: "high" as const, estimatedHours: 2, category: "Kitchen" },
+    { title: "ቡላ ፎሰሴ መስራት", description: "Prepare bulla fosech", priority: "high" as const, estimatedHours: 2, category: "Kitchen" },
+    { title: "ሚዛን ፕላስ ማዘጋጅት", description: "Prepare mizan plus", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ድሬሲግ (የሳላድ ሶስ እና የፍላፍል ራፕ)", description: "Dressing (salad sauce and flafel wrap)", priority: "high" as const, estimatedHours: 1.5, category: "Kitchen" },
+    { title: "የሚጣድ (ቦለቄ፤ባቄላ፤ሽሮ፤ቡና፤ድንች፤ስኳር ድንች)", description: "Mitad, boloke, beans, shiro, buna, potato, sweet potato", priority: "high" as const, estimatedHours: 2, category: "Kitchen" },
+    { title: "የእስታፍ ምግብ ማዘጋጀት", description: "Prepare staff food", priority: "medium" as const, estimatedHours: 1.5, category: "Kitchen" },
+    { title: "እቃ ማጠብ", description: "Wash dishes and items", priority: "high" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ስጎ ማዘጋጀት", description: "Prepare sogo", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ካቹቤሪ ማዘጋጀት", description: "Prepare kachumberi", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ኪችን የሌለ ነገር ማዘጋጀት (የሚያስፈልጉ ግብሃቶች በሙሉ መኖሩን ማረጋገጥ ከሌለ ከእስቶር ማውጣት)", description: "Prepare non-kitchen items, ensure all ingredients available, fetch from store if not", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ለጁስ የሚያስፈልጉ ግብሃቶችን መኖራቸውን ማረጋገጥ (የሌለ እንዲዘጋጅ ማዘዝ እና የለስላሳ መጠጥ ካለ ለአስተናጋጅ ማሳወቅ)", description: "Ensure juice ingredients available, order if not, notify host of soft drink availability", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ኪችን ላይ የሚመጡ ኦርደሮችን ማብሰል እና ማውጣት", description: "Cook and dispatch kitchen orders", priority: "urgent" as const, estimatedHours: 4, category: "Kitchen" },
+    { title: "ኪችን ውስጥ ብርጭቆ ማጣብ", description: "Wash glasses in the kitchen", priority: "medium" as const, estimatedHours: 0.5, category: "Kitchen" },
+    { title: "የኪችን ውስጥ ጽዳት", description: "Clean the kitchen", priority: "high" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ለቡላ ፎሰሴ የሚሆን ቡላ መቁላት", description: "Peel bulla for bulla fosech", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "የካቹቤሪ ድንች መላጥ", description: "Peel potatoes for kachumberi", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ለፎሰሴ እና ለቡላ ፎሰሴ የሚያስፈልጉ ቅመሞችን ማዘጋጀት", description: "Prepare spices for fosech and bulla fosech", priority: "high" as const, estimatedHours: 1.5, category: "Kitchen" },
+    { title: "ተልባ መልቀም እንዲሁም መቁላት", description: "Gather and prepare telba", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ለፍላፍል የሚሆን ነጭ ሽንብራ መዘፍዘፍ እንዲሁም መፍጨት", description: "Soak and grind white lentils for flafel", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ነጭ ሽንኩርት መላጥ መፍጨት፤ቅመም መፍጨት (ኮረሪማ፤ሮዝመሪ፡ካሙን)፤ክኖር ማዘጋጀት", description: "Peel/grind garlic, grind spices (curry, rosemary, cumin), prepare knob", priority: "high" as const, estimatedHours: 1.5, category: "Kitchen" },
+    { title: "ቴምር መፈልፈል እንዲሁም መዘፍዘፍ", description: "Soak and prepare temr", priority: "low" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "የተመዘገበውን እና የታዘዘውን እቃ በሰሃት ከስቶር ማውጣት", description: "Fetch registered and ordered items from store on receipt", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ጊቢውን ማጽዳት", description: "Clean the gibi", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "ድንገተኛ ስራዎች", description: "Unexpected / urgent tasks", priority: "urgent" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "የበቆሎ እና የራፕ ቂጣ መጋገር", description: "Bake corn and wrap bread", priority: "high" as const, estimatedHours: 1.5, category: "Kitchen" },
+    { title: "የጥብስ ስጋ ከትፎ ከተፈጨውን ስጋ ፖርሽን ማድረግ", description: "Portion ground meat for tibs", priority: "high" as const, estimatedHours: 1, category: "Kitchen" },
+    { title: "አናናስ፤ሀባብ፤ማንጎ፤እስትሮበሪ ፖርሽን ማድረግ", description: "Portion pineapple, habab, mango, strawberry", priority: "medium" as const, estimatedHours: 1, category: "Kitchen" }
   ]
 };
 

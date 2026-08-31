@@ -175,18 +175,28 @@ function LoginPage() {
 
         // Wait a moment for the session to be updated
         await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Get updated session
-        const session = await getSession();
-        
+
+        // Get updated session, with retries to avoid a race where the
+        // freshly-set session cookie isn't yet visible to getSession()
+        let session: Awaited<ReturnType<typeof getSession>> = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          session = await getSession();
+          if (session?.user) break;
+          await new Promise(resolve => setTimeout(resolve, 400));
+        }
+
         if (session?.user) {
           const user = session.user as SessionUser;
           // Redirect based on role and password change requirement
           redirectByRole(
-            user.role, 
-            router, 
-            user.requiresPasswordChange
+            user.role,
+            router,
+            user.requiresPasswordChange ?? false
           );
+        } else {
+          // fallback: honor the callbackUrl (e.g. /dashboard) if we couldn't
+          // read the session yet — the protected-route gate will still apply
+          router.replace(callbackUrl);
         }
       }
     } catch (error: any) {
