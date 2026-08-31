@@ -26,32 +26,8 @@ const ETHIOPIC_WEEKDAYS = [
   "ቅዳሜ",
 ];
 
-const ONES = ["", "፩", "፪", "፫", "፬", "፭", "፮", "፯", "፰", "፱"];
-const TENS = ["", "፲", "፳", "፴", "፵", "፶", "፷", "፸", "፹", "፺"];
-const PLACES = ["፻", "፼", "፼፻", "፼፼", "፼፼፻", "፼፼፼"];
-
-function groupsOfHundred(n: number, acc: number[] = []): number[] {
-  if (n === 0) return acc;
-  return groupsOfHundred(Math.floor(n / 100), [n % 100].concat(acc));
-}
-
 export function ethiopicNumber(n: number): string {
-  if (!Number.isFinite(n) || n < 1) return String(n);
-  if (n < 100) {
-    const tens = Math.floor(n / 10);
-    const ones = n % 10;
-    return TENS[tens] + ONES[ones];
-  }
-  const groups = groupsOfHundred(n);
-  let result = "";
-  for (let i = 0; i < groups.length; i++) {
-    const coeff = groups[i];
-    if (coeff === 0) continue;
-    const coeffStr = coeff < 100 ? ethiopicNumber(coeff) : String(coeff);
-    const placeIndex = groups.length - 1 - i;
-    result += placeIndex === 0 ? coeffStr : coeffStr + PLACES[placeIndex - 1];
-  }
-  return result || "፩";
+  return String(n);
 }
 
 function eatParts(date: Date): { y: number; m: number; d: number; h: number; min: number; wd: number } {
@@ -97,8 +73,8 @@ export function formatAmharicTime(date: Date): string {
   const hour = ((h + 11) % 12) + 1;
   const period =
     h >= 5 && h < 12 ? "ጥዋት" : h >= 12 && h < 14 ? "ቀትር" : h >= 14 && h < 18 ? "ከሰዓት" : h >= 18 ? "ማታ" : "ሌሊት";
-  const minutePart = min === 0 ? "" : `:${ethiopicNumber(min)}`;
-  return `${ethiopicNumber(hour)}${minutePart} ${period}`;
+  const minutePart = min < 10 ? `:0${min}` : `:${min}`;
+  return `${hour}${minutePart} ${period}`;
 }
 
 export function formatAmharicDateTime(date: Date): string {
