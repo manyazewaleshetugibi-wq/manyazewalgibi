@@ -73,7 +73,7 @@ const ALL_ROUTES = {
   ],
   OTHER: [
     '/Culture', '/training', '/preparation', '/standards',
-    '/daily-tasks', '/profile', '/attendance'
+    '/daily-tasks', '/profile', '/attendance', '/change-password'
   ],
   DEFAULT: [
     '/Culture', '/training', '/daily-tasks', '/profile',
