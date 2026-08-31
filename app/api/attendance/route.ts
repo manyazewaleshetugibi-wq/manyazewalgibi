@@ -148,11 +148,15 @@ export async function POST(request: NextRequest) {
 
     const now = new Date();
     const clockIn = now.toISOString();
+    // Work in Ethiopia local time (UTC+3) so shift detection, shift assignment
+    // and late minutes reflect real Ethiopian wall-clock time regardless of the
+    // VPS/server/process timezone (which may run in UTC).
+    const eatWall = new Date(now.getTime() + 3 * 60 * 60 * 1000);
     // Use the employee's assigned shift if available, otherwise auto-detect
     let shift = user.shift || 'MORNING';
     const validShifts = ['MORNING', 'AFTERNOON', 'EVENING'];
     if (!validShifts.includes(shift)) {
-      const shiftHour = now.getHours();
+      const shiftHour = eatWall.getUTCHours();
       shift = 'MORNING';
       if (shiftHour >= 12 && shiftHour < 17) shift = 'AFTERNOON';
       else if (shiftHour >= 17) shift = 'EVENING';
@@ -162,11 +166,19 @@ export async function POST(request: NextRequest) {
     let lateMinutes = 0;
     const shiftStart = user.shift ? SHIFT_START_HOUR[user.shift] : undefined;
     if (shiftStart !== undefined) {
-      const expectedStart = new Date(now);
-      expectedStart.setHours(shiftStart, 0, 0, 0);
-      if (now.getTime() > expectedStart.getTime()) {
+      // Expected start time expressed as the same absolute instant in Ethiopia time
+      const expectedStartEAT = Date.UTC(
+        eatWall.getUTCFullYear(),
+        eatWall.getUTCMonth(),
+        eatWall.getUTCDate(),
+        shiftStart,
+        0,
+        0,
+        0
+      ) - 3 * 60 * 60 * 1000;
+      if (now.getTime() > expectedStartEAT) {
         status = 'late';
-        lateMinutes = Math.floor((now.getTime() - expectedStart.getTime()) / 60000);
+        lateMinutes = Math.floor((now.getTime() - expectedStartEAT) / 60000);
       }
     }
 
