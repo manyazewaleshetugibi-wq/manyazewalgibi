@@ -56,6 +56,7 @@ const PASSWORD_CHANGE_ENDPOINTS = [
   "/api/auth/change-password-first",
   "/api/auth/session",
   "/api/auth/signout",
+  "/api/users/current",
 ];
 
 function startsWithAny(pathname: string, prefixes: string[]): boolean {
