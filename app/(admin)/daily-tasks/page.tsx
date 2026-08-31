@@ -100,412 +100,203 @@ const RESTAURANT_TASKS = {
   "Back of House (BOH)": [
     {
       title: "ጎመን መቀንጠስ",
-      description: "Check incoming food deliveries for quality, quantity, and temperature. Verify invoices against received items. Report any discrepancies to management.",
-      priority: "high" as const,
-      estimatedHours: 1.5,
-      category: "BOH"
-    },
-    {
-      title: "ጎመን መቀቀል",
-      description: "Rotate stock using First-In-First-Out method. Log all temperatures for refrigerated and frozen items. Ensure proper labeling and dating of all stored items.",
-      priority: "medium" as const,
-      estimatedHours: 1,
-      category: "BOH"
-    },
-    {
-      title: "Wash, Peel, and Chop Vegetables",
-      description: "Thoroughly wash all produce. Peel and chop vegetables according to prep list. Store in labeled containers with proper dating.",
-      priority: "medium" as const,
-      estimatedHours: 1.5,
-      category: "BOH"
-    },
-    {
-      title: "Portion, Marinate, and Trim Proteins",
-      description: "Portion meats according to recipe specifications. Apply marinades and seasonings. Trim excess fat and prepare proteins for service.",
-      priority: "high" as const,
-      estimatedHours: 2,
-      category: "BOH"
-    },
-    {
-      title: "Prepare Stocks, Sauces, and Dressings",
-      description: "Make fresh stocks from bones and vegetables. Prepare signature sauces and dressings. Cook grain bases (rice, quinoa, pasta).",
-      priority: "high" as const,
-      estimatedHours: 2.5,
-      category: "BOH"
-    },
-    {
-      title: "Restock Line Coolers and Prep Stations",
-      description: "Refill line coolers with prepped ingredients. Restock squeeze bottles and sauce containers. Ensure all prep stations have necessary tools and ingredients.",
-      priority: "medium" as const,
-      estimatedHours: 1,
-      category: "BOH"
-    },
-    {
-      title: "Monitor and Read Kitchen Tickets",
-      description: "Review incoming kitchen tickets, prioritize orders, and communicate with expeditor. Ensure all modifications are understood and executed correctly.",
-      priority: "urgent" as const,
-      estimatedHours: 4,
-      category: "BOH"
-    },
-    {
-      title: "Cook Food Across All Stations",
-      description: "Cook menu items on grill, sauté, fry, and pantry stations. Maintain proper cooking temperatures and times. Ensure all food is cooked to order.",
-      priority: "urgent" as const,
-      estimatedHours: 4,
-      category: "BOH"
-    },
-    {
-      title: "Plate and Garnish Finished Dishes",
-      description: "Plate dishes according to presentation standards. Add garnishes as specified. Ensure plate consistency and quality.",
-      priority: "high" as const,
-      estimatedHours: 4,
-      category: "BOH"
-    },
-    {
-      title: "Pass Food to Expeditor",
-      description: "Wipe plate rims for clean presentation. Verify each dish matches the ticket. Call out for expeditor and organize passing window.",
-      priority: "high" as const,
-      estimatedHours: 4,
-      category: "BOH"
-    },
-    {
-      title: "Label, Date, and Store Leftover Prepped Food",
-      description: "Properly label and date all remaining prepped items. Store in appropriate containers in refrigerators or freezers. Update inventory records.",
-      priority: "medium" as const,
-      estimatedHours: 0.5,
-      category: "BOH"
-    },
-    {
-      title: "Clean and Sanitize Kitchen Equipment",
-      description: "Clean and sanitize flat tops, grills, fryers, and prep tables. Degrease hood vents and exhaust fans. Deep clean cooking equipment.",
-      priority: "medium" as const,
-      estimatedHours: 2,
-      category: "BOH"
-    },
-    {
-      title: "Kitchen Floor Cleaning",
-      description: "Remove and wash rubber floor mats. Sweep and mop entire kitchen floor. Clean under all equipment and storage areas.",
-      priority: "low" as const,
-      estimatedHours: 1,
-      category: "BOH"
-    },
-    {
-      title: "Empty Kitchen Trash and Compost",
-      description: "Empty all trash cans and compost bins. Replace liners and sanitize bins. Ensure proper waste segregation and disposal.",
-      priority: "low" as const,
-      estimatedHours: 0.5,
-      category: "BOH"
-    }
-  ],
-  "Front of House (FOH)": [
-    {
-      title: "Set Up Dining Room",
-      description: "Wipe down all tables, arrange chairs, and set place settings. Ensure salt, pepper, sugar, and condiment caddies are full and organized.",
-      priority: "medium" as const,
-      estimatedHours: 1,
-      category: "FOH"
-    },
-    {
-      title: "Open Cash Drawer and POS Setup",
-      description: "Count the opening cash drawer and verify amount. Turn on POS terminals and ensure all systems are operational. Print opening reports.",
-      priority: "high" as const,
-      estimatedHours: 0.5,
-      category: "FOH"
-    },
-    {
-      title: "Prepare Beverage Stations",
-      description: "Brew fresh coffee and tea. Stock ice bins. Prep beverage garnishes (lemons, limes, mint). Ensure all beverage equipment is working.",
-      priority: "medium" as const,
-      estimatedHours: 0.75,
-      category: "FOH"
-    },
-    {
-      title: "Greet and Seat Guests",
-      description: "Welcome guests warmly, manage the waitlist, and seat guests at appropriate tables. Provide menus and inform guests of specials.",
-      priority: "urgent" as const,
-      estimatedHours: 5,
-      category: "FOH"
-    },
-    {
-      title: "Take and Process Orders",
-      description: "Take accurate food and drink orders from guests. Enter orders into POS system promptly. Serve food and drinks in a timely manner.",
-      priority: "urgent" as const,
-      estimatedHours: 5,
-      category: "FOH"
-    },
-    {
-      title: "Bus Tables and Reset Stations",
-      description: "Clear plates and glassware promptly after guests finish. Sanitize tables and reset empty booths for next guests. Maintain clean dining room.",
-      priority: "high" as const,
-      estimatedHours: 4,
-      category: "FOH"
-    },
-    {
-      title: "Polish and Restock Silverware/Glassware",
-      description: "Polish all silverware and glassware to remove spots and watermarks. Restock server stations with clean utensils and glassware.",
-      priority: "medium" as const,
-      estimatedHours: 1,
-      category: "FOH"
-    },
-    {
-      title: "Reconcile Server Banks and Tips",
-      description: "Reconcile server cash banks and process tips. Drop final cash receipts and print closing reports. Prepare cash for deposit.",
-      priority: "high" as const,
-      estimatedHours: 0.75,
-      category: "FOH"
-    },
-    {
-      title: "Close Beverage Stations",
-      description: "Empty and clean coffee makers, soda fountains, and ice bins. Store all beverage equipment properly. Prepare for next day's service.",
-      priority: "medium" as const,
-      estimatedHours: 0.75,
-      category: "FOH"
-    },
-    {
-      title: "Close Dining Room",
-      description: "Put up chairs, sweep and mop dining room floors. Wipe down entrance doors and windows. Ensure all lights are off and doors are locked.",
-      priority: "low" as const,
-      estimatedHours: 0.75,
-      category: "FOH"
-    }
-  ],
-  "Dishwashing & Stewarding": [
-    {
-      title: "Scrape and Sort Incoming Tableware",
-      description: "Scrape food waste from plates and sort incoming tableware by type. Separate any broken or chipped items for disposal.",
-      priority: "medium" as const,
-      estimatedHours: 1,
-      category: "Dishwashing"
-    },
-    {
-      title: "Load and Run Dishwashing Machine",
-      description: "Load racks with sorted tableware and run through dishwashing machine. Ensure proper cycle selection and monitor wash quality.",
-      priority: "medium" as const,
-      estimatedHours: 2,
-      category: "Dishwashing"
-    },
-    {
-      title: "Hand-Wash Pots, Pans, and Chef Knives",
-      description: "Wash pots, pans, and chef knives in the 3-compartment sink. Follow proper wash, rinse, and sanitize procedures. Air dry all items.",
-      priority: "high" as const,
-      estimatedHours: 1.5,
-      category: "Dishwashing"
-    },
-    {
-      title: "Restock Clean Dishes to Designated Stations",
-      description: "Air-dry and organize clean dishes. Restock to their designated stations throughout the kitchen. Ensure proper organization and accessibility.",
-      priority: "medium" as const,
-      estimatedHours: 1,
-      category: "Dishwashing"
-    },
-    {
-      title: "Monitor Dishwasher Chemical Levels",
-      description: "Check and log dishwasher chemical levels (detergent, rinse aid, sanitizer). Monitor water temperatures and replace chemicals as needed.",
-      priority: "medium" as const,
-      estimatedHours: 0.5,
-      category: "Dishwashing"
-    }
-  ],
-  "የኩሽና ስራዎች (Kitchen Tasks)": [
-    {
-      title: "ጎመን መቀንጠስ",
-      description: "Prepare fresh gomen by thoroughly washing and sorting the leaves. Remove damaged or unwanted portions, cut the leaves into the required size, and ensure the prepared gomen is clean, fresh, and ready for cooking. Maintain proper food-safety and hygiene standards throughout preparation.",
+      description: "ጎመኑን በደንብ መለየት፣ ማጠብ እና የተበላሹ ወይም ለምግብ የማይመቹ ቅጠሎችን ማስወገድ። እንደ የኪችን መመሪያ በተፈለገው መጠን መቀንጠስ፣ ንጽህናን መጠበቅ እና ለማብሰል ዝግጁ ማድረግ።",
       priority: "medium" as const,
       estimatedHours: 1.5,
       category: "BOH"
     },
     {
       title: "ጎመን መቀቀል",
-      description: "Cook prepared gomen according to the restaurant recipe and required texture. Monitor cooking time and temperature to ensure the vegetables are properly cooked without becoming overcooked. Maintain consistent quality, portion standards, and food-safety practices.",
+      description: "የተዘጋጀውን ጎመን በኪችን የምግብ አሰራር መመሪያ መሰረት መቀቀል። የማብሰያ ጊዜንና ሙቀትን መቆጣጠር፣ ጎመኑ በተፈለገው ልስላሴና ጣዕም መድረሱን ማረጋገጥ እና የምግብ ደህንነትን መጠበቅ።",
       priority: "high" as const,
       estimatedHours: 1,
       category: "BOH"
     },
     {
       title: "ፎሰሴ መስራት",
-      description: "Prepare fosese according to the approved recipe and portion standards. Measure ingredients accurately, maintain consistent texture and flavor, and ensure the finished product meets kitchen quality standards. Store prepared fosese properly when not immediately required for service.",
+      description: "ፎሰሴን በተፈቀደው የኪችን አሰራር መመሪያ መሰረት ማዘጋጀት። የሚያስፈልጉ ግብዓቶችን በትክክለኛ መጠን መጠቀም፣ ጣዕምና ውፍረት ተመሳሳይ እንዲሆን ማድረግ እና የተዘጋጀውን ፎሰሴ በንጹህና ተገቢ ቦታ ማስቀመጥ።",
       priority: "high" as const,
       estimatedHours: 2,
       category: "BOH"
     },
     {
       title: "ቡላ ፎሰሴ መስራት",
-      description: "Prepare bula fosese using the approved recipe and required ingredients. Measure ingredients accurately, maintain the correct consistency and flavor, and prepare portions according to expected service demand. Keep the finished product covered and stored safely.",
+      description: "ቡላ ፎሰሴን በኪችን የተፈቀደው የአሰራር መመሪያ መሰረት ማዘጋጀት። ግብዓቶችን በትክክለኛ መጠን መጠቀም፣ ተገቢውን ውፍረትና ጣዕም ማረጋገጥ እና ለአገልግሎት የሚያስፈልገውን መጠን በትክክል ማዘጋጀት።",
       priority: "high" as const,
       estimatedHours: 2,
       category: "BOH"
     },
     {
       title: "ሚዛን ፕላስ ማዘጋጀት",
-      description: "Prepare Mizan Plus according to the restaurant's recipe and preparation standards. Verify that all required ingredients are available, measure ingredients accurately, and maintain consistent taste, texture, appearance, and portion size. Store the finished preparation safely.",
+      description: "ሚዛን ፕላስን በተፈቀደው የምግብ አሰራር መሰረት ማዘጋጀት። ሁሉም አስፈላጊ ግብዓቶች መኖራቸውን ማረጋገጥ፣ መጠኖችን በትክክል መመዘን እና ጣዕም፣ ውፍረትና ጥራት ተመሳሳይ እንዲሆን ማድረግ።",
       priority: "medium" as const,
       estimatedHours: 1.5,
       category: "BOH"
     },
     {
-      title: "ድሬሲግ(የሳላድ ሶስ እና የፍላፍል ራፕ)",
-      description: "Prepare salad dressing, sauce, and falafel wrap dressing according to approved recipes. Measure ingredients accurately, mix thoroughly, and maintain consistent taste and texture. Label and refrigerate prepared sauces when required, and ensure containers remain clean and properly covered.",
+      title: "ድሬሲግ (የሳላድ ሶስ እና የፍላፍል ራፕ)",
+      description: "የሳላድ ሶስና የፍላፍል ራፕ ድሬሲንግን በተፈቀደው የኪችን አሰራር መሰረት ማዘጋጀት። ግብዓቶችን በትክክለኛ መጠን መጠቀም፣ በደንብ ማዋሃድ፣ ጣዕምና ውፍረት ተመሳሳይ መሆኑን ማረጋገጥ እና በተገቢው ሁኔታ ማከማቸት።",
       priority: "medium" as const,
       estimatedHours: 1,
       category: "BOH"
     },
     {
-      title: "የሚጣድ(ቦለቄ፤ባቄላ፤ሽሮ፤ቡና፤ድንች፤ስኳር ድንች",
-      description: "Prepare ingredients that require roasting or cooking, including beans, white beans, shiro, coffee, potatoes, and sweet potatoes. Check ingredients for quality, clean and prepare them correctly, and cook or roast according to recipe requirements. Prevent burning and maintain consistent preparation quality.",
+      title: "የሚጣድ (ቦለቄ፤ ባቄላ፤ ሽሮ፤ ቡና፤ ድንች؛ ስኳር ድንች)",
+      description: "ቦለቄ፣ ባቄላ፣ ሽሮ፣ ቡና፣ ድንች እና ስኳር ድንችን ለመጣድ ወይም ለማብሰል ማዘጋጀት። ግብዓቶቹን መለየትና ማጽዳት፣ የማጣድ ሙቀትና ጊዜ መቆጣጠር እና እንዳይቃጠሉ በትኩረት መከታተል።",
       priority: "medium" as const,
       estimatedHours: 2,
       category: "BOH"
     },
     {
       title: "የእስታፍ ምግብ ማዘጋጀት",
-      description: "Prepare staff meals according to the planned menu and available ingredients. Maintain appropriate portions, nutrition, hygiene, and food-safety standards. Coordinate preparation time so staff meals are ready without interfering with customer order production.",
+      description: "የእስታፍ ምግብን በተዘጋጀው የቀን ሜኑና በሚገኙ ግብዓቶች መሰረት ማዘጋጀት። በቂ መጠን ማዘጋጀት፣ ንጽህናና የምግብ ደህንነትን መጠበቅ እና የእስታፍ ምግብ ዝግጅት የደንበኛ ኦርደር ስራን እንዳያስተጓጉል በጊዜው ማጠናቀቅ።",
       priority: "medium" as const,
       estimatedHours: 1.5,
       category: "BOH"
     },
     {
       title: "እቃ ማጠብ",
-      description: "Wash, rinse, sanitize, and properly dry all kitchen utensils, cookware, plates, and service equipment. Remove food residue completely and inspect items before returning them to storage. Keep the dishwashing area clean and organized throughout service.",
+      description: "ሁሉንም የኪችን እቃዎች፣ ማሰሮዎች፣ ሳህኖች፣ መስታወቶችና የምግብ መስሪያ እቃዎችን በትክክል ማጠብ፣ ማጽዳትና ማድረቅ። የምግብ ቅሪት እንዳይቀር ማረጋገጥ፣ እቃዎችን ለጉድለት መመርመር እና የማጠቢያ ቦታውን ንጹህና የተደራጀ ማድረግ።",
       priority: "high" as const,
       estimatedHours: 2,
       category: "BOH"
     },
     {
       title: "ስጎ ማዘጋጀት",
-      description: "Prepare kitchen sauces according to approved recipes and required service quantities. Measure ingredients accurately, maintain consistent flavor and texture, and monitor cooking temperature and time. Label and store prepared sauces properly to preserve quality and food safety.",
+      description: "የኪችን ስጎዎችን በተፈቀደው የምግብ አሰራር መሰረት ማዘጋጀት። ግብዓቶችን በትክክለኛ መጠን መጠቀም፣ ጣዕምና ውፍረት ተመሳሳይ መሆኑን ማረጋገጥ፣ የማብሰያ ሙቀትና ጊዜን መቆጣጠር እና የተዘጋጀውን ስጎ በንጹህ እቃ ማከማቸት።",
       priority: "high" as const,
       estimatedHours: 1.5,
       category: "BOH"
     },
     {
       title: "ካቹቤሪ ማዘጋጀት",
-      description: "Prepare cachuberi ingredients according to the kitchen recipe and required quantity. Clean, peel, cut, and combine ingredients correctly while maintaining consistent size, freshness, presentation, and portion standards. Store prepared ingredients safely until service.",
+      description: "ካቹቤሪን ለማዘጋጀት የሚያስፈልጉ ግብዓቶችን ማጽዳት፣ መላጥ፣ መቁረጥና በተፈቀደው የኪችን መመሪያ መሰረት ማዘጋጀት። የግብዓቶቹን ትኩስነት፣ መጠንና ጥራት ማረጋገጥ እና ለአገልግሎት ዝግጁ ማድረግ።",
       priority: "medium" as const,
       estimatedHours: 1.5,
       category: "BOH"
     },
     {
       title: "ኪችን የሌለ ነገር ማዘጋጀት",
-      description: "Review kitchen preparation requirements and verify that all ingredients and supplies needed for production are available. Identify missing items, retrieve available stock from the store, and report unavailable items to the responsible manager. Complete preparations without disrupting service.",
+      description: "ለኪችን ስራ የሚያስፈልጉ ሁሉንም ግብዓቶችና እቃዎች መኖራቸውን በቅድሚያ መመርመር። የሌለውን እቃ ከስቶር ማውጣት፣ የማይገኝ ወይም የተበላሸ እቃ ካለ ለኃላፊው ማሳወቅ እና የኪችን ስራ እንዳይቋረጥ በጊዜው ማስተካከል።",
       priority: "high" as const,
       estimatedHours: 1,
       category: "BOH"
     },
     {
-      title: "ለጁስ የሚያስፈልጉ ግብሃቶችን መኖራቸውን ማረጋገጥ",
-      description: "Check the availability and quality of all ingredients required for juice preparation before service. Request missing ingredients from the appropriate storage area or store, and immediately notify the server or responsible staff member when a required soft drink or beverage is unavailable.",
+      title: "ለጁስ የሚያስፈልጉ ግብዓቶችን መኖራቸውን ማረጋገጥ",
+      description: "ለጁስ ዝግጅት የሚያስፈልጉ ሁሉንም ፍራፍሬዎች፣ ስኳር፣ ውሃና ሌሎች ግብዓቶች መኖራቸውንና ጥራታቸውን መመርመር። የሌለውን ከስቶር እንዲዘጋጅ ማዘዝ እና የሌለ ለስላሳ መጠጥ ካለ ለአስተናጋጅ ወይም ለኃላፊው በጊዜው ማሳወቅ።",
       priority: "high" as const,
       estimatedHours: 0.5,
       category: "BOH"
     },
     {
       title: "ኪችን ላይ የሚመጡ ኦርደሮችን ማብሰል እና ማውጣት",
-      description: "Monitor incoming kitchen orders and prepare each item according to the order ticket and recipe standards. Prioritize orders based on service requirements, verify modifications and special requests, maintain correct cooking times and temperatures, and release completed orders promptly for service.",
+      description: "ወደ ኪችን የሚገቡ ኦርደሮችን በትክክል መከታተል፣ በኦርደር ቲኬቱ መሰረት ምግቦችን ማብሰል እና በጊዜው ማውጣት። የተጠየቁ ልዩ ማስተካከያዎችን ማረጋገጥ፣ የማብሰያ ጊዜና ሙቀትን መቆጣጠር እና ኦርደሩ ትክክለኛና ሙሉ መሆኑን ከማውጣት በፊት ማረጋገጥ።",
       priority: "urgent" as const,
       estimatedHours: 4,
       category: "BOH"
     },
     {
       title: "ኪችን ውስጥ ብርጭቆ ማጣብ",
-      description: "Clean and sanitize kitchen glassware and drinking glasses using the approved washing process. Check each glass for stains, food residue, cracks, or damage before returning it to service storage. Keep clean glassware protected from contamination.",
+      description: "የኪችን ውስጥ የሚጠቀሙ ብርጭቆዎችን በትክክል ማጠብ፣ ማጽዳትና ማድረቅ። በብርጭቆዎቹ ላይ ቆሻሻ፣ የውሃ ምልክት፣ የምግብ ቅሪት ወይም ስብራት እንዳለ መመርመር እና ንጹህ ብርጭቆዎችን ከብክለት በሚጠበቅ ቦታ ማስቀመጥ።",
       priority: "high" as const,
       estimatedHours: 1,
       category: "BOH"
     },
     {
       title: "የኪችን ውስጥ ጽዳት",
-      description: "Clean and sanitize kitchen preparation areas, work surfaces, equipment, shelves, sinks, and frequently touched surfaces. Remove food waste and spills promptly and ensure the kitchen remains organized and compliant with hygiene standards.",
+      description: "የኪችን የስራ ጠረጴዛዎችን፣ የማብሰያ እቃዎችን፣ መደርደሪያዎችን፣ ሲንኮችንና በተደጋጋሚ የሚነኩ ቦታዎችን ማጽዳትና ማከም። የምግብ ቅሪትና የፈሰሰ ነገር በፍጥነት ማጽዳት፣ ቆሻሻን ማስወገድ እና ኪችኑን ሁልጊዜ ንጹህና የተደራጀ ማድረግ።",
       priority: "high" as const,
       estimatedHours: 2,
       category: "BOH"
     },
     {
       title: "ለቡላ ፎሰሴ የሚሆን ቡላ መቁላት",
-      description: "Roast the bula required for bula fosese according to the approved preparation method. Monitor heat, roasting time, and appearance to prevent burning or uneven cooking. Allow the prepared bula to cool appropriately before further processing or storage.",
+      description: "ለቡላ ፎሰሴ የሚያስፈልገውን ቡላ በተገቢው የማቁላት ዘዴ መሰረት ማቁላት። የሙቀትና የማቁላት ጊዜን በትክክል መቆጣጠር፣ እንዳይቃጠል መከታተል እና ከተቆላ በኋላ በተገቢው ሁኔታ ማቀዝቀዝና ማስቀመጥ።",
       priority: "medium" as const,
       estimatedHours: 1,
       category: "BOH"
     },
     {
       title: "የካቹቤሪ ድንች መላጥ",
-      description: "Wash and peel potatoes required for cachuberi preparation. Remove damaged portions and ensure potatoes are clean and ready for the next preparation stage. Maintain proper hygiene and prevent cross-contamination during preparation.",
+      description: "ለካቹቤሪ የሚያስፈልገውን ድንች በደንብ ማጠብና መላጥ። የተበላሹ ክፍሎችን ማስወገድ፣ ድንቹ ንጹህና ለቀጣይ ዝግጅት ዝግጁ መሆኑን ማረጋገጥ እና በስራ ሂደቱ የምግብ ንጽህናን መጠበቅ።",
       priority: "medium" as const,
       estimatedHours: 0.75,
       category: "BOH"
     },
     {
       title: "ለፎሰሴ እና ለቡላ ፎሰሴ የሚያስፈልጉ ቅመሞችን ማዘጋጀት",
-      description: "Prepare and measure all spices required for fosese and bula fosese. Verify spice quality and quantities, grind or portion ingredients as required, and organize them for efficient cooking. Store prepared spices in clean, labeled containers.",
+      description: "ለፎሰሴና ለቡላ ፎሰሴ የሚያስፈልጉ ቅመሞችን መለየት፣ ማጽዳት፣ መፍጨት ወይም በተፈለገው መጠን መክፈል። የቅመሞቹን ጥራትና ትክክለኛ መጠን ማረጋገጥ እና በንጹህና ተለይቶ በተዘጋጀ እቃ ማስቀመጥ።",
       priority: "medium" as const,
       estimatedHours: 1,
       category: "BOH"
     },
     {
       title: "ተልባ መልቀም እንዲሁም መቁላት",
-      description: "Sort and clean flaxseed to remove stones, dirt, damaged seeds, and foreign materials. Roast the flaxseed using the appropriate heat and time while monitoring continuously to prevent burning. Cool and store the finished product properly.",
+      description: "ተልባን በደንብ መለየትና ማጽዳት፣ ድንጋይ፣ ቆሻሻ፣ የተበላሹ ዘሮችንና ሌሎች የውጭ ነገሮችን ማስወገድ። ተልባውን በተገቢው ሙቀትና ጊዜ መቁላት፣ እንዳይቃጠል መከታተል እና ከቀዘቀዘ በኋላ በንጹህ እቃ ማስቀመጥ።",
       priority: "medium" as const,
       estimatedHours: 1,
       category: "BOH"
     },
     {
       title: "ለፍላፍል የሚሆን ነጭ ሽንብራ መዘፍዘፍ እንዲሁም መፍጨት",
-      description: "Prepare white chickpeas for falafel by sorting and washing them, soaking them for the required time, and grinding them to the specified texture. Verify that the mixture has the correct consistency for falafel production and store it safely until further preparation.",
+      description: "ለፍላፍል የሚያስፈልገውን ነጭ ሽንብራ መለየትና ማጠብ፣ በተፈለገው ጊዜ መዘፍዘፍ እና በተገቢው ደረጃ መፍጨት። የተፈ出击ው ሽንብራ ተገቢውን ውፍረትና አቀማመጥ እንዳለው ማረጋገጥ እና እስከሚጠቀምበት ድረስ በንጽህና ማከማቸት።",
       priority: "high" as const,
       estimatedHours: 2,
       category: "BOH"
     },
     {
-      title: "ነጭ ሽንኩርት መላጥ መፍጨት፤ቅመም መፍጨት፤ክኖር ማዘጋጀት",
-      description: "Peel and grind garlic and prepare required spices including korerima, rosemary, and cumin. Prepare Knorr or the required seasoning mixture according to kitchen standards. Maintain accurate quantities, proper hygiene, and clean storage containers for all prepared seasonings.",
+      title: "ነጭ ሽንኩርት መላጥ መፍጨት፤ ቅመም መፍጨት፤ ክኖር ማዘጋጀት",
+      description: "ነጭ ሽንኩርትን መላጥና መፍጨት፣ ኮረሪማ፣ ሮዝመሪና ካሙንን በተገቢው መጠን መፍጨት እና ክኖርን በኪችን መመሪያ መሰረት ማዘጋጀት። የተዘጋጁ ቅመሞችን በንጹህና ተዘግተው በሚቆዩ እቃዎች ማስቀመጥ።",
       priority: "medium" as const,
       estimatedHours: 1.5,
       category: "BOH"
     },
     {
       title: "ቴምር መፈልፈል እንዲሁም መዘፍዘፍ",
-      description: "Clean and prepare dates by removing unwanted materials and pits where required. Soak the dates according to the recipe or preparation requirements and verify that they reach the required softness before further processing. Store prepared dates hygienically.",
+      description: "ቴምርን መለየትና ማጽዳት፣ አስፈላጊ ከሆነ ዘሩን ማስወገድ እና በአሰራሩ መሰረት ለተፈለገው ጊዜ መዘፍዘፍ። የቴምሩ ልስላሴ ለቀጣይ ዝግጅት ተገቢ መሆኑን ማረጋገጥ እና በንጹህ ሁኔታ ማከማቸት።",
       priority: "medium" as const,
       estimatedHours: 1,
       category: "BOH"
     },
     {
       title: "የተመዘገበውን እና የታዘዘውን እቃ በሰሃት ከስቶር ማውጣት",
-      description: "Review the recorded kitchen requisitions and approved ingredient requests. Retrieve the correct items and quantities from the store, verify them against the request, and deliver them to the kitchen. Report missing, damaged, expired, or incorrect items to the responsible manager.",
+      description: "በሰሃት የተመዘገቡና የታዘዙ የኪችን እቃዎችን በትክክለኛ መጠን ከስቶር ማውጣት። የተጠየቀው እቃና መጠን ከተመዘገበው ጋር መመሳሰሉን ማረጋገጥ፣ የጎደለ፣ የተበላሸ ወይም የማይገኝ እቃ ካለ ለኃላፊው ማሳወቅ።",
       priority: "high" as const,
       estimatedHours: 1,
       category: "BOH"
     },
     {
       title: "ጊቢውን ማጽዳት",
-      description: "Clean the assigned restaurant premises and surrounding areas by removing waste, sweeping, washing, and organizing the space. Ensure entrances, walkways, service areas, and other assigned areas remain clean, safe, and presentable throughout operations.",
+      description: "የሬስቶራንቱን ጊቢና የተመደቡ የውጭ አካባቢዎችን በመጥረግ፣ በማጠብና ቆሻሻን በማስወገድ ማጽዳት። መግቢያዎች፣ መንገዶችና የአገልግሎት አካባቢዎች ንጹህ፣ ደህናና ለደንበኛ ማራключи መሆናቸውን ማረጋገጥ።",
       priority: "medium" as const,
       estimatedHours: 1.5,
       category: "BOH"
     },
     {
       title: "ድንገተኛ ስራዎች",
-      description: "Respond to unexpected kitchen and restaurant tasks as directed by the responsible manager or supervisor. Prioritize urgent operational needs, assist other team members when required, and complete assigned tasks safely without compromising food quality, hygiene, or customer service.",
+      description: "በኪችን ወይም በሬስቶራንቱ ውስጥ በድንገት የሚፈጠሩ የስራ ፍላጎቶችን በኃላፊው መመሪያ መሰረት በፍጥነት ማከናወን። አስቸኳይ ስራዎችን በቅድሚያ ማስተናገድ፣ ከሌሎች ሰራተኞች ጋር መተባበር እና የምግብ ጥራትና ንጽህና ሳይጎዳ ስራውን ማጠናቀቅ።",
       priority: "high" as const,
       estimatedHours: 1,
       category: "BOH"
     },
     {
       title: "የበቆሎ እና የራፕ ቂጣ መጋገር",
-      description: "Prepare and bake corn bread and wrap bread according to the approved recipe and production requirements. Maintain correct dough portions, baking temperature, and cooking time. Check finished products for proper color, texture, freshness, and consistency before service.",
+      description: "የበቆሎ ቂጣና የራፕ ቂጣን በተፈቀደው የአሰራር መመሪያ መሰረት ማዘጋጀትና መጋገር። የዱቄት መጠንንና የቂጣ ውፍረትን በትክክል መቆጣጠር፣ የመጋገሪያ ሙቀትና ጊዜን መከታተል እና የተጋገረው ቂጣ ትክክለኛ ቀለም፣ ልስላሴና ጥራት እንዳለው ማረጋገጥ።",
       priority: "high" as const,
       estimatedHours: 2,
       category: "BOH"
     },
     {
-      title: "የጥብስ ሰጋ ከትፎ ከተፈጨውን ስጋ ፖርሽን ማድረግ",
-      description: "Portion ground meat for tibs and kitfo according to approved recipe specifications and service requirements. Use accurate weights for consistent portion sizes, maintain proper handling and temperature control, and store portions in labeled containers ready for cooking.",
+      title: "የጥብስ ስጋ ከትፎ ከተፈ出击ውን ስጋ ፖርሽን ማድረግ",
+      description: "ለጥብስና ከትፎ የሚውለውን የተፈ出击 ስጋ በተፈቀደው የሬስቶራንቱ መጠን መሰረት ፖርሽን ማድረግ። እያንዳንዱ ፖርሽን ትክክለኛ ክብደት እንዲኖረው መመዘን፣ የስጋውን ንጽህናና ሙቀት መጠበቅ እና በተለየ ሁኔታ ተለጥፎ በተገቢው ቦታ ማስቀመጥ።",
       priority: "high" as const,
       estimatedHours: 1.5,
       category: "BOH"
     },
     {
-      title: "አናናስ፤ሀባብ፤ማንጎ፤እስትሮበሪ ፖርሽን ማድረግ",
-      description: "Wash, clean, cut, and portion pineapple, habab, mango, and strawberry according to juice and food preparation requirements. Use consistent portion sizes, inspect fruit for freshness and quality, and store prepared portions in clean, labeled containers under appropriate refrigeration.",
+      title: "አናናስ፤ ሀባብ؛ ማንጎ፤ እስትሮበሪ ፖርሽን ማድረግ",
+      description: "አናናስ፣ ሀባብ፣ ማንጎና እስትሮበሪን በደንብ ማጠብ፣ ማጽዳትና በተፈለገው መጠን መቁረጥ። የፍራፍሬዎቹን ትኩስነትና ጥራት መመርመር፣ ተመሳሳይ ፖርሽን ማዘጋጀት እና የተዘጋጁትን ፍራፍሬዎች በንጹህ፣ ተለጥፎባቸውና በተገቢው ቅዝቃዜ ማከማቸት።",
       priority: "medium" as const,
       estimatedHours: 1.5,
       category: "BOH"
