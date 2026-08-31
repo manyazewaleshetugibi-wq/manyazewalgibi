@@ -92,6 +92,12 @@ import {
 } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
+import {
+  formatAmharicDate,
+  formatAmharicMonthYear,
+  formatAmharicShortDate,
+  formatAmharicTime,
+} from "@/lib/amharicDate";
 
 const api = axios.create({ baseURL: "/api" });
 
@@ -644,7 +650,7 @@ function TaskReport({ allUsers }: { allUsers: User[] }) {
               <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => changeMonth(-1)}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="text-sm font-medium min-w-[110px] text-center">{format(monthStart, "MMMM yyyy")}</span>
+              <span className="text-sm font-medium min-w-[150px] text-center">{formatAmharicMonthYear(monthStart)}</span>
               <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => changeMonth(1)}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -783,7 +789,7 @@ function TaskReport({ allUsers }: { allUsers: User[] }) {
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2">
                 <UsersIcon className="h-4 w-4 text-primary" />
-                <h3 className="text-sm font-semibold">{selectedRow.name} — {format(monthStart, "MMMM yyyy")}</h3>
+                <h3 className="text-sm font-semibold">{selectedRow.name} — {formatAmharicMonthYear(monthStart)}</h3>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <Badge className="text-[10px] bg-green-100 text-green-800 border-green-200">✓ {selectedRow.completed} completed</Badge>
@@ -822,20 +828,20 @@ function TaskReport({ allUsers }: { allUsers: User[] }) {
                     return (
                       <TableRow key={t._id}>
                         <TableCell className="text-xs whitespace-nowrap">
-                          {format(new Date(t.startTime), "MMM dd")}
+                          {formatAmharicShortDate(new Date(t.startTime))}
                         </TableCell>
                         <TableCell className="text-xs max-w-[220px]">
                           <p className="font-medium truncate">{t.title}</p>
                           <p className="text-[10px] text-gray-500 truncate">{t.priority} priority</p>
                         </TableCell>
                         <TableCell className="text-xs whitespace-nowrap">
-                          {format(new Date(t.startTime), "hh:mm a")} – {format(new Date(t.endTime), "hh:mm a")}
+                          {formatAmharicTime(new Date(t.startTime))} – {formatAmharicTime(new Date(t.endTime))}
                         </TableCell>
                         <TableCell className="text-xs whitespace-nowrap">
-                          {t.actualStartTime ? format(new Date(t.actualStartTime), "hh:mm a") : "—"}
+                          {t.actualStartTime ? formatAmharicTime(new Date(t.actualStartTime)) : "—"}
                         </TableCell>
                         <TableCell className="text-xs whitespace-nowrap">
-                          {t.actualCompletedTime ? format(new Date(t.actualCompletedTime), "hh:mm a") : "—"}
+                          {t.actualCompletedTime ? formatAmharicTime(new Date(t.actualCompletedTime)) : "—"}
                         </TableCell>
                         <TableCell className="text-xs whitespace-nowrap">{duration}</TableCell>
                         <TableCell>
@@ -1220,7 +1226,7 @@ function DailyTasksDashboard() {
     });
     toast({ 
       title: "▶️ Task Started", 
-      description: `Started at ${format(new Date(now), "hh:mm a")}. Time registered.` 
+      description: `Started at ${formatAmharicTime(new Date(now))}. Time registered.` 
     });
   };
 
@@ -1236,7 +1242,7 @@ function DailyTasksDashboard() {
     });
     toast({ 
       title: "🎉 Task Completed!", 
-      description: `Finished at ${format(new Date(endTime), "hh:mm a")}. Time registered.` 
+      description: `Finished at ${formatAmharicTime(new Date(endTime))}. Time registered.` 
     });
   };
 
@@ -1382,7 +1388,7 @@ function DailyTasksDashboard() {
                   </Badge>
                   {isMissed && (
                     <span className="text-[10px] text-red-500 font-medium">
-                      {endPassed ? `Ended ${format(endDate, "hh:mm a")}` : "Time window passed"}
+                      {endPassed ? `Ended ${formatAmharicTime(endDate)}` : "Time window passed"}
                     </span>
                   )}
                   {isInProgress && (
@@ -1402,11 +1408,11 @@ function DailyTasksDashboard() {
                   </div>
                   <div className="flex items-center gap-0.5">
                     <Calendar className="h-3 w-3" />
-                    <span>{format(startDate, "MMM dd")}</span>
+                    <span>{formatAmharicShortDate(startDate)}</span>
                   </div>
                   <div className="flex items-center gap-0.5">
                     <Clock className="h-3 w-3" />
-                    <span>{format(startDate, "hh:mm a")}</span>
+                    <span>{formatAmharicTime(startDate)}</span>
                   </div>
                   {task.estimatedHours && (
                     <div className="flex items-center gap-0.5">
@@ -1420,7 +1426,7 @@ function DailyTasksDashboard() {
                 {(task.actualStartTime || task.actualCompletedTime) && (
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500">
                     {task.actualStartTime && (
-                      <span className="text-green-600 text-[10px]">Started: {format(new Date(task.actualStartTime), "hh:mm a")}</span>
+                      <span className="text-green-600 text-[10px]">Started: {formatAmharicTime(new Date(task.actualStartTime))}</span>
                     )}
                     {actualDuration && (
                       <span className="bg-green-50 dark:bg-green-900/20 px-1.5 py-0 rounded-full text-green-700 text-[10px]">
@@ -1773,7 +1779,7 @@ function DailyTasksDashboard() {
                   <div key={date}>
                     <div className="flex items-center gap-2 mb-2">
                       <Calendar className="h-3.5 w-3.5 text-primary" />
-                      <h2 className="text-sm sm:text-base font-semibold">{format(new Date(date), "EEEE, MMM dd")}</h2>
+                      <h2 className="text-sm sm:text-base font-semibold">{formatAmharicDate(new Date(date))}</h2>
                       <Badge variant="outline" className="text-xs">{dateTasks.length}</Badge>
                     </div>
                     <div className="space-y-2">
