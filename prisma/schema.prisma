@@ -141,6 +141,7 @@ model Salary {
   role        String?
   position    String?
   baseSalary  Float?
+  penalty     Float?
   bankAccount String?
   notes       String?
   status      String?

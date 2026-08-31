@@ -140,6 +140,8 @@ export async function PUT(request: NextRequest) {
 
     const update: any = { updatedAt: new Date().toISOString() };
     if (body.baseSalary !== undefined && body.baseSalary !== null) update.baseSalary = parseFloat(body.baseSalary);
+    if (body.penalty !== undefined && body.penalty !== null && body.penalty !== '') update.penalty = parseFloat(body.penalty);
+    else if (body.penalty === '' || body.penalty === null) update.penalty = null;
     if (body.position !== undefined) update.position = body.position;
     if (body.bankAccount !== undefined) update.bankAccount = body.bankAccount;
     if (body.notes !== undefined) update.notes = body.notes;

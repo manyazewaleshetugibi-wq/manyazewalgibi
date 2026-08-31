@@ -25,7 +25,7 @@ interface Payment { month: number; year: number; amount: number; paidAt: string;
 interface AttendanceInfo { present: number; absent: number; late: number; days: number }
 interface Salary {
   _id: string; userId: string; name: string; email: string; role: string; position?: string
-  baseSalary: number; bankAccount: string; notes: string; status: string
+  baseSalary: number; penalty?: number; bankAccount: string; notes: string; status: string
   history: Payment[]; paidThisMonth?: boolean; paymentThisMonth?: Payment
 }
 
@@ -56,6 +56,8 @@ export default function SalaryPage() {
   const [showPay, setShowPay] = useState<{salary: Salary; open: boolean}>({ salary: null as any, open: false })
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [submitting, setSubmitting] = useState(false)
+  const [penaltyDrafts, setPenaltyDrafts] = useState<Record<string, string>>({})
+  const [penaltySaving, setPenaltySaving] = useState<Record<string, boolean>>({})
 
   const [staffSearch, setStaffSearch] = useState("")
   const [showStaffDropdown, setShowStaffDropdown] = useState(false)
@@ -170,6 +172,26 @@ export default function SalaryPage() {
     } catch { alert('Failed') } finally { setSubmitting(false) }
   }
 
+  const savePenalty = async (salaryId: string) => {
+    setPenaltySaving(v => ({ ...v, [salaryId]: true }))
+    try {
+      const raw = penaltyDrafts[salaryId]
+      const payload: any = { ...auditMeta }
+      if (raw === '' || raw === undefined) payload.penalty = ''
+      else payload.penalty = raw
+      const r = await fetch(`/api/salary?id=${salaryId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      })
+      const d = await r.json()
+      if (d.success) { setPenaltyDrafts(v => { const n = { ...v }; delete n[salaryId]; return n }); loadSalaries() }
+      else alert(d.error)
+    } catch {
+      alert('Failed to save penalty')
+    } finally {
+      setPenaltySaving(v => ({ ...v, [salaryId]: false }))
+    }
+  }
+
   const handlePay = async () => {
     if (!showPay.salary) return
     setSubmitting(true)
@@ -193,18 +215,14 @@ export default function SalaryPage() {
     const s = new Set(expandedRows); s.has(id) ? s.delete(id) : s.add(id); setExpandedRows(s)
   }
 
-  function calcSalary(sal: Salary): { salary: number | null; penalty: number | null; present: number; absent: number; dailyRate: number; registered: boolean } {
+  function calcSalary(sal: Salary): { salary: number; penalty: number | null; present: number; absent: number; registered: boolean } {
     const att = attendanceMap[sal.userId]
     const registered = !!att
     const present = att?.present || 0
-    if (!registered) {
-      return { salary: null, penalty: null, present, absent: present, dailyRate: 0, registered }
-    }
-    const absent = Math.max(0, workingDays - present)
-    const dailyRate = workingDays > 0 ? sal.baseSalary / workingDays : 0
-    const penalty = Math.round(dailyRate * absent)
-    const salary = Math.max(0, Math.round(sal.baseSalary - penalty))
-    return { salary, penalty, present, absent, dailyRate: Math.round(dailyRate), registered }
+    const absent = registered ? Math.max(0, workingDays - present) : 0
+    const penalty = sal.penalty != null && !isNaN(Number(sal.penalty)) ? Number(sal.penalty) : null
+    const salary = Math.max(0, Math.round((sal.baseSalary || 0) - (penalty || 0)))
+    return { salary, penalty, present, absent, registered }
   }
 
   const stats = useMemo(() => {
@@ -238,8 +256,8 @@ export default function SalaryPage() {
         Name: s.name,
         Role: s.position || s.role,
         'Base Salary': s.baseSalary,
-        Penalty: calc.registered ? calc.penalty : '',
-        Salary: calc.registered ? calc.salary : '',
+        Penalty: calc.penalty != null ? calc.penalty : '',
+        Salary: calc.salary,
         [`Attendance (${MONTHS[viewMonth - 1]} ${viewYear})`]: calc.registered ? `${calc.present} present / ${calc.absent} absent` : 'Not registered',
         [`Payment (${MONTHS[viewMonth - 1]} ${viewYear})`]: s.paidThisMonth ? `Paid ${ccy(s.paymentThisMonth?.amount || s.baseSalary)}` : 'Unpaid',
         'Bank Account': s.bankAccount || '-',
@@ -369,17 +387,26 @@ export default function SalaryPage() {
                       <TableCell><Badge variant="secondary" className="capitalize text-xs">{sal.position || sal.role}</Badge></TableCell>
                       <TableCell className="text-right font-bold text-sm">{ccy(sal.baseSalary)}</TableCell>
                       <TableCell className="text-right">
-                        {calc.registered && calc.penalty && calc.penalty > 0 ? (
-                          <span className="text-red-500 font-medium text-sm">−{ccy(calc.penalty)}</span>
-                        ) : <span className="text-xs text-muted-foreground">—</span>}
+                        {penaltySaving[sal._id] ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground ml-auto" />
+                        ) : (
+                          <Input
+                            type="number"
+                            min={0}
+                            placeholder="0"
+                            value={penaltyDrafts[sal._id] !== undefined ? penaltyDrafts[sal._id] : (sal.penalty != null ? String(sal.penalty) : '')}
+                            onChange={e => setPenaltyDrafts(v => ({ ...v, [sal._id]: e.target.value }))}
+                            onBlur={() => { if (penaltyDrafts[sal._id] !== undefined) savePenalty(sal._id) }}
+                            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                            className="w-24 h-8 text-right text-sm rounded-lg"
+                          />
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
-                        {calc.salary !== null ? (
-                          <>
-                            <div className="text-sm font-bold text-green-700">{ccy(calc.salary)}</div>
-                            <div className="text-[10px] text-muted-foreground">{calc.dailyRate}/day</div>
-                          </>
-                        ) : <span className="text-xs text-muted-foreground">—</span>}
+                        <div className="text-sm font-bold text-green-700">{ccy(calc.salary)}</div>
+                        {calc.penalty != null && calc.penalty > 0 && (
+                          <div className="text-[10px] text-muted-foreground">base − penalty</div>
+                        )}
                       </TableCell>
                       <TableCell className="text-center">
                         {calc.registered ? (
