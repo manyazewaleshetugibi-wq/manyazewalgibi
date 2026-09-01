@@ -95,6 +95,7 @@ interface CartItem extends MenuItem {
   originalPrice?: number
   taxAmount?: number
   ingredientChoices?: { defaultStockId: string; chosenStockId: string; chosenQuantity: number }[]
+  unitIngredientChoices?: { defaultStockId: string; chosenStockId: string; chosenQuantity: number }[][]
 }
 
 interface Waiter {
@@ -1611,9 +1612,17 @@ export default function POSPage() {
     setCart((prev) => {
       const existing = prev.find((i) => i._id === item._id)
       if (existing) {
-        return prev.map((i) => (i._id === item._id ? { ...i, quantity: i.quantity + 1 } : i))
+        return prev.map((i) =>
+          i._id === item._id
+            ? {
+                ...i,
+                quantity: i.quantity + 1,
+                unitIngredientChoices: [...(i.unitIngredientChoices || []), []],
+              }
+            : i
+        )
       }
-      return [...prev, { ...item, quantity: 1, originalPrice, taxAmount, ingredientChoices: [] }]
+      return [...prev, { ...item, quantity: 1, originalPrice, taxAmount, ingredientChoices: [], unitIngredientChoices: [[]] }]
     })
     toast.success(`Added ${item.name} to cart`);
   }, [setCart, setInsufficientStockItem, setAltPickerIngredients, setAltPickerItem, setAltPickerOpen])
@@ -1634,11 +1643,16 @@ export default function POSPage() {
       if (existing) {
         return prev.map((i) =>
           i._id === altPickerItem._id
-            ? { ...i, quantity: i.quantity + 1, ingredientChoices }
+            ? {
+                ...i,
+                quantity: i.quantity + 1,
+                ingredientChoices,
+                unitIngredientChoices: [...(i.unitIngredientChoices || []), ingredientChoices],
+              }
             : i
         )
       }
-      return [...prev, { ...altPickerItem, quantity: 1, originalPrice, taxAmount, ingredientChoices }]
+      return [...prev, { ...altPickerItem, quantity: 1, originalPrice, taxAmount, ingredientChoices, unitIngredientChoices: [ingredientChoices] }]
     })
     toast.success(`Added ${altPickerItem.name} to cart`)
     setAltPickerItem(null)
@@ -1655,7 +1669,24 @@ export default function POSPage() {
       removeFromCart(itemId)
       return
     }
-    setCart((prev) => prev.map((item) => (item._id === itemId ? { ...item, quantity: newQuantity } : item)))
+    setCart((prev) => prev.map((item) => {
+      if (item._id !== itemId) return item
+      const current = item.quantity
+      let unitChoices = Array.isArray(item.unitIngredientChoices) ? [...item.unitIngredientChoices] : []
+      if (unitChoices.length === 0) {
+        // Legacy cart entry without per-unit list: treat existing flat choices
+        // (or defaults) as the last unit's and repeat for the current quantity.
+        const flat = item.ingredientChoices || []
+        unitChoices = Array.from({ length: current }, () => flat)
+      }
+      if (newQuantity > current) {
+        const clone = unitChoices.length ? unitChoices[unitChoices.length - 1] : []
+        unitChoices.push(...Array.from({ length: newQuantity - current }, () => clone.map((c: any) => ({ ...c }))))
+      } else {
+        unitChoices = unitChoices.slice(0, newQuantity)
+      }
+      return { ...item, quantity: newQuantity, unitIngredientChoices: unitChoices }
+    }))
   }, [removeFromCart])
 
   // Calculate totals
@@ -1840,6 +1871,21 @@ export default function POSPage() {
     }
 
     // Prepare items with proper tax breakdown
+    // Every unit of a menu item can carry its own alternative-ingredient choices.
+    // Normalize the cart entry into a list of length `quantity` so the order
+    // records exactly which stocks each unit consumed (see stockHelpers).
+    const normalizeUnitIngredientChoices = (item: any) => {
+      const qty = item.quantity || 0
+      if (Array.isArray(item.unitIngredientChoices) && item.unitIngredientChoices.length > 0) {
+        return Array.from({ length: qty }, (_, i) => {
+          const u = item.unitIngredientChoices[i]
+          return Array.isArray(u) ? u : []
+        })
+      }
+      const flat = item.ingredientChoices && item.ingredientChoices.length ? item.ingredientChoices : []
+      return Array.from({ length: qty }, () => flat)
+    }
+
     const itemsWithTax = cart.map(item => {
       const { originalPrice, taxAmount } = calculatePriceBreakdown(item.price)
       return {
@@ -1853,6 +1899,7 @@ export default function POSPage() {
         taxTotal: taxAmount * item.quantity,
         total: item.price * item.quantity,
         ingredientChoices: item.ingredientChoices || [],
+        unitIngredientChoices: normalizeUnitIngredientChoices(item),
       }
     })
 

@@ -6,6 +6,7 @@ import { DeliveryOrderSchema } from "@/models/DeliveryOrders";
 
 import { auth } from "@/auth";
 import { requireRole } from "@/lib/api-auth";
+import { generateOrderNumber } from "../order/generateOrderNumber";
 
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dnqsoezfo';
 const CLOUDINARY_PHOTO_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'photoupload';
@@ -224,9 +225,18 @@ export async function POST(req: NextRequest) {
     const deliveryRestaurantId = restaurantOne?.id || "manyazewal1";
     const deliveryRestaurantName = restaurantOne?.name || "Manyazewal Eshetu Gibi 1";
 
+    // Generate a unique order number. Prefer the frontend-supplied one, but if
+    // it is already in use (or missing) fall back to a server-generated number
+    // that is verified unique — the old `ORD-${Date.now().slice(-6)}` would
+    // silently collide with existing numbers.
+    const generatedNumber = await generateOrderNumber(prisma);
+    let orderNumber = body.orderNumber ? String(body.orderNumber) : generatedNumber;
+    const numberAlreadyUsed = await prisma.order.count({ where: { orderNumber } });
+    if (numberAlreadyUsed > 0) orderNumber = generatedNumber;
+
     // Prepare the order data with CORRECT values
     const orderData = {
-      orderNumber: body.orderNumber || `ORD-${Date.now().toString().slice(-6)}`,
+      orderNumber,
       userId: session?.user?.id,
       customerId: body.customerId || session?.user?.id,
       restaurantId: deliveryRestaurantId,

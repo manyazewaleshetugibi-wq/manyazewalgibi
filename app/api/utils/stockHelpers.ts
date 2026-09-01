@@ -197,21 +197,6 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
     }
   }
 
-  // Aggregate items by ID
-  const aggregatedItems = new Map<string, { quantity: number; itemName: string }>();
-  for (const item of order.items) {
-    if (!item.itemId) continue;
-    const existing = aggregatedItems.get(item.itemId);
-    if (existing) {
-      existing.quantity += Number(item.quantity) || 0;
-    } else {
-      aggregatedItems.set(item.itemId, {
-        quantity: Number(item.quantity) || 0,
-        itemName: item.itemName || "Unknown"
-      });
-    }
-  }
-
   // Process book quantity decrements
   // Books are stored in the "books" collection — just minus sold quantity, no stock/ingredient processing.
   // Guarded with bookStockProcessed so a failed/retried run can't double-decrement book stock.
@@ -224,29 +209,34 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
         data: { bookStockProcessed: true }
       }
     );
-  }
 
-  if (!booksAlreadyProcessed) {
-    // One query for all potential books instead of one per item
-    const aggItemIds = Array.from(aggregatedItems.keys()).filter(Boolean);
-    const bookDocs = aggItemIds.length
-      ? await prisma.book.findMany({ where: { id: { in: aggItemIds } } })
+    // Total sold quantity per book (one book may appear on several order lines)
+    const lineBookQty = new Map<string, number>();
+    for (const line of order.items || []) {
+      const id = line?.itemId?.toString();
+      if (!id) continue;
+      const qty = Number(line?.quantity) || 0;
+      if (qty <= 0) continue;
+      lineBookQty.set(id, (lineBookQty.get(id) || 0) + qty);
+    }
+
+    const bookIds = Array.from(lineBookQty.keys()).filter(Boolean);
+    const bookDocs = bookIds.length
+      ? await prisma.book.findMany({ where: { id: { in: bookIds } } })
       : [];
     const booksById = new Map(bookDocs.map((b: any) => [b.id, b]));
 
-    for (const [itemIdString, aggItem] of aggregatedItems.entries()) {
-      if (!itemIdString) continue;
-
-      const bookData: any = booksById.get(itemIdString);
+    for (const [id, qty] of lineBookQty.entries()) {
+      const bookData: any = booksById.get(id);
       if (!bookData) continue;
 
-      bookItemIds.push(itemIdString);
+      bookItemIds.push(id);
 
-      const quantityToDeduct = roundQty(aggItem.quantity);
+      const quantityToDeduct = roundQty(qty);
       const newQuantity = Math.max(0, (Number(bookData.quantity) || 0) - quantityToDeduct);
       await prisma.book.updateMany(
         {
-          where: { id: itemIdString },
+          where: { id },
           data: {
             quantity: newQuantity,
             updatedAt: new Date(),
@@ -254,83 +244,135 @@ export async function processOrderStockUsage(order: any): Promise<ProcessOrderRe
         }
       );
 
-      debugLog(`📚 Book "${aggItem.itemName}": sold ${quantityToDeduct} (remaining clamped to 0)`);
+      debugLog(`📚 Book "${bookData.name || bookData.title}": sold ${quantityToDeduct} (remaining clamped to 0)`);
     }
   }
 
   // Collect ingredients (skip books — they have no stock/ingredients)
+  // IMPORTANT: deductions are accumulated per ORDER LINE and per UNIT inside
+  // that line — NOT per aggregated item. The same menu item can appear more than
+  // once, and each unit may carry its own ingredient choices
+  // (`unitIngredientChoices`). The old code aggregated same-item lines and then
+  // applied only the FIRST line's choice set to the whole quantity, silently
+  // under-/over-deducting different stocks. Every unit now contributes exactly
+  // what its own choices (or the recipe defaults) require.
   const allIngredients = new Map<string, any>();
   let hasIngredients = false;
 
-  for (const [itemIdString, aggItem] of aggregatedItems.entries()) {
+  const stockCache = new Map<string, any>();
+  const missingStocks = new Set<string>();
+
+  for (const line of order.items || []) {
+    const itemIdString = line?.itemId?.toString();
     if (!itemIdString) continue;
     if (bookItemIds.includes(itemIdString)) continue; // skip books
-    
+
+    const lineQty = Number(line?.quantity) || 0;
+    if (lineQty <= 0) continue;
+
     const itemData: any = await prisma.item.findFirst({ where: { id: itemIdString } });
     if (!itemData?.requiredStock?.length) continue;
-    
+
     hasIngredients = true;
 
-    // Build a map: defaultStockId -> array of { chosenStockId, chosenQuantity }
-    // Supports both old single-choice and new multi-choice formats
-    const choicesMap = new Map<string, { chosenStockId: string; chosenQuantity: number }[]>();
-    const orderItem = order.items?.find((i: any) => i.itemId?.toString() === itemIdString);
-    if (orderItem?.ingredientChoices?.length) {
-      for (const choice of orderItem.ingredientChoices) {
+    // Resolve per-unit choices for this line. New orders carry
+    // `unitIngredientChoices` (one entry per unit); legacy orders carry a flat
+    // `ingredientChoices` list that was applied identically to every unit.
+    const rawUnits: any = Array.isArray(line?.unitIngredientChoices) ? line.unitIngredientChoices : null;
+    const legacyChoices: any[] = Array.isArray(line?.ingredientChoices) ? line.ingredientChoices : [];
+    const unitChoicesFor = (unitIndex: number): any[] => {
+      if (rawUnits) {
+        const u = rawUnits[unitIndex];
+        return Array.isArray(u) ? u : [];
+      }
+      return legacyChoices;
+    };
+
+    for (let u = 0; u < lineQty; u++) {
+      const unitChoices = unitChoicesFor(u);
+
+      // Build a map: defaultStockId -> array of { chosenStockId, chosenQuantity }
+      // Supports both old single-choice and new multi-choice formats
+      const choicesMap = new Map<string, { chosenStockId: string; chosenQuantity: number }[]>();
+      for (const choice of unitChoices) {
+        if (!choice?.defaultStockId) continue;
         const existing = choicesMap.get(choice.defaultStockId) || [];
-        existing.push({ chosenStockId: choice.chosenStockId, chosenQuantity: choice.chosenQuantity });
+        existing.push({
+          chosenStockId: choice.chosenStockId,
+          chosenQuantity: Number(choice.chosenQuantity) || 0
+        });
         choicesMap.set(choice.defaultStockId, existing);
       }
-    }
 
-    for (const ingredient of itemData.requiredStock) {
-      if (!ingredient.stockId) continue;
+      for (const ingredient of itemData.requiredStock) {
+        if (!ingredient.stockId) continue;
 
-      const defaultStockIdString = ingredient.stockId.toString();
-      const choices = choicesMap.get(defaultStockIdString);
+        const defaultStockIdString = ingredient.stockId.toString();
+        const choices = choicesMap.get(defaultStockIdString);
 
-      // Determine which stocks to deduct:
-      // - If waiter made choices: use chosen stocks (may be multiple)
-      // - If no choice made: use the default ingredient stock
-      const stocksToDeduct: { stockId: string; quantity: number }[] = choices && choices.length > 0
-        ? choices.map(c => ({ stockId: c.chosenStockId, quantity: c.chosenQuantity }))
-        : [{ stockId: defaultStockIdString, quantity: Number(ingredient.quantity) || 0 }];
+        // Determine which stocks to deduct:
+        // - If choices were made: use chosen stocks (may be multiple)
+        // - If no choice made: use the default ingredient stock
+        const stocksToDeduct: { stockId: string; quantity: number }[] = choices && choices.length > 0
+          ? choices.map(c => ({ stockId: c.chosenStockId, quantity: c.chosenQuantity }))
+          : [{ stockId: defaultStockIdString, quantity: Number(ingredient.quantity) || 0 }];
 
-      for (const { stockId: effectiveStockId, quantity: qtyPerUnit } of stocksToDeduct) {
-        if (!effectiveStockId) continue;
+        for (const { stockId: effectiveStockId, quantity: qtyPerUnit } of stocksToDeduct) {
+          if (!effectiveStockId) continue;
 
-        const quantityNeeded = roundQty(qtyPerUnit * aggItem.quantity);
-        if (quantityNeeded <= 0) continue;
+          const quantityNeeded = roundQty(qtyPerUnit);
+          if (quantityNeeded <= 0) continue;
 
-        const stockItem: any = await prisma.stock.findFirst({ where: { id: effectiveStockId } });
-        if (!stockItem) continue;
+          let stockItem: any = stockCache.get(effectiveStockId);
+          if (stockItem === undefined) {
+            stockItem = await prisma.stock.findFirst({ where: { id: effectiveStockId } });
+            stockCache.set(effectiveStockId, stockItem || null);
+          }
 
-        const existing = allIngredients.get(effectiveStockId);
-        if (existing) {
-          existing.totalQuantityUsed += quantityNeeded;
-          existing.items.push({
-            itemId: itemIdString,
-            itemName: aggItem.itemName,
-            quantityUsed: quantityNeeded
-          });
-        } else {
-          allIngredients.set(effectiveStockId, {
-            stockId: effectiveStockId,
-            stockName: stockItem.name,
-            stockCategory: stockItem.category || "General",
-            stockUnit: stockItem.unit || "pcs",
-            unitCost: Number(stockItem.currentUnitPrice) || Number(stockItem.unitCost) || Number(stockItem.costPerUnit) || 0,
-            totalQuantityUsed: quantityNeeded,
-            currentStock: Number(stockItem.currentStock) || 0,
-            items: [{
+          // A recipe referencing a stock that no longer exists must NOT be
+          // silently skipped — the order would be marked finished while that
+          // cost is never deducted. Collect it so the order fails loudly below.
+          if (!stockItem) {
+            missingStocks.add(effectiveStockId);
+            continue;
+          }
+
+          const existing = allIngredients.get(effectiveStockId);
+          if (existing) {
+            existing.totalQuantityUsed = roundQty(existing.totalQuantityUsed + quantityNeeded);
+            existing.items.push({
               itemId: itemIdString,
-              itemName: aggItem.itemName,
+              itemName: line?.itemName || "Unknown",
               quantityUsed: quantityNeeded
-            }]
-          });
+            });
+          } else {
+            allIngredients.set(effectiveStockId, {
+              stockId: effectiveStockId,
+              stockName: stockItem.name,
+              stockCategory: stockItem.category || "General",
+              stockUnit: stockItem.unit || "pcs",
+              unitCost: Number(stockItem.currentUnitPrice) || Number(stockItem.unitCost) || Number(stockItem.costPerUnit) || 0,
+              totalQuantityUsed: quantityNeeded,
+              currentStock: Number(stockItem.currentStock) || 0,
+              items: [{
+                itemId: itemIdString,
+                itemName: line?.itemName || "Unknown",
+                quantityUsed: quantityNeeded
+              }]
+            });
+          }
         }
       }
     }
+  }
+
+  if (missingStocks.size > 0) {
+    const missingList = Array.from(missingStocks);
+    debugLog(`❌ Order ${order.orderNumber} references missing stock(s): ${missingList.join(', ')}`);
+    return {
+      success: false,
+      error: `Missing stock in menu recipe: ${missingList.join(', ')}. Update the menu item ingredient list or create the stock.`
+    };
   }
 
   // No ingredients found
@@ -638,7 +680,7 @@ export async function processAllCompletedOrders(req?: NextRequest, batchSize: nu
         allErrors.push({
           orderNumber: order.orderNumber,
           orderId: order.id,
-          error: result.message || "Processing failed"
+          error: result.error || result.message || "Processing failed"
         });
       }
     } catch (error) {

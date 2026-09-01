@@ -10,6 +10,7 @@ import {
   isOrderCompleted 
 } from "../utils/orderHelpers";
 import { registerOrderActivity, registerWaitressActivity } from "../utils/activityHelpers";
+import { generateOrderNumber } from "./generateOrderNumber";
 
 // Cloudinary upload helper function (inline to avoid import issues)
 async function uploadToCloudinary(file: File): Promise<string> {
@@ -439,20 +440,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate order number
-    const lastOrder = await prisma.order.findFirst({
-      orderBy: { orderNumber: { sort: 'desc' } }
-    });
-
-    let nextOrderNum = 1;
-    if (lastOrder && lastOrder.orderNumber) {
-      const match = lastOrder.orderNumber.match(/ORD-(\d+)/);
-      if (match && match[1]) {
-        nextOrderNum = parseInt(match[1], 10) + 1;
-      }
-    }
-
-    const orderNumber = `ORD-${String(nextOrderNum).padStart(6, '0')}`;
+    // Generate a unique order number (see generateOrderNumber.ts — robust against
+    // non-numeric order numbers and resets, unlike the old `desc` + regex code).
+    const orderNumber = await generateOrderNumber(prisma);
 
     // Use values from frontend or calculate them
     let subtotalAmount = body.subtotal || 0;
@@ -513,6 +503,9 @@ export async function POST(req: NextRequest) {
         uneditableAt: null,
         uneditableBy: null,
         ingredientChoices: Array.isArray(item.ingredientChoices) ? item.ingredientChoices : [],
+        unitIngredientChoices: Array.isArray(item.unitIngredientChoices)
+          ? item.unitIngredientChoices.map((u: any) => (Array.isArray(u) ? u : []))
+          : Array.from({ length: quantity }, () => (Array.isArray(item.ingredientChoices) ? item.ingredientChoices : [])),
       };
 
       processedItems.push(processedItem);
