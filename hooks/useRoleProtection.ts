@@ -18,7 +18,7 @@ const ALL_ROUTES = {
   KITCHEN: [
     '/dashboard', '/orders', '/delivery', '/training',
     '/preparation', '/standards', '/daily-tasks', '/profile',
-    '/change-password'
+    '/change-password', '/user-performance'
   ],
   FB: [
     '/dashboard', '/items', '/catagory', '/menu-profitability',

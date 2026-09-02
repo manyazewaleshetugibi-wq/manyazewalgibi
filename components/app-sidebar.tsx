@@ -62,7 +62,7 @@ const ALL_ROUTES = {
   KITCHEN: [
     '/Culture', '/orders', '/delivery', '/training',
     '/preparation', '/standards', '/daily-tasks', '/profile',
-    '/change-password'
+    '/change-password', '/user-performance'
   ],
   FB: [
      '/Culture', '/items', '/catagory', '/menu-profitability',
@@ -247,6 +247,7 @@ const roleBasedNavigation = {
         items: [
           { title: "In-Restaurant", url: "/orders" },
           { title: "Pending Delivery", url: "/delivery" },
+          { title: "User Performance", url: "/user-performance" },
         ],
       },
     ],
