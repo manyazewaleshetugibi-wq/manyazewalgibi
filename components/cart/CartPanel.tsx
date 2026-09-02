@@ -5,7 +5,7 @@
 import React, { memo, useState, useEffect } from 'react';
 import { 
   ShoppingCart, X, Minus, Plus, MapPin, Home, Users, Receipt,
-  Clock, AlertCircle, Navigation, Truck, ChevronRight, Armchair,
+  Clock, AlertCircle, CheckCircle, Navigation, Truck, ChevronRight,
   User, Phone, Mail, Map, UserPlus, ClipboardList, Lock, CreditCard, ScanLine
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,6 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CartItem, UserData, Waiter, DeliveryFeeDetails } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
-import { TableSelector } from '@/components/menu/TableSelector';
 import { QRScannerDialog } from '@/components/cart/QRScannerDialog';
 import { Input } from "@/components/ui/input";
 import { decryptTableToken } from '@/lib/urlParamHandler';
@@ -94,16 +93,12 @@ interface CartPanelProps {
   isCalculatingDelivery?: boolean;
   restaurantId?: string;
   floor?: string;
-  arrangementId?: string;
   onGuestOrder?: (guestData: GuestUserData) => void;
   tableFromQR?: boolean;
   onQRDetected?: () => void;
-  onQRCleared?: () => void;
   fullScreen?: boolean;
   // Direct order handler for QR tables (bypass payment upload)
   onPlaceOrderDirect?: () => void;
-  // Callback when table is selected manually (not QR)
-  onTableManuallySelected?: () => void;
 }
 
 export const CartPanel = memo(({
@@ -139,20 +134,14 @@ export const CartPanel = memo(({
   isCalculatingDelivery = false,
   restaurantId = 'manyazewal1',
   floor = 'Ground Floor',
-  arrangementId,
   onGuestOrder,
   tableFromQR = false,
   onQRDetected,
-  onQRCleared,
   fullScreen = false,
   onPlaceOrderDirect,
-  onTableManuallySelected,
 }: CartPanelProps) => {
-  const [showTableSelector, setShowTableSelector] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showGuestToast, setShowGuestToast] = useState(false);
-  // Track if table was selected manually (not QR)
-  const [isManualTableSelection, setIsManualTableSelection] = useState(false);
 
   // Show guest toast for 3 seconds when cart opens (non-logged-in)
   useEffect(() => {
@@ -162,13 +151,6 @@ export const CartPanel = memo(({
       return () => clearTimeout(t);
     }
   }, [isUserLoggedIn]);
-
-  // Reset manual selection flag when tableFromQR changes
-  useEffect(() => {
-    if (tableFromQR) {
-      setIsManualTableSelection(false);
-    }
-  }, [tableFromQR]);
 
   const getImageSrc = (imageUrl?: string): string => {
     if (!imageUrl) return '/placeholder.svg';
@@ -215,7 +197,7 @@ export const CartPanel = memo(({
     return true;
   };
 
-  // Handle place order click - ALWAYS use regular onPlaceOrder
+  // Handle place order click - direct order for QR tables (no payment screenshot)
   const handlePlaceOrderClick = () => {
 
 
@@ -224,7 +206,10 @@ export const CartPanel = memo(({
       return;
     }
     
-    // Always use regular onPlaceOrder - QR logic is handled in parent
+    if (tableFromQR && onPlaceOrderDirect) {
+      onPlaceOrderDirect();
+      return;
+    }
 
     onPlaceOrder();
   };
@@ -238,58 +223,11 @@ export const CartPanel = memo(({
     onOrderTypeChange(type);
   };
 
-  // Handle manual table selection from TableSelector
-  const handleManualTableSelect = (table: TableData | null, restaurantIdParam?: string, floorParam?: string) => {
-    if (!table || table === null) {
-      // Unselect table
-      onTableSelect?.(null);
-      onTableNumberChange('');
-      setIsManualTableSelection(false);
-      // Notify parent that table was unselected
-      if (onTableManuallySelected) {
-        onTableManuallySelected();
-      }
-      // Clear QR flag if it was set
-      if (onQRCleared) {
-        onQRCleared();
-      }
-
-    } else {
-      // Select table manually
-      const tableWithDetails: TableData = {
-        ...table,
-        restaurantId: restaurantIdParam || table.restaurantId || restaurantId,
-        restaurantName: table.restaurantName || 'Manyazewal Restaurant',
-        floor: floorParam || table.floor || floor,
-      };
-      
-      onTableSelect?.(tableWithDetails, restaurantIdParam, floorParam);
-      onTableNumberChange(table.number.toString());
-      setIsManualTableSelection(true);
-      
-      // Notify parent that table was selected manually (not QR)
-      if (onTableManuallySelected) {
-        onTableManuallySelected();
-      }
-      
-      // Clear QR flag if it was set
-      if (onQRCleared) {
-        onQRCleared();
-      }
-      
-
-    }
-    setShowTableSelector(false);
-  };
-
   // Handle QR scan
   const handleQRScan = (tableNum: string, qrUrl?: string) => {
     onTableNumberChange(tableNum);
     if (orderType !== 'table') onOrderTypeChange('table');
     localStorage.setItem('qrcode', 'true');
-    
-    // Reset manual selection flag since this is QR
-    setIsManualTableSelection(false);
     
     // If full QR URL, extract all params and update table data
     if (qrUrl && onTableSelect) {
@@ -635,62 +573,45 @@ export const CartPanel = memo(({
                     >
                       <div className="space-y-1.5">
                         <div className="flex items-center gap-1">
-                          <Armchair className="h-3 w-3 text-purple-600" />
-                          <Label className="text-[10px] font-medium text-purple-900">Select Table</Label>
+                          <ScanLine className="h-3 w-3 text-purple-600" />
+                          <Label className="text-[10px] font-medium text-purple-900">Scan Table QR Code</Label>
                         </div>
-                        
+
                         {selectedTableData ? (
                           <div className="border rounded-md p-1.5 bg-purple-50 border-purple-200">
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-1.5">
-                                <div>
-                                  <div className="font-bold text-purple-900 text-[11px]">Table {selectedTableData.number}</div>
-                                  <div className="text-[9px] text-gray-600">
-                                    {selectedTableData.capacity} seats
-                                    {selectedTableData.floor && ` • ${selectedTableData.floor}`}
-                                  </div>
+                              <div>
+                                <div className="font-bold text-purple-900 text-[11px]">Table {selectedTableData.number}</div>
+                                <div className="text-[9px] text-gray-600">
+                                  {selectedTableData.capacity} seats
+                                  {selectedTableData.floor && ` • ${selectedTableData.floor}`}
                                 </div>
                               </div>
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => setShowQRScanner(true)}
-                                  className="h-6 w-6 rounded-full text-purple-600 hover:bg-purple-100"
-                                  title="Scan QR to change table"
-                                >
-                                  <ScanLine className="h-3 w-3" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setShowTableSelector(true)}
-                                  className="h-6 text-[10px] px-2 rounded-full"
-                                >
-                                  Change
-                                </Button>
-                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowQRScanner(true)}
+                                className="h-7 text-[10px] px-2.5 rounded-full border-purple-300 text-purple-700 hover:bg-purple-100"
+                                title="Scan a different table QR code"
+                              >
+                                <ScanLine className="w-3 h-3 mr-1" />
+                                Scan New
+                              </Button>
                             </div>
+                            <p className="text-[8px] text-green-600 mt-1 flex items-center gap-1">
+                              <CheckCircle className="h-2.5 w-2.5" />
+                              QR table confirmed — no payment upload needed
+                            </p>
                           </div>
                         ) : (
-                          <div className="grid grid-cols-2 gap-1.5">
-                            <Button
-                              variant="outline"
-                              className="w-full border border-purple-200 hover:border-purple-500 hover:bg-purple-50 rounded-md h-8 text-[10px]"
-                              onClick={() => setShowTableSelector(true)}
-                            >
-                              <Armchair className="w-3 h-3 mr-1.5" />
-                              Select Table
-                            </Button>
-                            <Button
-                              variant="outline"
-                              className="w-full border border-purple-200 hover:border-purple-500 hover:bg-purple-50 rounded-md h-8 text-[10px]"
-                              onClick={() => setShowQRScanner(true)}
-                            >
-                              <ScanLine className="w-3.5 h-3.5 mr-1.5 text-purple-700" />
-                              Scan QR
-                            </Button>
-                          </div>
+                          <Button
+                            variant="outline"
+                            className="w-full border-2 border-dashed border-purple-300 hover:border-purple-500 hover:bg-purple-50 rounded-md h-10 text-[11px]"
+                            onClick={() => setShowQRScanner(true)}
+                          >
+                            <ScanLine className="w-4 h-4 mr-1.5 text-purple-700" />
+                            Scan Table QR Code
+                          </Button>
                         )}
                       </div>
                       
@@ -897,21 +818,6 @@ export const CartPanel = memo(({
           open={showQRScanner}
           onOpenChange={setShowQRScanner}
           onScan={handleQRScan}
-        />
-
-        {/* Table Selector - Manual selection */}
-        <TableSelector
-          open={showTableSelector}
-          onOpenChange={setShowTableSelector}
-          restaurantId={restaurantId}
-          floor={floor}
-          onTableSelect={handleManualTableSelect}
-          selectedTable={selectedTableData}
-          isUserLoggedIn={isUserLoggedIn}
-          onLoginRequired={() => onLoginRequired('Please login to select a table')}
-          arrangementId={arrangementId}
-          allowUnselect={true}
-          autoSwitchTables={true}
         />
       </div>
 

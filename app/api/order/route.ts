@@ -801,6 +801,71 @@ export async function PATCH(req: NextRequest) {
       }, { status: 200 });
     }
 
+    // ── Check-in kitchen assignment (order-level and/or per-item) ─────────────
+    if (action === "assign-checkin") {
+      if (!orderId) {
+        return NextResponse.json({ success: false, error: "Order ID is required" }, { status: 400 });
+      }
+
+      const found = await prisma.order.findFirst({ where: { id: orderId } });
+      if (!found) {
+        return NextResponse.json({ success: false, error: "Order not found" }, { status: 404 });
+      }
+
+      if (found.status && found.status.toUpperCase() !== "PENDING") {
+        return NextResponse.json(
+          { success: false, error: "Check-in assignment is only allowed for PENDING orders" },
+          { status: 400 }
+        );
+      }
+
+      const checkedInUser = body.checkedInUser && typeof body.checkedInUser === "object"
+        ? { userId: String(body.checkedInUser.userId || ""), name: String(body.checkedInUser.name || "") }
+        : null;
+
+      const isClearing = !checkedInUser || !checkedInUser.userId;
+
+      const updateData: any = { updatedAt: new Date() };
+
+      // Order-level assignment (or clear)
+      if (body.scope === "order" || body.scope === "all") {
+        updateData.checkinUserId = isClearing ? null : checkedInUser.userId;
+        updateData.checkinUserName = isClearing ? null : checkedInUser.name;
+      }
+
+      // Per-item assignment (single user to single item, or to all items)
+      if (body.scope === "item" || body.scope === "all") {
+        const items = Array.isArray((found as any).items) ? (found as any).items : [];
+        const orderItems = Array.isArray((found as any).orderItems) ? (found as any).orderItems : [];
+        const targetIndex = typeof body.itemIndex === "number" ? body.itemIndex : -1;
+
+        const applyAssignment = (arr: any[]) =>
+          arr.map((item: any, idx: number) => {
+            if (targetIndex >= 0 && idx !== targetIndex) return item;
+            return {
+              ...item,
+              checkinUserId: isClearing ? null : checkedInUser.userId,
+              checkinUserName: isClearing ? null : checkedInUser.name,
+            };
+          });
+
+        updateData.items = applyAssignment(items);
+        if (orderItems.length > 0) {
+          updateData.orderItems = applyAssignment(orderItems);
+        }
+      }
+
+      await prisma.order.updateMany({ where: { id: orderId }, data: updateData });
+
+      const updatedOrder = await prisma.order.findFirst({ where: { id: orderId } });
+
+      return NextResponse.json({
+        success: true,
+        message: isClearing ? "Assignment cleared" : `Assigned ${checkedInUser.name} to the order`,
+        order: updatedOrder ? { ...updatedOrder, _id: updatedOrder.id } : null,
+      }, { status: 200 });
+    }
+
     if (!orderId || !status) {
       return NextResponse.json(
         { success: false, error: "Invalid request. Provide orderId and status" },
@@ -810,9 +875,9 @@ export async function PATCH(req: NextRequest) {
 
     const userData = await getCurrentUserData(req);
     const normalizedStatus = normalizeStatus(status);
-    
+
     const order = await prisma.order.findFirst({ where: { id: orderId } });
-    
+
     if (!order) {
       return NextResponse.json(
         { success: false, error: "Order not found" },

@@ -84,6 +84,9 @@ interface OrderCardProps {
   onRetryStock?: (orderId: string) => Promise<void>
   StockStatusBadge: React.ComponentType<{ order: Order }>
   onStopSound?: () => void
+  checkinStaff?: Array<{ id: string; _id?: string; name: string; email?: string; role?: string }>
+  onAssignCheckin?: (orderId: string, checkedInUser: { userId: string; name: string }, scope: "order" | "item" | "all", itemIndex?: number) => Promise<void>
+  assigning?: boolean
 }
 
 // Delete Order Dialog Component
@@ -186,6 +189,9 @@ export function OrderCard({
   onRetryStock,
   StockStatusBadge,
   onStopSound,
+  checkinStaff,
+  onAssignCheckin,
+  assigning,
 }: OrderCardProps) {
   const waitress = waitresses.find((w) => w._id === order.waiterId)
   const hasSpecialRequirements = !!(order.specialRequirements || order.notes)
@@ -194,6 +200,7 @@ export function OrderCard({
   const displayItems: OrderItem[] = (order as any)._stationFilteredItems || order.orderItems || order.items
   const uneditableCount = displayItems.filter((item: any) => item.isUneditable).length
   const hasStockError = !order.stockProcessed && order.stockProcessingError
+  const assignedItemCount = displayItems.filter((item: any) => item.checkinUserName && order.checkinUserName && item.checkinUserName === order.checkinUserName).length
 
   // Get order type badge
   const getOrderTypeBadge = () => {
@@ -306,6 +313,17 @@ export function OrderCard({
         </CardTitle>
         {order.customerName && (
           <p className="text-sm text-muted-foreground mt-1">Customer: {order.customerName}</p>
+        )}
+        {order.checkinUserName && (
+          <div className="text-xs mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5">
+            <User className="h-3 w-3" />
+            <span>Kitchen: {order.checkinUserName}</span>
+            {assignedItemCount > 0 && (
+              <Badge variant="outline" className="ml-1 h-4 px-1 text-[10px] bg-white text-emerald-700">
+                {assignedItemCount} item{assignedItemCount !== 1 ? "s" : ""}
+              </Badge>
+            )}
+          </div>
         )}
       </CardHeader>
 
@@ -452,6 +470,9 @@ export function OrderCard({
           onToggleItemUneditable={onToggleItemUneditable}
           StockStatusBadge={StockStatusBadge}
           onStopSound={onStopSound}
+          checkinStaff={checkinStaff}
+          onAssignCheckin={onAssignCheckin}
+          assigning={assigning}
         />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

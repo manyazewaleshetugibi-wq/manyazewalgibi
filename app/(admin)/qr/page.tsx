@@ -105,31 +105,19 @@ interface Table {
     id: string;
     number: number;
     capacity: number;
-    shape: 'circle' | 'square' | 'rectangle';
-    x: number;
-    y: number;
-    width: number;
-    height: number;
+    shape?: 'circle' | 'square' | 'rectangle';
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
     status: 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance';
     location?: string;
     description?: string;
     tags?: string[];
     features?: string[];
-}
-
-interface TableArrangement {
-    _id?: string;
-    restaurantId: string;
-    restaurantName: string;
-    name: string;
-    floor: string;
-    layoutType: 'grid' | 'rows' | 'custom';
-    totalTables: number;
-    tables: Table[];
-    dimensions: {
-        width: number;
-        height: number;
-    };
+    restaurantId?: string;
+    restaurantName?: string;
+    floor?: string;
 }
 
 interface QRHistory {
@@ -154,8 +142,11 @@ export default function TableQRGenerator() {
     const [selectedFloor, setSelectedFloor] = useState<string>("Ground Floor");
     const [selectedTable, setSelectedTable] = useState<Table | null>(null);
     const [tables, setTables] = useState<Table[]>([]);
-    const [arrangement, setArrangement] = useState<TableArrangement | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [quickTableNumber, setQuickTableNumber] = useState('');
+    const [quickFloor, setQuickFloor] = useState('Ground Floor');
+    const [quickCapacity, setQuickCapacity] = useState('4');
+    const [isGeneratingQR, setIsGeneratingQR] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
     const [qrHistory, setQrHistory] = useState<QRHistory[]>([]);
     const [showHistory, setShowHistory] = useState(false);
@@ -184,10 +175,10 @@ export default function TableQRGenerator() {
         fetchQRHistory();
     }, []);
 
-    // Fetch arrangement when restaurant or floor changes
+    // Fetch registry tables when restaurant or floor changes
     useEffect(() => {
         if (selectedRestaurantId) {
-            fetchArrangement();
+            fetchTables();
         }
     }, [selectedRestaurantId, selectedFloor]);
 
@@ -207,26 +198,107 @@ export default function TableQRGenerator() {
         }
     };
 
-    const fetchArrangement = async () => {
+    const fetchTables = async () => {
         try {
             setIsLoading(true);
-            const response = await axios.get('/api/tables/arrangement', {
+            const response = await axios.get('/api/tables/registry', {
                 params: { restaurantId: selectedRestaurantId, floor: selectedFloor }
             });
 
-            if (response.data.data) {
-                const data = response.data.data;
-                setArrangement(data);
-                setTables(data.tables || []);
-            } else {
-                setArrangement(null);
-                setTables([]);
-            }
+            const records = Array.isArray(response.data.data) ? response.data.data : [];
+            setTables(records.map((r: any) => ({
+                id: r.id,
+                number: r.number,
+                capacity: r.capacity || 4,
+                shape: 'circle',
+                status: r.status || 'available',
+                location: r.location || '',
+            })));
         } catch (error) {
-            console.error('Error fetching arrangement:', error);
+            console.error('Error fetching table registry:', error);
             setTables([]);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    // Quick generate: accept a restaurant (from the DB) + table number and produce a QR immediately
+    const handleQuickGenerate = async () => {
+        const number = parseInt(quickTableNumber);
+        const restaurant = selectedRestaurant;
+
+        if (!restaurant) {
+            toast.error('Please select a restaurant from the list');
+            return;
+        }
+        if (!number || number <= 0) {
+            toast.error('Please enter a valid table number');
+            return;
+        }
+
+        const capacity = Math.max(1, parseInt(quickCapacity) || 4);
+        const restaurantId = restaurant._id;
+        const slug = restaurant.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'restaurant';
+        const tableId = `Q-${slug}-${number}`;
+
+        setIsGeneratingQR(true);
+        try {
+            // Persist the table so it is also manageable later from the table list
+            await axios.post('/api/tables/registry', {
+                record: {
+                    id: tableId,
+                    restaurantId,
+                    restaurantName: restaurant.name,
+                    floor: quickFloor,
+                    number,
+                    capacity,
+                    status: 'available',
+                }
+            });
+            await fetchTables();
+        } catch (error) {
+            console.error('Error saving table:', error);
+        } finally {
+            setIsGeneratingQR(false);
+        }
+
+        const table: Table = {
+            id: tableId,
+            number,
+            capacity,
+            shape: 'circle',
+            status: 'available',
+            restaurantId,
+            restaurantName: restaurant.name,
+            floor: quickFloor,
+        };
+
+        // URL state lists registry tables for the dropdown restaurant/floor. If a
+        // quick table lives under a floor other than the selected one it may not
+        // appear there, so make the list reflect the newly generated table too.
+        setTables((prev) => {
+            const exists = prev.some(t => t.id === tableId);
+            return exists ? prev : [table, ...prev];
+        });
+
+        handleTableSelect(table);
+        toast.success(`QR generated for ${restaurant.name} - Table ${number}`);
+    };
+
+    // Remove a table from the registry
+    const handleRemoveTable = async (table: Table) => {
+        try {
+            await axios.delete('/api/tables/registry', { params: { id: table.id } });
+            setTables(prev => prev.filter(t => t.id !== table.id));
+            if (selectedTableId === table.id) {
+                setSelectedTable(null);
+                setSelectedTableId(null);
+                setShowQR(false);
+            }
+            toast.success(`Table ${table.number} removed`);
+        } catch (error) {
+            console.error('Error removing table:', error);
+            toast.error('Failed to remove table');
         }
     };
 
@@ -244,21 +316,24 @@ export default function TableQRGenerator() {
     // Generate QR URL
     const generateQRUrl = (table: Table) => {
         const params = new URLSearchParams();
-        
+        const restaurantName = table.restaurantName || selectedRestaurant?.name || '';
+        const floor = table.floor || selectedFloor;
+        const restaurantId = table.restaurantId || selectedRestaurantId;
+
         if (includeTableNumber) {
             params.append('table', table.number.toString());
         }
-        if (includeRestaurantName && selectedRestaurant) {
-            params.append('restaurant', selectedRestaurant.name);
+        if (includeRestaurantName && restaurantName) {
+            params.append('restaurant', restaurantName);
         }
         if (includeFloor) {
-            params.append('floor', selectedFloor);
+            params.append('floor', floor);
         }
         if (table.id) {
             params.append('tableId', table.id);
         }
-        if (selectedRestaurantId) {
-            params.append('restaurantId', selectedRestaurantId);
+        if (restaurantId) {
+            params.append('restaurantId', restaurantId);
         }
 
         // Add table-specific data
@@ -275,7 +350,7 @@ export default function TableQRGenerator() {
         // Encrypt the internal table/restaurant ids so they are not readable
         // or guessable in the URL. Readers fall back to plaintext params when
         // no token is present (e.g. older QR codes).
-        const token = encryptTableToken(table.id || '', selectedRestaurantId || '');
+        const token = encryptTableToken(table.id || '', restaurantId || '');
         if (token) {
             params.append('t', token);
         }
@@ -298,9 +373,9 @@ export default function TableQRGenerator() {
         try {
             const qrUrl = generateQRUrl(table);
             const historyEntry = {
-                restaurantId: selectedRestaurantId,
-                restaurantName: selectedRestaurant?.name || '',
-                floor: selectedFloor,
+                restaurantId: table.restaurantId || selectedRestaurantId,
+                restaurantName: table.restaurantName || selectedRestaurant?.name || '',
+                floor: table.floor || selectedFloor,
                 tableNumber: table.number,
                 tableId: table.id,
                 qrCode: qrUrl,
@@ -323,7 +398,7 @@ export default function TableQRGenerator() {
         const canvas = document.querySelector<HTMLCanvasElement>('.qr-code-canvas');
         if (canvas) {
             const link = document.createElement('a');
-            link.download = `table-${selectedTable?.number}-qr-${selectedRestaurant?.name?.toLowerCase().replace(/\s+/g, '-')}.png`;
+            link.download = `table-${selectedTable?.number}-qr-${(selectedTable?.restaurantName || selectedRestaurant?.name || 'restaurant').toLowerCase().replace(/\s+/g, '-')}.png`;
             link.href = canvas.toDataURL('image/png');
             link.click();
             toast.success('QR Code downloaded successfully!');
@@ -350,13 +425,13 @@ export default function TableQRGenerator() {
                 <html>
                     <head><title>QR Code - Table ${selectedTable.number}</title></head>
                     <body style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;font-family:Arial">
-                        <h1>${selectedRestaurant?.name || 'Restaurant'}</h1>
-                        <h2>Table ${selectedTable.number}</h2>
+                        <h1>${selectedTable?.restaurantName || selectedRestaurant?.name || 'Restaurant'}</h1>
+                        <h2>Table ${selectedTable?.number}</h2>
                         <img src="${document.querySelector<HTMLCanvasElement>('.qr-code-canvas')?.toDataURL('image/png')}" />
                         <p>${qrUrl}</p>
-                        <p style="margin-top:20px;color:#666">Floor: ${selectedFloor}</p>
-                        <p style="color:#666">Capacity: ${selectedTable.capacity} guests</p>
-                        ${selectedTable.location ? `<p style="color:#666">Location: ${selectedTable.location}</p>` : ''}
+                        <p style="margin-top:20px;color:#666">Floor: ${selectedTable?.floor || selectedFloor}</p>
+                        <p style="color:#666">Capacity: ${selectedTable?.capacity} guests</p>
+                        ${selectedTable?.location ? `<p style="color:#666">Location: ${selectedTable.location}</p>` : ''}
                     </body>
                 </html>
             `);
@@ -375,9 +450,10 @@ export default function TableQRGenerator() {
                     const file = new File([blob], `table-${selectedTable.number}-qr.png`, { type: 'image/png' });
                     
                     if (navigator.share) {
+                        const restaurantName = selectedTable?.restaurantName || selectedRestaurant?.name || 'Restaurant';
                         await navigator.share({
-                            title: `Table ${selectedTable.number} QR Code - ${selectedRestaurant?.name}`,
-                            text: `Scan to view menu for Table ${selectedTable.number} at ${selectedRestaurant?.name}`,
+                            title: `Table ${selectedTable.number} QR Code - ${restaurantName}`,
+                            text: `Scan to view menu for Table ${selectedTable.number} at ${restaurantName}`,
                             files: [file]
                         });
                     } else {
@@ -637,6 +713,82 @@ export default function TableQRGenerator() {
                             </Card>
                         </div>
 
+                        {/* Quick Generate Table QR */}
+                        <Card>
+                            <CardContent className="p-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Sparkles className="w-4 h-4 text-red-600" />
+                                    <Label className="text-sm font-semibold text-gray-700">Quick Generate Table QR</Label>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2 items-end">
+                                    <div className="lg:col-span-2">
+                                        <Label className="text-xs">Restaurant</Label>
+                                        <Select value={selectedRestaurantId} onValueChange={setSelectedRestaurantId}>
+                                            <SelectTrigger className="mt-1 text-sm">
+                                                <Store className="w-4 h-4 mr-2" />
+                                                <SelectValue placeholder="Select Restaurant" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {restaurants.map((r) => (
+                                                    <SelectItem key={r._id} value={r._id}>
+                                                        {r.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <Label className="text-xs">Table Number</Label>
+                                        <Input
+                                            type="number"
+                                            min="1"
+                                            placeholder="e.g. 5"
+                                            value={quickTableNumber}
+                                            onChange={(e) => setQuickTableNumber(e.target.value)}
+                                            className="mt-1 text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label className="text-xs">Capacity</Label>
+                                        <Input
+                                            type="number"
+                                            min="1"
+                                            placeholder="4"
+                                            value={quickCapacity}
+                                            onChange={(e) => setQuickCapacity(e.target.value)}
+                                            className="mt-1 text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label className="text-xs">Floor</Label>
+                                        <Select value={quickFloor} onValueChange={setQuickFloor}>
+                                            <SelectTrigger className="mt-1 text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {availableFloors.map((floor) => (
+                                                    <SelectItem key={floor} value={floor}>{floor}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <Button
+                                            onClick={handleQuickGenerate}
+                                            disabled={isGeneratingQR || !selectedRestaurant}
+                                            className="bg-red-600 hover:bg-red-700 w-full"
+                                        >
+                                            {isGeneratingQR ? <Loader2 className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4 mr-1.5" />}
+                                            Generate QR
+                                        </Button>
+                                    </div>
+                                </div>
+                                <p className="text-[11px] text-gray-400 mt-1.5">
+                                    Pick a restaurant from the database and a table number, then click Generate QR. The table is saved automatically and its QR links customers to your menu.
+                                </p>
+                            </CardContent>
+                        </Card>
+
                         {/* Table Grid */}
                         {isLoading ? (
                             <div className="flex justify-center py-12">
@@ -644,12 +796,12 @@ export default function TableQRGenerator() {
                             </div>
                         ) : tables.length === 0 ? (
                             <Card>
-                                <CardContent className="py-12 text-center">
-                                    <Table className="w-16 h-16 text-gray-300 mx-auto mb-3" />
-                                    <p className="text-gray-500">No tables found on this floor</p>
-                                    <p className="text-gray-400 text-sm">Please add tables in the Table Arrangement section</p>
-                                </CardContent>
-                            </Card>
+                                    <CardContent className="py-12 text-center">
+                                        <Table className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                                        <p className="text-gray-500">No tables found on this floor</p>
+                                        <p className="text-gray-400 text-sm">Use the Quick Generate form above to create a table and its QR code</p>
+                                    </CardContent>
+                                </Card>
                         ) : filteredTables.length === 0 ? (
                             <Card>
                                 <CardContent className="py-12 text-center">
@@ -713,9 +865,20 @@ export default function TableQRGenerator() {
                                                             </div>
                                                         )}
                                                     </div>
-                                                    {table.shape === 'circle' && <Circle className="w-5 h-5 text-gray-400" />}
-                                                    {table.shape === 'square' && <Square className="w-5 h-5 text-gray-400" />}
-                                                    {table.shape === 'rectangle' && <LayoutGrid className="w-5 h-5 text-gray-400" />}
+                                                    <div className="flex items-start gap-1">
+                                                        {table.shape === 'circle' && <Circle className="w-5 h-5 text-gray-400" />}
+                                                        {table.shape === 'square' && <Square className="w-5 h-5 text-gray-400" />}
+                                                        {table.shape === 'rectangle' && <LayoutGrid className="w-5 h-5 text-gray-400" />}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-6 w-6 text-gray-300 hover:text-red-500 hover:bg-red-50"
+                                                            title="Remove table"
+                                                            onClick={(e) => { e.stopPropagation(); handleRemoveTable(table); }}
+                                                        >
+                                                            <XCircle className="w-4 h-4" />
+                                                        </Button>
+                                                    </div>
                                                 </div>
                                             </CardContent>
                                         </Card>
@@ -974,11 +1137,11 @@ export default function TableQRGenerator() {
                                             <div className="grid grid-cols-2 gap-2">
                                                 <div>
                                                     <span className="text-gray-500">Restaurant:</span>
-                                                    <p className="font-medium">{selectedRestaurant?.name}</p>
+                                                    <p className="font-medium">{selectedTable?.restaurantName || selectedRestaurant?.name}</p>
                                                 </div>
                                                 <div>
                                                     <span className="text-gray-500">Floor:</span>
-                                                    <p className="font-medium">{selectedFloor}</p>
+                                                    <p className="font-medium">{selectedTable?.floor || selectedFloor}</p>
                                                 </div>
                                                 <div>
                                                     <span className="text-gray-500">Capacity:</span>

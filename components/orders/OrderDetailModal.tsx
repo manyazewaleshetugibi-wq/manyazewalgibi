@@ -13,6 +13,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
@@ -170,6 +177,9 @@ interface OrderDetailModalProps {
   onToggleItemUneditable?: (orderId: string, itemIndex: number, isUneditable: boolean) => Promise<void>
   StockStatusBadge: React.ComponentType<{ order: Order }>
   onStopSound?: () => void
+  checkinStaff?: Array<{ id: string; _id?: string; name: string; email?: string; role?: string }>
+  onAssignCheckin?: (orderId: string, checkedInUser: { userId: string; name: string }, scope: "order" | "item" | "all", itemIndex?: number) => Promise<void>
+  assigning?: boolean
 }
 
 export const OrderDetailModal = React.memo(function OrderDetailModal({
@@ -180,6 +190,9 @@ export const OrderDetailModal = React.memo(function OrderDetailModal({
   onToggleItemUneditable,
   StockStatusBadge,
   onStopSound,
+  checkinStaff = [],
+  onAssignCheckin,
+  assigning = false,
 }: OrderDetailModalProps) {
   const [waitress, setWaitress] = useState<Waitress | null>(null)
   const [menuItems, setMenuItems] = useState<Map<string, MenuItem>>(new Map())
@@ -547,6 +560,94 @@ export const OrderDetailModal = React.memo(function OrderDetailModal({
               </Card>
             </div>
 
+            {/* Check-in Kitchen Assignment */}
+            {order.status?.toUpperCase() === "PENDING" ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-semibold flex items-center">
+                  <User className="mr-2 h-5 w-5" />
+                  Check-in Kitchen Assignment
+                </CardTitle>
+                <CardDescription>
+                  Assign a kitchen user to this order and/or to individual items
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {order.checkinUserName && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                      <User className="h-3 w-3 mr-1" />
+                      Order assigned to: {order.checkinUserName}
+                    </Badge>
+                    <Badge variant="outline" className="bg-white text-emerald-700">
+                      {displayItems.filter((i: any) => i.checkinUserName === order.checkinUserName).length} item(s) assigned
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-red-600"
+                      onClick={() => onAssignCheckin?.(order._id, { userId: "", name: "" }, "order")}
+                      disabled={assigning}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                )}
+                {checkinStaff.length > 0 ? (
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <Select
+                      value={order.checkinUserId || "__none__"}
+                      onValueChange={(v) => {
+                        if (v === "__none__") return
+                        const user = checkinStaff.find((u) => (u.id || u._id) === v)
+                        if (user) {
+                          onAssignCheckin?.(order._id, { userId: user.id || (user._id as string), name: user.name }, "all")
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full sm:w-56 h-9 text-xs">
+                        <SelectValue placeholder="Assign kitchen user to order + items" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__" disabled>Select a kitchen user</SelectItem>
+                        {checkinStaff.map((user) => (
+                          <SelectItem key={user.id || user._id} value={user.id || (user._id as string)}>
+                            {user.name}{user.role ? ` (${user.role})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Assigns the same user to the order and to every item
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No kitchen users found. Add a kitchen user first.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            ) : order.checkinUserName ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-semibold flex items-center">
+                  <User className="mr-2 h-5 w-5" />
+                  Kitchen Assignment
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                  <User className="h-3 w-3 mr-1" />
+                  Assigned to: {order.checkinUserName}
+                </Badge>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Assignment can only be changed while order is PENDING.
+                </p>
+              </CardContent>
+            </Card>
+            ) : null}
+
             {/* Special Requirements */}
             {(order.specialRequirements || order.notes) && (
               <Card>
@@ -599,6 +700,7 @@ export const OrderDetailModal = React.memo(function OrderDetailModal({
                           <th className="w-28 text-right p-2">Unit Price</th>
                           <th className="w-28 text-right p-2">Subtotal</th>
                           <th className="w-40 text-center p-2">Lock Status</th>
+                          <th className="w-44 text-center p-2">Kitchen Assign</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -657,6 +759,57 @@ export const OrderDetailModal = React.memo(function OrderDetailModal({
                                     Locked
                                   </Badge>
                                 )}
+                              </td>
+                              <td className="text-center p-2">
+                                {item.checkinUserName && (
+                                  <div className="mb-1">
+                                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                                      <User className="h-3 w-3 mr-1" />
+                                      {item.checkinUserName}
+                                    </Badge>
+                                  </div>
+                                )}
+                                {order.status?.toUpperCase() === "PENDING" ? (
+                                checkinStaff.length > 0 ? (
+                                  <div className="flex items-center justify-center gap-1">
+                                    <Select
+                                      value={item.checkinUserId || "__none__"}
+                                      onValueChange={(v) => {
+                                        if (v === "__none__") return
+                                        const user = checkinStaff.find((u) => (u.id || u._id) === v)
+                                        if (user) {
+                                          onAssignCheckin?.(order._id, { userId: user.id || (user._id as string), name: user.name }, "item", index)
+                                        }
+                                      }}
+                                    >
+                                      <SelectTrigger className="w-28 h-7 text-[10px]">
+                                        <SelectValue placeholder="Assign" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="__none__" disabled>Assign kitchen</SelectItem>
+                                        {checkinStaff.map((user) => (
+                                          <SelectItem key={user.id || user._id} value={user.id || (user._id as string)}>
+                                            {user.name}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    {item.checkinUserId && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-1 text-[10px] text-red-600"
+                                        onClick={() => onAssignCheckin?.(order._id, { userId: "", name: "" }, "item", index)}
+                                        disabled={assigning}
+                                      >
+                                        Clear
+                                      </Button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-muted-foreground">No kitchen users</span>
+                                )
+                                ) : null}
                               </td>
                             </tr>
                           )

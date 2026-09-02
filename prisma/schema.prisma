@@ -409,6 +409,8 @@ model Order {
   tableShape              Json?
   waiterId                String?
   waiterName              String?
+  checkinUserId           String?
+  checkinUserName         String?
   customerId              String?
   userId                  String?
   numberOfGuests          Float?

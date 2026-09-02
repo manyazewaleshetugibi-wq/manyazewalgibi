@@ -45,7 +45,6 @@ const PUBLIC_API_RULES: { prefix: string; methods?: string[] }[] = [
   { prefix: "/api/waitress", methods: ["GET"] }, // public waitress list
   { prefix: "/api/order", methods: ["POST"] }, // landing page ordering
   { prefix: "/api/delivery", methods: ["POST"] }, // landing page delivery booking
-  { prefix: "/api/tables/arrangement", methods: ["GET"] }, // public table lookup
 ];
 
 // Roles that are never allowed into protected areas (web customers)

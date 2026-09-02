@@ -12,13 +12,13 @@ const ALL_ROUTES = {
     '/preparation', '/Sregister', '/standards', '/staffregister',
     '/waitress', '/restaurants', '/BirthDate', '/prizes',
     '/pos', '/search', '/daily-tasks', '/profile', '/change-password',
-    '/table-arrangement', '/feedback', '/edit', '/myorders', '/expenses',
-    '/qr' // ✅ ADDED
+    '/feedback', '/edit', '/myorders', '/expenses',
+    '/qr', '/user-performance' // ✅ ADDED
   ],
   KITCHEN: [
     '/dashboard', '/orders', '/delivery', '/training',
     '/preparation', '/standards', '/daily-tasks', '/profile',
-    '/change-password', '/table-arrangement'
+    '/change-password'
   ],
   FB: [
     '/dashboard', '/items', '/catagory', '/menu-profitability',
@@ -52,11 +52,11 @@ const ALL_ROUTES = {
   ],
   POS: [
     '/dashboard', '/pos', '/edit', '/myorders',
-    '/table-arrangement', '/training', '/standards',
+    '/training', '/standards',
     '/daily-tasks', '/profile', '/change-password'
   ],
   WAITRESS: [
-    '/dashboard', '/pos', '/myorders', '/table-arrangement',
+    '/dashboard', '/pos', '/myorders',
     '/training', '/daily-tasks', '/profile', '/change-password'
   ],
   BARISTA: [

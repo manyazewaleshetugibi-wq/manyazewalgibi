@@ -14,6 +14,9 @@ export type OrderItem = {
   isUneditable?: boolean
   uneditableAt?: string
   uneditableBy?: string
+  // Check-in (kitchen) user assigned to this specific item
+  checkinUserId?: string
+  checkinUserName?: string
   // Alternative ingredient selections made by waiter at order time
   // key = default stockId, value = chosen stockId (could be same as default or an alternative)
   selectedAlternatives?: Record<string, { stockId: string; stockName: string; quantity: number }>
@@ -52,6 +55,9 @@ export type Order = {
   customerName?: string
   isEdited?: boolean
   waiterName?: string
+  // Check-in (kitchen) user assigned to the whole order
+  checkinUserId?: string
+  checkinUserName?: string
   restaurantName?: string
   restaurantId?: string
   markedForDeletion?: boolean

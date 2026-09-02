@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { toast, Toaster } from "react-hot-toast"
 import axios from "axios"
@@ -27,6 +28,14 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,6 +66,7 @@ import {
   Truck,
   Lock,
   Filter,
+  BarChart3,
 } from "lucide-react"
 import type { Order, Waitress, Restaurant, OrderStatus } from "@/types/order"
 
@@ -156,11 +166,17 @@ const getRestaurantById = (restaurants: Restaurant[], restaurantId?: string): Re
 
 export default function OrderManagementMain() {
   const { data: session } = useSession()
+  const router = useRouter()
   
   // State
   const [orders, setOrders] = useState<Order[]>([])
   const [waitresses, setWaitresses] = useState<Waitress[]>([])
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
+  const [checkinStaff, setCheckinStaff] = useState<Array<{ id: string; _id?: string; name: string; email?: string; role?: string }>>([])
+  const [assigning, setAssigning] = useState(false)
+  const [performanceData, setPerformanceData] = useState<any[]>([])
+  const [showPerformance, setShowPerformance] = useState(false)
+  const [loadingPerformance, setLoadingPerformance] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingRestaurants, setLoadingRestaurants] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
@@ -206,9 +222,9 @@ export default function OrderManagementMain() {
   const [showEnableSoundButton, setShowEnableSoundButton] = useState(false)
   const [lastSoundPlayTime, setLastSoundPlayTime] = useState<number>(0)
   
-  const itemsPerPage = 12
   const userRole = session?.user?.role
   const isAdmin = isAdminUser(userRole)
+  const itemsPerPage = isAdmin ? 24 : 12
   const currentUser = session?.user
     ? { name: session.user.name, email: session.user.email }
     : null
@@ -332,6 +348,35 @@ export default function OrderManagementMain() {
       console.error("Error loading restaurants:", error)
     } finally {
       if (isMountedRef.current) setLoadingRestaurants(false)
+    }
+  }, [])
+
+  // ========== LOAD CHECK-IN (KITCHEN) STAFF ==========
+  const loadCheckinStaff = useCallback(async () => {
+    try {
+      const response = await api.get('/order/checkin-staff')
+      const data = Array.isArray(response?.data?.data) ? response.data.data : []
+      if (isMountedRef.current) {
+        setCheckinStaff(data)
+      }
+    } catch (error) {
+      console.error("Error loading check-in staff:", error)
+      if (isMountedRef.current) setCheckinStaff([])
+    }
+  }, [])
+
+  // ========== LOAD PERFORMANCE DATA ==========
+  const loadPerformance = useCallback(async () => {
+    setLoadingPerformance(true)
+    try {
+      const response = await api.get('/order/checkin-performance')
+      if (isMountedRef.current && response.data?.success) {
+        setPerformanceData(response.data.data || [])
+      }
+    } catch (error) {
+      console.error("Error loading performance data:", error)
+    } finally {
+      if (isMountedRef.current) setLoadingPerformance(false)
     }
   }, [])
 
@@ -651,6 +696,33 @@ export default function OrderManagementMain() {
       }
     }
   }
+
+  // ========== HANDLE ASSIGN CHECK-IN (KITCHEN) USER ==========
+  const handleAssignCheckin = useCallback(
+    async (orderId: string, checkedInUser: { userId: string; name: string }, scope: "order" | "item" | "all", itemIndex?: number) => {
+      setAssigning(true)
+      const loadingToast = toast.loading(checkedInUser.name ? "Assigning kitchen user..." : "Clearing assignment...")
+      try {
+        await api.patch('/order', {
+          orderId,
+          action: "assign-checkin",
+          checkedInUser,
+          scope,
+          itemIndex: typeof itemIndex === "number" ? itemIndex : undefined,
+        })
+        toast.dismiss(loadingToast)
+        toast.success(checkedInUser.name ? `Assigned ${checkedInUser.name}` : "Assignment cleared")
+        await fetchOrders(false)
+      } catch (error: any) {
+        toast.dismiss(loadingToast)
+        console.error("Error assigning check-in user:", error)
+        toast.error("Failed to assign kitchen user")
+      } finally {
+        setAssigning(false)
+      }
+    },
+    [fetchOrders]
+  )
 
   // ========== HANDLE DELETE ORDER ==========
   const handleDeleteOrder = async (orderId: string) => {
@@ -1150,7 +1222,8 @@ export default function OrderManagementMain() {
         fetchOrders(true),
         loadRestaurants(),
         fetchWaitresses(),
-        fetchStationData()
+        fetchStationData(),
+        loadCheckinStaff()
       ]);
       
       pollingIntervalRef.current = setInterval(() => {
@@ -1166,7 +1239,7 @@ export default function OrderManagementMain() {
         clearInterval(pollingIntervalRef.current);
       }
     };
-  }, [fetchOrders, fetchWaitresses, loadRestaurants, pollNewOrders]);
+  }, [fetchOrders, fetchWaitresses, loadRestaurants, loadCheckinStaff, pollNewOrders]);
 
   // ========== STATUS OPTIONS ==========
   const statusOptions: OrderStatus[] = [
@@ -1408,6 +1481,17 @@ export default function OrderManagementMain() {
               )}
             </Button>
           )}
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowPerformance(true)
+              loadPerformance()
+            }}
+            className="gap-2"
+          >
+            <BarChart3 className="h-4 w-4" />
+            User Performance
+          </Button>
           <Button onClick={() => fetchOrders(true)} variant="outline" size="icon" disabled={loading}>
             <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
@@ -1465,6 +1549,7 @@ export default function OrderManagementMain() {
                 <th className="p-3 text-left">Stock Status</th>
                 <th className="p-3 text-left">Customer</th>
                 <th className="p-3 text-left">Waitress</th>
+                <th className="p-3 text-left">Kitchen</th>
                 <th className="p-3 text-left">Table</th>
                 <th className="p-3 text-left">Status</th>
                 <th className="p-3 text-left">Locked</th>
@@ -1488,6 +1573,15 @@ export default function OrderManagementMain() {
                     <TableCell><StockStatusBadge order={order} /></TableCell>
                     <TableCell>{order.customerName || "Walk-in"}</TableCell>
                     <TableCell>{waitress?.name || order.waiterName || "Unknown"}</TableCell>
+                    <TableCell>
+                      {order.checkinUserName ? (
+                        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                          {order.checkinUserName}
+                        </Badge>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>{order.tableNumber}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={statusColors[order.status]}>
@@ -1526,6 +1620,9 @@ export default function OrderManagementMain() {
                           isAdmin={isAdmin}
                           onToggleItemUneditable={handleToggleItemUneditable}
                           StockStatusBadge={StockStatusBadge}
+                          checkinStaff={checkinStaff}
+                          onAssignCheckin={handleAssignCheckin}
+                          assigning={assigning}
                         />
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
@@ -1578,6 +1675,9 @@ export default function OrderManagementMain() {
               onToggleItemUneditable={handleToggleItemUneditable}
               onRetryStock={handleRetryStockForOrder}
               StockStatusBadge={StockStatusBadge}
+              checkinStaff={checkinStaff}
+              onAssignCheckin={handleAssignCheckin}
+              assigning={assigning}
             />
           ))}
         </div>
@@ -1598,6 +1698,67 @@ export default function OrderManagementMain() {
       )}
 
       <StockConfirmDialogComponent />
+
+      {/* Performance Summary Drawer */}
+      <Sheet open={showPerformance} onOpenChange={setShowPerformance}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              User Performance
+            </SheetTitle>
+            <SheetDescription>
+              Assigned items per user. Click to see details and filters.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-3">
+            {loadingPerformance ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-14 w-full" />
+                ))}
+              </div>
+            ) : performanceData.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No performance data available.
+              </p>
+            ) : (
+              performanceData.map((user) => (
+                <div
+                  key={user.userId}
+                  className="flex items-center gap-3 p-3 rounded-lg border"
+                >
+                  <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-semibold text-sm">
+                    {(user.userName || "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{user.userName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {user.daysActive} day(s) active
+                    </p>
+                  </div>
+                  <div className="flex gap-4 text-center">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Today</p>
+                      <p className="text-sm font-bold text-blue-600">{user.todayItems}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Items</p>
+                      <p className="text-sm font-bold">{user.totalItems}</p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+            <Button
+              className="w-full mt-2"
+              onClick={() => router.push("/user-performance")}
+            >
+              View Full Report
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

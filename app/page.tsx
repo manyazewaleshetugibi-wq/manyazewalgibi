@@ -1274,7 +1274,6 @@ export default function MenuPage() {
   const [selectedTableData, setSelectedTableData] = useState<TableData | null>(null)
   const [numberOfGuests, setNumberOfGuests] = useState(1)
   const [specialRequirements, setSpecialRequirements] = useState('')
-  const [arrangementId, setArrangementId] = useState('')
 
   const [paymentScreenshot, setPaymentScreenshot] = useState<PaymentScreenshot>({
     file: null,
@@ -1650,25 +1649,6 @@ export default function MenuPage() {
     setFilteredItems(result)
   }, [items, categories, selectedCategory, searchTerm])
 
-  // Fetch arrangement ID
-  useEffect(() => {
-    const fetchArrangementId = async () => {
-      try {
-        const response = await api.get('/api/tables/arrangement', {
-          params: { restaurantId: 'manyazewal1', floor: 'Ground Floor' },
-          timeout: 5000
-        })
-        if (response.data?.data?._id) {
-          setArrangementId(response.data.data._id)
-        }
-      } catch (error: any) {
-        if (error.response?.status !== 404) {
-        }
-      }
-    }
-    fetchArrangementId()
-  }, [])
-
   const handleTableSelect = useCallback((table: TableData | null, restaurantId?: string, floor?: string) => {
     if (!table) {
       setSelectedTableData(null)
@@ -1846,7 +1826,6 @@ export default function MenuPage() {
         restaurantId: selectedTableData.restaurantId || 'manyazewal1',
         restaurantName: sanitizeInput(selectedTableData.restaurantName || 'Manyazewal Restaurant'),
         floor: sanitizeInput(selectedTableData.floor || 'Ground Floor'),
-        arrangementId: sanitizeInput(arrangementId),
         numberOfGuests,
         items: orderItems,
         discount: 0,
@@ -1998,7 +1977,6 @@ export default function MenuPage() {
         restaurantId: selectedTableData?.restaurantId || 'manyazewal1',
         restaurantName: sanitizeInput(selectedTableData?.restaurantName || 'Manyazewal Restaurant'),
         floor: sanitizeInput(selectedTableData?.floor || 'Ground Floor'),
-        arrangementId: sanitizeInput(arrangementId),
         numberOfGuests: orderType === 'table' ? numberOfGuests : 1,
         items: orderItems,
         discount: 0,
@@ -2850,7 +2828,6 @@ export default function MenuPage() {
                 isCalculatingDelivery={isCalculatingDelivery}
                 restaurantId="manyazewal1"
                 floor="Ground Floor"
-                arrangementId={arrangementId}
                 onGuestOrder={handleGuestOrder}
                 tableFromQR={isQRTable}
                 onPlaceOrderDirect={isQRTable ? handleDirectOrder : undefined}
@@ -2898,7 +2875,6 @@ export default function MenuPage() {
               isCalculatingDelivery={isCalculatingDelivery} 
               restaurantId="manyazewal1" 
               floor="Ground Floor" 
-              arrangementId={arrangementId}
               onGuestOrder={handleGuestOrder}
               tableFromQR={isQRTable}
               onPlaceOrderDirect={isQRTable ? handleDirectOrder : undefined}
