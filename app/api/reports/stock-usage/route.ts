@@ -142,9 +142,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const stockDateFilter: any = {};
 
     if (from && to && from !== 'null' && to !== 'null') {
-      // Parse as Ethiopia local time (UTC+3): use explicit offset to avoid server timezone issues
-      const fromDateStr = new Date(from).toISOString().split('T')[0];
-      const toDateStr = new Date(to).toISOString().split('T')[0];
+      const fromDateStr = from.includes('T') ? from.split('T')[0] : from;
+      const toDateStr = to.includes('T') ? to.split('T')[0] : to;
       const fromDate = new Date(`${fromDateStr}T00:00:00+03:00`);
       const toDate = new Date(`${toDateStr}T23:59:59.999+03:00`);
 

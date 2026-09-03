@@ -677,8 +677,8 @@ const MobilePaymentFlow: React.FC<MobilePaymentFlowProps> = ({
     if (!orderType) return
     if (orderType === 'table' && !selectedTableData) return
     
-    // If QR table, go directly to success
-    if (isQRTable && onPlaceOrderDirect) {
+    // If QR table order (not delivery), go directly to success
+    if (isQRTable && orderType === 'table' && onPlaceOrderDirect) {
       onPlaceOrderDirect()
       setCurrentStep('success')
       return
@@ -1703,12 +1703,23 @@ export default function MenuPage() {
           setIsCalculatingDelivery(true)
           try {
             let feeDetails: DeliveryFeeDetails
+            // Check coordinates in GeoJSON format [lng, lat]
             if (userData.location?.coordinates &&
               Array.isArray(userData.location.coordinates) &&
               userData.location.coordinates.length === 2) {
               const [lng, lat] = userData.location.coordinates
               feeDetails = await deliveryCalculator.calculateDeliveryFeeFromCoordinates(
                 lat, lng, adjustedSubtotal, new Date().getHours()
+              )
+            } else if (userData.location?.lat && userData.location?.lng) {
+              // Fallback: direct lat/lng object
+              feeDetails = await deliveryCalculator.calculateDeliveryFeeFromCoordinates(
+                userData.location.lat, userData.location.lng, adjustedSubtotal, new Date().getHours()
+              )
+            } else if (userData.location?.address) {
+              const area = deliveryCalculator.extractAreaFromAddress(userData.location.address)
+              feeDetails = deliveryCalculator.calculateEstimatedDeliveryFee(
+                'Addis Ababa', area, adjustedSubtotal
               )
             } else if (userData.address) {
               const area = deliveryCalculator.extractAreaFromAddress(userData.address)
@@ -1757,6 +1768,10 @@ export default function MenuPage() {
     setOrderType(type)
     if (type !== 'delivery') {
       setDeliveryFee(null)
+    }
+    // Reset QR table flag when switching away from table orders
+    if (type === 'delivery') {
+      setIsQRTable(false)
     }
   }
 
@@ -2021,14 +2036,16 @@ export default function MenuPage() {
         if (userData?.location?.coordinates && Array.isArray(userData.location.coordinates) && userData.location.coordinates.length === 2) {
           const [lng, lat] = userData.location.coordinates
           locationData = { type: "Point", coordinates: [lng, lat] }
+        } else if (userData?.location?.lat && userData?.location?.lng) {
+          locationData = { type: "Point", coordinates: [userData.location.lng, userData.location.lat] }
         }
         ;(orderData as any).deliveryInfo = {
           fullName: customerName,
           phoneNumber: customerPhone,
           email: customerEmail,
-          address: sanitizeInput(userData?.address || ''),
+          address: sanitizeInput(userData?.location?.address || userData?.address || ''),
           city: 'Addis Ababa',
-          landmark: sanitizeInput(userData?.landmark || ''),
+          landmark: sanitizeInput(userData?.landmark || userData?.location?.label || ''),
           deliveryInstructions: sanitizeInput(specialRequirements || ''),
           location: locationData
         }

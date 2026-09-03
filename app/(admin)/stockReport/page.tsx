@@ -226,6 +226,14 @@ const STATUS_COLORS = {
   critical: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
 }
 
+// Local date helper — extracts YYYY-MM-DD in the client's timezone (no UTC conversion)
+const getLocalDate = (d: Date): string => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 const FREQUENCY_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#6366f1', '#14b8a6']
 
 const getIngredientIcon = (category: string) => {
@@ -283,10 +291,10 @@ const useReportData = (params: {
       })
       
       if (params.dateRange.from) {
-        queryParams.append('from', params.dateRange.from.toISOString())
+        queryParams.append('from', getLocalDate(params.dateRange.from))
       }
       if (params.dateRange.to) {
-        queryParams.append('to', params.dateRange.to.toISOString())
+        queryParams.append('to', getLocalDate(params.dateRange.to))
       }
       
       const response = await api.get(`/reports/stock-usage?${queryParams}`)
@@ -1034,7 +1042,7 @@ function StockReportContent() {
     queryKey: ['stock-stats-today'],
     queryFn: async () => {
       const p = new URLSearchParams({ groupBy: 'stock', sortBy: 'frequency', sortOrder: 'desc', page: '1', limit: '1000',
-        from: todayRange.from!.toISOString(), to: todayRange.to!.toISOString() })
+        from: getLocalDate(todayRange.from!), to: getLocalDate(todayRange.to!) })
       const r = await api.get(`/reports/stock-usage?${p}`)
       return r.data as PaginatedResponse<StockData>
     },
@@ -1046,7 +1054,7 @@ function StockReportContent() {
     queryKey: ['stock-stats-week'],
     queryFn: async () => {
       const p = new URLSearchParams({ groupBy: 'stock', sortBy: 'frequency', sortOrder: 'desc', page: '1', limit: '1000',
-        from: weekRange.from!.toISOString(), to: weekRange.to!.toISOString() })
+        from: getLocalDate(weekRange.from!), to: getLocalDate(weekRange.to!) })
       const r = await api.get(`/reports/stock-usage?${p}`)
       return r.data as PaginatedResponse<StockData>
     },
@@ -1058,7 +1066,7 @@ function StockReportContent() {
     queryKey: ['stock-stats-month'],
     queryFn: async () => {
       const p = new URLSearchParams({ groupBy: 'stock', sortBy: 'frequency', sortOrder: 'desc', page: '1', limit: '1000',
-        from: monthRange.from!.toISOString(), to: monthRange.to!.toISOString() })
+        from: getLocalDate(monthRange.from!), to: getLocalDate(monthRange.to!) })
       const r = await api.get(`/reports/stock-usage?${p}`)
       return r.data as PaginatedResponse<StockData>
     },
@@ -1071,7 +1079,7 @@ function StockReportContent() {
     queryKey: ['items-sold-today'],
     queryFn: async () => {
       const p = new URLSearchParams({ groupBy: 'menuItem', sortBy: 'frequency', sortOrder: 'desc', page: '1', limit: '1000',
-        from: todayRange.from!.toISOString(), to: todayRange.to!.toISOString() })
+        from: getLocalDate(todayRange.from!), to: getLocalDate(todayRange.to!) })
       const r = await api.get(`/reports/stock-usage?${p}`)
       return r.data as PaginatedResponse<MenuItemData>
     },

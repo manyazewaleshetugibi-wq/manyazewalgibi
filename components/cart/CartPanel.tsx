@@ -199,14 +199,11 @@ export const CartPanel = memo(({
 
   // Handle place order click - direct order for QR tables (no payment screenshot)
   const handlePlaceOrderClick = () => {
-
-
     if (!canPlaceOrder()) {
-
       return;
     }
     
-    if (tableFromQR && onPlaceOrderDirect) {
+    if (tableFromQR && orderType === 'table' && onPlaceOrderDirect) {
       onPlaceOrderDirect();
       return;
     }
@@ -294,7 +291,7 @@ export const CartPanel = memo(({
 
   // Get user address for logged-in users
   const getUserAddress = () => {
-    return userData?.address || '';
+    return userData?.location?.address || userData?.address || '';
   };
 
   const getPlaceOrderText = () => {

@@ -256,95 +256,94 @@ export function QRScannerDialog({ open, onOpenChange, onScan }: QRScannerDialogP
           </div>
         )}
 
-        {/* ── CAMERA VIEWPORT (scanning + success + error) ── */}
-        {(status === 'scanning' || status === 'success' || status === 'error') && (
-          <>
-            <div className="relative bg-black" style={{ aspectRatio: '1 / 1' }}>
-              {/* Hidden canvas for jsQR */}
-              <canvas ref={canvasRef} className="hidden" />
+        {/* Video + canvas ALWAYS rendered so refs exist when stream is assigned during 'requesting' */}
+        <div
+          className="relative bg-black"
+          style={{
+            aspectRatio: '1 / 1',
+            display: (status === 'scanning' || status === 'success' || status === 'error') ? undefined : 'none',
+          }}
+        >
+          <canvas ref={canvasRef} className="hidden" />
+          <video
+            ref={videoRef}
+            className="w-full h-full object-cover"
+            muted
+            playsInline
+          />
 
-              {/* Live video */}
-              <video
-                ref={videoRef}
-                className="w-full h-full object-cover"
-                muted
-                playsInline
-              />
-
-              {/* Scanning overlay */}
-              {status === 'scanning' && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="absolute inset-0 bg-black/35" />
-                  <div className="relative z-10 w-52 h-52">
-                    <div className="absolute top-0 left-0 w-9 h-9 border-t-[3px] border-l-[3px] border-purple-400 rounded-tl-lg" />
-                    <div className="absolute top-0 right-0 w-9 h-9 border-t-[3px] border-r-[3px] border-purple-400 rounded-tr-lg" />
-                    <div className="absolute bottom-0 left-0 w-9 h-9 border-b-[3px] border-l-[3px] border-purple-400 rounded-bl-lg" />
-                    <div className="absolute bottom-0 right-0 w-9 h-9 border-b-[3px] border-r-[3px] border-purple-400 rounded-br-lg" />
-                    <motion.div
-                      className="absolute left-2 right-2 h-[2px] bg-gradient-to-r from-transparent via-purple-400 to-transparent"
-                      style={{ boxShadow: '0 0 8px 2px rgba(167,139,250,0.7)' }}
-                      animate={{ top: ['8%', '88%', '8%'] }}
-                      transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Success overlay */}
-              <AnimatePresence>
-                {status === 'success' && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="absolute inset-0 bg-green-900/85 flex flex-col items-center justify-center gap-3"
-                  >
-                    <motion.div
-                      initial={{ scale: 0, rotate: -20 }}
-                      animate={{ scale: 1, rotate: 0 }}
-                      transition={{ type: 'spring', stiffness: 280, damping: 18 }}
-                    >
-                      <CheckCircle className="h-14 w-14 text-green-400" />
-                    </motion.div>
-                    <motion.div
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.15 }}
-                      className="text-center"
-                    >
-                      <p className="text-white font-bold text-base">Table {scannedTable}</p>
-                      <p className="text-green-300 text-xs mt-0.5">QR code detected!</p>
-                    </motion.div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Error overlay */}
-              {status === 'error' && (
-                <div className="absolute inset-0 bg-gray-950/95 flex flex-col items-center justify-center gap-4 p-5">
-                  <div className="p-3 bg-red-900/40 rounded-full">
-                    <AlertCircle className="h-10 w-10 text-red-400" />
-                  </div>
-                  <p className="text-white text-xs text-center leading-relaxed">{errorMsg}</p>
-                  <Button
-                    size="sm"
-                    onClick={() => setStatus('permission')}
-                    className="bg-purple-700 hover:bg-purple-600 text-white text-xs h-8 px-4 rounded-full gap-1.5"
-                  >
-                    <Camera className="h-3.5 w-3.5" />
-                    Try Again
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {status === 'scanning' && (
-              <div className="px-4 py-3 bg-gray-950 text-center">
-                <p className="text-[11px] text-gray-300 font-medium">
-                  Point camera at the table QR code
-                </p>
+          {/* Scanning overlay */}
+          {status === 'scanning' && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="absolute inset-0 bg-black/35" />
+              <div className="relative z-10 w-52 h-52">
+                <div className="absolute top-0 left-0 w-9 h-9 border-t-[3px] border-l-[3px] border-purple-400 rounded-tl-lg" />
+                <div className="absolute top-0 right-0 w-9 h-9 border-t-[3px] border-r-[3px] border-purple-400 rounded-tr-lg" />
+                <div className="absolute bottom-0 left-0 w-9 h-9 border-b-[3px] border-l-[3px] border-purple-400 rounded-bl-lg" />
+                <div className="absolute bottom-0 right-0 w-9 h-9 border-b-[3px] border-r-[3px] border-purple-400 rounded-br-lg" />
+                <motion.div
+                  className="absolute left-2 right-2 h-[2px] bg-gradient-to-r from-transparent via-purple-400 to-transparent"
+                  style={{ boxShadow: '0 0 8px 2px rgba(167,139,250,0.7)' }}
+                  animate={{ top: ['8%', '88%', '8%'] }}
+                  transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+                />
               </div>
+            </div>
+          )}
+
+          {/* Success overlay */}
+          <AnimatePresence>
+            {status === 'success' && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="absolute inset-0 bg-green-900/85 flex flex-col items-center justify-center gap-3"
+              >
+                <motion.div
+                  initial={{ scale: 0, rotate: -20 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ type: 'spring', stiffness: 280, damping: 18 }}
+                >
+                  <CheckCircle className="h-14 w-14 text-green-400" />
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.15 }}
+                  className="text-center"
+                >
+                  <p className="text-white font-bold text-base">Table {scannedTable}</p>
+                  <p className="text-green-300 text-xs mt-0.5">QR code detected!</p>
+                </motion.div>
+              </motion.div>
             )}
-          </>
+          </AnimatePresence>
+
+          {/* Error overlay */}
+          {status === 'error' && (
+            <div className="absolute inset-0 bg-gray-950/95 flex flex-col items-center justify-center gap-4 p-5">
+              <div className="p-3 bg-red-900/40 rounded-full">
+                <AlertCircle className="h-10 w-10 text-red-400" />
+              </div>
+              <p className="text-white text-xs text-center leading-relaxed">{errorMsg}</p>
+              <Button
+                size="sm"
+                onClick={() => setStatus('permission')}
+                className="bg-purple-700 hover:bg-purple-600 text-white text-xs h-8 px-4 rounded-full gap-1.5"
+              >
+                <Camera className="h-3.5 w-3.5" />
+                Try Again
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {status === 'scanning' && (
+          <div className="px-4 py-3 bg-gray-950 text-center">
+            <p className="text-[11px] text-gray-300 font-medium">
+              Point camera at the table QR code
+            </p>
+          </div>
         )}
       </DialogContent>
     </Dialog>

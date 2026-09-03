@@ -45,10 +45,29 @@ export async function GET() {
       );
     }
 
-    // Return ONLY success message - NO user data exposed
+    // Remove sensitive fields before returning
+    const { password, ...userWithoutPassword } = user as any;
+
     return NextResponse.json({
       success: true,
-      message: "User authenticated successfully"
+      data: {
+        ...userWithoutPassword,
+        _id: userWithoutPassword.id,
+        id: userWithoutPassword.id,
+        firstName: userWithoutPassword.firstName || userWithoutPassword.name?.split(' ')[0] || '',
+        lastName: userWithoutPassword.lastName || userWithoutPassword.name?.split(' ').slice(1).join(' ') || '',
+        name: userWithoutPassword.name || '',
+        email: userWithoutPassword.email || '',
+        phone: userWithoutPassword.phone || '',
+        address: userWithoutPassword.address || '',
+        location: userWithoutPassword.location || null,
+        locationConsent: userWithoutPassword.locationConsent || false,
+        role: userWithoutPassword.role || 'user',
+        registrationSource: userWithoutPassword.registrationSource || 'website',
+        createdAt: userWithoutPassword.createdAt?.toISOString?.() || '',
+        updatedAt: userWithoutPassword.updatedAt?.toISOString?.() || '',
+        lastLogin: userWithoutPassword.lastLogin?.toISOString?.() || '',
+      }
     });
     
   } catch (error: any) {
