@@ -833,7 +833,7 @@ export const OrderDetailModal = React.memo(function OrderDetailModal({
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Subtotal:</span>
                   <span>
-                    {order.totalAmount.toLocaleString("en-ET", {
+                    {(order.totalAmount ?? 0).toLocaleString("en-ET", {
                       style: "currency",
                       currency: "ETB",
                     })}
@@ -842,7 +842,7 @@ export const OrderDetailModal = React.memo(function OrderDetailModal({
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Discount:</span>
                   <span>
-                    {order.discount.toLocaleString("en-ET", {
+                    {(order.discount ?? 0).toLocaleString("en-ET", {
                       style: "currency",
                       currency: "ETB",
                     })}
@@ -851,7 +851,7 @@ export const OrderDetailModal = React.memo(function OrderDetailModal({
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Tax:</span>
                   <span>
-                    {order.tax.toLocaleString("en-ET", {
+                    {(order.tax ?? 0).toLocaleString("en-ET", {
                       style: "currency",
                       currency: "ETB",
                     })}

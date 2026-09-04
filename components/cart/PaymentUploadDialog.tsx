@@ -1,19 +1,18 @@
-// components/cart/PaymentUploadDialog.tsx - FULL SCREEN MERGED (Guest Info + Payment)
-
 'use client'
 
-import React, { memo, useRef, useState } from 'react'
+import React, { memo, useRef, useState, useCallback } from 'react'
 import {
   CreditCard, Upload, X, Check, Loader2, Banknote, Receipt,
-  ArrowLeft, User, Phone, Mail, UserPlus, ChevronRight
+  ArrowLeft, User, Phone, Mail, UserPlus, Copy, CheckCircle2,
+  ShieldCheck, CircleDot
 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
 import { PaymentScreenshot } from '@/types'
 import { motion, AnimatePresence } from 'framer-motion'
+import { toast } from 'react-hot-toast'
 
 interface GuestUserData {
   firstName: string
@@ -38,7 +37,6 @@ interface PaymentUploadDialogProps {
   total: number
   onFinalizeOrder: () => Promise<void>
   isPlacingOrder: boolean
-  // Guest info props
   isUserLoggedIn?: boolean
   onGuestOrder?: (guestData: GuestUserData) => void
   guestData?: GuestUserData | null
@@ -70,11 +68,11 @@ export const PaymentUploadDialog = memo(({
 }: PaymentUploadDialogProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Guest info state (only used when not logged in)
   const [guestInfo, setGuestInfo] = useState<GuestUserData>(
     guestData ?? { firstName: '', lastName: '', phone: '', email: '', isGuest: true }
   )
   const [guestErrors, setGuestErrors] = useState<Partial<Record<keyof GuestUserData, string>>>({})
+  const [copiedField, setCopiedField] = useState<string | null>(null)
 
   const validateGuest = (): boolean => {
     const errors: Partial<Record<keyof GuestUserData, string>> = {}
@@ -95,6 +93,22 @@ export const PaymentUploadDialog = memo(({
     await onFinalizeOrder()
   }
 
+  const copyToClipboard = useCallback(async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedField(field)
+      toast.success('Copied!', { duration: 1500 })
+      setTimeout(() => setCopiedField(null), 2000)
+    } catch {
+      toast.error('Failed to copy')
+    }
+  }, [])
+
+  const steps = !isUserLoggedIn
+    ? ['Bank Transfer', 'Upload Proof', 'Confirm']
+    : ['Bank Transfer', 'Upload Proof', 'Confirm']
+
+  const currentStep = paymentScreenshot.uploaded ? 2 : 1
   const canConfirm = paymentScreenshot.uploaded && !isPlacingOrder
 
   if (!open) return null
@@ -107,70 +121,88 @@ export const PaymentUploadDialog = memo(({
           initial={{ x: '100%' }}
           animate={{ x: 0 }}
           exit={{ x: '100%' }}
-          transition={{ type: 'tween', duration: 0.25 }}
-          className="fixed inset-0 z-50 flex flex-col bg-gradient-to-br from-white to-purple-50/40"
+          transition={{ type: 'tween', duration: 0.3 }}
+          className="fixed inset-0 z-50 flex flex-col bg-gray-50"
           style={{ overscrollBehavior: 'contain' }}
         >
           {/* ── Header ── */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-purple-100 bg-white/90 backdrop-blur-sm sticky top-0 z-10 shadow-sm">
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => onOpenChange(false)}
-              className="p-1.5 rounded-full hover:bg-purple-50 text-purple-900 transition-colors"
-              aria-label="Go back"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </motion.button>
-            <div className="flex items-center gap-2 flex-1">
-              <div className="p-1.5 bg-gradient-to-br from-purple-800 to-purple-900 rounded-lg shadow">
-                <CreditCard className="h-4 w-4 text-white" />
-              </div>
-              <div>
-                <h2 className="font-bold text-sm bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent">
-                  Complete Your Order
-                </h2>
-                <p className="text-[10px] text-gray-500">
-                  {!isUserLoggedIn ? 'Guest info & payment' : 'Payment verification'}
+          <div className="bg-white border-b border-gray-100">
+            <div className="flex items-center gap-3 px-4 py-3">
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => onOpenChange(false)}
+                className="p-2 rounded-full hover:bg-gray-100 text-gray-700 transition-colors"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </motion.button>
+              <div className="flex-1">
+                <h2 className="font-bold text-base text-gray-900">Payment</h2>
+                <p className="text-[11px] text-gray-500">
+                  Transfer {formatCurrency(total)} Birr and upload proof
                 </p>
               </div>
+              <div className="text-right">
+                <p className="text-lg font-bold text-gray-900">{formatCurrency(total)}</p>
+                <p className="text-[10px] text-gray-500">Birr</p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-[10px] text-gray-500">Total</p>
-              <p className="text-sm font-bold text-purple-900">{formatCurrency(total)} Birr</p>
+
+            {/* Step indicators */}
+            <div className="px-4 pb-3">
+              <div className="flex items-center gap-0">
+                {steps.map((step, i) => {
+                  const stepNum = i + 1
+                  const isActive = stepNum === currentStep
+                  const isDone = stepNum < currentStep || (stepNum === 2 && paymentScreenshot.uploaded)
+                  return (
+                    <React.Fragment key={step}>
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 transition-colors ${
+                          isDone ? 'bg-green-500 text-white' : isActive ? 'bg-purple-900 text-white' : 'bg-gray-200 text-gray-500'
+                        }`}>
+                          {isDone ? <Check className="h-3 w-3" /> : stepNum}
+                        </div>
+                        <span className={`text-[10px] font-medium hidden sm:block ${
+                          isActive ? 'text-purple-900' : isDone ? 'text-green-600' : 'text-gray-400'
+                        }`}>{step}</span>
+                      </div>
+                      {i < steps.length - 1 && (
+                        <div className={`h-[2px] flex-1 mx-1 rounded-full transition-colors ${
+                          isDone ? 'bg-green-400' : 'bg-gray-200'
+                        }`} />
+                      )}
+                    </React.Fragment>
+                  )
+                })}
+              </div>
             </div>
           </div>
 
           {/* ── Scrollable Body ── */}
           <div className="flex-1 overflow-y-auto">
-            <div className="p-4 space-y-5 pb-32">
+            <div className="p-4 space-y-4 pb-32 max-w-lg mx-auto">
 
-              {/* ── SECTION 1: Guest Info (only for non-logged-in users) ── */}
+              {/* Guest Info */}
               {!isUserLoggedIn && (
                 <motion.div
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.05 }}
-                  className="bg-white border border-purple-200 rounded-2xl overflow-hidden shadow-sm"
+                  className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
                 >
-                  {/* Section header */}
-                  <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-50 to-white border-b border-purple-100">
-                    <div className="p-1.5 bg-purple-100 rounded-lg">
-                      <UserPlus className="h-4 w-4 text-purple-900" />
+                  <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100">
+                    <div className="p-1.5 bg-gray-100 rounded-lg">
+                      <UserPlus className="h-4 w-4 text-gray-700" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-sm font-bold text-purple-900">Guest Information</h3>
-                      <p className="text-[10px] text-gray-500">Required to complete your order</p>
+                      <h3 className="text-sm font-semibold text-gray-900">Your Details</h3>
+                      <p className="text-[10px] text-gray-500">Required for delivery</p>
                     </div>
-                    <Badge className="bg-red-100 text-red-700 border-0 text-[9px]">Required</Badge>
                   </div>
 
                   <div className="p-4 space-y-3">
-                    {/* First + Last name row */}
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-[11px] font-medium text-purple-900 flex items-center gap-1">
-                          First Name <span className="text-red-500">*</span>
-                        </Label>
+                        <Label className="text-[11px] font-medium text-gray-600">First Name *</Label>
                         <Input
                           value={guestInfo.firstName}
                           onChange={e => {
@@ -178,14 +210,12 @@ export const PaymentUploadDialog = memo(({
                             if (guestErrors.firstName) setGuestErrors(p => ({ ...p, firstName: undefined }))
                           }}
                           placeholder="John"
-                          className={`h-10 text-[12px] rounded-xl border-2 focus:ring-2 focus:ring-purple-200 ${guestErrors.firstName ? 'border-red-400' : 'border-purple-200 focus:border-purple-600'}`}
+                          className={`h-10 text-[13px] rounded-lg ${guestErrors.firstName ? 'border-red-400 focus:border-red-500' : ''}`}
                         />
-                        {guestErrors.firstName && <p className="text-[9px] text-red-500">{guestErrors.firstName}</p>}
+                        {guestErrors.firstName && <p className="text-[10px] text-red-500">{guestErrors.firstName}</p>}
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[11px] font-medium text-purple-900 flex items-center gap-1">
-                          Last Name <span className="text-red-500">*</span>
-                        </Label>
+                        <Label className="text-[11px] font-medium text-gray-600">Last Name *</Label>
                         <Input
                           value={guestInfo.lastName}
                           onChange={e => {
@@ -193,16 +223,15 @@ export const PaymentUploadDialog = memo(({
                             if (guestErrors.lastName) setGuestErrors(p => ({ ...p, lastName: undefined }))
                           }}
                           placeholder="Doe"
-                          className={`h-10 text-[12px] rounded-xl border-2 focus:ring-2 focus:ring-purple-200 ${guestErrors.lastName ? 'border-red-400' : 'border-purple-200 focus:border-purple-600'}`}
+                          className={`h-10 text-[13px] rounded-lg ${guestErrors.lastName ? 'border-red-400 focus:border-red-500' : ''}`}
                         />
-                        {guestErrors.lastName && <p className="text-[9px] text-red-500">{guestErrors.lastName}</p>}
+                        {guestErrors.lastName && <p className="text-[10px] text-red-500">{guestErrors.lastName}</p>}
                       </div>
                     </div>
 
-                    {/* Phone */}
                     <div className="space-y-1">
-                      <Label className="text-[11px] font-medium text-purple-900 flex items-center gap-1">
-                        <Phone className="h-3 w-3" /> Phone Number <span className="text-red-500">*</span>
+                      <Label className="text-[11px] font-medium text-gray-600 flex items-center gap-1">
+                        <Phone className="h-3 w-3" /> Phone *
                       </Label>
                       <Input
                         value={guestInfo.phone}
@@ -211,15 +240,14 @@ export const PaymentUploadDialog = memo(({
                           if (guestErrors.phone) setGuestErrors(p => ({ ...p, phone: undefined }))
                         }}
                         placeholder="0912345678"
-                        className={`h-10 text-[12px] rounded-xl border-2 focus:ring-2 focus:ring-purple-200 ${guestErrors.phone ? 'border-red-400' : 'border-purple-200 focus:border-purple-600'}`}
+                        className={`h-10 text-[13px] rounded-lg ${guestErrors.phone ? 'border-red-400 focus:border-red-500' : ''}`}
                       />
-                      {guestErrors.phone && <p className="text-[9px] text-red-500">{guestErrors.phone}</p>}
+                      {guestErrors.phone && <p className="text-[10px] text-red-500">{guestErrors.phone}</p>}
                     </div>
 
-                    {/* Email */}
                     <div className="space-y-1">
-                      <Label className="text-[11px] font-medium text-purple-900 flex items-center gap-1">
-                        <Mail className="h-3 w-3" /> Email <span className="text-[9px] text-gray-400 font-normal">(optional)</span>
+                      <Label className="text-[11px] font-medium text-gray-600 flex items-center gap-1">
+                        <Mail className="h-3 w-3" /> Email <span className="text-gray-400 font-normal">(optional)</span>
                       </Label>
                       <Input
                         value={guestInfo.email}
@@ -228,70 +256,101 @@ export const PaymentUploadDialog = memo(({
                           if (guestErrors.email) setGuestErrors(p => ({ ...p, email: undefined }))
                         }}
                         placeholder="john@example.com"
-                        className={`h-10 text-[12px] rounded-xl border-2 focus:ring-2 focus:ring-purple-200 ${guestErrors.email ? 'border-red-400' : 'border-purple-200 focus:border-purple-600'}`}
+                        className={`h-10 text-[13px] rounded-lg ${guestErrors.email ? 'border-red-400 focus:border-red-500' : ''}`}
                       />
-                      {guestErrors.email && <p className="text-[9px] text-red-500">{guestErrors.email}</p>}
+                      {guestErrors.email && <p className="text-[10px] text-red-500">{guestErrors.email}</p>}
                     </div>
                   </div>
                 </motion.div>
               )}
 
-              {/* ── SECTION 2: Bank Transfer Details ── */}
+              {/* Bank Transfer Details */}
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="bg-white border border-purple-200 rounded-2xl overflow-hidden shadow-sm"
+                transition={{ delay: 0.05 }}
+                className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
               >
-                <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-50 to-white border-b border-purple-100">
-                  <div className="p-1.5 bg-purple-100 rounded-lg">
-                    <Banknote className="h-4 w-4 text-purple-900" />
+                <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100">
+                  <div className="p-1.5 bg-blue-50 rounded-lg">
+                    <Banknote className="h-4 w-4 text-blue-600" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-sm font-bold text-purple-900">Bank Transfer Details</h3>
-                    <p className="text-[10px] text-gray-500">Transfer the exact amount below</p>
+                    <h3 className="text-sm font-semibold text-gray-900">Transfer To</h3>
+                    <p className="text-[10px] text-gray-500">Send the exact amount</p>
                   </div>
-                  <Badge className="bg-purple-900 text-white border-0 text-[9px]">Required</Badge>
+                  <Badge variant="outline" className="text-[9px] border-blue-200 text-blue-700 bg-blue-50">
+                    Step 1
+                  </Badge>
                 </div>
 
-                <div className="p-4 space-y-0">
-                  {[
-                    { label: 'Bank', value: 'Commercial Bank of Ethiopia' },
-                    { label: 'Account No.', value: '1000000000000', mono: true },
-                    { label: 'Account Name', value: 'Manyazewal Eshetu Gibi' },
-                  ].map(({ label, value, mono }) => (
-                    <div key={label} className="flex justify-between items-center py-2.5 border-b border-purple-50 last:border-0">
-                      <span className="text-[11px] text-gray-500">{label}</span>
-                      <span className={`text-[12px] font-semibold text-purple-900 ${mono ? 'font-mono' : ''}`}>{value}</span>
-                    </div>
-                  ))}
-                  <div className="flex justify-between items-center pt-3 mt-1 border-t-2 border-purple-100">
-                    <span className="text-[12px] font-bold text-gray-700">Amount to Pay</span>
-                    <div className="text-right">
-                      <span className="text-xl font-bold text-purple-900">{formatCurrency(total)}</span>
-                      <span className="text-[11px] text-gray-500 ml-1">Birr</span>
-                    </div>
+                <div className="p-4">
+                  {/* Amount highlight */}
+                  <div className="mb-4 p-4 bg-gradient-to-br from-purple-900 to-purple-800 rounded-xl text-center shadow-md">
+                    <p className="text-[10px] text-purple-200 uppercase tracking-wider mb-1">Amount to Pay</p>
+                    <p className="text-3xl font-bold text-white">{formatCurrency(total)}</p>
+                    <p className="text-[11px] text-purple-300">Birr</p>
+                  </div>
+
+                  {/* Account details */}
+                  <div className="space-y-0 bg-gray-50 rounded-xl overflow-hidden">
+                    {[
+                      { label: 'Bank', value: 'Commercial Bank of Ethiopia' },
+                      { label: 'Account No.', value: '1000000000000', mono: true, copyable: true },
+                      { label: 'Account Name', value: 'Manyazewal Eshetu Gibi' },
+                    ].map(({ label, value, mono, copyable }) => (
+                      <div key={label} className="flex justify-between items-center px-4 py-3 border-b border-gray-100 last:border-0">
+                        <span className="text-[12px] text-gray-500">{label}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[13px] font-semibold text-gray-900 ${mono ? 'font-mono tracking-wide' : ''}`}>
+                            {value}
+                          </span>
+                          {copyable && (
+                            <motion.button
+                              whileTap={{ scale: 0.85 }}
+                              onClick={() => copyToClipboard(value, 'account')}
+                              className="p-1 rounded-md hover:bg-gray-200 transition-colors"
+                            >
+                              {copiedField === 'account' ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <Copy className="h-4 w-4 text-gray-400" />
+                              )}
+                            </motion.button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 mt-3 text-[10px] text-gray-500">
+                    <ShieldCheck className="h-3.5 w-3.5 text-gray-400" />
+                    <span>Payment is verified within 5 minutes</span>
                   </div>
                 </div>
               </motion.div>
 
-              {/* ── SECTION 3: Upload Screenshot ── */}
+              {/* Upload Screenshot */}
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.15 }}
-                className="bg-white border border-purple-200 rounded-2xl overflow-hidden shadow-sm"
+                transition={{ delay: 0.1 }}
+                className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
               >
-                <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-50 to-white border-b border-purple-100">
-                  <div className="p-1.5 bg-purple-100 rounded-lg">
-                    <Upload className="h-4 w-4 text-purple-900" />
+                <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100">
+                  <div className="p-1.5 bg-amber-50 rounded-lg">
+                    <Upload className="h-4 w-4 text-amber-600" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-sm font-bold text-purple-900">Payment Screenshot</h3>
-                    <p className="text-[10px] text-gray-500">Upload proof of your transfer</p>
+                    <h3 className="text-sm font-semibold text-gray-900">Upload Proof</h3>
+                    <p className="text-[10px] text-gray-500">Screenshot of your transfer</p>
                   </div>
-                  <Badge className={`border-0 text-[9px] ${paymentScreenshot.uploaded ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                    {paymentScreenshot.uploaded ? '✓ Uploaded' : 'Required'}
+                  <Badge variant="outline" className={`text-[9px] ${
+                    paymentScreenshot.uploaded
+                      ? 'border-green-200 text-green-700 bg-green-50'
+                      : 'border-amber-200 text-amber-700 bg-amber-50'
+                  }`}>
+                    {paymentScreenshot.uploaded ? 'Uploaded' : 'Required'}
                   </Badge>
                 </div>
 
@@ -312,28 +371,25 @@ export const PaymentUploadDialog = memo(({
                         exit={{ opacity: 0, scale: 0.95 }}
                         className="space-y-3"
                       >
-                        <div className="relative w-full rounded-xl overflow-hidden border-2 border-purple-200 shadow-md" style={{ height: 200 }}>
+                        <div className="relative w-full rounded-xl overflow-hidden border border-gray-200 shadow-sm" style={{ height: 220 }}>
                           <img
                             src={paymentScreenshot.previewUrl}
                             alt="Payment screenshot"
-                            className="object-contain w-full h-full"
+                            className="object-contain w-full h-full bg-gray-50"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-purple-900/30 to-transparent" />
-                          <div className="absolute bottom-2 right-2">
-                            <Badge className="bg-green-600 text-white border-0 text-[9px]">
+                          <div className="absolute top-2 right-2">
+                            <Badge className="bg-green-600 text-white border-0 text-[10px] shadow-sm">
                               <Check className="h-2.5 w-2.5 mr-1" /> Uploaded
                             </Badge>
                           </div>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={onRemoveScreenshot}
-                          className="w-full rounded-xl border-2 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-400 h-9 text-[11px]"
+                        <button
                           type="button"
+                          onClick={onRemoveScreenshot}
+                          className="w-full py-2.5 text-[12px] font-medium text-red-600 bg-red-50 rounded-xl border border-red-100 hover:bg-red-100 transition-colors"
                         >
-                          <X className="mr-1.5 h-3.5 w-3.5" /> Remove & Re-upload
-                        </Button>
+                          Remove & Upload New
+                        </button>
                       </motion.div>
                     ) : (
                       <motion.div
@@ -345,14 +401,14 @@ export const PaymentUploadDialog = memo(({
                         <button
                           type="button"
                           onClick={() => fileInputRef.current?.click()}
-                          className="w-full border-2 border-dashed border-purple-200 rounded-xl p-6 flex flex-col items-center gap-3 hover:border-purple-500 hover:bg-purple-50/50 transition-all active:scale-[0.98]"
+                          className="w-full border-2 border-dashed border-purple-200 rounded-xl py-8 flex flex-col items-center gap-3 hover:border-purple-400 hover:bg-purple-50/30 transition-all active:scale-[0.98]"
                         >
-                          <div className="p-4 bg-purple-50 rounded-full">
-                            <Upload className="h-8 w-8 text-purple-700" />
+                          <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center">
+                            <Upload className="h-6 w-6 text-purple-600" />
                           </div>
                           <div className="text-center">
-                            <p className="text-[12px] font-semibold text-purple-900">Tap to upload screenshot</p>
-                            <p className="text-[10px] text-gray-500 mt-0.5">JPG, PNG — max 5 MB</p>
+                            <p className="text-[13px] font-semibold text-gray-900">Tap to upload screenshot</p>
+                            <p className="text-[11px] text-gray-500 mt-0.5">JPG, PNG or HEIC</p>
                           </div>
                         </button>
                       </motion.div>
@@ -361,63 +417,66 @@ export const PaymentUploadDialog = memo(({
                 </div>
               </motion.div>
 
-              {/* ── SECTION 4: Transaction ID ── */}
+              {/* Transaction ID */}
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="bg-white border border-purple-200 rounded-2xl overflow-hidden shadow-sm"
+                transition={{ delay: 0.15 }}
+                className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
               >
-                <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-50 to-white border-b border-purple-100">
-                  <div className="p-1.5 bg-purple-100 rounded-lg">
-                    <Receipt className="h-4 w-4 text-purple-900" />
+                <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100">
+                  <div className="p-1.5 bg-gray-100 rounded-lg">
+                    <Receipt className="h-4 w-4 text-gray-600" />
                   </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-purple-900">Transaction Reference</h3>
-                    <p className="text-[10px] text-gray-500">Speeds up verification</p>
+                  <div className="flex-1">
+                    <h3 className="text-sm font-semibold text-gray-900">Transaction ID</h3>
+                    <p className="text-[10px] text-gray-500">Optional — helps us find your payment faster</p>
                   </div>
                 </div>
                 <div className="p-4">
                   <Input
-                    placeholder="Enter transaction ID (optional)"
+                    placeholder="e.g. TXN123456789"
                     value={transactionId}
                     onChange={e => onTransactionIdChange(e.target.value)}
-                    className="h-11 text-[12px] rounded-xl border-2 border-purple-200 focus:border-purple-600 focus:ring-2 focus:ring-purple-200"
+                    className="h-11 text-[13px] rounded-lg"
                   />
                 </div>
               </motion.div>
 
-              {/* ── SECTION 5: Order Summary ── */}
+              {/* Order Summary */}
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25 }}
-                className="bg-white border border-purple-200 rounded-2xl overflow-hidden shadow-sm"
+                transition={{ delay: 0.2 }}
+                className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
               >
-                <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-50 to-white border-b border-purple-100">
-                  <div className="p-1.5 bg-purple-100 rounded-lg">
-                    <Receipt className="h-4 w-4 text-purple-900" />
+                <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100">
+                  <div className="p-1.5 bg-gray-100 rounded-lg">
+                    <Receipt className="h-4 w-4 text-gray-600" />
                   </div>
-                  <h3 className="text-sm font-bold text-purple-900">Order Summary</h3>
+                  <h3 className="text-sm font-semibold text-gray-900">Order Summary</h3>
                 </div>
-                <div className="p-4 space-y-0">
-                  {[
-                    { label: 'Subtotal (before tax)', value: formatCurrency(subtotal) },
-                    { label: 'VAT 15%', value: formatCurrency(tax) },
-                    ...(orderType === 'delivery' ? [{ label: 'Delivery Fee', value: formatCurrency(deliveryFee) }] : []),
-                  ].map(({ label, value }) => (
-                    <div key={label} className="flex justify-between items-center py-2.5 border-b border-purple-50 last:border-0">
-                      <span className="text-[11px] text-gray-500">{label}</span>
-                      <span className="text-[12px] font-semibold text-purple-900">{value} Birr</span>
+                <div className="p-4">
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[12px] text-gray-500">Subtotal</span>
+                      <span className="text-[12px] font-medium text-gray-900">{formatCurrency(subtotal)} Birr</span>
                     </div>
-                  ))}
-                  <div className="flex justify-between items-center pt-3 mt-1 border-t-2 border-purple-100">
-                    <span className="text-[13px] font-bold text-gray-800">Total (incl. tax)</span>
-                    <div className="text-right">
-                      <span className="text-xl font-bold bg-gradient-to-r from-purple-900 to-purple-700 bg-clip-text text-transparent">
-                        {formatCurrency(total)}
-                      </span>
-                      <span className="text-[11px] text-gray-500 ml-1">Birr</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[12px] text-gray-500">VAT 15%</span>
+                      <span className="text-[12px] font-medium text-gray-900">{formatCurrency(tax)} Birr</span>
+                    </div>
+                    {orderType === 'delivery' && deliveryFee > 0 && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-[12px] text-gray-500">Delivery Fee</span>
+                        <span className="text-[12px] font-medium text-gray-900">{formatCurrency(deliveryFee)} Birr</span>
+                      </div>
+                    )}
+                    <div className="border-t border-gray-100 pt-2.5 mt-2.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[13px] font-bold text-gray-900">Total</span>
+                        <span className="text-lg font-bold text-gray-900">{formatCurrency(total)} Birr</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -427,30 +486,34 @@ export const PaymentUploadDialog = memo(({
           </div>
 
           {/* ── Sticky Footer ── */}
-          <div className="sticky bottom-0 border-t border-purple-100 bg-white/95 backdrop-blur-md shadow-lg px-4 py-3 space-y-2">
-            {/* Screenshot required hint */}
+          <div className="sticky bottom-0 border-t border-gray-200 bg-white px-4 py-3 space-y-2">
             {!paymentScreenshot.uploaded && (
-              <p className="text-[10px] text-center text-red-500 font-medium">
-                ⚠ Upload a payment screenshot to continue
+              <p className="text-[11px] text-center text-amber-600 font-medium flex items-center justify-center gap-1">
+                <CircleDot className="h-3 w-3" />
+                Upload your payment screenshot to continue
               </p>
             )}
 
-            <motion.div whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}>
+            <motion.div whileTap={{ scale: 0.98 }}>
               <Button
                 onClick={handleConfirm}
                 disabled={!canConfirm}
-                className="w-full h-12 text-[13px] font-bold bg-gradient-to-r from-purple-800 to-purple-900 hover:from-purple-900 hover:to-purple-950 text-white border-0 rounded-xl shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`w-full h-12 text-[13px] font-bold rounded-xl shadow-sm transition-all ${
+                  canConfirm
+                    ? 'bg-purple-900 hover:bg-purple-800 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                }`}
                 type="button"
               >
                 {isPlacingOrder ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
+                    Placing Order...
                   </>
                 ) : (
                   <>
                     <Check className="mr-2 h-4 w-4" />
-                    Confirm Payment & Place Order
+                    Confirm & Place Order
                   </>
                 )}
               </Button>

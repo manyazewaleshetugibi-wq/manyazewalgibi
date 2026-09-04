@@ -23,7 +23,8 @@ const OrderItemSchema = z.object({
   subtotal: z.number().min(0, "Subtotal must be non-negative").optional(),
   specialInstructions: z.string().optional(),
   status: z.enum(["PENDING", "PREPARING", "READY", "SERVED"]).default("PENDING").optional(),
-  itemName: z.string().optional()
+  itemName: z.string().optional(),
+  isPackaging: z.boolean().optional()
 });
 
 // Delivery Info Schema
@@ -54,7 +55,8 @@ export const DeliveryOrderSchema = z.object({
   totalAmount: z.number().min(0, "Total amount must be non-negative"),
   subtotal: z.number().optional().nullable(),
   deliveryFee: z.number().optional().nullable(),
-  discount: z.number().min(0, "Discount must be non-negative").default(0),
+  packagingCharge: z.number().optional().nullable(),
+  categoryChargesTotal: z.number().optional().nullable(),
   tax: z.number().min(0, "Tax must be non-negative"),
   finalAmount: z.number().min(0, "Final amount must be non-negative"),
   paymentMethod: z.string(),

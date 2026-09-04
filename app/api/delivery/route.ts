@@ -158,12 +158,11 @@ export async function POST(req: NextRequest) {
     const taxFromFrontend = body.tax || 0;                // Tax amount
     const totalAmountFromFrontend = body.totalAmount || 0; // Price with tax
     const deliveryFee = body.deliveryFee || 0;
-    const discount = body.discount || 0;
     const packagingCharge = body.packagingCharge || 0;
     const categoryChargesTotal = body.categoryChargesTotal || 0;
     
     // Calculate final amount using frontend values
-    const finalAmount = totalAmountFromFrontend + deliveryFee + packagingCharge - discount;
+    const finalAmount = totalAmountFromFrontend + deliveryFee + packagingCharge;
 
     // Process items with their correct tax breakdown
     const itemsWithDetails = [];
@@ -200,7 +199,8 @@ export async function POST(req: NextRequest) {
         taxAmount: itemTaxAmount,
         taxTotal: itemTaxTotal,
         total: itemTotal,
-        itemName: itemData.name
+        itemName: itemData.name,
+        isPackaging: !!item.isPackaging
       });
     }
 
@@ -251,11 +251,10 @@ export async function POST(req: NextRequest) {
       deliveryFee: deliveryFee,
       packagingCharge: packagingCharge,
       categoryChargesTotal: categoryChargesTotal,
-      discount: discount,
       subtotal: subtotalFromFrontend,        // Use frontend value (excl. tax)
       tax: taxFromFrontend,                  // Use frontend value (tax amount)
       totalAmount: totalAmountFromFrontend,  // Use frontend value (incl. tax)
-      finalAmount: finalAmount,              // totalAmount + delivery - discount
+      finalAmount: finalAmount,              // totalAmount + delivery + packaging
       delivery: true,
       inTable: false,
       isActive: true,

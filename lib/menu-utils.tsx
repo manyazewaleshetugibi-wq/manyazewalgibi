@@ -142,19 +142,121 @@ export const isFoodItem = (category: Category | undefined): boolean => {
          name.includes('main course') || name.includes('appetizer')
 }
 
-export const calculatePackagingCharge = (cartItems: any[], categories: Category[], isDelivery: boolean): number => {
-  if (!isDelivery) return 0
-  
-  const foodItemCount = cartItems.reduce((count, item) => {
+// Classification helpers - used to match ordered items to the correct packaging pack
+export type ItemPackType = 'food' | 'juice' | 'hotdrink'
+
+export const getItemPackType = (category: Category | undefined, itemName?: string): ItemPackType | null => {
+  const name = category?.name?.toLowerCase() || ''
+  const type = category?.type?.toLowerCase() || ''
+  const itemLower = itemName?.toLowerCase() || ''
+
+  // Primary: match by category name/type
+  if (name.includes('food') || type === 'food' || name.includes('main course') || name.includes('appetizer') || name.includes('pizza') || name.includes('burger') || name.includes('pasta') || name.includes('rice')) {
+    return 'food'
+  }
+  if (name.includes('juice') || type === 'juice' || name.includes('smoothie')) {
+    return 'juice'
+  }
+  if (name.includes('hot drink') || name.includes('coffee') || name.includes('tea') || name.includes('mocktail') || type === 'hot drink' || type === 'hotdrink' || type === 'mocktail') {
+    return 'hotdrink'
+  }
+
+  // Fallback: match by item name keywords
+  if (itemLower) {
+    if (['pizza', 'burger', 'pasta', 'rice', 'sandwich', 'wrap'].some(k => itemLower.includes(k))) return 'food'
+    if (['juice', 'smoothie', 'lemonade'].some(k => itemLower.includes(k))) return 'juice'
+    if (['coffee', 'espresso', 'cappuccino', 'latte', 'mocha', 'americano', 'macchiato', 'tea', 'chai', 'hot chocolate', 'mocktail'].some(k => itemLower.includes(k))) return 'hotdrink'
+  }
+
+  return null
+}
+
+// Match the pack item in the DB by its name keyword
+const findPackItem = (allItems: any[], keyword: string): any | undefined => {
+  return allItems.find(it => {
+    const name = (it?.name || '').toLowerCase()
+    return name.includes(keyword)
+  })
+}
+
+export interface PackagingLine {
+  itemId: string
+  itemName: string
+  unitPrice: number
+  quantity: number
+  subtotal: number
+  isPackaging: boolean
+}
+
+export interface PackagingResult {
+  lines: PackagingLine[]
+  categoryChargesTotal: number
+  packagingCharge: number
+}
+
+export const calculatePackagingDetails = (
+  cartItems: any[],
+  categories: Category[],
+  allItems: any[],
+  isDelivery: boolean
+): PackagingResult => {
+  const empty = { lines: [], categoryChargesTotal: 0, packagingCharge: 0 }
+  if (!isDelivery) return empty
+
+  // Count how many items fall into each pack type
+  let foodCount = 0
+  let juiceCount = 0
+  let hotDrinkCount = 0
+  let totalQuantity = 0
+
+  cartItems.forEach(item => {
+    const qty = Number(item.quantity) || 0
+    if (qty <= 0) return
+    totalQuantity += qty
     const category = categories.find(c => c._id === item.categoryId)
-    if (isFoodItem(category)) {
-      return count + (item.quantity || 1)
+    const packType = getItemPackType(category, item.name)
+    if (packType === 'food') foodCount += qty
+    else if (packType === 'juice') juiceCount += qty
+    else if (packType === 'hotdrink') hotDrinkCount += qty
+  })
+
+  const buildLine = (
+    keyword: string,
+    fallbackName: string,
+    count: number,
+    fallbackPrice: number
+  ): PackagingLine | null => {
+    if (count <= 0) return null
+    const packItem = findPackItem(allItems, keyword)
+    const unitPrice = packItem ? (Number(packItem.price) || 0) : fallbackPrice
+    const itemId = packItem?._id || packItem?.id || ''
+    if (unitPrice <= 0) return null
+    return {
+      itemId,
+      itemName: packItem?.name || fallbackName,
+      unitPrice,
+      quantity: count,
+      subtotal: unitPrice * count,
+      isPackaging: true
     }
-    return count
-  }, 0)
-  
-  if (foodItemCount === 0) return 0
-  
-  const groupsOfFour = Math.ceil(foodItemCount / 4)
-  return groupsOfFour * 100
+  }
+
+  const lines: PackagingLine[] = []
+  // Order: detailed packs first, then bag
+  const foodLine = buildLine('food pack', 'Food Pack', foodCount, 60)
+  const juiceLine = buildLine('juice pack', 'Juice Pack', juiceCount, 30)
+  const hotDrinkLine = buildLine('hot drink pack', 'Hot Drink Pack', hotDrinkCount, 30)
+  if (foodLine) lines.push(foodLine)
+  if (juiceLine) lines.push(juiceLine)
+  if (hotDrinkLine) lines.push(hotDrinkLine)
+
+  // Bag: one bag for every group of 4 items (ceil of total quantity / 4)
+  const bagCount = Math.ceil(totalQuantity / 4)
+  const bagLine = buildLine('bag', 'Bag', bagCount, 100)
+  if (bagLine) lines.push(bagLine)
+
+  const categoryChargesTotal = (foodLine?.subtotal || 0) + (juiceLine?.subtotal || 0) + (hotDrinkLine?.subtotal || 0)
+  const packagingCharge = bagLine?.subtotal || 0
+
+  return { lines, categoryChargesTotal, packagingCharge }
 }

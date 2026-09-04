@@ -54,8 +54,7 @@ import {
   getImageSrc,
   preloadImages,
   shouldHideCategory,
-  getCategoryAdditionalCharge,
-  calculatePackagingCharge,
+  calculatePackagingDetails,
   autoAssignWaiter
 } from '@/lib/menu-utils'
 
@@ -949,6 +948,12 @@ const MobilePaymentFlow: React.FC<MobilePaymentFlowProps> = ({
                     <span className="text-gray-600">VAT 15%</span>
                     <span>{formattedTax} Birr</span>
                   </div>
+                  {orderType === 'delivery' && deliveryFee && deliveryFee.fee > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Delivery Fee</span>
+                      <span>{formattedDeliveryFee} Birr</span>
+                    </div>
+                  )}
                   <div className="border-t border-purple-200 pt-1 mt-1">
                     <div className="flex justify-between font-bold">
                       <span>Total</span>
@@ -1378,18 +1383,12 @@ export default function MenuPage() {
     }
   }, [searchParams])
 
-  const packagingCharge = useMemo(() => {
-    return calculatePackagingCharge(cartItems, categories, orderType === 'delivery')
-  }, [cartItems, categories, orderType])
+  const packagingDetails = useMemo(() => {
+    return calculatePackagingDetails(cartItems, categories, items, orderType === 'delivery')
+  }, [cartItems, categories, items, orderType])
 
-  const categoryChargesTotal = useMemo(() => {
-    if (orderType !== 'delivery') return 0
-    return cartItems.reduce((total, cartItem) => {
-      const category = categories.find(c => c._id === cartItem.categoryId)
-      const charge = getCategoryAdditionalCharge(category?.name || '', category?.type)
-      return total + (charge * (cartItem.quantity || 1))
-    }, 0)
-  }, [cartItems, categories, orderType])
+  const packagingCharge = packagingDetails.packagingCharge
+  const categoryChargesTotal = packagingDetails.categoryChargesTotal
 
   const adjustedSubtotal = useMemo(() => {
     if (orderType !== 'delivery') return subtotal
@@ -1843,7 +1842,6 @@ export default function MenuPage() {
         floor: sanitizeInput(selectedTableData.floor || 'Ground Floor'),
         numberOfGuests,
         items: orderItems,
-        discount: 0,
         specialRequirements: sanitizeInput(specialRequirements),
         transactionId: `QR-${Date.now()}`,
         customerId: isLoggedIn ? (userData?.id || userData?._id || 'walk-in') : 'guest',
@@ -1951,23 +1949,35 @@ export default function MenuPage() {
       const assignedWaiterName = waiters.find(w => w._id === assignedWaiterId)?.name || ''
 
       const orderItems = cartItems.map(cartItem => {
-        const category = categories.find(c => c._id === cartItem.categoryId)
         const basePrice = Number(cartItem.price)
-        const categoryCharge = orderType === 'delivery' && isLoggedIn
-          ? getCategoryAdditionalCharge(category?.name || '', category?.type)
-          : 0
-        const finalItemPrice = basePrice + categoryCharge
         return {
           itemId: cartItem._id,
           itemName: sanitizeInput(cartItem.name),
           quantity: cartItem.quantity,
           notes: sanitizeInput(cartItem.specialInstructions || ''),
           basePrice: basePrice,
-          categoryCharge: categoryCharge,
-          price: finalItemPrice,
-          total: finalItemPrice * cartItem.quantity
+          categoryCharge: 0,
+          price: basePrice,
+          total: basePrice * cartItem.quantity
         }
       })
+
+      // Append packaging pack lines (from DB packaging items) for delivery orders
+      if (orderType === 'delivery' && isLoggedIn && packagingDetails.lines.length > 0) {
+        packagingDetails.lines.forEach(line => {
+          orderItems.push({
+            itemId: line.itemId,
+            itemName: sanitizeInput(line.itemName),
+            quantity: line.quantity,
+            notes: '',
+            basePrice: line.unitPrice,
+            categoryCharge: 0,
+            isPackaging: true,
+            price: line.unitPrice,
+            total: line.subtotal
+          })
+        })
+      }
 
       const isGuest = !isLoggedIn && orderType === 'table'
       const customerId = isLoggedIn 
@@ -1994,7 +2004,6 @@ export default function MenuPage() {
         floor: sanitizeInput(selectedTableData?.floor || 'Ground Floor'),
         numberOfGuests: orderType === 'table' ? numberOfGuests : 1,
         items: orderItems,
-        discount: 0,
         specialRequirements: sanitizeInput(specialRequirements),
         transactionId: sanitizeInput(transactionId) || `TXN-${Date.now()}`,
         customerId: sanitizeInput(customerId),

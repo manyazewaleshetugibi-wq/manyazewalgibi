@@ -115,12 +115,14 @@ type DeliveryOrder = {
     unitPrice?: number
     subtotal?: number
     specialInstructions?: string
+    isPackaging?: boolean
   }>
   status: DeliveryStatus
   totalAmount: number
   subtotal?: number
   deliveryFee?: number
-  discount: number
+  packagingCharge?: number
+  categoryChargesTotal?: number
   tax: number
   finalAmount: number
   paymentMethod: string
@@ -736,7 +738,7 @@ export default function DeliveryManagement() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {order.items.map((item, index) => (
+                      {order.items.filter(it => !it.isPackaging).map((item, index) => (
                         <TableRow key={index}>
                           <TableCell className="font-medium">{item.itemName || `Item ${index + 1}`}</TableCell>
                           <TableCell>{item.quantity}</TableCell>
@@ -753,6 +755,38 @@ export default function DeliveryManagement() {
                       ))}
                     </TableBody>
                   </Table>
+                  {order.items.some(it => it.isPackaging) && (
+                    <div className="mt-6 border-t pt-4">
+                      <h4 className="text-sm font-semibold flex items-center text-muted-foreground mb-3">
+                        <Package className="mr-2 h-4 w-4" />
+                        Packaging
+                      </h4>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Pack Item</TableHead>
+                            <TableHead>Quantity</TableHead>
+                            <TableHead>Unit Price</TableHead>
+                            <TableHead>Subtotal</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {order.items.filter(it => it.isPackaging).map((item, index) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-medium">{item.itemName || "Packaging"}</TableCell>
+                              <TableCell>{item.quantity}</TableCell>
+                              <TableCell>
+                                {item.unitPrice?.toLocaleString("en-ET", { style: "currency", currency: "ETB" }) || "N/A"}
+                              </TableCell>
+                              <TableCell>
+                                {item.subtotal?.toLocaleString("en-ET", { style: "currency", currency: "ETB" }) || "N/A"}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -767,15 +801,23 @@ export default function DeliveryManagement() {
                 <CardContent className="space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Subtotal:</span>
-                    <span>{order.totalAmount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
+                    <span>{(order.subtotal ?? order.totalAmount).toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
                   </div>
+                  {(() => {
+                    const packagingTotal = (order.categoryChargesTotal || 0) + (order.packagingCharge || 0)
+                    if (packagingTotal > 0) {
+                      return (
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Packaging:</span>
+                          <span>{packagingTotal.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Delivery Fee:</span>
                     <span>{(order.deliveryFee || 0).toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Discount:</span>
-                    <span className="text-green-600">-{order.discount.toLocaleString("en-ET", { style: "currency", currency: "ETB" })}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Tax:</span>
